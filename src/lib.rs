@@ -423,7 +423,15 @@ pub mod prelude {
         CrossflowExecutorApp, CrossflowPlugin,
     };
 
-    pub use bevy_ecs::prelude::{In, World};
+    // Re-export bevy libraries to make it easier for downstream users to avoid version collisions
+    pub use {
+        bevy_app::{self, App},
+        bevy_derive,
+        bevy_diagnostic,
+        bevy_ecs::{self, prelude::{In, World}},
+        bevy_time,
+        bevy_utils,
+    };
 
     #[cfg(feature = "diagram")]
     pub use crate::{
@@ -432,6 +440,14 @@ pub mod prelude {
             JsonMessage,
         },
         diagram::{Diagram, DiagramElementRegistry, DiagramError, NodeBuilderOptions, Section},
+    };
+
+    // Re-export important libraries that people using the diagram feature will almost certainly need.
+    #[cfg(feature = "diagram")]
+    pub use {
+        ::serde::{self, Serialize, Deserialize},
+        ::serde_json,
+        ::schemars::{self, JsonSchema},
     };
 
     pub use futures::FutureExt;
