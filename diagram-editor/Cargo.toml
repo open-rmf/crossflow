@@ -10,8 +10,6 @@ repository = "https://github.com/open-rmf/crossflow"
 keywords = [
   "reactive",
   "workflow",
-  "behavior",
-  "agent",
   "bevy",
   "frontend",
   "diagram",
