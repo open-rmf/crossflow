@@ -171,6 +171,7 @@ members = [
   "diagram-editor/wasm",
   "examples/diagram/calculator_wasm",
   "examples/diagram/calculator_ops_catalog",
+  "examples/native"
 ]
 
 [[bin]]

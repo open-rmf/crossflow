@@ -203,8 +203,11 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request((1, delay), workflow).take_response());
+        let mut promise = context.command(|commands| {
+            commands
+                .request((1, delay.into()), workflow)
+                .take_response()
+        });
 
         context.run_with_conditions(&mut promise, Duration::from_secs(1));
         assert!(promise.take().available().is_some_and(|v| v == 2));
@@ -232,7 +235,7 @@ mod tests {
 
         let mut promise = context.command(|commands| {
             commands
-                .request((1, inner_workflow), workflow)
+                .request((1, inner_workflow.into()), workflow)
                 .take_response()
         });
 

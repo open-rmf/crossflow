@@ -29,8 +29,8 @@ use crate::{
     CreateDisposalFilter, ForkTargetStorage, Gate, GateRequest, InputSlot, IntoAsyncMap,
     IntoBlockingCallback, IntoBlockingMap, Node, Noop, OperateBufferAccess, OperateCancel,
     OperateDynamicGate, OperateQuietCancel, OperateSplit, OperateStaticGate, Output, ProvideOnce,
-    Provider, Scope, ScopeSettings, Sendish, Service, Spread, StreamPack, StreamTargetMap, Trim,
-    TrimBranch, UnusedTarget,
+    Provider, Scope, ScopeSettings, Sendish, ServiceInstructions, Spread, StreamPack,
+    StreamTargetMap, Trim, TrimBranch, UnusedTarget,
 };
 
 pub mod fork_clone_builder;
@@ -1054,7 +1054,7 @@ where
 }
 
 impl<'w, 's, 'a, 'b, Request, Response, Streams>
-    Chain<'w, 's, 'a, 'b, (Request, Service<Request, Response, Streams>)>
+    Chain<'w, 's, 'a, 'b, (Request, ServiceInstructions<Request, Response, Streams>)>
 where
     Request: 'static + Send + Sync,
     Response: 'static + Send + Sync + Unpin,
@@ -1088,7 +1088,7 @@ where
     /// `.dispose_on_err` to filter away errors.
     pub fn then_injection_node(
         self,
-    ) -> Node<(Request, Service<Request, Response, Streams>), Response, Streams> {
+    ) -> Node<(Request, ServiceInstructions<Request, Response, Streams>), Response, Streams> {
         let source = self.target;
         self.builder
             .create_injection_impl::<Request, Response, Streams>(source)

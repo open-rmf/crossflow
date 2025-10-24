@@ -1,0 +1,12 @@
+[package]
+name = "crossflow-native-api-examples"
+version = "0.0.1"
+edition = "2021"
+
+[[bin]]
+name = "delivery-instructions"
+path = "src/delivery_instructions.rs"
+
+[dependencies]
+crossflow = { path = "../../" }
+async-std = "1.12"

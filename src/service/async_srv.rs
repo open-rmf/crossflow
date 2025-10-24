@@ -126,7 +126,7 @@ where
                 session,
                 task_id,
                 request,
-                instructions,
+                instructions: instructions.clone(),
             },
         );
 
@@ -346,7 +346,7 @@ pub(crate) fn serve_next_async_request<Request, Streams, Task>(
             blocker,
         }) = pop_next_delivery::<Request>(
             provider,
-            label,
+            label.clone(),
             serve_next_async_request::<Request, Streams, Task>,
             world,
         )

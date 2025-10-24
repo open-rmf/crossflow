@@ -38,7 +38,7 @@ pub struct ServiceRequest<'a> {
     pub(crate) operation: OperationRequest<'a>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct PendingServiceRequest {
     pub provider: Entity,
     pub target: Entity,
