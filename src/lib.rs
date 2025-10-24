@@ -436,3 +436,11 @@ pub mod prelude {
 
     pub use futures::FutureExt;
 }
+
+pub use bevy_app;
+pub use bevy_derive;
+pub use bevy_diagnostic;
+pub use bevy_ecs;
+pub use bevy_tasks;
+pub use bevy_time;
+pub use bevy_utils;
