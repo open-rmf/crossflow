@@ -9,15 +9,17 @@
 >
 > That feature is kept separate for now because it requires additional non-Rust setup. It will be merged into `main` after dynamic message introspection is finished.
 
-# Reactive Programming and Workflow Engine in Bevy
+# Reactive Programming and Workflow Engine
 
-This library provides sophisticated [reactive programming](https://en.wikipedia.org/wiki/Reactive_programming) for the [bevy](https://bevyengine.org/) ECS. In addition to supporting one-shot chains of async operations, it can support reusable workflows with parallel branches, synchronization, races, and cycles. These workflows can be hierarchical, so a workflow can be used as a building block by other workflows.
+This library provides sophisticated [reactive programming](https://en.wikipedia.org/wiki/Reactive_programming) using the [bevy](https://bevyengine.org/) ECS. In addition to supporting one-shot chains of async services, it can support reusable workflows with parallel branches, synchronization, races, and cycles. These workflows can be hierarchical, so a workflow can be used as a building block by other workflows.
 
 This library can serve two different but related roles:
 * Implementing one or more complex async state machines inside of a Bevy application
-* General workflow execution
+* General workflow execution (irrespective of Bevy)
 
-If you are a bevy developer, then you may be interested in that first role, because crossflow is deeply integrated with bevy's ECS and integrates seamlessly into typical applications that are implemented with bevy. If you just want something that can execute a graphical description of a workflow, then you will be interested in that second role, in which case bevy is just an implementation detail which might or might not matter to you.
+If you are a bevy application developer, then you may be interested in that first role, because crossflow is deeply integrated with bevy's ECS and integrates seamlessly into typical applications that are implemented with bevy.
+
+If you just want something that can execute a graphical description of a workflow, then you will be interested in that second role, in which case bevy is just an implementation detail which might or might not matter to you.
 
 ![sense-think-act workflow](assets/figures/sense-think-act_workflow.svg)
 
