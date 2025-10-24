@@ -412,7 +412,7 @@ pub mod prelude {
         service::{
             traits::*, AddContinuousServicesExt, AddServicesExt, AsDeliveryInstructions,
             DeliveryInstructions, DeliveryLabel, DeliveryLabelId, IntoAsyncService,
-            IntoBlockingService, Service, ServiceDiscovery, SpawnServicesExt,
+            IntoBlockingService, Service, ServiceDiscovery, ServiceInstructions, SpawnServicesExt,
         },
         stream::{DynamicallyNamedStream, NamedValue, Stream, StreamFilter, StreamOf, StreamPack},
         trim::{TrimBranch, TrimPoint},

@@ -19,7 +19,7 @@ use crate::{
     dispatch_service, ActiveContinuousSessions, ActiveTasksStorage, Delivery, DeliveryInstructions,
     Disposal, DisposalFailure, Input, InputBundle, ManageDisposal, ManageInput, Operation,
     OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationRoster,
-    OperationSetup, OrBroken, ReachabilityResult, Service, ServiceRequest, SingleInputStorage,
+    OperationSetup, OrBroken, ReachabilityResult, ServiceInstructions, ServiceRequest, SingleInputStorage,
     SingleTargetStorage, UnhandledErrors, WorkflowHooks,
 };
 
@@ -41,12 +41,12 @@ pub(crate) struct OperateService<Request> {
 
 impl<Request: 'static + Send + Sync> OperateService<Request> {
     pub(crate) fn new<Response, Streams>(
-        service: Service<Request, Response, Streams>,
+        mut service: ServiceInstructions<Request, Response, Streams>,
         target: Entity,
     ) -> Self {
         Self {
             provider: service.provider(),
-            instructions: service.instructions().copied(),
+            instructions: service.remove_instructions(),
             target,
             _ignore: Default::default(),
         }

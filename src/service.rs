@@ -23,8 +23,6 @@ use crate::{
 use bevy_app::prelude::App;
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{
-    define_label,
-    intern::Interned,
     prelude::{Commands, Component, Entity, Event, World},
     schedule::ScheduleLabel,
 };
@@ -32,7 +30,7 @@ pub use crossflow_derive::DeliveryLabel;
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
 };
 use thiserror::Error as ThisError;
 
@@ -81,10 +79,8 @@ pub(crate) use workflow::*;
 /// [App]: bevy_app::prelude::App
 /// [Commands]: bevy_ecs::prelude::Commands
 /// [World]: bevy_ecs::prelude::World
-#[derive(PartialEq, Eq)]
 pub struct Service<Request, Response, Streams = ()> {
     provider: Entity,
-    instructions: Option<DeliveryInstructions>,
     _ignore: std::marker::PhantomData<fn(Request, Response, Streams)>,
 }
 
@@ -102,7 +98,6 @@ impl<Req, Res, S> std::fmt::Debug for Service<Req, Res, S> {
 
         f.debug_struct(name.as_str())
             .field("provider", &self.provider)
-            .field("instructions", &self.instructions)
             .finish()
     }
 }
@@ -114,6 +109,20 @@ impl<Req, Res, S> Clone for Service<Req, Res, S> {
 }
 
 impl<Req, Res, S> Copy for Service<Req, Res, S> {}
+
+impl<Req, Res, S> PartialEq for Service<Req, Res, S> {
+    fn eq(&self, other: &Self) -> bool {
+        self.provider.eq(&other.provider)
+    }
+}
+
+impl<Req, Res, S> Eq for Service<Req, Res, S> {}
+
+impl<Req, Res, S> std::hash::Hash for Service<Req, Res, S> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.provider.hash(state);
+    }
+}
 
 #[derive(ThisError, Debug, Clone, Default)]
 #[error("The original service is missing streams that are needed by the target service")]
@@ -139,16 +148,16 @@ impl<Request, Response, Streams> Service<Request, Response, Streams> {
         self.provider
     }
 
-    /// Get the delivery instructions for this service.
-    pub fn instructions(&self) -> Option<&DeliveryInstructions> {
-        self.instructions.as_ref()
-    }
-
     /// Create a new reference to the same service provider, but with new [`DeliveryInstructions`].
     /// This has no effect on the original [`Service`] instance.
-    pub fn instruct(mut self, instructions: impl Into<DeliveryInstructions>) -> Self {
-        self.instructions = Some(instructions.into());
-        self
+    pub fn instruct(
+        self,
+        instructions: impl Into<DeliveryInstructions>,
+    ) -> ServiceInstructions<Request, Response, Streams> {
+        ServiceInstructions {
+            service: self,
+            instructions: Some(instructions.into()),
+        }
     }
 
     /// Create a new reference to the same service provider, but cast the streams
@@ -177,7 +186,6 @@ impl<Request, Response, Streams> Service<Request, Response, Streams> {
 
         Ok(Service {
             provider: self.provider,
-            instructions: self.instructions,
             _ignore: Default::default(),
         })
     }
@@ -196,7 +204,6 @@ impl<Request, Response, Streams> Service<Request, Response, Streams> {
     pub fn optional_stream_cast<TargetStreams>(self) -> Service<Request, Response, TargetStreams> {
         Service {
             provider: self.provider,
-            instructions: self.instructions,
             _ignore: Default::default(),
         }
     }
@@ -212,22 +219,144 @@ impl<Request, Response, Streams> Service<Request, Response, Streams> {
     fn new(entity: Entity) -> Self {
         Self {
             provider: entity,
-            instructions: None,
             _ignore: Default::default(),
         }
     }
 }
 
-define_label!(
-    /// A strongly-typed class of labels used to tag delivery instructions that
-    /// are related to each other.
-    DeliveryLabel,
-    DELIVERY_LABEL_INTERNER
-);
+/// This is a more advanced alternative to [`Service`] which allows you to
+/// specify additional [`DeliveryInstructions`]. This is kept as a separate
+/// data structure because it cannot be copied (only cloned).
+pub struct ServiceInstructions<Request, Response, Streams = ()> {
+    service: Service<Request, Response, Streams>,
+    instructions: Option<DeliveryInstructions>,
+}
+
+impl<Req, Res, S> std::fmt::Debug for ServiceInstructions<Req, Res, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        static NAME: OnceLock<String> = OnceLock::new();
+        let name = NAME.get_or_init(|| {
+            format!(
+                "ServiceInstructions<{}, {}, {}>",
+                std::any::type_name::<Req>(),
+                std::any::type_name::<Res>(),
+                std::any::type_name::<S>(),
+            )
+        });
+
+        f.debug_struct(name.as_str())
+            .field("service", &self.service)
+            .field("instructions", &self.instructions)
+            .finish()
+    }
+}
+
+impl<Req, Res, S> Clone for ServiceInstructions<Req, Res, S> {
+    fn clone(&self) -> Self {
+        Self {
+            service: self.service,
+            instructions: self.instructions.clone(),
+        }
+    }
+}
+
+impl<Req, Res, S> PartialEq for ServiceInstructions<Req, Res, S> {
+    fn eq(&self, other: &Self) -> bool {
+        self.service == other.service && self.instructions == other.instructions
+    }
+}
+
+impl<Req, Res, S> Eq for ServiceInstructions<Req, Res, S> {}
+
+impl<Req, Res, S> std::hash::Hash for ServiceInstructions<Req, Res, S> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.service.hash(state);
+        self.instructions.hash(state);
+    }
+}
+
+impl<Request, Response, Streams> ServiceInstructions<Request, Response, Streams> {
+    /// Get the underlying service, without any instructions
+    pub fn service(&self) -> Service<Request, Response, Streams> {
+        self.service
+    }
+
+    /// Get the entity that provides the underlying service
+    pub fn provider(&self) -> Entity {
+        self.service.provider
+    }
+
+    /// Get the delivery instructions for this service.
+    pub fn instructions(&self) -> Option<&DeliveryInstructions> {
+        self.instructions.as_ref()
+    }
+
+    /// Change the instructions
+    pub fn change_instructions(&mut self, instructions: impl Into<DeliveryInstructions>) {
+        self.instructions = Some(instructions.into());
+    }
+
+    /// Consume this, change its instructions, and give back the result. The old
+    /// set of instructions will be discarded.
+    pub fn with_instructions(self, instructions: impl Into<DeliveryInstructions>) -> Self {
+        Self {
+            service: self.service,
+            instructions: Some(instructions.into()),
+        }
+    }
+
+    /// Take any instructions out of this and return them.
+    pub fn remove_instructions(&mut self) -> Option<DeliveryInstructions> {
+        self.instructions.take()
+    }
+
+    /// Equivalent to [`Service::stream_cast`]
+    pub fn stream_cast<TargetStreams>(
+        self
+    ) -> Result<ServiceInstructions<Request, Response, TargetStreams>, MissingStreamsError>
+    where
+        Streams: StreamPack,
+        TargetStreams: StreamPack,
+    {
+        Ok(ServiceInstructions {
+            service: self.service.stream_cast::<TargetStreams>()?,
+            instructions: self.instructions,
+        })
+    }
+
+    /// Equivalent to [`Service::optional_stream_cast`]
+    pub fn optional_stream_cast<TargetStreams>(self) -> ServiceInstructions<Request, Response, TargetStreams> {
+        ServiceInstructions {
+            service: self.service.optional_stream_cast::<TargetStreams>(),
+            instructions: self.instructions,
+        }
+    }
+}
+
+impl<Request, Response, Streams> From<Service<Request, Response, Streams>> for ServiceInstructions<Request, Response, Streams> {
+    fn from(value: Service<Request, Response, Streams>) -> Self {
+        Self {
+            service: value,
+            instructions: None,
+        }
+    }
+}
 
 pub mod service_utils {
     /// Used by the procedural macro for DeliveryLabel
     pub use bevy_ecs::label::DynEq;
+}
+
+pub trait DeliveryLabel: 'static + Send + Sync {
+    /// Get debug information for this delivery label
+    fn dyn_debug(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result;
+
+    /// Compare delivery labels dynamically. This will take into account whether
+    /// the underlying labels belong to the same type.
+    fn as_dyn_eq(&self) -> &dyn service_utils::DynEq;
+
+    /// Hash the delivery label.
+    fn dyn_hash(&self, state: &mut dyn std::hash::Hasher);
 }
 
 /// When using a service, you can bundle in delivery instructions that affect
@@ -259,7 +388,7 @@ pub mod service_utils {
 /// This mutual exclusivity can be useful if the service involves making
 /// modifications to the world which would conflict with each other when two
 /// related requests are being delivered at the same time.
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Component, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DeliveryInstructions {
     pub(crate) label: DeliveryLabelId,
     pub(crate) preempt: bool,
@@ -267,16 +396,36 @@ pub struct DeliveryInstructions {
 }
 
 /// Newtype to store types that implement `DeliveryLabel`
-#[derive(Clone, Copy, Debug, Deref, DerefMut, Hash, PartialEq, Eq)]
-pub struct DeliveryLabelId(Interned<dyn DeliveryLabel>);
+#[derive(Clone, Deref, DerefMut)]
+pub struct DeliveryLabelId(Arc<dyn DeliveryLabel + 'static + Send + Sync>);
+
+impl std::fmt::Debug for DeliveryLabelId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.dyn_debug(f)
+    }
+}
+
+impl std::hash::Hash for DeliveryLabelId {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.dyn_hash(state);
+    }
+}
+
+impl std::cmp::PartialEq for DeliveryLabelId {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_dyn_eq().dyn_eq(other.as_dyn_eq())
+    }
+}
+
+impl std::cmp::Eq for DeliveryLabelId {}
 
 impl DeliveryInstructions {
     /// Begin building a label for a request. You do not need to call this
     /// function explicitly. You can instead use `.preempt()` or `.ensure()`
     /// directly on a [`DeliveryLabel`] instance.
-    pub fn new(label: impl DeliveryLabel) -> Self {
+    pub fn new(label: impl DeliveryLabel + 'static + Send + Sync) -> Self {
         Self {
-            label: DeliveryLabelId(label.intern()),
+            label: DeliveryLabelId(Arc::new(label)),
             preempt: false,
             ensure: false,
         }
@@ -598,13 +747,41 @@ where
         commands.queue(AddOperation::new(
             scope,
             source,
-            OperateService::new(self, target),
+            OperateService::new(self.into(), target),
         ));
     }
 }
 
 impl<Request, Response, Streams> Provider for Service<Request, Response, Streams> where
     Request: 'static + Send + Sync
+{
+}
+
+impl<Request, Response, Streams> ProvideOnce for ServiceInstructions<Request, Response, Streams>
+where
+    Request: 'static + Send + Sync,
+{
+    type Request = Request;
+    type Response = Response;
+    type Streams = Streams;
+
+    fn connect(
+        self,
+        scope: Option<Entity>,
+        source: Entity,
+        target: Entity,
+        commands: &mut Commands,
+    ) {
+        commands.queue(AddOperation::new(
+            scope,
+            source,
+            OperateService::new(self, target),
+        ));
+    }
+}
+
+impl<Request, Response, Streams> Provider for ServiceInstructions<Request, Response, Streams> where
+    Request: 'static + Send + Sync,
 {
 }
 

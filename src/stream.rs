@@ -308,7 +308,7 @@ pub(crate) mod tests {
                 let node = scope
                     .input
                     .chain(builder)
-                    .map_block(move |value| (value, service))
+                    .map_block(move |value| (value, service.into()))
                     .then_injection_node();
 
                 builder.connect(node.streams.0, scope.streams.0);
@@ -555,7 +555,7 @@ pub(crate) mod tests {
                 let node = scope
                     .input
                     .chain(builder)
-                    .map_block(move |value| (value, service))
+                    .map_block(move |value| (value, service.into()))
                     .then_injection_node();
 
                 builder.connect(node.streams.stream_u32, scope.streams.stream_u32);
@@ -991,7 +991,7 @@ pub(crate) mod tests {
                 let node = scope
                     .input
                     .chain(builder)
-                    .map_block(move |value| (value, service))
+                    .map_block(move |value| (value, service.into()))
                     .then_injection_node();
 
                 builder.connect(node.streams.0, scope.streams.0);

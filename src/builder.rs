@@ -29,7 +29,7 @@ use crate::{
     IntoBlockingMap, Joinable, Joined, Node, OperateBuffer, OperateCancel, OperateDynamicGate,
     OperateQuietCancel, OperateScope, OperateSplit, OperateStaticGate, Output, Provider,
     RequestOfMap, ResponseOfMap, Scope, ScopeEndpoints, ScopeSettings, ScopeSettingsStorage,
-    Sendish, Service, SplitOutputs, Splittable, StreamPack, StreamTargetMap, StreamsOfMap, Trim,
+    Sendish, ServiceInstructions, SplitOutputs, Splittable, StreamPack, StreamTargetMap, StreamsOfMap, Trim,
     TrimBranch, UnusedTarget, Unzippable,
 };
 
@@ -144,7 +144,7 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
     /// service to be chosen during runtime.
     pub fn create_injection_node<Request, Response, Streams>(
         &mut self,
-    ) -> Node<(Request, Service<Request, Response, Streams>), Response, Streams>
+    ) -> Node<(Request, ServiceInstructions<Request, Response, Streams>), Response, Streams>
     where
         Request: 'static + Send + Sync,
         Response: 'static + Send + Sync + Unpin,
@@ -757,7 +757,7 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
     pub(crate) fn create_injection_impl<Request, Response, Streams>(
         &mut self,
         source: Entity,
-    ) -> Node<(Request, Service<Request, Response, Streams>), Response, Streams>
+    ) -> Node<(Request, ServiceInstructions<Request, Response, Streams>), Response, Streams>
     where
         Request: 'static + Send + Sync,
         Response: 'static + Send + Sync,

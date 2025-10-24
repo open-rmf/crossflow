@@ -301,7 +301,7 @@ fn serve_next_workflow_request<Request, Response, Streams>(
             blocker,
         }) = pop_next_delivery::<Request>(
             provider,
-            label,
+            label.clone(),
             serve_next_workflow_request::<Request, Response, Streams>,
             world,
         )

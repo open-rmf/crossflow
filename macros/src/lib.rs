@@ -51,11 +51,11 @@ pub fn delivery_label_macro(item: TokenStream) -> TokenStream {
 
     quote! {
         impl #impl_generics ::crossflow::DeliveryLabel for #struct_name #type_generics #where_clause {
-            fn dyn_clone(&self) -> Box<dyn DeliveryLabel> {
-                ::std::boxed::Box::new(::std::clone::Clone::clone(self))
+            fn dyn_debug(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+                ::std::fmt::Debug::fmt(self, f)
             }
 
-            fn as_dyn_eq(&self) -> &dyn ::crossflow::utils::DynEq {
+            fn as_dyn_eq(&self) -> &dyn ::crossflow::service_utils::DynEq {
                 self
             }
 

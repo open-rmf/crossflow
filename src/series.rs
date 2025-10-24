@@ -377,7 +377,6 @@ impl<T> Default for Collection<T> {
 #[cfg(test)]
 mod tests {
     use crate::{prelude::*, testing::*, ContinuousQueueView};
-    use bevy_ecs::label::DynEq;
     use smallvec::SmallVec;
     use std::{
         sync::{Arc, Mutex},
@@ -557,45 +556,11 @@ mod tests {
         sender.send(()).ok();
     }
 
-    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, DeliveryLabel)]
     struct UnitLabel;
 
-    // TODO(@mxgrey) Figure out how to make the DeliveryLabel macro usable
-    // within the core crossflow library
-    impl DeliveryLabel for UnitLabel {
-        fn dyn_clone(&self) -> Box<dyn DeliveryLabel> {
-            Box::new(self.clone())
-        }
-
-        fn as_dyn_eq(&self) -> &dyn DynEq {
-            self
-        }
-
-        fn dyn_hash(&self, mut state: &mut dyn std::hash::Hasher) {
-            let ty_id = std::any::TypeId::of::<Self>();
-            std::hash::Hash::hash(&ty_id, &mut state);
-            std::hash::Hash::hash(self, &mut state);
-        }
-    }
-
-    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, DeliveryLabel)]
     struct StatefulLabel(u64);
-
-    impl DeliveryLabel for StatefulLabel {
-        fn dyn_clone(&self) -> Box<dyn DeliveryLabel> {
-            Box::new(self.clone())
-        }
-
-        fn as_dyn_eq(&self) -> &dyn DynEq {
-            self
-        }
-
-        fn dyn_hash(&self, mut state: &mut dyn std::hash::Hasher) {
-            let ty_id = std::any::TypeId::of::<Self>();
-            std::hash::Hash::hash(&ty_id, &mut state);
-            std::hash::Hash::hash(self, &mut state);
-        }
-    }
 
     #[test]
     fn test_delivery_instructions() {
@@ -668,27 +633,27 @@ mod tests {
     }
 
     fn verify_preemption_matrix(
-        queuing_service: Service<Arc<Mutex<u64>>, ()>,
-        preempting_service: Service<Arc<Mutex<u64>>, ()>,
+        queuing_service: ServiceInstructions<Arc<Mutex<u64>>, ()>,
+        preempting_service: ServiceInstructions<Arc<Mutex<u64>>, ()>,
         context: &mut TestingContext,
     ) {
         // Test by queuing up a bunch of requests before preempting them all at once.
-        verify_preemption(1, queuing_service, preempting_service, context);
-        verify_preemption(2, queuing_service, preempting_service, context);
-        verify_preemption(3, queuing_service, preempting_service, context);
-        verify_preemption(4, queuing_service, preempting_service, context);
+        verify_preemption(1, queuing_service.clone(), preempting_service.clone(), context);
+        verify_preemption(2, queuing_service.clone(), preempting_service.clone(), context);
+        verify_preemption(3, queuing_service.clone(), preempting_service.clone(), context);
+        verify_preemption(4, queuing_service.clone(), preempting_service.clone(), context);
 
         // Test by repeatedly preempting each request with the next.
-        verify_preemption(1, preempting_service, preempting_service, context);
-        verify_preemption(2, preempting_service, preempting_service, context);
-        verify_preemption(3, preempting_service, preempting_service, context);
-        verify_preemption(4, preempting_service, preempting_service, context);
+        verify_preemption(1, preempting_service.clone(), preempting_service.clone(), context);
+        verify_preemption(2, preempting_service.clone(), preempting_service.clone(), context);
+        verify_preemption(3, preempting_service.clone(), preempting_service.clone(), context);
+        verify_preemption(4, preempting_service.clone(), preempting_service.clone(), context);
     }
 
     fn verify_preemption(
         preemptions: usize,
-        preempted_service: Service<Arc<Mutex<u64>>, ()>,
-        preempting_service: Service<Arc<Mutex<u64>>, ()>,
+        preempted_service: ServiceInstructions<Arc<Mutex<u64>>, ()>,
+        preempting_service: ServiceInstructions<Arc<Mutex<u64>>, ()>,
         context: &mut TestingContext,
     ) {
         let counter = Arc::new(Mutex::new(0_u64));
@@ -696,7 +661,7 @@ mod tests {
         for _ in 0..preemptions {
             let promise = context.command(|commands| {
                 commands
-                    .request(Arc::clone(&counter), preempted_service)
+                    .request(Arc::clone(&counter), preempted_service.clone())
                     .take_response()
             });
             preempted.push(promise);
@@ -720,20 +685,20 @@ mod tests {
     }
 
     fn verify_queuing_matrix(
-        queuing_service: Service<Arc<Mutex<u64>>, ()>,
+        queuing_service: ServiceInstructions<Arc<Mutex<u64>>, ()>,
         context: &mut TestingContext,
     ) {
         // Test by queuing up a bunch of requests and making sure they all get
         // delivered.
-        verify_queuing(2, queuing_service, context);
-        verify_queuing(3, queuing_service, context);
-        verify_queuing(4, queuing_service, context);
-        verify_queuing(5, queuing_service, context);
+        verify_queuing(2, queuing_service.clone(), context);
+        verify_queuing(3, queuing_service.clone(), context);
+        verify_queuing(4, queuing_service.clone(), context);
+        verify_queuing(5, queuing_service.clone(), context);
     }
 
     fn verify_queuing(
         queue_size: usize,
-        queuing_service: Service<Arc<Mutex<u64>>, ()>,
+        queuing_service: ServiceInstructions<Arc<Mutex<u64>>, ()>,
         context: &mut TestingContext,
     ) {
         let counter = Arc::new(Mutex::new(0_u64));
@@ -741,7 +706,7 @@ mod tests {
         for _ in 0..queue_size {
             let promise = context.command(|commands| {
                 commands
-                    .request(Arc::clone(&counter), queuing_service)
+                    .request(Arc::clone(&counter), queuing_service.clone())
                     .take_response()
             });
             queued.push(promise);

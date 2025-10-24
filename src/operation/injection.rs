@@ -20,7 +20,7 @@ use crate::{
     DisposeForUnavailableService, Executable, FinalizeCleanup, FinalizeCleanupRequest, Input,
     InputBundle, ManageDisposal, ManageInput, OperateService, Operation, OperationCleanup,
     OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ProviderStorage, ReachabilityResult, ScopeStorage, Service, ServiceRequest, SingleInputStorage,
+    ProviderStorage, ReachabilityResult, ScopeStorage, ServiceInstructions, ServiceRequest, SingleInputStorage,
     SingleTargetStorage, StreamPack, StreamTargetMap,
 };
 
@@ -49,7 +49,7 @@ where
 
         world.entity_mut(source).insert((
             InjectionStorage::default(),
-            InputBundle::<(Request, Service<Request, Response, Streams>)>::new(),
+            InputBundle::<(Request, ServiceInstructions<Request, Response, Streams>)>::new(),
             SingleTargetStorage::new(self.target),
             CleanupContents::new(),
             AwaitingCleanup::default(),
@@ -70,11 +70,11 @@ where
         let Input {
             session,
             data: (request, service),
-        } = source_mut.take_input::<(Request, Service<Request, Response, Streams>)>()?;
+        } = source_mut.take_input::<(Request, ServiceInstructions<Request, Response, Streams>)>()?;
 
         let scope = source_mut.get::<ScopeStorage>().or_broken()?.get();
         let provider = service.provider();
-        let instructions = service.instructions().copied();
+        let instructions = service.instructions().cloned();
 
         let stream_targets = source_mut
             .get::<StreamTargetMap>()
@@ -135,7 +135,7 @@ where
     }
 
     fn cleanup(mut clean: OperationCleanup) -> OperationResult {
-        clean.cleanup_inputs::<(Request, Service<Request, Response, Streams>)>()?;
+        clean.cleanup_inputs::<(Request, ServiceInstructions<Request, Response, Streams>)>()?;
         clean.cleanup_disposals()?;
 
         let OperationCleanup {
@@ -196,7 +196,7 @@ where
     }
 
     fn is_reachable(mut reachability: OperationReachability) -> ReachabilityResult {
-        if reachability.has_input::<(Request, Service<Request, Response, Streams>)>()? {
+        if reachability.has_input::<(Request, ServiceInstructions<Request, Response, Streams>)>()? {
             return Ok(true);
         }
 

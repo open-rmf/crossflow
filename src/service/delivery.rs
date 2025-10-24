@@ -77,7 +77,7 @@ where
         provider,
         source,
         session,
-        label: instructions.as_ref().map(|x| x.label),
+        label: instructions.as_ref().map(|x| x.label.clone()),
         serve_next,
     };
 
@@ -262,7 +262,7 @@ pub fn insert_new_order<Request>(
         Delivery::Serial(serial) => insert_serial_order(serial, order),
         Delivery::Parallel(parallel) => match &order.instructions {
             Some(instructions) => {
-                let label = instructions.label;
+                let label = instructions.label.clone();
                 insert_serial_order(parallel.labeled.entry(label).or_default(), order)
             }
             None => DeliveryUpdate::Immediate {
@@ -286,7 +286,7 @@ fn insert_serial_order<Request>(
             source: order.source,
             session: order.session,
             task_id: order.task_id,
-            instructions: order.instructions,
+            instructions: order.instructions.clone(),
         });
         let label = order.instructions.map(|i| i.label);
         return DeliveryUpdate::Immediate {
@@ -295,7 +295,7 @@ fn insert_serial_order<Request>(
         };
     };
 
-    let Some(incoming_instructions) = order.instructions else {
+    let Some(incoming_instructions) = &order.instructions else {
         serial.queue.push_back(order);
         return DeliveryUpdate::Queued {
             cancelled: SmallVec::new(),
@@ -334,8 +334,8 @@ fn insert_serial_order<Request>(
         }
     }
 
+    let label = Some(incoming_instructions.label.clone());
     serial.queue.push_back(order);
-    let label = Some(incoming_instructions.label);
 
     DeliveryUpdate::Queued {
         cancelled,
