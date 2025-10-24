@@ -10,27 +10,16 @@ This contains a SPA React web app to create and edit a `crossflow` diagram and a
 that can be used to serve the embedded frontend.
 
 ```bash
-cargo add crossflow_diagram_editor axum tokio
+cargo add crossflow_diagram_editor
 ```
 
-> [!IMPORTANT]
-> `crossflow_diagram_editor` is not released yet, for now, use `cargo add --git https://github.com/open-rmf/crossflow crossflow_diagram_editor`.
-
-
 ```rust
-use crossflow_diagram_editor::{new_router, ServerOptions};
+use crossflow_diagram_editor::basic_executor::{self, DiagramElementRegistry, Error};
 
-fn main() {
-  let mut registry = DiagramElementRegistry::new();
-  // register node builders, section builders etc.
-
-  let mut app = bevy_app::App::new();
-  app.add_plugins(CrossflowExecutorApp::default());
-  let router = new_router(&mut app, registry, ServerOptions::default());
-  let listener = tokio::net::TcpListener::bind(("localhost", 3000))
-      .await
-      .unwrap();
-  axum::serve(listener, router).await?;
+fn main() -> Result<(), Box<dyn Error>> {
+    let mut registry = DiagramElementRegistry::new();
+    // register node builders, section builders etc.
+    basic_executor::run(registry)
 }
 ```
 
@@ -40,7 +29,7 @@ The embedded frontend can be disabled:
 
 ```toml
 [dependencies]
-crossflow_diagram_editor = { version = "0.0.1", default-features = false, features = ["router"] }
+crossflow_diagram_editor = { version = "0.0.2", default-features = false, features = ["router"] }
 ```
 
 This will cause the router to serve only the rest API.
