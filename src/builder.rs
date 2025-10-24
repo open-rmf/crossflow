@@ -29,8 +29,8 @@ use crate::{
     IntoBlockingMap, Joinable, Joined, Node, OperateBuffer, OperateCancel, OperateDynamicGate,
     OperateQuietCancel, OperateScope, OperateSplit, OperateStaticGate, Output, Provider,
     RequestOfMap, ResponseOfMap, Scope, ScopeEndpoints, ScopeSettings, ScopeSettingsStorage,
-    Sendish, ServiceInstructions, SplitOutputs, Splittable, StreamPack, StreamTargetMap, StreamsOfMap, Trim,
-    TrimBranch, UnusedTarget, Unzippable,
+    Sendish, ServiceInstructions, SplitOutputs, Splittable, StreamPack, StreamTargetMap,
+    StreamsOfMap, Trim, TrimBranch, UnusedTarget, Unzippable,
 };
 
 pub(crate) mod connect;

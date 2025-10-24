@@ -20,8 +20,8 @@ use crate::{
     DisposeForUnavailableService, Executable, FinalizeCleanup, FinalizeCleanupRequest, Input,
     InputBundle, ManageDisposal, ManageInput, OperateService, Operation, OperationCleanup,
     OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ProviderStorage, ReachabilityResult, ScopeStorage, ServiceInstructions, ServiceRequest, SingleInputStorage,
-    SingleTargetStorage, StreamPack, StreamTargetMap,
+    ProviderStorage, ReachabilityResult, ScopeStorage, ServiceInstructions, ServiceRequest,
+    SingleInputStorage, SingleTargetStorage, StreamPack, StreamTargetMap,
 };
 
 use bevy_ecs::prelude::{Command, Component, Entity};
@@ -70,7 +70,8 @@ where
         let Input {
             session,
             data: (request, service),
-        } = source_mut.take_input::<(Request, ServiceInstructions<Request, Response, Streams>)>()?;
+        } = source_mut
+            .take_input::<(Request, ServiceInstructions<Request, Response, Streams>)>()?;
 
         let scope = source_mut.get::<ScopeStorage>().or_broken()?.get();
         let provider = service.provider();

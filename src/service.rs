@@ -312,7 +312,7 @@ impl<Request, Response, Streams> ServiceInstructions<Request, Response, Streams>
 
     /// Equivalent to [`Service::stream_cast`]
     pub fn stream_cast<TargetStreams>(
-        self
+        self,
     ) -> Result<ServiceInstructions<Request, Response, TargetStreams>, MissingStreamsError>
     where
         Streams: StreamPack,
@@ -325,7 +325,9 @@ impl<Request, Response, Streams> ServiceInstructions<Request, Response, Streams>
     }
 
     /// Equivalent to [`Service::optional_stream_cast`]
-    pub fn optional_stream_cast<TargetStreams>(self) -> ServiceInstructions<Request, Response, TargetStreams> {
+    pub fn optional_stream_cast<TargetStreams>(
+        self,
+    ) -> ServiceInstructions<Request, Response, TargetStreams> {
         ServiceInstructions {
             service: self.service.optional_stream_cast::<TargetStreams>(),
             instructions: self.instructions,
@@ -333,7 +335,9 @@ impl<Request, Response, Streams> ServiceInstructions<Request, Response, Streams>
     }
 }
 
-impl<Request, Response, Streams> From<Service<Request, Response, Streams>> for ServiceInstructions<Request, Response, Streams> {
+impl<Request, Response, Streams> From<Service<Request, Response, Streams>>
+    for ServiceInstructions<Request, Response, Streams>
+{
     fn from(value: Service<Request, Response, Streams>) -> Self {
         Self {
             service: value,
@@ -781,7 +785,7 @@ where
 }
 
 impl<Request, Response, Streams> Provider for ServiceInstructions<Request, Response, Streams> where
-    Request: 'static + Send + Sync,
+    Request: 'static + Send + Sync
 {
 }
 

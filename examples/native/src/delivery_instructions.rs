@@ -15,9 +15,9 @@
  *
 */
 
-use crossflow::prelude::*;
+use async_std::future::{pending, timeout};
 use crossflow::bevy_app::App;
-use async_std::future::{timeout, pending};
+use crossflow::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DeliveryLabel)]
 struct MyDeliveryLabel {
@@ -36,16 +36,14 @@ fn main() {
 
     let waiting_time = std::time::Duration::from_secs(2);
 
-    let waiting_service = app.world_mut().spawn_service(
-        move |In(input): AsyncServiceInput<String>| {
-            async move {
+    let waiting_service =
+        app.world_mut()
+            .spawn_service(move |In(input): AsyncServiceInput<String>| async move {
                 let never = pending::<()>();
                 let _ = timeout(waiting_time, never).await;
 
                 println!("{}", input.request);
-            }
-        }
-    );
+            });
 
     // We will fire off 10 requests at once for three different sets where each
     // set has delivery instructions, making them have serial (one-at-a-time)

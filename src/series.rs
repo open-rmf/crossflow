@@ -638,16 +638,56 @@ mod tests {
         context: &mut TestingContext,
     ) {
         // Test by queuing up a bunch of requests before preempting them all at once.
-        verify_preemption(1, queuing_service.clone(), preempting_service.clone(), context);
-        verify_preemption(2, queuing_service.clone(), preempting_service.clone(), context);
-        verify_preemption(3, queuing_service.clone(), preempting_service.clone(), context);
-        verify_preemption(4, queuing_service.clone(), preempting_service.clone(), context);
+        verify_preemption(
+            1,
+            queuing_service.clone(),
+            preempting_service.clone(),
+            context,
+        );
+        verify_preemption(
+            2,
+            queuing_service.clone(),
+            preempting_service.clone(),
+            context,
+        );
+        verify_preemption(
+            3,
+            queuing_service.clone(),
+            preempting_service.clone(),
+            context,
+        );
+        verify_preemption(
+            4,
+            queuing_service.clone(),
+            preempting_service.clone(),
+            context,
+        );
 
         // Test by repeatedly preempting each request with the next.
-        verify_preemption(1, preempting_service.clone(), preempting_service.clone(), context);
-        verify_preemption(2, preempting_service.clone(), preempting_service.clone(), context);
-        verify_preemption(3, preempting_service.clone(), preempting_service.clone(), context);
-        verify_preemption(4, preempting_service.clone(), preempting_service.clone(), context);
+        verify_preemption(
+            1,
+            preempting_service.clone(),
+            preempting_service.clone(),
+            context,
+        );
+        verify_preemption(
+            2,
+            preempting_service.clone(),
+            preempting_service.clone(),
+            context,
+        );
+        verify_preemption(
+            3,
+            preempting_service.clone(),
+            preempting_service.clone(),
+            context,
+        );
+        verify_preemption(
+            4,
+            preempting_service.clone(),
+            preempting_service.clone(),
+            context,
+        );
     }
 
     fn verify_preemption(
