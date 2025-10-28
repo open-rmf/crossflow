@@ -60,7 +60,7 @@ pub(crate) fn impl_section(input_struct: &ItemStruct) -> Result<TokenStream> {
         })
         .collect();
 
-    let gen = quote! {
+    let generated = quote! {
         impl #impl_generics ::crossflow::Section for #struct_ident #ty_generics #where_clause {
             fn into_slots(
                 self: Box<Self>,
@@ -111,7 +111,7 @@ pub(crate) fn impl_section(input_struct: &ItemStruct) -> Result<TokenStream> {
         }
     };
 
-    Ok(gen)
+    Ok(generated)
 }
 
 struct FieldConfig {

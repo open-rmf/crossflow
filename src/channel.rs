@@ -150,8 +150,23 @@ mod tests {
                         RunCount(0),
                     ));
                 }));
+            let f_repeat = |
+                In(input): AsyncServiceInput<RepeatRequest>,
+                mut run_count: Query<Option<&mut RunCount>>,
+            | {
+                if let Ok(Some(mut count)) = run_count.get_mut(input.provider) {
+                    count.0 += 1;
+                }
+
+                async move {
+                    for _ in 0..input.request.count {
+                        input.channel.query((), input.request.service).await;
+                    }
+                }
+            };
+
             let repeat =
-                commands.spawn_service(repeat_service.with(|entity_cmds: &mut EntityCommands| {
+                commands.spawn_service(f_repeat.with(|entity_cmds: &mut EntityCommands| {
                     entity_cmds.insert(RunCount(0));
                 }));
             (hello, repeat)

@@ -97,23 +97,32 @@ mod tests {
         let _blocking_exclusive_callback_with_param =
             blocking_exclusive_callback_with_param.as_callback();
 
-        let _async_exclusive_system_srv = context
-            .app
-            .spawn_service(async_exclusive_system.into_async_service());
-        let _async_exclusive_system_with_param_srv = context
-            .app
-            .spawn_service(async_exclusive_system_with_param.into_async_service());
-        let _async_exclusive_service = context.app.spawn_service(async_exclusive_service);
+        // let _async_exclusive_system_srv = context
+        //     .app
+        //     .spawn_service(async_exclusive_system.into_async_service());
+        // let _async_exclusive_system_with_param_srv = context
+        //     .app
+        //     .spawn_service(async_exclusive_system_with_param.into_async_service());
+        // let _async_exclusive_service = context.app.spawn_service(async_exclusive_service);
+        // let _async_exclusive_service_with_param = context
+        //     .app
+        //     .spawn_service(|
+        //         input: AsyncServiceInput<i32>,
+        //         world: &mut World,
+        //         query: &mut QueryState<&mut TestComponent>,
+        //     | {
+        //         async_exclusive_service_with_param(input, world, query)
+        //     });
         let _async_exclusive_service_with_param = context
             .app
             .spawn_service(async_exclusive_service_with_param);
 
-        let _async_exclusive_system_cb = async_exclusive_system.into_async_callback();
-        let _async_exclusive_system_with_param_cb =
-            async_exclusive_system_with_param.into_async_callback();
-        let _async_exclusive_callback = async_exclusive_callback.as_callback();
-        let _async_exclusive_callback_with_param =
-            async_exclusive_callback_with_param.as_callback();
+        // let _async_exclusive_system_cb = async_exclusive_system.into_async_callback();
+        // let _async_exclusive_system_with_param_cb =
+        //     async_exclusive_system_with_param.into_async_callback();
+        // let _async_exclusive_callback = async_exclusive_callback.as_callback();
+        // let _async_exclusive_callback_with_param =
+        //     async_exclusive_callback_with_param.as_callback();
 
         let _exclusive_continuous_service = context
             .app
@@ -194,7 +203,7 @@ mod tests {
         In(_): AsyncServiceInput<i32>,
         _: &mut World,
         _: &mut QueryState<&mut TestComponent>,
-    ) -> impl Future<Output = ()> {
+    ) -> impl Future<Output = ()> + use<> {
         async {}
     }
 

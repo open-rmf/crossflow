@@ -56,7 +56,7 @@ pub(crate) fn impl_joined_value(input_struct: &ItemStruct) -> Result<TokenStream
         impl_buffer_map_layout(&buffer_struct, &field_ident, &field_config)?;
     let impl_joined = impl_joined(&buffer_struct, &input_struct, &field_ident)?;
 
-    let gen = quote! {
+    let generated = quote! {
         impl #impl_generics ::crossflow::Joined for #struct_ident #ty_generics #where_clause {
             type Buffers = #buffer_struct_ident #ty_generics;
         }
@@ -72,7 +72,7 @@ pub(crate) fn impl_joined_value(input_struct: &ItemStruct) -> Result<TokenStream
         #impl_joined
     };
 
-    Ok(gen.into())
+    Ok(generated.into())
 }
 
 pub(crate) fn impl_buffer_key_map(input_struct: &ItemStruct) -> Result<TokenStream> {
@@ -121,7 +121,7 @@ pub(crate) fn impl_buffer_key_map(input_struct: &ItemStruct) -> Result<TokenStre
         impl_buffer_map_layout(&buffer_struct, &field_ident, &field_config)?;
     let impl_accessed = impl_accessed(&buffer_struct, &input_struct, &field_ident, &field_type)?;
 
-    let gen = quote! {
+    let generated = quote! {
         impl #impl_generics ::crossflow::Accessor for #struct_ident #ty_generics #where_clause {
             type Buffers = #buffer_struct_ident #ty_generics;
         }
@@ -137,7 +137,7 @@ pub(crate) fn impl_buffer_key_map(input_struct: &ItemStruct) -> Result<TokenStre
         #impl_accessed
     };
 
-    Ok(gen.into())
+    Ok(generated.into())
 }
 
 /// Code that are currently unused but could be used in the future, move them out of this mod if

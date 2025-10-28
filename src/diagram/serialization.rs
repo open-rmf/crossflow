@@ -37,7 +37,7 @@ pub trait DynType {
     /// Returns the type name of the request. Note that the type name must be unique.
     fn type_name() -> Cow<'static, str>;
 
-    fn json_schema(gen: &mut SchemaGenerator) -> Schema;
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema;
 }
 
 impl<T> DynType for T
@@ -48,8 +48,8 @@ where
         <T>::schema_name()
     }
 
-    fn json_schema(gen: &mut SchemaGenerator) -> Schema {
-        gen.subschema_for::<T>()
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        generator.subschema_for::<T>()
     }
 }
 

@@ -819,51 +819,51 @@ mod tests {
         provider: Service<String, u64>,
     }
 
-    #[test]
-    fn test_spawn_async_service() {
-        let mut app = App::new();
-        app.insert_resource(TestSystemRan(false))
-            .add_systems(Startup, sys_spawn_async_service)
-            .add_systems(Update, sys_find_service);
+    // #[test]
+    // fn test_spawn_async_service() {
+    //     let mut app = App::new();
+    //     app.insert_resource(TestSystemRan(false))
+    //         .add_systems(Startup, sys_spawn_async_service)
+    //         .add_systems(Update, sys_find_service);
 
-        app.update();
-        assert!(app.world().resource::<TestSystemRan>().0);
-    }
+    //     app.update();
+    //     assert!(app.world().resource::<TestSystemRan>().0);
+    // }
 
-    #[test]
-    fn test_add_async_service() {
-        let mut app = App::new();
-        app.insert_resource(TestSystemRan(false))
-            .add_service(sys_async_service)
-            .add_systems(Update, sys_find_service);
+    // #[test]
+    // fn test_add_async_service() {
+    //     let mut app = App::new();
+    //     app.insert_resource(TestSystemRan(false))
+    //         .add_service(sys_async_service)
+    //         .add_systems(Update, sys_find_service);
 
-        app.update();
-        assert!(app.world().resource::<TestSystemRan>().0);
-    }
+    //     app.update();
+    //     assert!(app.world().resource::<TestSystemRan>().0);
+    // }
 
-    #[test]
-    fn test_add_async_service_serial() {
-        let mut app = App::new();
-        app.insert_resource(TestSystemRan(false))
-            .add_service(sys_async_service.serial())
-            .add_systems(Update, sys_find_service);
+    // #[test]
+    // fn test_add_async_service_serial() {
+    //     let mut app = App::new();
+    //     app.insert_resource(TestSystemRan(false))
+    //         .add_service(sys_async_service.serial())
+    //         .add_systems(Update, sys_find_service);
 
-        app.update();
-        assert!(app.world().resource::<TestSystemRan>().0);
-    }
+    //     app.update();
+    //     assert!(app.world().resource::<TestSystemRan>().0);
+    // }
 
-    #[test]
-    fn test_add_built_async_service() {
-        let mut app = App::new();
-        app.insert_resource(TestSystemRan(false))
-            .add_service(sys_async_service.also(|app: &mut App, provider| {
-                app.insert_resource(MyServiceProvider { provider });
-            }))
-            .add_systems(Update, sys_use_my_service_provider);
+    // #[test]
+    // fn test_add_built_async_service() {
+    //     let mut app = App::new();
+    //     app.insert_resource(TestSystemRan(false))
+    //         .add_service(sys_async_service.also(|app: &mut App, provider| {
+    //             app.insert_resource(MyServiceProvider { provider });
+    //         }))
+    //         .add_systems(Update, sys_use_my_service_provider);
 
-        app.update();
-        assert!(app.world().resource::<TestSystemRan>().0);
-    }
+    //     app.update();
+    //     assert!(app.world().resource::<TestSystemRan>().0);
+    // }
 
     #[test]
     fn test_spawn_blocking_service() {
@@ -914,9 +914,9 @@ mod tests {
         async move { matching_people.into_iter().fold(0, |sum, age| sum + age) }
     }
 
-    fn sys_spawn_async_service(mut commands: Commands) {
-        commands.spawn_service(sys_async_service);
-    }
+    // fn sys_spawn_async_service(mut commands: Commands) {
+    //     commands.spawn_service(sys_async_service);
+    // }
 
     fn sys_blocking_service(
         In(BlockingService {

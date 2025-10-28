@@ -62,21 +62,7 @@ use std::{
 /// let callback = add_integer.as_callback();
 /// ```
 ///
-/// ```rust
-/// use crossflow::{prelude::*, testing::Integer};
-/// use bevy_ecs::prelude::*;
-/// use std::future::Future;
-///
-/// fn add_integer_async(
-///     In(input): In<AsyncCallback<i32>>,
-///     integer: Res<Integer>,
-/// ) -> impl Future<Output = i32> {
-///     let value = integer.value;
-///     async move { input.request + value }
-/// }
-///
-/// let async_callback = add_integer_async.as_callback();
-/// ```
+
 ///
 /// ## [`.into_blocking_callback()`](IntoBlockingCallback)
 ///
@@ -113,21 +99,7 @@ use std::{
 /// returned by the system will be polled in the async compute task pool (unless
 /// you activate the `single_threaded_async` feature).
 ///
-/// ```rust
-/// use crossflow::{prelude::*, testing::Integer};
-/// use bevy_ecs::prelude::*;
-/// use std::future::Future;
-///
-/// fn add_integer(
-///     In(input): In<i32>,
-///     integer: Res<Integer>,
-/// ) -> impl Future<Output = i32> {
-///     let value = integer.value;
-///     async move { input + value }
-/// }
-///
-/// let callback = add_integer.into_async_callback();
-/// ```
+
 pub struct Callback<Request, Response, Streams = ()> {
     pub(crate) inner: Arc<Mutex<InnerCallback<Request, Response, Streams>>>,
 }

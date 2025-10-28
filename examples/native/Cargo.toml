@@ -1,7 +1,7 @@
 [package]
 name = "crossflow-native-api-examples"
 version = "0.0.2"
-edition = "2021"
+edition = "2024"
 
 [[bin]]
 name = "delivery-instructions"

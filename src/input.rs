@@ -244,7 +244,8 @@ impl<'w> ManageInput for EntityWorldMut<'w> {
             // have the correct input storage type. This indicates a bug in
             // crossflow itself, since the API should ensure that connection
             // mismatches are impossible.
-            self.world_mut()
+            self.world_scope(|world| {
+                world
                 .get_resource_or_insert_with(|| UnhandledErrors::default())
                 .miscellaneous
                 .push(MiscellaneousFailure {
@@ -256,6 +257,7 @@ impl<'w> ManageInput for EntityWorldMut<'w> {
                     )),
                     backtrace: Some(Backtrace::new()),
                 });
+            });
             None.or_broken()?;
         }
         Ok(true)
