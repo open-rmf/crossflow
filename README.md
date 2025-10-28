@@ -9,6 +9,9 @@
 >
 > That feature is kept separate for now because it requires additional non-Rust setup. It will be merged into `main` after dynamic message introspection is finished.
 
+> [!TIP]
+> Check out a [live demo](https://open-rmf.github.io/crossflow/?diagram=jVJbbtwwDLyL0M%2FlWrZkSfZVgqCgLCrrwK9acpNgsXcvnQWyRREU%2FtODQw5n5ip%2BpO5CI4pWXHJeUlsUK76dX%2Fp82fyWaO3mKdOUz908FvNCE6xjLLp1TikO81uxUkzFhTCkYsR%2BKkKPLyuO53vX82uaJ3ESv2lNPZ9aIc%2FlWfJLpnEZMFMS7fV2Einjmvnbamu0sQ2UsdGgm6jASSehqhuqbbTOU8PoedlxQsk6auMJuigD6Ao78KFyUJlglNUGfaf2uvyxEDf3W4y0Ch6HUiIyGhprFGgjK%2FBGOTCdLxtJptN19S3wEL8HMC1Dn5lvol8bi9jjINonYV1Va1%2FWoFyFoKmMgJoa5l7G4HXTlbFiUI3GYRNrcM5WTJIMNCpqMEGSVE4jllY8M6lDhQ9S0xyI2%2FutHwJv1YpxG%2Fg%2B0fvuwCFNT4JjEfsX0ZbyJELPe%2BLHz3zv8F7KXSpVRm91paBWUoLWFsGzTCxaV3e2MbWmv1m9zv2elLvU7O7TMZN4zhHCz1%2F7RSIblauhQssOorPgHVpw1jsfpIohup3%2Bobr%2FiIohfIl6%2FXzPvGDLwV%2FHfuLk70P%2BUS5t42fIjuTjqJ8HVXz4%2Ba2h7Ojt9gc%3D) of the workflow editor!
+
 # Reactive Programming and Workflow Engine
 
 This library provides sophisticated [reactive programming](https://en.wikipedia.org/wiki/Reactive_programming) using the [bevy](https://bevyengine.org/) ECS. In addition to supporting one-shot chains of async services, it can support reusable workflows with parallel branches, synchronization, races, and cycles. These workflows can be hierarchical, so a workflow can be used as a building block by other workflows.
