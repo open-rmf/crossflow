@@ -1,6 +1,6 @@
 [package]
 name = "crossflow"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
 authors = ["Grey <mxgrey@intrinsic.ai>"]
 license = "Apache-2.0"
@@ -24,6 +24,9 @@ exclude = [
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
 ]
+
+[package.metadata.docs.rs]
+features = ["maximal"]
 
 [workspace.dependencies]
 axum = { version = "0.8.4", default-features = false }
@@ -56,7 +59,7 @@ zenoh = "1.5.1"
 zenoh-ext = "1.5.1"
 
 [dependencies]
-crossflow_derive = { path = "macros", version = "0.0.3" }
+crossflow_derive = { path = "macros", version = "0.0.4" }
 bevy_ecs = { workspace = true }
 bevy_utils = { workspace = true }
 bevy_derive = { workspace = true }
