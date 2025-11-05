@@ -1,6 +1,6 @@
 [package]
 name = "crossflow"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 authors = ["Grey <mxgrey@intrinsic.ai>"]
 license = "Apache-2.0"
@@ -56,7 +56,7 @@ zenoh = "1.5.1"
 zenoh-ext = "1.5.1"
 
 [dependencies]
-crossflow_derive = { path = "macros", version = "0.0.2" }
+crossflow_derive = { path = "macros", version = "0.0.3" }
 bevy_ecs = { workspace = true }
 bevy_utils = { workspace = true }
 bevy_derive = { workspace = true }
