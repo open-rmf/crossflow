@@ -1,0 +1,5 @@
+[book]
+authors = ["Michael X. Grey"]
+language = "en"
+src = "src"
+title = "Crossflow Handbook"

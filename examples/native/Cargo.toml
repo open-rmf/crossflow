@@ -7,6 +7,10 @@ edition = "2021"
 name = "delivery-instructions"
 path = "src/delivery_instructions.rs"
 
+[[bin]]
+name = "make-a-request"
+path = "src/make_a_request.rs"
+
 [dependencies]
 crossflow = { path = "../../" }
 async-std = "1.12"
