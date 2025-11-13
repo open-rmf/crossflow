@@ -20,7 +20,10 @@ use std::{collections::HashMap, sync::Arc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{AnyBuffer, AnyMessageBox, Buffer, InputSlot, JsonBuffer, JsonMessage, Output};
+use crate::{
+    AnyBuffer, AnyMessageBox, Buffer, ExtensionSettings, InputSlot, JsonBuffer, JsonMessage,
+    Output, PositionSettings,
+};
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderId, DiagramContext, DiagramElementRegistry,
@@ -102,6 +105,9 @@ pub struct SectionSchema {
     pub connect: HashMap<Arc<str>, NextOperation>,
     #[serde(flatten)]
     pub trace_settings: TraceSettings,
+    #[serde(flatten)]
+    pub position: Option<PositionSettings>,
+    pub extensions: Option<ExtensionSettings>,
 }
 
 impl BuildDiagramOperation for SectionSchema {

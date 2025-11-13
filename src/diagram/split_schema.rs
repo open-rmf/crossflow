@@ -22,8 +22,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    is_default, Builder, ForRemaining, FromSequential, FromSpecific, ListSplitKey, MapSplitKey,
-    OperationResult, SplitDispatcher, Splittable,
+    is_default, Builder, ExtensionSettings, ForRemaining, FromSequential, FromSpecific,
+    ListSplitKey, MapSplitKey, OperationResult, PositionSettings, SplitDispatcher, Splittable,
 };
 
 use super::{
@@ -113,6 +113,9 @@ pub struct SplitSchema {
     // almost always want.
     #[serde(flatten)]
     pub trace_settings: TraceSettings,
+    #[serde(flatten)]
+    pub position: Option<PositionSettings>,
+    pub extensions: Option<ExtensionSettings>,
 }
 
 impl BuildDiagramOperation for SplitSchema {

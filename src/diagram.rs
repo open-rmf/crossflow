@@ -445,6 +445,21 @@ pub struct TraceSettings {
     pub trace: Option<TraceToggle>,
 }
 
+#[derive(Default, Debug, Clone, JsonSchema, Serialize, Deserialize)]
+pub struct PositionSettings {
+    /// The position that this operation should be rendered in a visual editor.
+    /// The definition of the values are undefined and may not be consistent
+    /// across different editors.
+    pub position: (f64, f64),
+}
+
+#[derive(Default, Debug, Clone, JsonSchema, Serialize, Deserialize)]
+pub struct ExtensionSettings {
+    /// Settings for each extension.
+    #[serde(default)]
+    pub extensions: HashMap<String, serde_json::Value>,
+}
+
 impl Diagram {
     /// Begin creating a new diagram
     pub fn new(start: NextOperation) -> Self {

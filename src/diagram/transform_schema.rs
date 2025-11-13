@@ -22,7 +22,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{ForkResultOutput, JsonMessage};
+use crate::{ExtensionSettings, ForkResultOutput, JsonMessage, PositionSettings};
 
 use super::{
     BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode, NextOperation,
@@ -99,6 +99,9 @@ pub struct TransformSchema {
     pub on_error: Option<NextOperation>,
     #[serde(flatten)]
     pub trace_settings: TraceSettings,
+    #[serde(flatten)]
+    pub position: Option<PositionSettings>,
+    pub extensions: Option<ExtensionSettings>,
 }
 
 impl BuildDiagramOperation for TransformSchema {
