@@ -21,8 +21,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AnyBuffer, AnyMessageBox, Buffer, ExtensionSettings, InputSlot, JsonBuffer, JsonMessage,
-    Output, PositionSettings,
+    AnyBuffer, AnyMessageBox, Buffer, InputSlot, JsonBuffer, JsonMessage, Output, PositionSettings,
 };
 
 use super::{
@@ -107,7 +106,6 @@ pub struct SectionSchema {
     pub trace_settings: TraceSettings,
     #[serde(flatten)]
     pub position: Option<PositionSettings>,
-    pub extensions: Option<ExtensionSettings>,
 }
 
 impl BuildDiagramOperation for SectionSchema {

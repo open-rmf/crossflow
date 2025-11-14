@@ -11,8 +11,10 @@ import {
 } from '@mui/material';
 import { deflateSync, strToU8 } from 'fflate';
 import React from 'react';
+import { useLoadContext } from './load-context-provider';
 import { useNodeManager } from './node-manager';
 import { MaterialSymbol } from './nodes';
+import { saveState } from './persist-state';
 import { useRegistry } from './registry-provider';
 import { useTemplates } from './templates-provider';
 import { useEdges } from './use-edges';
@@ -34,6 +36,7 @@ function ExportDiagramDialog({ open, onClose }: ExportDiagramDialogProps) {
   const [dialogData, setDialogData] = React.useState<DialogData | null>(null);
   const [templates] = useTemplates();
   const registry = useRegistry();
+  const loadContext = useLoadContext();
 
   React.useLayoutEffect(() => {
     if (!open) {
@@ -43,6 +46,10 @@ function ExportDiagramDialog({ open, onClose }: ExportDiagramDialogProps) {
     }
 
     const diagram = exportDiagram(registry, nodeManager, edges, templates);
+    if (loadContext?.diagram.extensions) {
+      diagram.extensions = loadContext.diagram.extensions;
+    }
+    saveState(diagram, { nodes: [...nodeManager.nodes], edges: [...edges] });
     const diagramJsonMin = JSON.stringify(diagram);
     // Compress the JSON string to Uint8Array
     const compressedData = deflateSync(strToU8(diagramJsonMin));
@@ -63,7 +70,7 @@ function ExportDiagramDialog({ open, onClose }: ExportDiagramDialogProps) {
     };
 
     setDialogData(dialogData);
-  }, [registry, open, nodeManager, edges, templates]);
+  }, [registry, open, nodeManager, edges, templates, loadContext]);
 
   const handleDownload = () => {
     if (!dialogData) {

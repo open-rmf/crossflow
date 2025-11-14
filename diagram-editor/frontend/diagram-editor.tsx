@@ -46,6 +46,7 @@ import {
 import ExportDiagramDialog from './export-diagram-dialog';
 import { defaultEdgeData, EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
+import { type LoadContext, LoadContextProvider } from './load-context-provider';
 import { NodeManager, NodeManagerProvider } from './node-manager';
 import {
   type DiagramEditorNode,
@@ -111,21 +112,25 @@ function getChangeParentIdAndPosition(
 
 interface ProvidersProps {
   editorModeContext: UseEditorModeContext;
+  loadContext: LoadContext | null;
   nodeManager: NodeManager;
   edges: DiagramEditorEdge[];
 }
 
 function Providers({
   editorModeContext,
+  loadContext,
   nodeManager,
   edges,
   children,
 }: React.PropsWithChildren<ProvidersProps>) {
   return (
     <EditorModeProvider value={editorModeContext}>
-      <NodeManagerProvider value={nodeManager}>
-        <EdgesProvider value={edges}>{children}</EdgesProvider>
-      </NodeManagerProvider>
+      <LoadContextProvider value={loadContext}>
+        <NodeManagerProvider value={nodeManager}>
+          <EdgesProvider value={edges}>{children}</EdgesProvider>
+        </NodeManagerProvider>
+      </LoadContextProvider>
     </EditorModeProvider>
   );
 }
@@ -497,13 +502,22 @@ function DiagramEditor() {
     setErrorToast(message);
     setOpenErrorToast(true);
   }, []);
+  const [loadContext, setLoadContext] = React.useState<LoadContext | null>(
+    null,
+  );
 
   const loadDiagram = React.useCallback(
     (jsonStr: string) => {
       try {
-        const [diagram, graph] = loadDiagramJson(jsonStr);
-        const changes = autoLayout(graph.nodes, graph.edges, LAYOUT_OPTIONS);
-        setNodes(applyNodeChanges(changes, graph.nodes));
+        const [diagram, { graph, isRestored }] = loadDiagramJson(jsonStr);
+        setLoadContext({ diagram });
+        // do not perform auto layout if the diagram is restored from previous state.
+        if (!isRestored) {
+          const changes = autoLayout(graph.nodes, graph.edges, LAYOUT_OPTIONS);
+          setNodes(applyNodeChanges(changes, graph.nodes));
+        } else {
+          setNodes(graph.nodes);
+        }
         setEdges(graph.edges);
         setTemplates(diagram.templates || {});
         reactFlowInstance.current?.fitView();
@@ -583,6 +597,7 @@ function DiagramEditor() {
   return (
     <Providers
       editorModeContext={[editorMode, updateEditorModeAction]}
+      loadContext={loadContext}
       nodeManager={nodeManager}
       edges={edges}
     >

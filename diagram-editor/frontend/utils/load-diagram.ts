@@ -12,6 +12,7 @@ import {
   isOperationNode,
   START_ID,
 } from '../nodes';
+import { loadState } from '../persist-state';
 import type {
   Diagram,
   DiagramElementRegistry,
@@ -28,12 +29,27 @@ export interface Graph {
   edges: DiagramEditorEdge[];
 }
 
-export function loadDiagram(diagram: Diagram): Graph {
-  const graph = buildGraph(diagram);
-  return graph;
+export interface LoadedDiagram {
+  graph: Graph;
+  isRestored: boolean;
 }
 
-export function loadDiagramJson(jsonStr: string): [Diagram, Graph] {
+export function loadDiagram(diagram: Diagram): LoadedDiagram {
+  const state = loadState(diagram);
+  if (state) {
+    return {
+      graph: {
+        nodes: state.nodes,
+        edges: state.edges,
+      },
+      isRestored: true,
+    };
+  }
+  const graph = buildGraph(diagram);
+  return { graph, isRestored: false };
+}
+
+export function loadDiagramJson(jsonStr: string): [Diagram, LoadedDiagram] {
   const diagram = JSON.parse(jsonStr);
   const valid = validate(diagram);
   if (!valid) {

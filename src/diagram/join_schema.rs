@@ -23,7 +23,9 @@ use super::{
     BufferSelection, BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode,
     JsonMessage, NextOperation, OperationName,
 };
-use crate::{default_as_false, is_default, is_false, BufferIdentifier};
+use crate::{
+    default_as_false, is_default, is_false, BufferIdentifier, ExtensionSettings, PositionSettings,
+};
 
 /// Wait for exactly one item to be available in each buffer listed in
 /// `buffers`, then join each of those items into a single output message
@@ -96,6 +98,12 @@ pub struct JoinSchema {
     /// get a [`DiagramError`][super::DiagramError].
     #[serde(default = "default_as_false", skip_serializing_if = "is_false")]
     pub serialize: bool,
+
+    #[serde(flatten)]
+    pub position: Option<PositionSettings>,
+
+    #[serde(flatten)]
+    pub extensions: Option<ExtensionSettings>,
 }
 
 impl BuildDiagramOperation for JoinSchema {

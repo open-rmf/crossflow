@@ -7,7 +7,7 @@
     "build": "rsbuild build --environment rest-backend",
     "build:wasm": "rsbuild build --environment wasm-backend",
     "build:wasm-demo": "scripts/build-wasm-demo.sh",
-    "generate-types": "node scripts/generate-types.mjs",
+    "generate-types": "BUILD_FRONTEND=1 node scripts/generate-types.mjs",
     "generate-wasm-stub": "scripts/generate-wasm-stub.sh",
     "test": "jest --watch",
     "check": "biome check --write",

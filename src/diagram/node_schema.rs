@@ -19,7 +19,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
 
-use crate::{ExtensionSettings, PositionSettings};
+use crate::PositionSettings;
 
 use super::{
     is_default, BuildDiagramOperation, BuildStatus, BuilderId, DiagramContext, DiagramErrorCode,
@@ -81,7 +81,6 @@ pub struct NodeSchema {
     pub trace_settings: TraceSettings,
     #[serde(flatten)]
     pub position: Option<PositionSettings>,
-    pub extensions: Option<ExtensionSettings>,
 }
 
 impl BuildDiagramOperation for NodeSchema {

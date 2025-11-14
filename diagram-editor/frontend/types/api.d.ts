@@ -159,6 +159,15 @@ export type SectionSchema = (
    *  editor.
    */
   display_text?: string | null;
+  /**
+   * The position that this operation should be rendered in a visual editor.
+   *  The definition of the values are undefined and may not be consistent
+   *  across different editors.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  position?: [unknown, unknown];
   trace?: TraceToggle | null;
   [k: string]: unknown;
 };
@@ -243,6 +252,15 @@ export interface BufferAccessSchema {
    */
   display_text?: string | null;
   next: NextOperation;
+  /**
+   * The position that this operation should be rendered in a visual editor.
+   *  The definition of the values are undefined and may not be consistent
+   *  across different editors.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  position?: [unknown, unknown];
   trace?: TraceToggle | null;
   [k: string]: unknown;
 }
@@ -336,6 +354,15 @@ export interface BufferSchema {
    */
   display_text?: string | null;
   /**
+   * The position that this operation should be rendered in a visual editor.
+   *  The definition of the values are undefined and may not be consistent
+   *  across different editors.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  position?: [unknown, unknown];
+  /**
    * If true, messages will be serialized before sending into the buffer.
    */
   serialize?: boolean | null;
@@ -376,6 +403,12 @@ export interface ConfigExample {
  */
 export interface Diagram {
   default_trace?: TraceToggle;
+  /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
   on_implicit_error?: NextOperation | null;
   /**
    * Operations that define the workflow
@@ -449,6 +482,15 @@ export interface NodeSchema {
    */
   display_text?: string | null;
   next: NextOperation;
+  /**
+   * The position that this operation should be rendered in a visual editor.
+   *  The definition of the values are undefined and may not be consistent
+   *  across different editors.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  position?: [unknown, unknown];
   stream_out?: {
     [k: string]: NextOperation;
   };
@@ -522,6 +564,12 @@ export interface NodeSchema {
  * via the `definition` "ScopeSchema".
  */
 export interface ScopeSchema {
+  /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
   next: NextOperation;
   on_implicit_error?: NextOperation | null;
   /**
@@ -530,6 +578,15 @@ export interface ScopeSchema {
   ops: {
     [k: string]: DiagramOperation;
   };
+  /**
+   * The position that this operation should be rendered in a visual editor.
+   *  The definition of the values are undefined and may not be consistent
+   *  across different editors.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  position?: [unknown, unknown];
   settings?: ScopeSettings;
   start: NextOperation;
   /**
@@ -602,9 +659,24 @@ export interface ScopeSettings {
  */
 export interface StreamOutSchema {
   /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
+  /**
    * The name of the stream exiting the workflow or scope.
    */
   name: string;
+  /**
+   * The position that this operation should be rendered in a visual editor.
+   *  The definition of the values are undefined and may not be consistent
+   *  across different editors.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  position?: [unknown, unknown];
   [k: string]: unknown;
 }
 /**
@@ -660,6 +732,15 @@ export interface ForkCloneSchema {
    */
   display_text?: string | null;
   next: NextOperation[];
+  /**
+   * The position that this operation should be rendered in a visual editor.
+   *  The definition of the values are undefined and may not be consistent
+   *  across different editors.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  position?: [unknown, unknown];
   trace?: TraceToggle | null;
   [k: string]: unknown;
 }
@@ -730,6 +811,15 @@ export interface UnzipSchema {
    */
   display_text?: string | null;
   next: NextOperation[];
+  /**
+   * The position that this operation should be rendered in a visual editor.
+   *  The definition of the values are undefined and may not be consistent
+   *  across different editors.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  position?: [unknown, unknown];
   trace?: TraceToggle | null;
   [k: string]: unknown;
 }
@@ -771,6 +861,15 @@ export interface ForkResultSchema {
   display_text?: string | null;
   err: NextOperation;
   ok: NextOperation;
+  /**
+   * The position that this operation should be rendered in a visual editor.
+   *  The definition of the values are undefined and may not be consistent
+   *  across different editors.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  position?: [unknown, unknown];
   trace?: TraceToggle | null;
   [k: string]: unknown;
 }
@@ -853,6 +952,15 @@ export interface SplitSchema {
   keyed?: {
     [k: string]: NextOperation;
   };
+  /**
+   * The position that this operation should be rendered in a visual editor.
+   *  The definition of the values are undefined and may not be consistent
+   *  across different editors.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  position?: [unknown, unknown];
   remaining?: NextOperation | null;
   sequential?: NextOperation[];
   trace?: TraceToggle | null;
@@ -922,7 +1030,22 @@ export interface JoinSchema {
    *  place.
    */
   clone?: BufferIdentifier[];
+  /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
   next: NextOperation;
+  /**
+   * The position that this operation should be rendered in a visual editor.
+   *  The definition of the values are undefined and may not be consistent
+   *  across different editors.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  position?: [unknown, unknown];
   /**
    * Whether or not to automatically serialize the inputs into a single JsonMessage.
    *  This will only work if all input types are serializable, otherwise you will
@@ -987,6 +1110,15 @@ export interface TransformSchema {
   display_text?: string | null;
   next: NextOperation;
   on_error?: NextOperation | null;
+  /**
+   * The position that this operation should be rendered in a visual editor.
+   *  The definition of the values are undefined and may not be consistent
+   *  across different editors.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  position?: [unknown, unknown];
   trace?: TraceToggle | null;
   [k: string]: unknown;
 }
@@ -1029,6 +1161,15 @@ export interface TransformSchema {
 export interface ListenSchema {
   buffers: BufferSelection;
   next: NextOperation;
+  /**
+   * The position that this operation should be rendered in a visual editor.
+   *  The definition of the values are undefined and may not be consistent
+   *  across different editors.
+   *
+   * @minItems 2
+   * @maxItems 2
+   */
+  position?: [unknown, unknown];
   [k: string]: unknown;
 }
 /**

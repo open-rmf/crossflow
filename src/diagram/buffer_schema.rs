@@ -18,7 +18,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{Accessor, BufferSettings, ExtensionSettings, JsonMessage, PositionSettings};
+use crate::{Accessor, BufferSettings, JsonMessage, PositionSettings};
 
 use super::{
     BufferSelection, BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode,
@@ -107,8 +107,6 @@ pub struct BufferSchema {
 
     #[serde(flatten)]
     pub position: Option<PositionSettings>,
-
-    pub extensions: Option<ExtensionSettings>,
 }
 
 impl BuildDiagramOperation for BufferSchema {
@@ -208,6 +206,9 @@ pub struct BufferAccessSchema {
 
     #[serde(flatten)]
     pub trace_settings: TraceSettings,
+
+    #[serde(flatten)]
+    pub position: Option<PositionSettings>,
 }
 
 impl BuildDiagramOperation for BufferAccessSchema {
@@ -292,6 +293,8 @@ pub struct ListenSchema {
     pub(super) next: NextOperation,
     /// Map of buffer keys and buffers.
     pub(super) buffers: BufferSelection,
+    #[serde(flatten)]
+    pub position: Option<PositionSettings>,
 }
 
 impl BuildDiagramOperation for ListenSchema {
