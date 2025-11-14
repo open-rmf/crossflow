@@ -34,8 +34,8 @@ export interface LoadedDiagram {
   isRestored: boolean;
 }
 
-export function loadDiagram(diagram: Diagram): LoadedDiagram {
-  const state = loadState(diagram);
+export async function loadDiagram(diagram: Diagram): Promise<LoadedDiagram> {
+  const state = await loadState(diagram);
   if (state) {
     return {
       graph: {
@@ -49,7 +49,9 @@ export function loadDiagram(diagram: Diagram): LoadedDiagram {
   return { graph, isRestored: false };
 }
 
-export function loadDiagramJson(jsonStr: string): [Diagram, LoadedDiagram] {
+export async function loadDiagramJson(
+  jsonStr: string,
+): Promise<[Diagram, LoadedDiagram]> {
   const diagram = JSON.parse(jsonStr);
   const valid = validate(diagram);
   if (!valid) {
@@ -60,7 +62,7 @@ export function loadDiagramJson(jsonStr: string): [Diagram, LoadedDiagram] {
     throw `${error.instancePath} ${error.message}`;
   }
 
-  return [diagram, loadDiagram(diagram)];
+  return [diagram, await loadDiagram(diagram)];
 }
 
 export function loadEmpty(): Graph {

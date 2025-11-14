@@ -10,7 +10,7 @@ import {
   Typography,
 } from '@mui/material';
 import { deflateSync, strToU8 } from 'fflate';
-import React from 'react';
+import React, { Suspense, use, useMemo } from 'react';
 import { useLoadContext } from './load-context-provider';
 import { useNodeManager } from './node-manager';
 import { MaterialSymbol } from './nodes';
@@ -30,26 +30,25 @@ interface DialogData {
   diagramJson: string;
 }
 
-function ExportDiagramDialog({ open, onClose }: ExportDiagramDialogProps) {
+function ExportDiagramDialogInternal({
+  open,
+  onClose,
+}: ExportDiagramDialogProps) {
   const nodeManager = useNodeManager();
   const edges = useEdges();
-  const [dialogData, setDialogData] = React.useState<DialogData | null>(null);
   const [templates] = useTemplates();
   const registry = useRegistry();
   const loadContext = useLoadContext();
 
-  React.useLayoutEffect(() => {
-    if (!open) {
-      // To ensure that animations look correct, we need to keep the last value.
-      // This is also why we cannot use `useMemo` as it must return a value.
-      return;
-    }
-
+  const dialogDataPromise = useMemo(async () => {
     const diagram = exportDiagram(registry, nodeManager, edges, templates);
     if (loadContext?.diagram.extensions) {
       diagram.extensions = loadContext.diagram.extensions;
     }
-    saveState(diagram, { nodes: [...nodeManager.nodes], edges: [...edges] });
+    await saveState(diagram, {
+      nodes: [...nodeManager.nodes],
+      edges: [...edges],
+    });
     const diagramJsonMin = JSON.stringify(diagram);
     // Compress the JSON string to Uint8Array
     const compressedData = deflateSync(strToU8(diagramJsonMin));
@@ -67,10 +66,12 @@ function ExportDiagramDialog({ open, onClose }: ExportDiagramDialogProps) {
     const dialogData = {
       shareLink,
       diagramJson: diagramJsonPretty,
-    };
+    } satisfies DialogData;
 
-    setDialogData(dialogData);
-  }, [registry, open, nodeManager, edges, templates, loadContext]);
+    return dialogData;
+  }, [registry, nodeManager, edges, templates, loadContext]);
+
+  const dialogData = use(dialogDataPromise);
 
   const handleDownload = () => {
     if (!dialogData) {
@@ -160,4 +161,8 @@ function ExportDiagramDialog({ open, onClose }: ExportDiagramDialogProps) {
   );
 }
 
-export default ExportDiagramDialog;
+export const ExportDiagramDialog = (props: ExportDiagramDialogProps) => (
+  <Suspense>
+    <ExportDiagramDialogInternal {...props} />
+  </Suspense>
+);

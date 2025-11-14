@@ -27,7 +27,7 @@ import {
   type XYPosition,
 } from '@xyflow/react';
 import { inflateSync, strFromU8 } from 'fflate';
-import React from 'react';
+import React, { Suspense } from 'react';
 import AddOperation from './add-operation';
 import CommandPanel from './command-panel';
 import type { DiagramEditorEdge } from './edges';
@@ -43,7 +43,7 @@ import {
   EditorModeProvider,
   type UseEditorModeContext,
 } from './editor-mode';
-import ExportDiagramDialog from './export-diagram-dialog';
+import { ExportDiagramDialog } from './export-diagram-dialog';
 import { defaultEdgeData, EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
 import { type LoadContext, LoadContextProvider } from './load-context-provider';
@@ -507,9 +507,9 @@ function DiagramEditor() {
   );
 
   const loadDiagram = React.useCallback(
-    (jsonStr: string) => {
+    async (jsonStr: string) => {
       try {
-        const [diagram, { graph, isRestored }] = loadDiagramJson(jsonStr);
+        const [diagram, { graph, isRestored }] = await loadDiagramJson(jsonStr);
         setLoadContext({ diagram });
         // do not perform auto layout if the diagram is restored from previous state.
         if (!isRestored) {
@@ -825,10 +825,12 @@ function DiagramEditor() {
             {errorToast}
           </Alert>
         </Snackbar>
-        <ExportDiagramDialog
-          open={openExportDiagramDialog}
-          onClose={() => setOpenExportDiagramDialog(false)}
-        />
+        <Suspense>
+          <ExportDiagramDialog
+            open={openExportDiagramDialog}
+            onClose={() => setOpenExportDiagramDialog(false)}
+          />
+        </Suspense>
       </ReactFlow>
     </Providers>
   );
