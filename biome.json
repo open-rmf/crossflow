@@ -9,7 +9,7 @@
       "**/*.json",
       "**/*.css",
       "!**/*.schema.json",
-      "!node_modules/**"
+      "!diagram-editor/dist"
     ]
   },
   "assist": { "actions": { "source": { "organizeImports": "on" } } },

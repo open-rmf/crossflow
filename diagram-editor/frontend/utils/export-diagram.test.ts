@@ -25,9 +25,12 @@ const stubRegistry: DiagramElementRegistry = {
 };
 
 test('export diagram', () => {
-  const [_diagram, { nodes, edges }] = loadDiagramJson(
-    JSON.stringify(testDiagram),
-  );
+  const [
+    _diagram,
+    {
+      graph: { nodes, edges },
+    },
+  ] = loadDiagramJson(JSON.stringify(testDiagram));
   const diagram = exportDiagram(
     stubRegistry,
     new NodeManager(nodes),
@@ -38,9 +41,12 @@ test('export diagram', () => {
 });
 
 test('export diagram with scope', () => {
-  const [_diagram, { nodes, edges }] = loadDiagramJson(
-    JSON.stringify(testDiagramScope),
-  );
+  const [
+    _diagram,
+    {
+      graph: { nodes, edges },
+    },
+  ] = loadDiagramJson(JSON.stringify(testDiagramScope));
   let diagram = exportDiagram(stubRegistry, new NodeManager(nodes), edges, {});
   expect(diagram).toEqual(testDiagramScope);
 
