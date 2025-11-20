@@ -69,24 +69,14 @@
             "null"
           ]
         },
+        "extensions": {
+          "description": "Settings for each extension.",
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        },
         "next": {
           "$ref": "#/$defs/NextOperation"
-        },
-        "position": {
-          "description": "The position that this operation should be rendered in a visual editor.\n The definition of the values are undefined and may not be consistent\n across different editors.",
-          "type": "array",
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
-            {
-              "type": "number",
-              "format": "double"
-            },
-            {
-              "type": "number",
-              "format": "double"
-            }
-          ]
         },
         "trace": {
           "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
@@ -131,21 +121,11 @@
             "null"
           ]
         },
-        "position": {
-          "description": "The position that this operation should be rendered in a visual editor.\n The definition of the values are undefined and may not be consistent\n across different editors.",
-          "type": "array",
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
-            {
-              "type": "number",
-              "format": "double"
-            },
-            {
-              "type": "number",
-              "format": "double"
-            }
-          ]
+        "extensions": {
+          "description": "Settings for each extension.",
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
         },
         "serialize": {
           "description": "If true, messages will be serialized before sending into the buffer.",
@@ -406,27 +386,17 @@
             "null"
           ]
         },
+        "extensions": {
+          "description": "Settings for each extension.",
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        },
         "next": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/NextOperation"
           }
-        },
-        "position": {
-          "description": "The position that this operation should be rendered in a visual editor.\n The definition of the values are undefined and may not be consistent\n across different editors.",
-          "type": "array",
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
-            {
-              "type": "number",
-              "format": "double"
-            },
-            {
-              "type": "number",
-              "format": "double"
-            }
-          ]
         },
         "trace": {
           "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
@@ -458,24 +428,14 @@
         "err": {
           "$ref": "#/$defs/NextOperation"
         },
+        "extensions": {
+          "description": "Settings for each extension.",
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        },
         "ok": {
           "$ref": "#/$defs/NextOperation"
-        },
-        "position": {
-          "description": "The position that this operation should be rendered in a visual editor.\n The definition of the values are undefined and may not be consistent\n across different editors.",
-          "type": "array",
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
-            {
-              "type": "number",
-              "format": "double"
-            },
-            {
-              "type": "number",
-              "format": "double"
-            }
-          ]
         },
         "trace": {
           "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
@@ -528,6 +488,13 @@
             "$ref": "#/$defs/BufferIdentifier"
           }
         },
+        "display_text": {
+          "description": "Override for text that should be displayed for an operation within an\n editor.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "extensions": {
           "description": "Settings for each extension.",
           "type": "object",
@@ -538,25 +505,20 @@
           "description": "The operation that the joined value will be passed to.",
           "$ref": "#/$defs/NextOperation"
         },
-        "position": {
-          "description": "The position that this operation should be rendered in a visual editor.\n The definition of the values are undefined and may not be consistent\n across different editors.",
-          "type": "array",
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
-            {
-              "type": "number",
-              "format": "double"
-            },
-            {
-              "type": "number",
-              "format": "double"
-            }
-          ]
-        },
         "serialize": {
           "description": "Whether or not to automatically serialize the inputs into a single JsonMessage.\n This will only work if all input types are serializable, otherwise you will\n get a [`DiagramError`][super::DiagramError].",
           "type": "boolean"
+        },
+        "trace": {
+          "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TraceToggle"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -572,22 +534,30 @@
           "description": "Map of buffer keys and buffers.",
           "$ref": "#/$defs/BufferSelection"
         },
+        "display_text": {
+          "description": "Override for text that should be displayed for an operation within an\n editor.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "extensions": {
+          "description": "Settings for each extension.",
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        },
         "next": {
           "$ref": "#/$defs/NextOperation"
         },
-        "position": {
-          "description": "The position that this operation should be rendered in a visual editor.\n The definition of the values are undefined and may not be consistent\n across different editors.",
-          "type": "array",
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
+        "trace": {
+          "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
+          "anyOf": [
             {
-              "type": "number",
-              "format": "double"
+              "$ref": "#/$defs/TraceToggle"
             },
             {
-              "type": "number",
-              "format": "double"
+              "type": "null"
             }
           ]
         }
@@ -644,24 +614,14 @@
             "null"
           ]
         },
+        "extensions": {
+          "description": "Settings for each extension.",
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        },
         "next": {
           "$ref": "#/$defs/NextOperation"
-        },
-        "position": {
-          "description": "The position that this operation should be rendered in a visual editor.\n The definition of the values are undefined and may not be consistent\n across different editors.",
-          "type": "array",
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
-            {
-              "type": "number",
-              "format": "double"
-            },
-            {
-              "type": "number",
-              "format": "double"
-            }
-          ]
         },
         "stream_out": {
           "type": "object",
@@ -730,6 +690,13 @@
       "description": "Create a scope which will function like its own encapsulated workflow\n within the paren workflow. Each message that enters a scope will trigger\n a new independent session for that scope to begin running with the incoming\n message itself being the input message of the scope. When multiple sessions\n for the same scope are running, they cannot see or interfere with each other.\n\n Once a session terminates, the scope will send the terminating message as\n its output. Scopes can use the `stream_out` operation to stream messages out\n to the parent workflow while running.\n\n Scopes have two common uses:\n * isolate - Prevent simultaneous runs of the same workflow components\n   (especially buffers) from interfering with each other.\n * race - Run multiple branches simultaneously inside the scope and race\n   them against each ohter. The first branch that reaches the scope's\n   terminate operation \"wins\" the race, and only its output will continue\n   on in the parent workflow. All other branches will be disposed.\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"approach_door\",\n     \"ops\": {\n         \"approach_door\": {\n             \"type\": \"scope\",\n             \"start\": \"begin\",\n             \"ops\": {\n                 \"begin\": {\n                     \"type\": \"fork_clone\",\n                     \"next\": [\n                         \"move_to_door\",\n                         \"detect_door_proximity\"\n                     ]\n                 },\n                 \"move_to_door\": {\n                     \"type\": \"node\",\n                     \"builder\": \"move\",\n                     \"config\": {\n                         \"place\": \"L1_north_lobby_outside\"\n                     },\n                     \"next\": { \"builtin\" : \"terminate\" }\n                 },\n                 \"detect_proximity\": {\n                     \"type\": \"node\",\n                     \"builder\": \"detect_proximity\",\n                     \"config\": {\n                         \"type\": \"door\",\n                         \"name\": \"L1_north_lobby\"\n                     },\n                     \"next\": { \"builtin\" : \"terminate\" }\n                 }\n             },\n             \"next\": { \"builtin\" : \"try_open_door\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())\n ```",
       "type": "object",
       "properties": {
+        "display_text": {
+          "description": "Override for text that should be displayed for an operation within an\n editor.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "extensions": {
           "description": "Settings for each extension.",
           "type": "object",
@@ -759,22 +726,6 @@
             "$ref": "#/$defs/DiagramOperation"
           }
         },
-        "position": {
-          "description": "The position that this operation should be rendered in a visual editor.\n The definition of the values are undefined and may not be consistent\n across different editors.",
-          "type": "array",
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
-            {
-              "type": "number",
-              "format": "double"
-            },
-            {
-              "type": "number",
-              "format": "double"
-            }
-          ]
-        },
         "settings": {
           "description": "Settings specific to the scope, e.g. whether it is interruptible.",
           "$ref": "#/$defs/ScopeSettings",
@@ -793,6 +744,17 @@
             "$ref": "#/$defs/NextOperation"
           },
           "default": {}
+        },
+        "trace": {
+          "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TraceToggle"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -835,21 +797,11 @@
             "null"
           ]
         },
-        "position": {
-          "description": "The position that this operation should be rendered in a visual editor.\n The definition of the values are undefined and may not be consistent\n across different editors.",
-          "type": "array",
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
-            {
-              "type": "number",
-              "format": "double"
-            },
-            {
-              "type": "number",
-              "format": "double"
-            }
-          ]
+        "extensions": {
+          "description": "Settings for each extension.",
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
         },
         "trace": {
           "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
@@ -932,27 +884,17 @@
             "null"
           ]
         },
+        "extensions": {
+          "description": "Settings for each extension.",
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        },
         "keyed": {
           "type": "object",
           "additionalProperties": {
             "$ref": "#/$defs/NextOperation"
           }
-        },
-        "position": {
-          "description": "The position that this operation should be rendered in a visual editor.\n The definition of the values are undefined and may not be consistent\n across different editors.",
-          "type": "array",
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
-            {
-              "type": "number",
-              "format": "double"
-            },
-            {
-              "type": "number",
-              "format": "double"
-            }
-          ]
         },
         "remaining": {
           "anyOf": [
@@ -987,6 +929,13 @@
       "description": "Declare a stream output for the current scope. Outputs that you connect\n to this operation will be streamed out of the scope that this operation\n is declared in.\n\n For the root-level scope, make sure you use a stream pack that is\n compatible with all stream out operations that you declare, otherwise\n you may get a connection error at runtime.\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"plan\",\n     \"ops\": {\n         \"progress_stream\": {\n             \"type\": \"stream_out\",\n             \"name\": \"progress\"\n         },\n         \"plan\": {\n             \"type\": \"node\",\n             \"builder\": \"planner\",\n             \"next\": \"drive\",\n             \"stream_out\" : {\n                 \"progress\": \"progress_stream\"\n             }\n         },\n         \"drive\": {\n             \"type\": \"node\",\n             \"builder\": \"navigation\",\n             \"next\": { \"builtin\": \"terminate\" },\n             \"stream_out\": {\n                 \"progress\": \"progress_stream\"\n             }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())\n ```",
       "type": "object",
       "properties": {
+        "display_text": {
+          "description": "Override for text that should be displayed for an operation within an\n editor.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "extensions": {
           "description": "Settings for each extension.",
           "type": "object",
@@ -997,19 +946,14 @@
           "description": "The name of the stream exiting the workflow or scope.",
           "type": "string"
         },
-        "position": {
-          "description": "The position that this operation should be rendered in a visual editor.\n The definition of the values are undefined and may not be consistent\n across different editors.",
-          "type": "array",
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
+        "trace": {
+          "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
+          "anyOf": [
             {
-              "type": "number",
-              "format": "double"
+              "$ref": "#/$defs/TraceToggle"
             },
             {
-              "type": "number",
-              "format": "double"
+              "type": "null"
             }
           ]
         }
@@ -1051,6 +995,12 @@
             "null"
           ]
         },
+        "extensions": {
+          "description": "Settings for each extension.",
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        },
         "next": {
           "$ref": "#/$defs/NextOperation"
         },
@@ -1065,22 +1015,6 @@
             }
           ],
           "default": null
-        },
-        "position": {
-          "description": "The position that this operation should be rendered in a visual editor.\n The definition of the values are undefined and may not be consistent\n across different editors.",
-          "type": "array",
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
-            {
-              "type": "number",
-              "format": "double"
-            },
-            {
-              "type": "number",
-              "format": "double"
-            }
-          ]
         },
         "trace": {
           "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
@@ -1110,27 +1044,17 @@
             "null"
           ]
         },
+        "extensions": {
+          "description": "Settings for each extension.",
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        },
         "next": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/NextOperation"
           }
-        },
-        "position": {
-          "description": "The position that this operation should be rendered in a visual editor.\n The definition of the values are undefined and may not be consistent\n across different editors.",
-          "type": "array",
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
-            {
-              "type": "number",
-              "format": "double"
-            },
-            {
-              "type": "number",
-              "format": "double"
-            }
-          ]
         },
         "trace": {
           "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",

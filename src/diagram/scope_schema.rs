@@ -27,10 +27,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     standard_input_connection, BuildDiagramOperation, BuildStatus, ConnectIntoTarget,
-    DiagramContext, DiagramErrorCode, DynOutput, ExtensionSettings, IncrementalScopeBuilder,
-    IncrementalScopeRequest, IncrementalScopeResponse, InferMessageType, NamespaceList,
-    NextOperation, OperationName, OperationRef, Operations, PositionSettings, ScopeSettings,
-    StreamOutRef,
+    DiagramContext, DiagramErrorCode, DynOutput, IncrementalScopeBuilder, IncrementalScopeRequest,
+    IncrementalScopeResponse, InferMessageType, NamespaceList, NextOperation, OperationName,
+    OperationRef, Operations, ScopeSettings, StreamOutRef, TraceSettings,
 };
 
 /// Create a scope which will function like its own encapsulated workflow
@@ -128,10 +127,7 @@ pub struct ScopeSchema {
     pub settings: ScopeSettings,
 
     #[serde(flatten)]
-    pub position: Option<PositionSettings>,
-
-    #[serde(flatten)]
-    pub extensions: Option<ExtensionSettings>,
+    pub trace_settings: TraceSettings,
 }
 
 impl BuildDiagramOperation for ScopeSchema {

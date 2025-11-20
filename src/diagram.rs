@@ -453,14 +453,9 @@ pub struct TraceSettings {
     /// used.
     #[serde(default, skip_serializing_if = "is_default")]
     pub trace: Option<TraceToggle>,
-}
 
-#[derive(Default, Debug, Clone, JsonSchema, Serialize, Deserialize)]
-pub struct PositionSettings {
-    /// The position that this operation should be rendered in a visual editor.
-    /// The definition of the values are undefined and may not be consistent
-    /// across different editors.
-    pub position: (f64, f64),
+    #[serde(flatten)]
+    pub extensions: Option<ExtensionSettings>,
 }
 
 impl Diagram {

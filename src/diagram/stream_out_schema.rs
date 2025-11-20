@@ -19,7 +19,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::{ExtensionSettings, PositionSettings};
+use crate::TraceSettings;
 
 use super::{
     BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode, OperationName,
@@ -71,10 +71,9 @@ use super::{
 pub struct StreamOutSchema {
     /// The name of the stream exiting the workflow or scope.
     pub(super) name: OperationName,
+
     #[serde(flatten)]
-    pub position: Option<PositionSettings>,
-    #[serde(flatten)]
-    pub extensions: Option<ExtensionSettings>,
+    pub trace_settings: TraceSettings,
 }
 
 impl BuildDiagramOperation for StreamOutSchema {

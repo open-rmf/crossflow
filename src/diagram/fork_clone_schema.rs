@@ -18,7 +18,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{Builder, CloneFromBuffer, ForkCloneOutput, PositionSettings};
+use crate::{Builder, CloneFromBuffer, ForkCloneOutput};
 
 use super::{
     supported::*, BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode,
@@ -73,8 +73,6 @@ pub struct ForkCloneSchema {
     pub next: Vec<NextOperation>,
     #[serde(flatten)]
     pub trace_settings: TraceSettings,
-    #[serde(flatten)]
-    pub position: Option<PositionSettings>,
 }
 
 impl BuildDiagramOperation for ForkCloneSchema {

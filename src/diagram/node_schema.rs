@@ -19,8 +19,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
 
-use crate::PositionSettings;
-
 use super::{
     is_default, BuildDiagramOperation, BuildStatus, BuilderId, DiagramContext, DiagramErrorCode,
     JsonMessage, MissingStream, NextOperation, OperationName, TraceInfo, TraceSettings,
@@ -79,8 +77,6 @@ pub struct NodeSchema {
     pub stream_out: HashMap<OperationName, NextOperation>,
     #[serde(flatten)]
     pub trace_settings: TraceSettings,
-    #[serde(flatten)]
-    pub position: Option<PositionSettings>,
 }
 
 impl BuildDiagramOperation for NodeSchema {

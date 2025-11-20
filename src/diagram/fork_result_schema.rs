@@ -18,8 +18,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::PositionSettings;
-
 use super::{
     supported::*, BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode,
     DynInputSlot, DynOutput, MessageRegistration, MessageRegistry, NextOperation, OperationName,
@@ -64,8 +62,6 @@ pub struct ForkResultSchema {
     pub err: NextOperation,
     #[serde(flatten)]
     pub trace_settings: TraceSettings,
-    #[serde(flatten)]
-    pub position: Option<PositionSettings>,
 }
 
 impl BuildDiagramOperation for ForkResultSchema {

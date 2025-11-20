@@ -19,7 +19,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use variadics_please::all_tuples_with_size;
 
-use crate::{Builder, PositionSettings};
+use crate::{Builder};
 
 use super::{
     supported::*, BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode,
@@ -88,8 +88,6 @@ pub struct UnzipSchema {
     pub next: Vec<NextOperation>,
     #[serde(flatten)]
     pub trace_settings: TraceSettings,
-    #[serde(flatten)]
-    pub position: Option<PositionSettings>,
 }
 
 impl BuildDiagramOperation for UnzipSchema {
