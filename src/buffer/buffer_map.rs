@@ -973,6 +973,8 @@ mod tests {
     fn test_derive_with_config() {
         // a compile test to check that the name of the generated struct is correct
         fn _check_buffer_struct_name(_: FooBuffers) {}
+
+        let _ = TestDeriveWithConfig {};
     }
 
     struct MultiGenericValue<T: 'static + Send + Sync, U: 'static + Send + Sync> {
