@@ -72,6 +72,7 @@ impl Future for NeverFinish {
 }
 
 /// A data structure that can never be instantiated
+#[allow(unused)]
 pub(crate) enum Never {}
 
 /// Used by some tests in the grpc and zenoh modules
