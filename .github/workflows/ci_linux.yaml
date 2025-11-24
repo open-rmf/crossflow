@@ -40,13 +40,29 @@ jobs:
       run: pnpm env use --global lts
 
     - name: Test default features
-      run: cargo test --workspace
+      run: |
+        cargo test --workspace
+        rm -rf target/debug/build
 
     - name: Test single_threaded_async
-      run: cargo test --features single_threaded_async
+      run: |
+        cargo test --features single_threaded_async
+        rm -rf target/debug/build
+
+    - name: Test diagram
+      run: |
+        cargo test --workspace -F=diagram
+        rm -rf target/debug/build
+
+    - name: Test trace
+      run: |
+        cargo test --workspace -F=trace
+        rm -rf target/debug/build
 
     - name: Test all capabilities combined
-      run: cargo test --workspace -F=maximal
+      run: |
+        cargo test --workspace -F=maximal
+        rm -rf target/debug/build
 
     - name: Build docs
       run: cargo doc --all-features
