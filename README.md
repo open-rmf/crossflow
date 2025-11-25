@@ -10,7 +10,7 @@
 > That feature is kept separate for now because it requires additional non-Rust setup. It will be merged into `main` after dynamic message introspection is finished.
 
 > [!TIP]
-> Check out a [live demo](https://open-rmf.github.io/crossflow/?diagram=jVJbbtwwDLyL0M%2FlWrZkSfZVgqCgLCrrwK9acpNgsXcvnQWyRREU%2FtODQw5n5ip%2BpO5CI4pWXHJeUlsUK76dX%2Fp82fyWaO3mKdOUz908FvNCE6xjLLp1TikO81uxUkzFhTCkYsR%2BKkKPLyuO53vX82uaJ3ESv2lNPZ9aIc%2FlWfJLpnEZMFMS7fV2Einjmvnbamu0sQ2UsdGgm6jASSehqhuqbbTOU8PoedlxQsk6auMJuigD6Ao78KFyUJlglNUGfaf2uvyxEDf3W4y0Ch6HUiIyGhprFGgjK%2FBGOTCdLxtJptN19S3wEL8HMC1Dn5lvol8bi9jjINonYV1Va1%2FWoFyFoKmMgJoa5l7G4HXTlbFiUI3GYRNrcM5WTJIMNCpqMEGSVE4jllY8M6lDhQ9S0xyI2%2FutHwJv1YpxG%2Fg%2B0fvuwCFNT4JjEfsX0ZbyJELPe%2BLHz3zv8F7KXSpVRm91paBWUoLWFsGzTCxaV3e2MbWmv1m9zv2elLvU7O7TMZN4zhHCz1%2F7RSIblauhQssOorPgHVpw1jsfpIohup3%2Bobr%2FiIohfIl6%2FXzPvGDLwV%2FHfuLk70P%2BUS5t42fIjuTjqJ8HVXz4%2Ba2h7Ojt9gc%3D) of the workflow editor!
+> Check out a [live demo](https://open-rmf.github.io/crossflow/?diagram=lZDRboMwDEX%2FxdojJfSVX5mqKSWmpCIJi521FeLf50BH0VRV6lNi3%2BT4%2Bo7wQU2HTkMNHfNAtVJRX8qT5S4dE2Fsgmf0XDbBqTCg30XXqiYGorYPFxWxJdWhNqSctl4Zq09Ru3KhlmcKHgr4wUhWbjVU5b6spMPohl4zEtTjVACxjiwyDb1lkcOQBbjuq90xtS3GXPFtQHlzb8gvkV%2FqC%2B2h%2FNEJv5PsZHUP9edMkaYccFigmy8%2BGBTxmGxv8hRwqZfa4zXb3fgrQJJq7QnqfVWAsTJL3754fZf9nIOVDFb2XGZ2Bsi%2Bi5UHcEM%2FrCMpuXk1OV641MasLse5z3m0xB6d9ZJ7ZvwzeSfPcbwRwNMEnkYgGUzTLw%3D%3D) of the workflow editor!
 
 # Reactive Programming and Workflow Engine
 
