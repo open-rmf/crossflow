@@ -16,4 +16,5 @@ crossflow = { path = "../../" }
 async-std = "1.12"
 bevy_ecs = { workspace = true }
 bevy_derive = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
 glam = "*"

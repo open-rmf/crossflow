@@ -1,4 +1,4 @@
-# How to run a series
+# How to build a workflow
 
 > [!CAUTION]
 > 🚧 Under Construction 🚧
