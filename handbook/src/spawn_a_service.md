@@ -38,7 +38,7 @@ until it is done running. Therefore blocking services must be short-lived.
 To define a blocking service, create a function whose input argument is a `BlockingServiceInput`:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/make_a_request.rs:sum_fn}}
+{{#include ./examples/native/src/handbook_snippets.rs:sum_fn}}
 ```
 
 This function will define the behavior of our service: The request (input)
@@ -50,7 +50,7 @@ Before we can run this function as a service, we need to spawn an instance of it
 We can use the [`AddServicesExt`](https://docs.rs/crossflow/latest/crossflow/service/trait.AddServicesExt.html#tymethod.spawn_service) trait for this:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/make_a_request.rs:spawn_sum}}
+{{#include ./examples/native/src/handbook_snippets.rs:spawn_sum}}
 ```
 
 We can spawn the service while building our Bevy [`App`](https://docs.rs/bevy/latest/bevy/app/struct.App.html) to make sure that it's
@@ -86,7 +86,7 @@ as you would like. Here is an example of a blocking service that includes a
 [`Query`](https://docs.rs/bevy/latest/bevy/prelude/struct.Query.html):
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/make_a_request.rs:apply_offset_fn}}
+{{#include ./examples/native/src/handbook_snippets.rs:apply_offset_fn}}
 ```
 
 First we define a component struct named `Offset` which simply stores a
@@ -105,7 +105,7 @@ of `Offset` is being applied.
 When spawning the service, you can use `.with` to initialize the provider entity:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/make_a_request.rs:spawn_apply_offset}}
+{{#include ./examples/native/src/handbook_snippets.rs:spawn_apply_offset}}
 ```
 
 In general you can use [`Service::provider`](https://docs.rs/crossflow/latest/crossflow/service/struct.Service.html#method.provider)
@@ -118,6 +118,11 @@ for managing the components of an entity.
 ### More kinds of services
 
 If you are interested in non-blocking service types, continue on to [Async Services](./spawn_async_service.md) and [Continuous Services](./spawn_continuous_service.md).
+
+If you need your service to be a portable object that isn't associated with an
+entity, take a look at [Callbacks](./callbacks.md). If you don't care about your
+service being a Bevy system at all (i.e. it should just be a plain function with
+a single input argument) then take a look at [Maps](./maps.md).
 
 If blocking services are enough to get you started, then you can skip ahead to
 [How to Run a Service](./run_a_service.md).

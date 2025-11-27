@@ -8,8 +8,8 @@ name = "delivery-instructions"
 path = "src/delivery_instructions.rs"
 
 [[bin]]
-name = "make-a-request"
-path = "src/make_a_request.rs"
+name = "handbook-snippets"
+path = "src/handbook_snippets.rs"
 
 [dependencies]
 crossflow = { path = "../../" }
