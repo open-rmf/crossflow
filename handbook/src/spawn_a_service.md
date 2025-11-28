@@ -1,6 +1,6 @@
 # How to Spawn a Service
 
-For crossflow to be useful, you first need to have a [`Service`](https://docs.rs/crossflow/latest/crossflow/service/struct.Service.html)
+For crossflow to be useful, you first need to have a [`Service`][Service]
 to run. You may be able to find thirdparty libraries that provide some services
 for you to use, but this chapter will teach you how to spawn them yourself just
 in case you need to start from scratch.
@@ -14,9 +14,15 @@ output message (response):
 ![apple-pie-service](./assets/figures/service.svg)
 
 Each service expresses its request and response types as generic parameters in
-the [`Service`](https://docs.rs/crossflow/latest/crossflow/service/struct.Service.html)
-struct. These `Request` and `Response` parameters can be ***any*** data structures,
-as long as they can be passed between threads.
+the [`Service`][Service] struct. These `Request` and `Response` parameters can be
+***any*** data structures, as long as they can be passed between threads.
+
+> [!TIP]
+> We mean "data structures" in the broadest possible sense, not only "plain data".
+> For example, you can pass around utilities like [channels](https://tokio.rs/tokio/tutorial/channels)
+> and [publishers](https://docs.rs/rclrs/latest/rclrs/type.Publisher.html) as
+> messages, or use them as fields inside of messages. **Any valid Rust `struct`** that
+> can be safely moved between threads can be used as a message.
 
 The `Service` data structure itself is much like a function pointer. It contains
 nothing besides an [`Entity`][Entity]
@@ -113,6 +119,7 @@ to access the provider entity at any time, and use all the normal Bevy mechanism
 for managing the components of an entity.
 
 [Entity]: https://docs.rs/bevy/latest/bevy/prelude/struct.Entity.html
+[Service]: https://docs.rs/crossflow/latest/crossflow/service/struct.Service.html
 [BlockingService]: https://docs.rs/crossflow/latest/crossflow/struct.BlockingService.html
 
 ### More kinds of services

@@ -151,7 +151,7 @@ select! {
 
 // ANCHOR: collect_streams
 // Spawn an entity to be used to store the values coming out of the streams.
-let storage = commands.spawn(());
+let storage = commands.spawn(()).id();
 
 // Request the service, but set an entity to collect the streams before we
 // take the response.
@@ -170,7 +170,7 @@ commands.insert_resource(StreamStorage(storage));
 
     app.world_mut().command(|commands| {
 // ANCHOR: simple_series
-let storage = commands.spawn(());
+let storage = commands.spawn(()).id();
 
 commands
     // Ask for three values to be summed
@@ -178,7 +178,7 @@ commands
     // Convert the resulting value to a string
     .map_block(|value| value.to_string())
     // Send the string through the parsing service
-    // which will produce a u32, i32, and f32
+    // which may produce streams of u32, i32, and f32
     .then(parsing_service)
     // Collect the parsed values in an entity
     .collect_streams(storage)
@@ -255,7 +255,7 @@ fn print_streams(
     mut query_i32: Query<&mut Collection<NamedValue<i32>>>,
     mut query_f32: Query<&mut Collection<NamedValue<f32>>>,
 ) {
-    if let Ok(mut collection_u32) = query_u32.get_mut(*storage) {
+    if let Ok(mut collection_u32) = query_u32.get_mut(**storage) {
         for item in collection_u32.items.drain(..) {
             println!(
                 "Received {} from a stream named {} in session {}",
@@ -266,7 +266,7 @@ fn print_streams(
         }
     }
 
-    if let Ok(mut collection_i32) = query_i32.get_mut(*storage) {
+    if let Ok(mut collection_i32) = query_i32.get_mut(**storage) {
         for item in collection_i32.items.drain(..) {
             println!(
                 "Received {} from a stream named {} in session {}",
@@ -277,7 +277,7 @@ fn print_streams(
         }
     }
 
-    if let Ok(mut collection_f32) = query_f32.get_mut(*storage) {
+    if let Ok(mut collection_f32) = query_f32.get_mut(**storage) {
         for item in collection_f32.items.drain(..) {
             println!(
                 "Received {} from a stream named {} in session {}",

@@ -17,7 +17,7 @@ which you can use to receive the response of the service once it finishes.
 
 ### Sync Promise
 
-You can use a [`Promise`][Promise] in a sync (a.k.a. blocking, non-async)
+You can use a [`Promise`][Promise] in a sync (blocking, non-async)
 function using [`peek`](https://docs.rs/crossflow/latest/crossflow/promise/struct.Promise.html#method.peek):
 
 ```rust,no_run,noplayground
@@ -65,4 +65,4 @@ and you may need to receive data from those. You can learn about how to receive
 from output streams in [Receiving from Output Streams](./receiving_from_output_streams.md).
 
 If simply receiving the final response of a service is enough for your needs,
-then you can move along to [How to Build a Workflow](./build_a_workflow.md).
+then you can move along to the [Introduction to Workflows](./introduction_to_workflows.md) section.
