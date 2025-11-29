@@ -10,49 +10,77 @@ being passed might undergo transformations.
 
 ![service-chain](./assets/figures/service-chain.svg)
 
-## Branching
+## Node
 
-What distinguishes a workflow from a [series](./run_a_series.md) is that workflows
-support additional **operations** besides just chaining services together. For
-example, fork-result creates a fork (a point with diverging branches) in the
-workflow where one of two branches will be run based on the value of the input
-message:
+To put a service into a workflow you [create a node](./build_a_workflow.md#creating-a-node)
+by specifying a service that will be run when the node is given an input:
 
-![fork-result](./assets/figures/fork-result.svg)
+![workflow-node](./assets/figures/workflow-node.svg)
 
-## Parallelism
+In this case we've created a [node][Node] that will run the `bake_pie` service,
+taking an apple and turning it into a pie. You can include the same service any
+number of times in a workflow by creating a node for each place that you want to
+run the service.
 
+### Input Slots and Outputs
 
+A node has one [input slot][InputSlot] and one final [output][Output].
+There must be ***at least one*** output connected into a node's input slot in
+order for the node to ever be activated, but there is no upper limit on how many
+outputs can connect to an input slot. The node will simply be activated any time
+a message is sent to its input slot, no matter what the origin of the message is.
 
-### Clone
+The [output][Output] of a node must be connected to ***no more than one*** input
+slot or operation. If an output is not connected to anything, we call that output
+"disposed". If you want to connect your node's output to multiple input slots,
+you will need to pass it through an operation like [clone](./parallelism.md#clone),
+[unzip](./parallelism.md#unzip), or [split](./parallelism.md#split) depending on how
+you want the message to be distributed.
 
-Besides conditionally running one branch or another, some operations can run
-multiple branches in parallel. For example, the
-[fork-clone](https://docs.rs/crossflow/latest/crossflow/builder/struct.Builder.html#method.create_fork_clone)
-operation takes in any cloneable message and then sends one copy down each each
-branch coming out of it:
+To connect an output to an input slot, the data type of the output must match the
+data type expected by the input slot. When using the native Rust API, you can
+use a [map](./maps.md) node to accomplish this. When building a JSON diagram, you
+can use the [transform](./transform.md) operation. A data type mismatch will either
+cause a compilation error (native Rust API) or a workflow building error (JSON
+Diagram). Either way, the workflow will not be allowed to run until the mismatch
+is resolved.
 
-![fork-clone](./assets/figures/fork-clone.svg)
+### Streams
 
-Each branch coming out of the fork-clone will run independently and in parallel.
-Unlike in a behavior tree, these branches are completely decoupled from here on
-out, unless you choose to [synchronize](#synchronization) them later. You are
-free to do any other kind of branching, cycling, connecting for each of these
-branches, without needing to consider any of the other branches.
+If the service used by your node has [output streams](./output_streams.md) then
+you will receive a separate [output][Output] for each stream:
 
-### Unzip
+![output-streams](./assets/figures/output-streams.svg)
 
-Another way to create parallel branches is to unzip a [tuple](https://doc.rust-lang.org/std/primitive.tuple.html)
-message into its individual elements:
+In this example, the `pollinate` service has a side effect of producing more
+flowers and producing honey. We can represent these side effects as output streams
+of the service.
 
-![fork-unzip](./assets/figures/fork-unzip.svg)
+Each of these stream outputs can be connected to a separate input slot or operation.
+Each stream can carry a different data type, so make sure that you are connecting
+each stream to a compatible input slot or operation.
 
-The tuple can have any number of elements (up to 12), and it will have as many
-output branches as it had elements. Just like fork-clone, each branch will be
-fully independent.
+When building a workflow, stream outputs appear the same as the regular "final"
+output. There are just two practical characteristics that make stream outputs
+different:
 
+* Output streams will only produce messages while the node is active, i.e. after
+  the final output message has been sent, no more stream messages can appear
+  until the node is activated again by a new input message.
+* For as long as the node is active, an output stream may produce ***any number of
+  messages***, including zero. This means you cannot rely on getting a message
+  from a stream unless you know something about the implementation of the service
+  that the node is using.
 
+## Operations
 
-## Synchronization
+Besides just running services, workflows need to manage the flow of data between
+those services. That includes [conditional branching](./branching.md),
+[parallelism](./parallelism.md), and [synchronization](./synchronization.md). Continue
+to the next page to learn about the other kinds of operations that you can use
+in a workflow to achieve the behavior that you want.
 
+[Node]: https://docs.rs/crossflow/latest/crossflow/node/struct.Node.html
+[InputSlot]: https://docs.rs/crossflow/latest/crossflow/node/struct.InputSlot.html
+[Output]: https://docs.rs/crossflow/latest/crossflow/node/struct.Output.html
 [Service]: https://docs.rs/crossflow/latest/crossflow/service/struct.Service.html

@@ -6,3 +6,5 @@
 > in an application. If you are instead interested in building workflows using
 > **JSON diagrams**, then you can skip ahead to the [JSON Diagrams](./json_diagrams.md)
 > chapter.
+
+## Creating a Node

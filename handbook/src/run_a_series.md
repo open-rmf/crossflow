@@ -1,8 +1,8 @@
 # How to Run a Series
 
 Very often when running a service you may want to feed its output directly into
-another service in order to emulate a more complex service. For one-off requests
-you can chain services together by building a [`Series`][Series].
+another service in order to emulate a more complex service or a multi-stage action.
+For one-off requests you can chain services together by building a [`Series`][Series].
 
 > [!TIP]
 > If you need to assemble services into a more complex structure than a linear
