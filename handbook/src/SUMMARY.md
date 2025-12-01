@@ -16,6 +16,8 @@
   - [Branching](./branching.md)
   - [Parallelism](./parallelism.md)
   - [Synchronization](./synchronization.md)
+  - [Scopes](./scopes.md)
+  - [Sections](./workflow_sections.md)
 - [How to Build a Workflow](./build_a_workflow.md)
 - [JSON Diagrams](./json_diagrams.md)
   - [Basic Syntax](./json_diagram_syntax.md)

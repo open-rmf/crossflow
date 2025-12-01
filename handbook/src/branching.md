@@ -51,7 +51,7 @@ it to the kitchen to be baked into a pie. If no apple was available then we go
 to the supermarket and bring back an apple to send to the kitchen. The context
 of the workflow is enough for us to know that we need to pick up an apple from
 the supermarket (this information could be embedded in the service configuration),
-so a trigger is sufficient to activate that service.
+so a trigger with no message data is sufficient to activate that service.
 
 > [!NOTE]
 > If you have a custom enum type that you would like to use for forking, we have
