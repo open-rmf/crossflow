@@ -22,3 +22,6 @@
 - [JSON Diagrams](./json_diagrams.md)
   - [Basic Syntax](./json_diagram_syntax.md)
   - [Transform](./transform.md)
+  - [gRPC](./grpc.md)
+  - [Zenoh](./zenoh.md)
+  - [ROS 2](./ros2.md)

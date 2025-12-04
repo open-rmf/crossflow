@@ -29,7 +29,7 @@ table th:nth-of-type(3) {
 |--|-------------|----------|
 | [![native Rust API](./assets/figures/binary-matrix.png "Native Rust API")](./build_a_workflow.md) | Write Rust code to define nodes and workflows using the native Rust API of crossflow |  🠚 compile-time validation <br> 🠚 access to all native features <br> 🠚 easily import plugins |
 | [![runtime generation](./assets/figures/cyber-brain.png "Runtime Generation")](./json_diagrams.md) | Generate a JSON diagram based on the output of a planner or a description of some process | 🠚 runtime validation of diagram <br> 🠚 visualize generated diagrams <br> 🠚 implement highly dynamic systems |
-| [![visual editor](./assets/figures/visual-diagram.png "Visual Editor")](https://open-rmf.github.io/crossflow/) | Visually design and configure a workflow with an editor | 🠚 no-code programming <br> 🠚 validate diagram while editing <br> 🠚 runtime validation of diagram |
+| [![visual editor](./assets/figures/visual-diagram.png "Visual Editor")](https://open-rmf.github.io/crossflow/) | Visually design and configure a workflow with a graphical editor | 🠚 no-code programming <br> 🠚 validate diagram while editing <br> 🠚 runtime validation of diagram |
 
 This chapter will introduce concepts that are relevant to all three. For building
 workflows using the native Rust API, you can go to the [How to Build a Workflow](./build_a_workflow.md)
