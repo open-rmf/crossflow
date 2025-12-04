@@ -78,7 +78,7 @@ not be allowed to run until the mismatch is resolved.
 ### Streams
 
 If the service used by your node has [output streams](./output_streams.md) then
-you will receive a separate [output][Output] for each stream:
+you will receive a separate [`Output`][Output] for each stream:
 
 ![output-streams](./assets/figures/output-streams.svg)
 
