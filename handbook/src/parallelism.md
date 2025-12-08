@@ -35,6 +35,10 @@ each branch will be fully independent.
 
 ## Spread
 
+> [!WARNING]
+> At the time of this writing, the spread operation is not yet available for JSON
+> diagrams. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
+
 > [!TIP]
 > A **single node** can be activated **any number of times** simultaneously.
 
@@ -67,10 +71,6 @@ being sent to:
   continuous service will see all of them in its queue the next time it gets run.
 
 The inverse of the spread operation is the [collect](./synchronization.md#collect) operation.
-
-> [!WARNING]
-> At the time of this writing, the spread operation is not yet available for JSON
-> diagrams. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
 
 ## Split
 

@@ -16,4 +16,3 @@ restrictions on how these connections are laid out, except that each output
 connects to exactly one input slot---but each input slot can take in any number
 of outputs, leaving an opening for downstream operations to connect their outputs
 back upstream.
-

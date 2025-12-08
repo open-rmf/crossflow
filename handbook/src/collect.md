@@ -1,5 +1,9 @@
 # Collect
 
+> [!WARNING]
+> At the time of this writing, the collect operation is not yet available for JSON
+> diagrams. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
+
 Recall from the [parallelism](./parallelism.md) chapter that there are two ways
 to have parallel activity within a workflow: [branching](./parallelism.md#clone) and
 [spreading](./parallelism.md#spread). [Join](./join.md) and [listen](./listen.md)
@@ -100,7 +104,7 @@ spawning the workflow. This issue is tracked by [#148](https://github.com/open-r
 ### Scoping
 
 It's still possible to have two collect operations in the same cycle, but you
-need something to disrupt the circular dependency. You can use the [scope](./scopes.md)
+need something to disrupt the circular dependency. You can use the [scope](./scopes.md#scope-operation)
 operation to isolate one of the collect operations to focus exclusively on one
 portion of the cycle, e.g. the portion between the left and right collect operations:
 
@@ -116,10 +120,6 @@ dependency structure---and good thing, because there is no way to resolve that
 structure!---but it does allow us to have a pattern of multiple **spread**🠚**collect** or
 **stream**🠚**collect** sections within one cycle of a workflow. We just need to
 isolate each collect to a specific scope of activity.
-
-> [!WARNING]
-> At the time of this writing, the collect operation is not yet available for JSON
-> diagrams. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
 
 [Vec]: https://doc.rust-lang.org/std/vec/struct.Vec.html
 [Unreachability]: https://docs.rs/crossflow/latest/crossflow/cancel/struct.Unreachability.html
