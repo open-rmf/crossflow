@@ -29,4 +29,8 @@ are set correctly. The difference between listen and buffer access is that
 **the buffer access operation does not get triggered when buffer values are changed**.
 It only gets triggered when an input value is passed to it.
 
+> [!TIP]
+> To learn how to use an accessor within your service, see
+> [Using an Accessor](./using_an_accessor.md).
+
 [BufferAccess]: https://docs.rs/crossflow/latest/crossflow/builder/struct.Builder.html#method.create_buffer_access
