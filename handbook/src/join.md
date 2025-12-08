@@ -34,7 +34,7 @@ a matching key name and matching data type. When building workflows with the nat
 Rust API, any mismatch will produce a compilation error. When building a workflow
 from a JSON diagram, you will get an [`IncompatibleLayout`][IncompatibleLayout] error.
 
-## Joint into sequence
+## Join into sequence
 
 While the keyed join is generally the recommended way to do a join (explicit key
 names have more semantic value), it is also possible to join into a sequence,
@@ -56,7 +56,7 @@ from a JSON diagram.
 When the conditions are met for a join operation to activate (at least one message
 is present in every connected buffer), the join operation will construct its
 output message by "fetching" the oldest message from each of its connected buffers.
-By default, "fetching" means to pull the message, removing it from the buffer and
+By default, "fetching" means to "pull" the message, removing it from the buffer and
 moving it into the output message.
 
 Sometimes there may be a reason to clone the message out of the buffer instead of
@@ -68,11 +68,12 @@ Suppose we want to make many apple pies with the same oven.
 
 ![fetch-by-clone](./assets/figures/fetch-by-clone.svg)
 
-We can't bake any pies without preheating the oven, but once the oven has reached
+We can't bake any pies until the oven is preheated, but once the oven has reached
 the right temperature, we do not need preheat it again. We can have our ingredient
-preparation branch repeatedly prepare the pie pans for baking, and those pans will
-be put in the oven as soon as the oven is finished preheating. Any new pans that
-are prepared after the preheating is finished can go into the oven right away.
+preparation branch repeatedly prepare the pie pans for baking, and all of those
+pans will be put in the oven as soon as the oven has finished preheating once.
+Any new pans that are prepared after the preheating is finished can go into the
+oven right away.
 
 To express this behavior, we use fetch-by-clone for the buffer that tracks whether
 the oven is preheated, while we do the regular fetch-by-pull for the prepared pan.

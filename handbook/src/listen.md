@@ -58,9 +58,9 @@ signal.
 Just like any other operation in a workflow, the listen operation produces a
 message that can be connected to an input slot of a compatible node or other kind
 of operation. Similar to [join](./join.md), the listen operation can infer what
-message type it should produce based on what operation it's connected to. However
-the listen operation specifically creates an **Accessor**---a data type that gives
-access to one or more buffers within the workflow.
+message type it should produce based on what downstream operation it's connected
+to. However the listen operation specifically creates an **Accessor**---a data
+type that gives access to one or more buffers within the workflow.
 
 The most basic accessor is a [`BufferKey<T>`][BufferKey] which gives access to a
 buffer containing messages of type `T`. There are some opaque buffer keys like
@@ -69,19 +69,19 @@ reveal the underlying message type within the buffer but allow you to interact
 with the buffer data within the limitations of [`JsonBufferMut`][JsonBufferMut]
 and [`AnyBufferMut`][AnyBufferMut] respectively.
 
-However in many cases you will want to receive multiple keys from a listener
-because you want to listen to multiple buffers at once. The keys you get from the
-listener might be for buffers with different message types, and each key might
-have its own particular identity. You can define a custom accessor type in Rust
-using the `Accessor` macro:
+In many cases you will want to receive multiple keys from a listener because
+it is often useful to listen to multiple buffers at once. The keys you get from
+the listener might be for buffers with different message types, and each key might
+have its own particular purpose or identity. You can define a custom accessor type
+in Rust using the `Accessor` macro:
 
 ![listen-accessor](./assets/figures/listen-accessor.svg)
 
-Simply create a struct who fields are all buffer key type (which may include
-[`JsonBufferKey`][JsonBufferKey] and [`AnyBufferKey`][AnyBufferKey]). Use this
-custom Accessor struct as the input type of your service. When you connect a
-listener to a node that uses your service, it will know that it needs to create
-this Accessor type.
+Simply create a struct who fields are all buffer key types (which may include
+[`JsonBufferKey`][JsonBufferKey] and [`AnyBufferKey`][AnyBufferKey]). Derive
+`Accessor` and `Clone` for your custom struct. Use this custom struct as the
+input type of your service. When you connect a listener to a node that uses your
+service, it will know that it needs to create this struct for you.
 
 When using a custom accessor, the buffers connected to the listener will need to
 specify a key name for their connection, much like they do when
@@ -95,3 +95,12 @@ incompatibility will produce a compilation error.
 > [!TIP]
 > To learn how to use an accessor within your service, see
 > [Using an Accessor](./using_an_accessor.md).
+
+[BufferKey]: https://docs.rs/crossflow/latest/crossflow/buffer/struct.BufferKey.html
+[BufferAccess]: https://docs.rs/crossflow/latest/crossflow/buffer/struct.BufferAccess.html
+[allow_closed_loops]: https://docs.rs/crossflow/latest/crossflow/buffer/struct.BufferMut.html#method.allow_closed_loops
+[JsonBufferKey]: https://docs.rs/crossflow/latest/crossflow/buffer/struct.JsonBufferKey.html
+[AnyBufferKey]: https://docs.rs/crossflow/latest/crossflow/buffer/struct.AnyBufferKey.html
+[JsonBufferMut]: https://docs.rs/crossflow/latest/crossflow/buffer/struct.JsonBufferMut.html
+[AnyBufferMut]: https://docs.rs/crossflow/latest/crossflow/buffer/struct.AnyBufferMut.html
+[IncompatibleLayout]: https://docs.rs/crossflow/latest/crossflow/buffer/struct.IncompatibleLayout.html

@@ -7,8 +7,8 @@ and/or cycles. Its specialty is implementing event-driven state machines.
 
 Implemented in Rust on the [Bevy](https://bevy.org/) [ECS](https://en.wikipedia.org/wiki/Entity_component_system),
 crossflow has high performance and safe parallelism, making it suitable for
-highly responsive low-level state machines, just as well as low-bandwidth high-level
-event orchestrators.
+highly responsive low-level state machines, just as well as high-level visually
+programmed event orchestrators.
 
 ## Workflows
 
