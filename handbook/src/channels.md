@@ -43,11 +43,11 @@ we can feed the service with the information it needs to respond to obstacles.
 
 > [!CAUTION]
 > Channels are a powerful way to set up long-running one-way or two-way
-> communication between services in a workflow that run in parallel, but there
-> is a notable drawback. If you want to visualize the execution of the workflow,
-> **data sent between services over channels will not be traceable**. If you
-> care about traceability, you should consider copying all channel data to an
-> output stream for logging.
+> communication between async services in a workflow that run in parallel, but
+> there is a notable drawback. If you want to visualize the execution of the
+> workflow, **data sent between services over channels will not be traceable**.
+> If you care about traceability, you should consider copying all channel data to
+> an output stream for logging.
 
 [channels]: https://doc.rust-lang.org/rust-by-example/std_misc/channels.html
 [Sender]: https://docs.rs/tokio/latest/tokio/sync/mpsc/struct.Sender.html
