@@ -7,13 +7,12 @@ in case you need to start from scratch.
 
 ### What is a service?
 
-At its most distilled essence, a service is something you can refer to that can
-take a certain type of input message (request) and produce a certain type of
-output message (response):
+At its most distilled essence, a service is something that can take an input
+message (request) and produce an output message (response):
 
 ![apple-pie-service](./assets/figures/service.svg)
 
-Each service expresses its request and response types as generic parameters in
+Each [service][Service] expresses its request and response types as generic parameters in
 the [`Service`][Service] struct. These `Request` and `Response` parameters can be
 ***any*** data structures, as long as they can be passed between threads.
 

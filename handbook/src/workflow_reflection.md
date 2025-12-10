@@ -24,17 +24,33 @@ execution of the workflow at runtime.
 > [!CAUTION]
 > 🚧 Under Construction 🚧
 
+> [!WARNING]
+> At the time of this writing, the trim operation is not yet available for JSON
+> diagrams. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
+
 ## Gate
 
 > [!CAUTION]
 > 🚧 Under Construction 🚧
+
+> [!WARNING]
+> At the time of this writing, the gate operation is not yet available for JSON
+> diagrams. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
 
 ## Inject
 
 > [!CAUTION]
 > 🚧 Under Construction 🚧
 
+> [!WARNING]
+> At the time of this writing, the inject operation is not yet available for JSON
+> diagrams. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
+
 ## Collect
+
+> [!WARNING]
+> At the time of this writing, the collect operation is not yet available for JSON
+> diagrams. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
 
 Collect was [already covered](./collect.md) under synchronization, but it can
 also be considered a reflective operation. It creates a point in the workflow

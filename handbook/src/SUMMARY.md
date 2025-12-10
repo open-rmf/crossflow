@@ -26,6 +26,8 @@
     - [Channels](./channels.md)
   - [Cycles](./cycles.md)
   - [Scopes](./scopes.md)
+    - [Stream Out](./scope-stream-out.md)
+    - [Scope Operation](./scope-operation.md)
   - [Sections](./workflow_sections.md)
   - [Reflection](./workflow_reflection.md)
 - [How to Build a Workflow](./build_a_workflow.md)

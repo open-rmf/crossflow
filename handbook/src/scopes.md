@@ -91,16 +91,7 @@ still lingering for this session in any of the buffers will simply be discarded.
 ### Final Output
 
 Once all the cleanup is finished, the terminate operation will deliver the first
-message it received to whoever started this session. After this the session entity
-will be despawned, erasing all remaining information about the session.
-
-## Streams
-
-![scope-stream](./assets/figures/scope-stream.svg)
-
-## Scope Operation
-
-### Racing
+message it received to whoever started this session.
 
 [Task]: https://docs.rs/bevy/latest/bevy/tasks/struct.Task.html
 [cancel]: https://docs.rs/bevy/latest/bevy/tasks/struct.Task.html#method.cancel
