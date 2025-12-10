@@ -1,8 +1,9 @@
 # Collect
 
 > [!WARNING]
-> At the time of this writing, the collect operation is not yet available for JSON
-> diagrams. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
+> At the time of this writing, the collect operation is not yet available as a JSON
+> diagram operation. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
+> In the meantime it can be put into a JSON diagram with a [section](./workflow_sections.md) builder.
 
 Recall from the [parallelism](./parallelism.md) chapter that there are two ways
 to have parallel activity within a workflow: [branching](./parallelism.md#clone) and

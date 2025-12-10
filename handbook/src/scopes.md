@@ -45,6 +45,12 @@ operations get cleaned depending on the kind of operation:
 * **Continuous**: The order queue of the operation is cleared out for this
   session. The next time the service runs, it will no longer see any orders
   related to this session.
+* **Workflow**: The input message storage of the operation is cleared out, **and**
+  the inner workflow is sent a cancellation signal. Any uninterruptible scopes
+  within the workflow will be brought to a finish, and cleanup will be performed
+  on the workflow's operations and buffers. The cleanup of this operation is
+  considered finished when we are notified that the inner workflow's cleanup has
+  finished.
 
 ### Buffer Cleanup
 

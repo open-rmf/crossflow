@@ -3,12 +3,12 @@
 Crossflow is a general-purpose Rust library for reactive and async programming.
 It simplifies the challenges of implementing highly async software systems that
 may have parallel activities with interdependencies, conditional branching,
-and/or cycles. Its specialty is implementing event-driven state machines.
+and/or cycles. Its specialty is creating event-driven multi-agent state machines.
 
 Implemented in Rust on the [Bevy](https://bevy.org/) [ECS](https://en.wikipedia.org/wiki/Entity_component_system),
-crossflow has high performance and safe parallelism, making it suitable for
-highly responsive low-level state machines, just as well as high-level visually
-programmed event orchestrators.
+crossflow has high performance and guaranteed-safe parallelism, making it suitable
+for highly responsive low-level state machines, just as well as high-level visually
+programmed device orchestrators.
 
 ## Workflows
 
@@ -31,7 +31,7 @@ be processed in the "background" as your application runs, and you can periodica
 check `response` to see if the request is complete or use Rust's built-in `.await`
 language feature on `response` in an async code block to receive the final output
 of the request. You can find more options for handling responses in the
-[Building a series](./building_a_series.md) chapter.
+[How to Run a Series](./run_a_series.md) chapter.
 
 You can run as many requests as you want at the same time for as many workflows
 or services as you want, including making multiple simultaneous requests for the
@@ -43,5 +43,9 @@ the actual physical world, or some external resource) then those services or
 workflows may indirectly interact with each other.
 
 To get you started with crossflow, the next chapter will teach you how to spawn
-a basic service. After that you will see how to run a service, then how to
-assemble services into a workflow (which is itself a service) and execute it.
+a basic service. After that you will see [how to run a service](./run_a_service.md),
+then how to [assemble services into a workflow](./build_a_workflow.md) (which is
+itself a service) and execute it.
+
+To learn the fundamental concepts around what a "workflow" is in the crossflow
+library, see the [Introduction to Workflows](./introduction_to_workflows.md) chapter.

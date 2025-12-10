@@ -7,14 +7,14 @@ in case you need to start from scratch.
 
 ### What is a service?
 
-At its most distilled essence, a service is something that can take an input
+In its most distilled essence, a service is something that can take an input
 message (request) and produce an output message (response):
 
 ![apple-pie-service](./assets/figures/service.svg)
 
 Each [service][Service] expresses its request and response types as generic parameters in
 the [`Service`][Service] struct. These `Request` and `Response` parameters can be
-***any*** data structures, as long as they can be passed between threads.
+***any*** data structures that can be passed between threads.
 
 > [!TIP]
 > We mean "data structures" in the broadest possible sense, not only "plain data".
@@ -23,13 +23,13 @@ the [`Service`][Service] struct. These `Request` and `Response` parameters can b
 > messages, or use them as fields inside of messages. **Any valid Rust `struct`** that
 > can be safely moved between threads can be used as a message.
 
-The `Service` data structure itself is much like a function pointer. It contains
+The [`Service`][Service] data structure itself is much like a function pointer. It contains
 nothing besides an [`Entity`][Entity]
 (a lightweight identifier that points to the service's location in the
 [`World`](https://docs.rs/bevy/latest/bevy/prelude/struct.World.html)) and the
-type information that ensures you send it the correct `Request` type and know
-what `Response` type to expect from it. When you copy or clone a `Service`, you
-are really just making a copy of this identifier. The underlying service
+type information that ensures you send it the correct `Request` type and that you
+know what `Response` type to expect from it. When you copy or clone a `Service`,
+you are really just making a copy of this identifier. The underlying service
 implementation that will be called for the copy is the exact same as the original.
 
 ### Spawn a Blocking Service
