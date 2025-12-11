@@ -116,13 +116,52 @@ orders will be sent through immediately.
 
 ## Inject
 
-> [!CAUTION]
-> 🚧 Under Construction 🚧
-
 > [!WARNING]
 > At the time of this writing, the inject operation is not yet available as a JSON
 > diagram operation. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
 > In the meantime it can be put into a JSON diagram with a [section](./workflow_sections.md) builder.
+
+Sometimes a single fixed workflow structure is not sufficient to define the
+behavior of a dynamic or intelligent system. A flexible state machine may need
+to decide its execution structure at runtime; perhaps the state machine itself
+needs to reconfigure its own execution structure during a state transition.
+
+While crossflow does not support fully generalized reflection, it does support
+an **inject** operation that allows you to spawn a service at runtime and inject
+it into the node of a workflow from inside the workflow itself. The service that
+you spawn could itself be a workflow whose entire structure is decided by another
+service.
+
+For example an ordinary path planning service might produce a simple path or
+trajectory for a controller to track, but a more intelligent path planning service
+might want to include instructions for how the robot should interact with other
+devices---such as doors, elevators, and other robots. A trajectory would not be
+sufficient to describe these interactions, but a runtime generated workflow would
+do the trick.
+
+![inject](./assets/figures/inject.svg)
+
+Instead of a trajectory message, the `plan_path` service will, itself, produce
+a [`Service`][Service] that it passes along as a message. That service will be
+combined with a buffer key that gives access to the buffer that stores the
+robot's current location---which is what the generated service needs as an input
+message---and then passed into the **inject** operation. From there, the inject
+operation will pass the buffer key into the generated service and run it as if
+it were a regular node in the workflow.
+
+When the generated service finishes running it will produce a `Result` which is
+`Ok` if the plan was successfully followed, otherwise an `Err`. In the `Ok` case
+we simply terminate, while for an `Err` we will cycle back and ask for a new plan.
+The new plan that gets generated after an `Err` could be a completely different
+workflow than what previously ran, freshly generated to deal with the latest
+circumstances.
+
+In general the inject operation allows workflows to define state transitions
+that completely change the behavior of the state machine from transition to
+transition. In most cases this will be implemented in a two-tier structure with
+a fixed cyclical structure for the top-level state machine that dynamically
+generates and executes a lower-level state machine to define the evolving
+situational logic.
 
 ## Collect
 
@@ -140,3 +179,4 @@ where no further progress will be made until all upstream activity has finished.
 [gate_open]: https://docs.rs/crossflow/latest/crossflow/builder/struct.Builder.html#method.create_gate_open
 [BufferGateView]: https://docs.rs/crossflow/latest/crossflow/buffer/struct.BufferGateView.html#method.gate
 [BufferGateMut]: https://docs.rs/crossflow/latest/crossflow/buffer/struct.BufferGateMut.html
+[Service]: https://docs.rs/crossflow/latest/crossflow/service/struct.Service.html
