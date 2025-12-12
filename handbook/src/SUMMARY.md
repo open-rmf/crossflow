@@ -20,7 +20,6 @@
     - [Buffers](./buffers.md)
     - [Join](./join.md)
     - [Listen](./listen.md)
-    - [Multi-Agent State Machines](./multi-agent-state-machines.md)
     - [Buffer Access](./buffer_access.md)
     - [Collect](./collect.md)
     - [Channels](./channels.md)
@@ -41,3 +40,4 @@
   - [gRPC](./grpc.md)
   - [Zenoh](./zenoh.md)
   - [ROS 2](./ros2.md)
+- [Multi-Agent State Machines](./multi-agent-state-machines.md)
