@@ -38,7 +38,7 @@ each branch will be fully independent.
 > [!WARNING]
 > At the time of this writing, the spread operation is not yet available as a JSON
 > diagram operation. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
-> In the meantime it can be put into a JSON diagram with a [section](./workflow_sections.md) builder.
+> In the meantime it can be put into a JSON diagram via the [section](./workflow_sections.md) builder operation.
 
 > [!TIP]
 > A **single node** can be activated **any number of times** simultaneously.

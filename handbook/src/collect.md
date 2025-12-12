@@ -3,7 +3,7 @@
 > [!WARNING]
 > At the time of this writing, the collect operation is not yet available as a JSON
 > diagram operation. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
-> In the meantime it can be put into a JSON diagram with a [section](./workflow_sections.md) builder.
+> In the meantime it can be put into a JSON diagram via the [section](./workflow_sections.md) builder operation.
 
 Recall from the [parallelism](./parallelism.md) chapter that there are two ways
 to have parallel activity within a workflow: [branching](./parallelism.md#clone) and
@@ -64,8 +64,8 @@ checking whether the output of the collect operation is empty or has 1 element.
 ## Circularity
 
 It is okay to put a collect operation inside of a cycle. In this case, "upstream"
-of the collect **does include** any operations **downstream** of the cycle that
-can lead back to the collect operation. When calculating reachability, the
+of the collect **does include** any operations **downstream** *that can lead back
+to the collect operation*. When calculating reachability, the
 collect operation will simply *prune itself* to prevent an infinite graph search.
 
 ![single-collect-cycle](./assets/figures/single-collect-cycle.svg)

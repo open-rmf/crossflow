@@ -17,34 +17,35 @@ modify the execution of the workflow at runtime.
 > Theoretically it is possible to implement generalized reflection in crossflow.
 > The main challenge is how to design an API that does not leave loose ends
 > dangling while modifications are being made, or an API that can protect the
-> user from unintuitive race conditions.
+> user from unintuitive race conditions that may happen as the workflow
+> transitions from one structure to another.
 
 ## Trim
 
 > [!WARNING]
 > At the time of this writing, the trim operation is not yet available as a JSON
 > diagram operation. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
-> In the meantime it can be put into a JSON diagram with a [section](./workflow_sections.md) builder.
+> In the meantime it can be put into a JSON diagram via the [section](./workflow_sections.md) builder operation.
 
 Sometimes unbridled parallelism is a liability. If multiple branches want to make
 use of the same services, there could be destructive interference between the
 branches, depending on the nature of the services they are using.
 
-Suppose we want to define a workflow for sending a robot to a location, but this
-workflow takes into consideration whether that location is available. We are
-operating in a multi-robot environment, so we need to make sure we are not
+Suppose we want to define a workflow for sending a robot to a location, but we
+need the workflow to check if the location is available before sending the robot.
+We are operating in a multi-robot environment, so we need to make sure we are not
 sending multiple robots to the same location at the same time.
 
 We've been provided with a `reserve_location` service that takes in a target
 location request and tries to reserve that location for our robot. If the location
-is not available, then `reserve_location` will first stream out a ***detour***
-location for the robot to start moving towards. This detour location will be a
-waiting location that is as close as possible to the final target location.
+is not available right away, then `reserve_location` will first stream out a
+***detour*** location for the robot to start moving towards. This detour location
+will be a parking spot that is as close as possible to the final target location.
 
 ![trim](./assets/figures/trim.svg)
 
 While the robot is heading to its detour location, the `reserve_location` service
-will continue running until it gets a confirmation that the target location is
+will remain active until it gets a confirmation that the target location is
 successfully reserved for our robot. Then the service will finish, passing along
 the target location to a path planner which passes along a path to a `drive`
 service. Once the robot reaches its target location, the `drive` service will
@@ -69,14 +70,15 @@ running at the same time.
 > [!WARNING]
 > At the time of this writing, the gate operation is not yet available as a JSON
 > diagram operation. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
-> In the meantime it can be put into a JSON diagram with a [section](./workflow_sections.md) builder.
+> In the meantime it can be put into a JSON diagram via the [section](./workflow_sections.md) builder operation.
 
 Trim allows you to stop ongoing activity in a node, but there is also an
-operation that allows you to prevent activity before it happens. The
+operation that allows you to prevent activity from starting in the first place. The
 [**gate close**][gate_close] operation can be applied to a set of buffers to block
-the [join](./join.md) and [listen](./listen.md) operations from waking up when
-those buffers are modified. The [**gate open**][gate_open] counterpart undoes the
-effect of **gate close**, allowing the join and listen operations to resume.
+any connected [join](./join.md) and [listen](./listen.md) operations from waking
+up when those buffers are modified. The [**gate open**][gate_open] counterpart
+undoes the effect of **gate close**, allowing the join and listen operations to
+resume.
 
 > [!NOTE]
 > Closing a buffer gate does **not** block the [buffer access](./buffer_access.md)
@@ -122,14 +124,14 @@ orders will be sent through immediately.
 > [!WARNING]
 > At the time of this writing, the inject operation is not yet available as a JSON
 > diagram operation. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
-> In the meantime it can be put into a JSON diagram with a [section](./workflow_sections.md) builder.
+> In the meantime it can be put into a JSON diagram via the [section](./workflow_sections.md) builder operation.
 
 ## Collect
 
 > [!WARNING]
 > At the time of this writing, the collect operation is not yet available as a JSON
 > diagram operation. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
-> In the meantime it can be put into a JSON diagram with a [section](./workflow_sections.md) builder.
+> In the meantime it can be put into a JSON diagram via the [section](./workflow_sections.md) builder operation.
 
 Collect was [already covered](./collect.md) under synchronization, but it can
 also be considered a reflective operation. It creates a point in the workflow
