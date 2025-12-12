@@ -35,6 +35,7 @@ operations get cleaned depending on the kind of operation:
 > [!WARNING]
 > At the time of this writing, buffer cleanup is not yet available for JSON
 > diagrams. This is being tracked by [#59](https://github.com/open-rmf/crossflow/issues/59).
+> In the meantime, buffer data will simply be dropped when a scope terminates.
 
 After operation cleanup is finished, there may still be data lingering in the
 buffers for this session. Often it would be fine to just discard that data without
