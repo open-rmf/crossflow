@@ -15,9 +15,9 @@ but we need both to be done before we can begin baking the pie:
 To make this work, we capture the output of each service—`chop_apple` and
 `preheat_oven`—in a separate **buffer**. A buffer is a workflow element that
 can capture messages for later use. There are numerous ways and reasons to use a
-buffer, but a spme examples include:
+buffer, but a some examples include:
 * Hold messages until the workflow is ready to consume them (similar to "places" in [Petri Nets][PetriNet])
-* Store information about the state of workflow (similar to the "blackboard" in behavior trees)
+* Track the internal state of workflow (similar to the "blackboard" in behavior trees)
 
 In our apple pie use case, we want to see that the "apple chopped" and "temperature ready"
 buffers both have a message before we pull those messages out of the buffers and
@@ -34,7 +34,7 @@ pass the apples along to be baked.
 Certain operations take buffers instead of messages as inputs. Those operations
 will be activated on any change in any of the buffers connected to them, although
 the exact behavior depends on the operation. Some examples are [join](./join.md) and
-[listen](./listen.md).
+[listen](./listen.md), covered in the next two pages.
 
 [PetriNet]: https://en.wikipedia.org/wiki/Petri_net
 [RetentionPolicy]: https://docs.rs/crossflow/latest/crossflow/buffer/enum.RetentionPolicy.html

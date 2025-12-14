@@ -53,6 +53,10 @@ let apply_offset_service: Service<Vec2, Vec2> = app.spawn_service(
 );
 // ANCHOR_END: spawn_apply_offset
 
+// ANCHOR: spawn_trivial_async_service
+let async_service: Service<String, String> = app.spawn_service(trivial_async_service);
+// ANCHOR_END: spawn_trivial_async_service
+
     {
         let service = apply_offset_service;
         let request_msg = Vec2::ZERO;
@@ -289,3 +293,84 @@ fn print_streams(
     }
 }
 // ANCHOR_END: query_stream_storage
+
+// ANCHOR: trivial_async_service
+async fn trivial_async_service(In(srv): AsyncServiceInput<String>) -> String {
+    return srv.request;
+}
+// ANCHOR_END: trivial_async_service
+
+// ANCHOR: page_title_service
+async fn page_title_service(In(srv): AsyncServiceInput<String>) -> Option<String> {
+    let response = trpl::get(&srv.request).await;
+    let response_text = response.text().await;
+    trpl::Html::parse(&response_text)
+        .select_first("title")
+        .map(|title| title.inner_html())
+}
+// ANCHOR_END: page_title_service
+
+// ANCHOR: insert_page_title
+/// A component that stores a web page title inside an Entity
+#[derive(Component)]
+struct PageTitle(String);
+
+/// A request that specifies a URL whose page title should be stored inside an Entity
+struct PageTitleRequest {
+    url: String,
+    insert_into: Entity,
+}
+
+/// A service that fetches the page title of a URL and stores that into an Entity.
+async fn insert_page_title(
+    In(srv): AsyncServiceInput<PageTitleRequest>
+) -> Result<(), ()> {
+    let response = trpl::get(&srv.request.url).await;
+    let response_text = response.text().await;
+    let title = trpl::Html::parse(&response_text)
+        .select_first("title")
+        .map(|title| title.inner_html())
+        .ok_or(())?;
+
+    let insert_into = srv.request.insert_into;
+    // Use the async channel to insert a PageTitle component into the entity
+    // specified by the request, then await confirmation that the command is finished.
+    srv.channel.command(
+        move |commands| {
+            commands.entity(insert_into).insert(PageTitle(title));
+        }
+    )
+        .await
+        .take()
+        .available()
+        .ok_or(())
+}
+// ANCHOR_END: insert_page_title
+
+// ANCHOR: fetch_page_title
+#[derive(Clone, Component, Deref)]
+struct Url(String);
+
+use std::future::Future;
+fn fetch_page_title(
+    In(srv): AsyncServiceInput<Entity>,
+    url: Query<&Url>,
+) -> impl Future<Output = Result<String, ()>> {
+    // Use a query to get the Url component of this entity
+    let url = url.get(srv.request).cloned();
+
+    async move {
+        // Make sure the query for the Url component was successful
+        let url = url.map_err(|_| ())?.0;
+
+        // Fetch the page title of the website stored in the Url component of
+        // the requested entity.
+        let response = trpl::get(&url).await;
+        let response_text = response.text().await;
+        trpl::Html::parse(&response_text)
+            .select_first("title")
+            .map(|title| title.inner_html())
+            .ok_or(())
+    }
+}
+// ANCHOR_END: fetch_page_title

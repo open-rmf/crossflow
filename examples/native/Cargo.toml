@@ -11,10 +11,20 @@ path = "src/delivery_instructions.rs"
 name = "handbook-snippets"
 path = "src/handbook_snippets.rs"
 
+[[bin]]
+name = "blocking-service-example"
+path = "src/blocking_service_example.rs"
+
+[[bin]]
+name = "async-service-example"
+path = "src/async_service_example.rs"
+
 [dependencies]
 crossflow = { path = "../../" }
 async-std = "1.12"
 bevy_ecs = { workspace = true }
 bevy_derive = { workspace = true }
-tokio = { workspace = true, features = ["macros"] }
+clap = { workspace = true }
 glam = "*"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+trpl = "0.3"

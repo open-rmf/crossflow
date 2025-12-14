@@ -121,6 +121,12 @@ for managing the components of an entity.
 [Service]: https://docs.rs/crossflow/latest/crossflow/service/struct.Service.html
 [BlockingService]: https://docs.rs/crossflow/latest/crossflow/struct.BlockingService.html
 
+### Full Example
+
+```rust,no_run,noplayground
+{{#include ./examples/native/src/blocking_service_example.rs:example}}
+```
+
 ### More kinds of services
 
 If you are interested in non-blocking service types, continue on to [Async Services](./spawn_async_service.md) and [Continuous Services](./spawn_continuous_service.md).
