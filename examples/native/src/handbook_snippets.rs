@@ -35,6 +35,7 @@ use crossflow::prelude::*;
 
 use bevy_ecs::prelude::*;
 use bevy_derive::*;
+use bevy_time::Time;
 use glam::Vec2;
 
 fn main() {
@@ -374,3 +375,32 @@ fn fetch_page_title(
     }
 }
 // ANCHOR_END: fetch_page_title
+
+#[derive(Component, Deref)]
+struct Velocity(f32);
+
+fn move_towards_target(
+    In(srv): ContinuousServiceInput<Vec2, Result<(), ()>>,
+    mut query: ContinuousQuery<Vec2, Result<(), ()>>,
+    velocities: Query<&Velocity>,
+    time: Res<Time>,
+    mut current_position: Local<Vec2>,
+) {
+    let Some(mut requests) = query.get_mut(&srv.key) else {
+        return;
+    };
+
+    requests.for_each(|order| {
+        let dt = time.delta_secs_f64() as f32;
+        let Ok(velocity) = velocities.get(srv.key.provider()) else {
+            // The velocity setting has been taken from the service
+            order.respond(Err(()));
+            return;
+        };
+
+        let v = **velocity;
+        let dx = v*dt;
+        let target = *order.request();
+        let dp = target - *current_position;
+    });
+}

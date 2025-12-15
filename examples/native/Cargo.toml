@@ -19,11 +19,16 @@ path = "src/blocking_service_example.rs"
 name = "async-service-example"
 path = "src/async_service_example.rs"
 
+[[bin]]
+name = "continuous-service-example"
+path = "src/continuous_service_example.rs"
+
 [dependencies]
 crossflow = { path = "../../" }
 async-std = "1.12"
 bevy_ecs = { workspace = true }
 bevy_derive = { workspace = true }
+bevy_time = { workspace = true }
 clap = { workspace = true }
 glam = "*"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

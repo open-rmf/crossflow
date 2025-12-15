@@ -1,14 +1,14 @@
 # Async Services
 
-We've seen how to spawn a blocking service, but blocking services have an
-important drawback: While a blocking service is running, no other systems or
-services in the [system schedule][schedules] can run. This allows blocking services
-to have unfettered instant access to all resources in the bevy [World][World],
-but long-running blocking services would disrupt the app schedule. This does not
-mean that blocking services should be avoided---they are the fastest and most
-CPU efficient choice for any short-lived service, especially when accessing Bevy
-[Components][components] or [Resources][resources]. Each kind of service fits a different shape of usage,
-so go ahead and use blocking services when they fit.
+We've seen how to spawn a [blocking service](./spawn_a_service.md#spawn-a-blocking-service),
+but blocking services have an important drawback: While a blocking service is running,
+no other systems or services in the [system schedule][schedules] can run. This
+allows blocking services to have unfettered instant access to all resources in the
+bevy [World][World], but long-running blocking services would disrupt the app schedule.
+This does not mean that blocking services should be avoided---they are the fastest
+and most CPU efficient choice for any short-lived service, especially when accessing B
+evy [Components][components] or [Resources][resources]. Each kind of service fits a
+different shape of usage, so go ahead and use blocking services when they fit.
 
 When it comes to long-running services, it's likely that an **async service** is
 what you want. In crossflow, async services allow you to take full advantage of
