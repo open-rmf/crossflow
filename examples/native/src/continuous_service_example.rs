@@ -16,69 +16,103 @@
 */
 
 // ANCHOR: example
-use crossflow::bevy_app::App;
+use crossflow::bevy_app::{App, Update};
 use crossflow::prelude::*;
 
 use bevy_ecs::prelude::*;
 use bevy_derive::*;
+use bevy_time::{Time, TimePlugin};
 use glam::Vec2;
+
+use std::collections::HashMap;
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
+struct MoveBaseVehicle;
 
 fn main() {
     let mut app = App::new();
-    app.add_plugins(CrossflowExecutorApp::default());
+    app
+        .add_plugins((
+            CrossflowExecutorApp::default(),
+            TimePlugin::default(),
+        ))
+        .insert_resource(Position(Vec2::ZERO));
 
-    let service = app.spawn_service(update_page_title);
+    let move_base = app.spawn_continuous_service(
+        Update,
+        move_base_vehicle_to_target
+        .with(|mut srv: EntityWorldMut| {
+            // Set the speed component for this service provider
+            srv.insert(Speed(1.0));
+        })
+        .configure(|config| {
+            // Put this service into a system set so that we can order other
+            // services before or after it.
+            config.in_set(MoveBaseVehicle)
+        })
+    );
+    let send_drone = app.spawn_continuous_service(
+        Update,
+        send_drone_to_target
+        .configure(|config| {
+            // This service depends on side-effects from move_base, so we should
+            // always schedule it afterwards.
+            config.after(MoveBaseVehicle)
+        }),
+    );
 
-    let entity = app
-        .world_mut()
-        .spawn(Url(args.url))
-        .id();
+    let move_vehicle_to_random_position = move |app: &mut App| {
+        app.world_mut().command(|commands| {
+            commands.request(random_vec2(20.0), move_base).take_response()
+        })
+    };
 
-    let mut promise = app.world_mut().command(|commands| {
-        commands.request(entity, service).take_response()
-    });
+    let launch_drone_to_random_position = move |app: &mut App| {
+        app.world_mut().command(|commands| {
+            let request = DroneRequest {
+                target: random_vec2(20.0),
+                speed: 1.0,
+            };
+            commands.request(request, send_drone).detach();
+        });
+    };
 
-    // Create a tokio runtime and drive it on another thread
-    let (finish, finished) = tokio::sync::oneshot::channel();
-    let rt = Arc::new(tokio::runtime::Runtime::new().unwrap());
-    app.world_mut().insert_resource(TokioRuntime(Arc::clone(&rt)));
-    let tokio_thread = std::thread::spawn(move || {
-        let _ = rt.block_on(finished);
-    });
+    let mut base_moving = move_vehicle_to_random_position(&mut app);
+    let mut last_launch = std::time::Instant::now();
+    loop {
+        app.update();
 
-    let start = std::time::Instant::now();
-    let time_limit = std::time::Duration::from_secs(5);
-    while std::time::Instant::now() - start < time_limit {
-        if let Some(response) = promise.peek().as_ref().available() {
-            if response.is_ok() {
-                let title = app.world().get::<PageTitle>(entity).unwrap();
-                println!("Fetched title: {}", **title);
-            } else {
-                println!("Error encountered while trying to update title");
-            }
-
-            let _ = finish.send(());
-            let _ = tokio_thread.join();
-            return;
+        if base_moving.peek().as_ref().is_available() {
+            // Send the base to a new location
+            base_moving = move_vehicle_to_random_position(&mut app);
         }
 
-        app.update();
+        if last_launch.elapsed() > std::time::Duration::from_secs(1) {
+            launch_drone_to_random_position(&mut app);
+            last_launch = std::time::Instant::now();
+        }
     }
-
-    panic!("Service failed to run within time limit of {time_limit:?}");
 }
+
+fn random_vec2(width: f32) -> Vec2 {
+    width * Vec2::new(rand::random::<f32>(), rand::random::<f32>())
+}
+
+// ANCHOR: move_base_vehicle_to_target_example
+#[derive(Resource, Deref, DerefMut)]
+struct Position(Vec2);
 
 #[derive(Component, Deref)]
 struct Speed(f32);
 
-fn move_towards_target(
+fn move_base_vehicle_to_target(
     In(srv): ContinuousServiceInput<Vec2, Result<(), ()>>,
     mut query: ContinuousQuery<Vec2, Result<(), ()>>,
-    velocities: Query<&Speed>,
+    speeds: Query<&Speed>,
+    mut base_position: ResMut<Position>,
     time: Res<Time>,
-    mut current_position: Local<Vec2>,
 ) {
-    let Some(mut requests) = query.get_mut(&srv.key) else {
+    let Some(mut orders) = query.get_mut(&srv.key) else {
         // The service provider has been despawned, so this continuous service
         // can no longer function.
         return;
@@ -87,13 +121,13 @@ fn move_towards_target(
     // Get the oldest active request for this service. Orders will be indexed
     // from 0 to N-1 from oldest to newest. When an order is completed, all
     // orders after it will shift down by an index on the next update cycle.
-    let Some(mut order) = requests.get_mut(0) else {
+    let Some(order) = orders.get_mut(0) else {
         // There are no active requests, so no need to do anything
         return;
     };
 
     let dt = time.delta_secs_f64() as f32;
-    let Ok(velocity) = velocities.get(srv.key.provider()) else {
+    let Ok(speed) = speeds.get(srv.key.provider()) else {
         // The velocity setting has been taken from the service, so it can no
         // longer complete requests.
         order.respond(Err(()));
@@ -101,37 +135,75 @@ fn move_towards_target(
     };
 
     let target = *order.request();
-    match move_to(*current_position, target, **velocity, dt) {
+    match move_to(**base_position, target, **speed, dt) {
         Ok(_) => {
-            // The agent arrived
-            *current_position = target;
+            // The vehicle arrived
+            **base_position = target;
+            println!("Base vehicle arrived at {target}");
             order.respond(Ok(()));
         }
         Err(new_position) => {
-            // The agent made progress but did not arrive
-            *current_position = new_position;
+            // The vehicle made progress but did not arrive
+            **base_position = new_position;
         }
     }
 }
+// ANCHOR_END: move_base_vehicle_to_target_example
 
-struct LaunchRequest {
+// ANCHOR: send_drone_to_target_example
+#[derive(Clone, Copy)]
+struct DroneRequest {
     target: Vec2,
     speed: f32,
 }
 
-// fn launch_towards_target(
-//     In(srv): ContinuousServiceInput<Vec2, ()>,
-//     mut query: ContinuousQuery<Vec2, ()>,
+fn send_drone_to_target(
+    In(srv): ContinuousServiceInput<DroneRequest, ()>,
+    mut query: ContinuousQuery<DroneRequest, ()>,
+    mut drone_positions: Local<HashMap<Entity, Vec2>>,
+    base_position: Res<Position>,
+    time: Res<Time>,
+) {
+    let Some(mut orders) = query.get_mut(&srv.key) else {
+        return;
+    };
 
-// )
+    orders.for_each(|order| {
+        let DroneRequest { target, speed } = *order.request();
+        let position = drone_positions.entry(order.id()).or_insert_with(|| {
+            println!(
+                "Drone {} taking off from {}, heading to {target}",
+                order.id().index(),
+                **base_position,
+            );
+            **base_position
+        });
+        let dt = time.delta_secs_f64() as f32;
+        match move_to(*position, target, speed, dt) {
+            Ok(_) => {
+                println!("Drone {} arrived at {target}", order.id().index());
+                order.respond(());
+            }
+            Err(new_position) => {
+                *position = new_position;
+            }
+        }
+    });
+
+    // Remove any old task IDs that are no longer in use
+    drone_positions.retain(|id, _| {
+        orders.iter().any(|order| order.id() == *id)
+    });
+}
+// ANCHOR_END: send_drone_to_target_example
 
 fn move_to(
     current: Vec2,
     target: Vec2,
-    velocity: f32,
+    speed: f32,
     dt: f32,
 ) -> Result<(), Vec2> {
-    let dx = f32::max(0.0, velocity * dt);
+    let dx = f32::max(0.0, speed * dt);
     let dp = target - current;
     let distance = dp.length();
     if distance <= dx {
@@ -144,6 +216,6 @@ fn move_to(
         return Ok(());
     };
 
-    return Err(current + u*distance);
+    return Err(current + u*dx);
 }
 // ANCHOR_END: example

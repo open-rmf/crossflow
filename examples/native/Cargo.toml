@@ -33,3 +33,4 @@ clap = { workspace = true }
 glam = "*"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 trpl = "0.3"
+rand = "0.9"

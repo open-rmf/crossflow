@@ -30,7 +30,7 @@
 #![cfg_attr(rustfmt, rustfmt_skip)]
 #![allow(unused)]
 
-use crossflow::bevy_app::App;
+use crossflow::bevy_app::{App, Update};
 use crossflow::prelude::*;
 
 use bevy_ecs::prelude::*;
@@ -57,6 +57,13 @@ let apply_offset_service: Service<Vec2, Vec2> = app.spawn_service(
 // ANCHOR: spawn_trivial_async_service
 let async_service: Service<String, String> = app.spawn_service(trivial_async_service);
 // ANCHOR_END: spawn_trivial_async_service
+
+// ANCHOR: spawn_hello_continuous_service
+let continuous_service: Service<String, String> = app.spawn_continuous_service(
+    Update,
+    hello_continuous_service
+);
+// ANCHOR_END: spawn_hello_continuous_service
 
     {
         let service = apply_offset_service;
@@ -376,31 +383,20 @@ fn fetch_page_title(
 }
 // ANCHOR_END: fetch_page_title
 
-#[derive(Component, Deref)]
-struct Velocity(f32);
-
-fn move_towards_target(
-    In(srv): ContinuousServiceInput<Vec2, Result<(), ()>>,
-    mut query: ContinuousQuery<Vec2, Result<(), ()>>,
-    velocities: Query<&Velocity>,
-    time: Res<Time>,
-    mut current_position: Local<Vec2>,
+// ANCHOR: hello_continuous_service
+fn hello_continuous_service(
+    In(srv): ContinuousServiceInput<String, String>,
+    mut query: ContinuousQuery<String, String>,
 ) {
-    let Some(mut requests) = query.get_mut(&srv.key) else {
+    let Some(mut orders) = query.get_mut(&srv.key) else {
+        // The service provider has despawned, so we can no longer do anything
         return;
     };
 
-    requests.for_each(|order| {
-        let dt = time.delta_secs_f64() as f32;
-        let Ok(velocity) = velocities.get(srv.key.provider()) else {
-            // The velocity setting has been taken from the service
-            order.respond(Err(()));
-            return;
-        };
-
-        let v = **velocity;
-        let dx = v*dt;
-        let target = *order.request();
-        let dp = target - *current_position;
+    orders.for_each(|order| {
+        let name = order.request();
+        let response = format!("Hello, {name}!");
+        order.respond(response);
     });
 }
+// ANCHOR_END: hello_continuous_service
