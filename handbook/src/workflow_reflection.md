@@ -58,7 +58,7 @@ use the [**trim**][trim] operation.
 
 As shown in the diagram above, before starting towards the target location, we
 will apply the trim operation to the detour branch. All the operations that are
-selected for trimming will undergo [operation cleanup](./scopes#operation-cleanup),
+selected for trimming will undergo [operation cleanup](./scope-cleanup.md#operation-cleanup),
 meaning whatever they happen to be doing will be brought to a stop. The trim
 operation will wait until it gets notified that all the relevant operations have
 finished their cleanup, and then trim will forward along its input message as

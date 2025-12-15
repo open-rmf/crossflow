@@ -136,7 +136,7 @@ in which case no messages will be sent down the `remaining` branch.
 [spread]: https://docs.rs/crossflow/latest/crossflow/chain/struct.Chain.html#method.spread
 [Vec]: https://doc.rust-lang.org/std/vec/struct.Vec.html
 [array]: https://doc.rust-lang.org/std/primitive.array.html
-[IntoIterator]: [https://doc.rust-lang.org/std/iter/trait.IntoIterator.html]
+[IntoIterator]: https://doc.rust-lang.org/std/iter/trait.IntoIterator.html
 [Schedule]: https://docs.rs/bevy/latest/bevy/prelude/struct.Schedule.html
 [Splittable]: https://docs.rs/crossflow/latest/crossflow/chain/split/trait.Splittable.html
 [BTreeSet]: https://doc.rust-lang.org/stable/std/collections/struct.BTreeSet.html

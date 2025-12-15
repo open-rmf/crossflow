@@ -1,7 +1,7 @@
 # How to Run a Service
 
 Once you have [spawned a service](./spawn_a_service.md) or have some other type
-of "provider" available [[1](./callbacks.md)][[2](./maps.md)][[3](./make_a_workflow.md)],
+of "provider" available [[1](./callbacks.md)][[2](./maps.md)][[3](./build_a_workflow.md)],
 you can run it by passing in a request. This can be done from inside of any Bevy
 system by including a [`Commands`](https://docs.rs/bevy/latest/bevy/prelude/struct.Commands.html):
 
