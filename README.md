@@ -41,7 +41,7 @@ There are several different categories of problems that crossflow sets out to so
 
 # Helpful Links
 
- * [Introduction to workflows](https://docs.google.com/presentation/d/1_vJTyFKOB1T0ylCbp1jG72tn8AXYQOKgTGh9En9si-w/edit?usp=sharing)
+ * [Crossflow Handbook](https://open-rmf.github.io/crossflow-handbook)
  * [JSON Diagram Format](https://docs.google.com/presentation/d/1ShGRrbXtZYzaHTS-bPCU0nSmY-716OiFiB1VjGGTCfw/edit?usp=sharing)
  * [Crossflow Docs](https://docs.rs/crossflow/latest/crossflow/)
  * [Bevy Engine](https://bevyengine.org/)
