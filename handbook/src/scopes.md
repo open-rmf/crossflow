@@ -32,4 +32,3 @@ As soon as the cleanup process is finished, the ***first*** output that was pass
 the terminate operation will be sent out as the ***final*** output of the workflow
 session.
 
-[Task]: https://docs.rs/bevy/latest/bevy/tasks/struct.Task.html

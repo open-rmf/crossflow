@@ -18,8 +18,8 @@ operations get cleaned depending on the kind of operation:
 * **Async**: The input message storage of the operation is cleared out, **and**
   any [Tasks][Task] that were spawned for this operation are [cancelled](./scope-cancellation.md).
   The cleanup of this operation is considered finished when we are notified that
-  the Future of the task was successfully dropped. At that point, there cannot
-  be any side-effects that take place from the Future.
+  the task was successfully dropped. At that point, there cannot be any more
+  side-effects produced by the task.
 * **Continuous**: The order queue of the operation is cleared out for this
   session. The next time the service runs, it will no longer see any orders
   related to this session.
@@ -46,16 +46,15 @@ maybe there is a sign-off that should be performed before dropping the whole
 workflow session.
 
 The buffer cleanup phase acts like a user-defined destructor for your workflow.
-You can define any number of buffer cleanup workflows for your workflow---you
-read that right, you can define workflows to clean up the data in the buffers of
+You can define any number of ***buffer cleanup workflows*** for your workflow---you
+read that right, you can define *workflows* to clean up the data in the buffers of
 your workflow.
 
 The input message for each cleanup workflow is an [Accessor](./listen.md#accessor)
-containing keys of buffers in the scope that is being cleaned up. You can choose
-any in-scope buffers that you would like the Accessor to contain when you set the
-cleanup workflow. You can also specify if each cleanup workflow should be run
-only when the parent workflow was prematurely cancelled, successfully terminated,
-or either.
+for the buffers that it's cleaning up. You can choose any in-scope buffers that
+you would like the Accessor to contain when you set the cleanup workflow. You can
+also specify if each cleanup workflow should be run only when the parent workflow
+was prematurely cancelled, successfully terminated, or either.
 
 > [!NOTE]
 > You can use the same buffer across multiple cleanup workflows, but be mindful
@@ -69,6 +68,9 @@ workflows of your cleanup workflows, etc. It is not possible to build a workflow
 with infinitely recursive cleanup workflows, because the attempt to build such a
 workflow would require infinite memory.
 
-The buffer cleanup phase is finished once **all workflows** have terminated or
-cancelled, including any inner cleanup workflows that they may contain. Any data
-still lingering for this session in any of the buffers will simply be discarded.
+The buffer cleanup phase is finished once **all cleanup workflows** have terminated
+or cancelled, including any ***inner*** cleanup workflows that the cleanup workflows may
+contain. Any data belonging to this session that is still lingering in any of the
+buffers will simply be dropped.
+
+[Task]: https://docs.rs/bevy/latest/bevy/tasks/struct.Task.html
