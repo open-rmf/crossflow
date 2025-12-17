@@ -1,3 +1,4 @@
+import type { Connection } from '@xyflow/react';
 import {
   type DiagramEditorEdge,
   EDGE_CATEGORIES,
@@ -189,11 +190,15 @@ function getOutputCardinality(
   }
 }
 
+export type ValidationError = { valid: false; error: string };
+
+export type ConnectionValidationResult = { valid: true } | ValidationError;
+
 export type EdgeValidationResult =
   | { valid: true; validEdgeTypes: EdgeTypes[] }
-  | { valid: false; error: string };
+  | ValidationError;
 
-function createValidationError(error: string): EdgeValidationResult {
+function createValidationError(error: string): ValidationError {
   return { valid: false, error };
 }
 
@@ -225,6 +230,48 @@ export function validateEdgeQuick(
   }
 
   return { valid: true, validEdgeTypes };
+}
+
+/**
+ * Perform a quick check if connection is valid.
+ * This only checks if there is a valid edge type, does not check for conflicting edges, data correctness etc.
+ *
+ * Complexity is O(1).
+ *
+ * validateEdgeQuick checks if a given edge is valid while validateConnectionQuick check if there
+ * is at least 1 valid edge type for a given connection.
+ */
+export function validateConnectionQuick(
+  conn: Connection | DiagramEditorEdge,
+  nodeManager: NodeManager,
+): ConnectionValidationResult {
+  const sourceNode = nodeManager.tryGetNode(conn.source);
+  const targetNode = nodeManager.tryGetNode(conn.target);
+
+  if (!sourceNode || !targetNode) {
+    return createValidationError('cannot find source or target node');
+  }
+
+  if (
+    (sourceNode.parentId || targetNode.parentId) &&
+    sourceNode.parentId !== targetNode.parentId
+  ) {
+    return createValidationError(
+      'source and target nodes are in different sections',
+    );
+  }
+
+  const validEdgeTypes = getValidEdgeTypes(
+    sourceNode,
+    conn.sourceHandle,
+    targetNode,
+    conn.targetHandle,
+  );
+  if (validEdgeTypes.length === 0) {
+    return createValidationError('no valid edge type');
+  }
+
+  return { valid: true };
 }
 
 /**

@@ -60,7 +60,11 @@ import { useTemplates } from './templates-provider';
 import { EdgesProvider } from './use-edges';
 import { autoLayout } from './utils/auto-layout';
 import { isRemoveChange } from './utils/change';
-import { getValidEdgeTypes, validateEdgeSimple } from './utils/connection';
+import {
+  getValidEdgeTypes,
+  validateConnectionQuick,
+  validateEdgeSimple,
+} from './utils/connection';
 import { exhaustiveCheck } from './utils/exhaustive-check';
 import { exportTemplate } from './utils/export-diagram';
 import { calculateScopeBounds, LAYOUT_OPTIONS } from './utils/layout';
@@ -649,19 +653,7 @@ function DiagramEditor() {
           }
         }}
         isValidConnection={(conn) => {
-          const sourceNode = nodeManager.tryGetNode(conn.source);
-          const targetNode = nodeManager.tryGetNode(conn.target);
-          if (!sourceNode || !targetNode) {
-            throw new Error('cannot find source or target node');
-          }
-
-          const allowedEdges = getValidEdgeTypes(
-            sourceNode,
-            conn.sourceHandle,
-            targetNode,
-            conn.targetHandle,
-          );
-          return allowedEdges.length > 0;
+          return validateConnectionQuick(conn, nodeManager).valid;
         }}
         onReconnect={(oldEdge, newConnection) => {
           const newEdge = tryCreateEdge(newConnection, oldEdge.id);
