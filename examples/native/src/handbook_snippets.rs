@@ -211,6 +211,50 @@ let workflow: Service<Request, Response> = commands.spawn_io_workflow(
 );
 // ANCHOR_END: trivial_workflow
 
+// ANCHOR: trivial_workflow_concise
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        builder.connect(scope.input, scope.terminate);
+    }
+);
+// ANCHOR_END: trivial_workflow_concise
+        help_service_infer_type::<String, String>(workflow);
+
+// ANCHOR: sum_service_workflow
+// Spawn a service that we can use inside a workflow
+let service = commands.spawn_service(sum);
+
+// Spawn a workflow and use the service inside it
+let workflow = commands.spawn_io_workflow(
+    move |scope, builder| {
+        let node = builder.create_node(service);
+        builder.connect(scope.input, node.input);
+        builder.connect(node.output, scope.terminate);
+    }
+);
+// ANCHOR_END: sum_service_workflow
+
+// ANCHOR: sum_callback_workflow
+// Create a callback
+let f = |request: Vec<f32>| -> f32 {
+    let mut sum = 0.0;
+    for value in request {
+        sum += value;
+    }
+    sum
+};
+let callback = f.into_blocking_callback();
+
+// Spawn a workflow and use the callback inside it
+let workflow = commands.spawn_io_workflow(
+    move |scope, builder| {
+        let node = builder.create_node(callback);
+        builder.connect(scope.input, node.input);
+        builder.connect(node.output, scope.terminate);
+    }
+);
+// ANCHOR_END: sum_callback_workflow
+
     });
 }
 
@@ -414,3 +458,7 @@ fn hello_continuous_service(
     });
 }
 // ANCHOR_END: hello_continuous_service
+
+fn help_service_infer_type<Request, Response>(_service: Service<Request, Response>) {
+    // Do nothing
+}
