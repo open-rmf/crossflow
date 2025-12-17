@@ -6,8 +6,10 @@ import { LAYOUT_OPTIONS } from './layout';
 import { loadDiagramJson, loadTemplate } from './load-diagram';
 import testDiagram from './test-data/test-diagram.json';
 
-test('load diagram json and auto layout', () => {
-  const [_diagram, graph] = loadDiagramJson(JSON.stringify(testDiagram));
+test('load diagram json and auto layout', async () => {
+  const [_diagram, { graph }] = await loadDiagramJson(
+    JSON.stringify(testDiagram),
+  );
   const nodes = applyNodeChanges(
     autoLayout(graph.nodes, graph.edges, LAYOUT_OPTIONS),
     graph.nodes,

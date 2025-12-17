@@ -287,6 +287,9 @@ pub struct ListenSchema {
     pub(super) next: NextOperation,
     /// Map of buffer keys and buffers.
     pub(super) buffers: BufferSelection,
+
+    #[serde(flatten)]
+    pub trace_settings: TraceSettings,
 }
 
 impl BuildDiagramOperation for ListenSchema {

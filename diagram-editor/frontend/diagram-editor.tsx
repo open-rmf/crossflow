@@ -27,7 +27,7 @@ import {
   type XYPosition,
 } from '@xyflow/react';
 import { inflateSync, strFromU8 } from 'fflate';
-import React from 'react';
+import React, { Suspense } from 'react';
 import AddOperation from './add-operation';
 import CommandPanel from './command-panel';
 import type { DiagramEditorEdge } from './edges';
@@ -43,9 +43,10 @@ import {
   EditorModeProvider,
   type UseEditorModeContext,
 } from './editor-mode';
-import ExportDiagramDialog from './export-diagram-dialog';
+import { ExportDiagramDialog } from './export-diagram-dialog';
 import { defaultEdgeData, EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
+import { type LoadContext, LoadContextProvider } from './load-context-provider';
 import { NodeManager, NodeManagerProvider } from './node-manager';
 import {
   type DiagramEditorNode,
@@ -115,21 +116,25 @@ function getChangeParentIdAndPosition(
 
 interface ProvidersProps {
   editorModeContext: UseEditorModeContext;
+  loadContext: LoadContext | null;
   nodeManager: NodeManager;
   edges: DiagramEditorEdge[];
 }
 
 function Providers({
   editorModeContext,
+  loadContext,
   nodeManager,
   edges,
   children,
 }: React.PropsWithChildren<ProvidersProps>) {
   return (
     <EditorModeProvider value={editorModeContext}>
-      <NodeManagerProvider value={nodeManager}>
-        <EdgesProvider value={edges}>{children}</EdgesProvider>
-      </NodeManagerProvider>
+      <LoadContextProvider value={loadContext}>
+        <NodeManagerProvider value={nodeManager}>
+          <EdgesProvider value={edges}>{children}</EdgesProvider>
+        </NodeManagerProvider>
+      </LoadContextProvider>
     </EditorModeProvider>
   );
 }
@@ -501,13 +506,22 @@ function DiagramEditor() {
     setErrorToast(message);
     setOpenErrorToast(true);
   }, []);
+  const [loadContext, setLoadContext] = React.useState<LoadContext | null>(
+    null,
+  );
 
   const loadDiagram = React.useCallback(
-    (jsonStr: string) => {
+    async (jsonStr: string) => {
       try {
-        const [diagram, graph] = loadDiagramJson(jsonStr);
-        const changes = autoLayout(graph.nodes, graph.edges, LAYOUT_OPTIONS);
-        setNodes(applyNodeChanges(changes, graph.nodes));
+        const [diagram, { graph, isRestored }] = await loadDiagramJson(jsonStr);
+        setLoadContext({ diagram });
+        // do not perform auto layout if the diagram is restored from previous state.
+        if (!isRestored) {
+          const changes = autoLayout(graph.nodes, graph.edges, LAYOUT_OPTIONS);
+          setNodes(applyNodeChanges(changes, graph.nodes));
+        } else {
+          setNodes(graph.nodes);
+        }
         setEdges(graph.edges);
         setTemplates(diagram.templates || {});
         reactFlowInstance.current?.fitView();
@@ -587,6 +601,7 @@ function DiagramEditor() {
   return (
     <Providers
       editorModeContext={[editorMode, updateEditorModeAction]}
+      loadContext={loadContext}
       nodeManager={nodeManager}
       edges={edges}
     >
@@ -802,10 +817,12 @@ function DiagramEditor() {
             {errorToast}
           </Alert>
         </Snackbar>
-        <ExportDiagramDialog
-          open={openExportDiagramDialog}
-          onClose={() => setOpenExportDiagramDialog(false)}
-        />
+        <Suspense>
+          <ExportDiagramDialog
+            open={openExportDiagramDialog}
+            onClose={() => setOpenExportDiagramDialog(false)}
+          />
+        </Suspense>
       </ReactFlow>
     </Providers>
   );
