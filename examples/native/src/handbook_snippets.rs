@@ -198,6 +198,20 @@ commands
     .detach();
 // ANCHOR_END: simple_series
     });
+
+    app.world_mut().command(|commands| {
+
+    type Request = String;
+    type Response = String;
+// ANCHOR: trivial_workflow
+let workflow: Service<Request, Response> = commands.spawn_io_workflow(
+    |scope: Scope<Request, Response>, builder: &mut Builder| {
+        builder.connect(scope.input, scope.terminate);
+    }
+);
+// ANCHOR_END: trivial_workflow
+
+    });
 }
 
 // ANCHOR: sum_fn

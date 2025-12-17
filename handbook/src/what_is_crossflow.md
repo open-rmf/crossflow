@@ -47,15 +47,16 @@ sophisticated structures. This is where workflows come in.
 ![sense-think-act](./assets/figures/sense-think-act_workflow.svg)
 
 Workflows allow you to assemble services into a directed graph---cycles *are*
-allowed---that form a more complex behavior, feeding the responses of services
-as requests to the services downstream of it. Workflows are excellent for
-defining state machines that have async state transitions or that have lots of
-parallel activity that needs to be managed and synchronized.
+allowed---that form a more complex behavior, feeding the output of each service
+as input to another service. Workflows are excellent for defining state machines
+that have async state transitions or that have lots of parallel activity that
+needs to be managed and synchronized.
 
 When you [create a workflow](./build_a_workflow.md) you will ultimately be
 creating yet another *service* that can be treated exactly the same as a service
 created using a Bevy System. This workflow-based service can even be used as a
-node inside of another workflow, just like any other service.
+node inside of another workflow. In other words, you can build hierarchical
+workflows.
 
 ## Execution
 
