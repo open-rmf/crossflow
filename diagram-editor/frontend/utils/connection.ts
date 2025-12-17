@@ -1,4 +1,4 @@
-import { Connection } from '@xyflow/react';
+import type { Connection } from '@xyflow/react';
 import {
   type DiagramEditorEdge,
   EDGE_CATEGORIES,
@@ -252,7 +252,10 @@ export function validateConnectionQuick(
     return createValidationError('cannot find source or target node');
   }
 
-  if (sourceNode.parentId && sourceNode.parentId !== targetNode.parentId) {
+  if (
+    (sourceNode.parentId || targetNode.parentId) &&
+    sourceNode.parentId !== targetNode.parentId
+  ) {
     return createValidationError(
       'source and target nodes are in different sections',
     );
