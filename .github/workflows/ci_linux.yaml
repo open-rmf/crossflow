@@ -65,5 +65,5 @@ jobs:
         rm -rf target/debug/build
 
     - name: Build docs
-      run: cargo doc --all-features
+      run: cargo doc --no-deps --all-features
 
