@@ -360,6 +360,13 @@ where
     o.to_string().serialize(ser)
 }
 
+#[derive(Default, Debug, Clone, JsonSchema, Serialize, Deserialize)]
+pub struct ExtensionSettings {
+    /// Settings for each extension.
+    #[serde(default)]
+    pub extensions: HashMap<String, serde_json::Value>,
+}
+
 #[derive(Debug, Clone, JsonSchema, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Diagram {
@@ -399,6 +406,9 @@ pub struct Diagram {
     /// setting will have no effect.
     #[serde(default, skip_serializing_if = "is_default")]
     pub default_trace: TraceToggle,
+
+    #[serde(flatten)]
+    pub extensions: Option<ExtensionSettings>,
 }
 
 #[derive(Default, Debug, Clone, Copy, JsonSchema, Serialize, Deserialize, PartialEq, Eq)]
@@ -443,6 +453,9 @@ pub struct TraceSettings {
     /// used.
     #[serde(default, skip_serializing_if = "is_default")]
     pub trace: Option<TraceToggle>,
+
+    #[serde(flatten)]
+    pub extensions: Option<ExtensionSettings>,
 }
 
 impl Diagram {
@@ -455,6 +468,7 @@ impl Diagram {
             on_implicit_error: Default::default(),
             ops: Default::default(),
             default_trace: Default::default(),
+            extensions: None,
         }
     }
 

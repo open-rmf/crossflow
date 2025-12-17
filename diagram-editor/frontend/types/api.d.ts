@@ -159,6 +159,12 @@ export type SectionSchema = (
    *  editor.
    */
   display_text?: string | null;
+  /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
   trace?: TraceToggle | null;
   [k: string]: unknown;
 };
@@ -242,6 +248,12 @@ export interface BufferAccessSchema {
    *  editor.
    */
   display_text?: string | null;
+  /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
   next: NextOperation;
   trace?: TraceToggle | null;
   [k: string]: unknown;
@@ -336,6 +348,12 @@ export interface BufferSchema {
    */
   display_text?: string | null;
   /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
+  /**
    * If true, messages will be serialized before sending into the buffer.
    */
   serialize?: boolean | null;
@@ -376,6 +394,12 @@ export interface ConfigExample {
  */
 export interface Diagram {
   default_trace?: TraceToggle;
+  /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
   on_implicit_error?: NextOperation | null;
   /**
    * Operations that define the workflow
@@ -448,6 +472,12 @@ export interface NodeSchema {
    *  editor.
    */
   display_text?: string | null;
+  /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
   next: NextOperation;
   stream_out?: {
     [k: string]: NextOperation;
@@ -522,6 +552,17 @@ export interface NodeSchema {
  * via the `definition` "ScopeSchema".
  */
 export interface ScopeSchema {
+  /**
+   * Override for text that should be displayed for an operation within an
+   *  editor.
+   */
+  display_text?: string | null;
+  /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
   next: NextOperation;
   on_implicit_error?: NextOperation | null;
   /**
@@ -538,6 +579,7 @@ export interface ScopeSchema {
   stream_out?: {
     [k: string]: NextOperation;
   };
+  trace?: TraceToggle | null;
   [k: string]: unknown;
 }
 /**
@@ -602,9 +644,21 @@ export interface ScopeSettings {
  */
 export interface StreamOutSchema {
   /**
+   * Override for text that should be displayed for an operation within an
+   *  editor.
+   */
+  display_text?: string | null;
+  /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
+  /**
    * The name of the stream exiting the workflow or scope.
    */
   name: string;
+  trace?: TraceToggle | null;
   [k: string]: unknown;
 }
 /**
@@ -659,6 +713,12 @@ export interface ForkCloneSchema {
    *  editor.
    */
   display_text?: string | null;
+  /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
   next: NextOperation[];
   trace?: TraceToggle | null;
   [k: string]: unknown;
@@ -729,6 +789,12 @@ export interface UnzipSchema {
    *  editor.
    */
   display_text?: string | null;
+  /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
   next: NextOperation[];
   trace?: TraceToggle | null;
   [k: string]: unknown;
@@ -770,6 +836,12 @@ export interface ForkResultSchema {
    */
   display_text?: string | null;
   err: NextOperation;
+  /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
   ok: NextOperation;
   trace?: TraceToggle | null;
   [k: string]: unknown;
@@ -850,6 +922,12 @@ export interface SplitSchema {
    *  editor.
    */
   display_text?: string | null;
+  /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
   keyed?: {
     [k: string]: NextOperation;
   };
@@ -922,6 +1000,17 @@ export interface JoinSchema {
    *  place.
    */
   clone?: BufferIdentifier[];
+  /**
+   * Override for text that should be displayed for an operation within an
+   *  editor.
+   */
+  display_text?: string | null;
+  /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
   next: NextOperation;
   /**
    * Whether or not to automatically serialize the inputs into a single JsonMessage.
@@ -929,6 +1018,7 @@ export interface JoinSchema {
    *  get a [`DiagramError`][super::DiagramError].
    */
   serialize?: boolean;
+  trace?: TraceToggle | null;
   [k: string]: unknown;
 }
 /**
@@ -985,6 +1075,12 @@ export interface TransformSchema {
    *  editor.
    */
   display_text?: string | null;
+  /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
   next: NextOperation;
   on_error?: NextOperation | null;
   trace?: TraceToggle | null;
@@ -1028,7 +1124,19 @@ export interface TransformSchema {
  */
 export interface ListenSchema {
   buffers: BufferSelection;
+  /**
+   * Override for text that should be displayed for an operation within an
+   *  editor.
+   */
+  display_text?: string | null;
+  /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
   next: NextOperation;
+  trace?: TraceToggle | null;
   [k: string]: unknown;
 }
 /**
