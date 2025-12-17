@@ -24,10 +24,13 @@ const stubRegistry: DiagramElementRegistry = {
   trace_supported: false,
 };
 
-test('export diagram', () => {
-  const [_diagram, { nodes, edges }] = loadDiagramJson(
-    JSON.stringify(testDiagram),
-  );
+test('export diagram', async () => {
+  const [
+    _diagram,
+    {
+      graph: { nodes, edges },
+    },
+  ] = await loadDiagramJson(JSON.stringify(testDiagram));
   const diagram = exportDiagram(
     stubRegistry,
     new NodeManager(nodes),
@@ -37,10 +40,13 @@ test('export diagram', () => {
   expect(diagram).toEqual(testDiagram);
 });
 
-test('export diagram with scope', () => {
-  const [_diagram, { nodes, edges }] = loadDiagramJson(
-    JSON.stringify(testDiagramScope),
-  );
+test('export diagram with scope', async () => {
+  const [
+    _diagram,
+    {
+      graph: { nodes, edges },
+    },
+  ] = await loadDiagramJson(JSON.stringify(testDiagramScope));
   let diagram = exportDiagram(stubRegistry, new NodeManager(nodes), edges, {});
   expect(diagram).toEqual(testDiagramScope);
 

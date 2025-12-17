@@ -29,7 +29,7 @@ use crate::{
     standard_input_connection, BuildDiagramOperation, BuildStatus, ConnectIntoTarget,
     DiagramContext, DiagramErrorCode, DynOutput, IncrementalScopeBuilder, IncrementalScopeRequest,
     IncrementalScopeResponse, InferMessageType, NamespaceList, NextOperation, OperationName,
-    OperationRef, Operations, ScopeSettings, StreamOutRef,
+    OperationRef, Operations, ScopeSettings, StreamOutRef, TraceSettings,
 };
 
 /// Create a scope which will function like its own encapsulated workflow
@@ -125,6 +125,9 @@ pub struct ScopeSchema {
     /// Settings specific to the scope, e.g. whether it is interruptible.
     #[serde(default)]
     pub settings: ScopeSettings,
+
+    #[serde(flatten)]
+    pub trace_settings: TraceSettings,
 }
 
 impl BuildDiagramOperation for ScopeSchema {
