@@ -38,6 +38,9 @@ use bevy_derive::*;
 use bevy_time::Time;
 use glam::Vec2;
 
+use serde::{Serialize, Deserialize};
+use serde_json::{Value as Json, Error};
+
 fn main() {
     let mut app = App::new();
 
@@ -234,15 +237,26 @@ let workflow = commands.spawn_io_workflow(
 );
 // ANCHOR_END: sum_service_workflow
 
-// ANCHOR: sum_callback_workflow
-// Create a callback
-let f = |request: Vec<f32>| -> f32 {
-    let mut sum = 0.0;
-    for value in request {
-        sum += value;
+// ANCHOR: sum_nested_service_workflow
+let workflow = commands.spawn_io_workflow(
+    move |scope, builder| {
+        // Spawn a service using the builder's commands
+        let service = builder.commands().spawn_service(sum);
+
+        // Create the node using the newly spawned service
+        let node = builder.create_node(service);
+        builder.connect(scope.input, node.input);
+        builder.connect(node.output, scope.terminate);
     }
-    sum
+);
+// ANCHOR_END: sum_nested_service_workflow
+
+// ANCHOR: sum_callback_workflow
+// Define a closure to perform a sum
+let f = |request: Vec<f32>| -> f32 {
+    request.into_iter().fold(0.0, |a, b| a + b)
 };
+// Convert the closure into a Callback
 let callback = f.into_blocking_callback();
 
 // Spawn a workflow and use the callback inside it
@@ -254,6 +268,452 @@ let workflow = commands.spawn_io_workflow(
     }
 );
 // ANCHOR_END: sum_callback_workflow
+
+// ANCHOR: sum_map_workflow
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        let node = builder.create_map_block(|request: Vec<f32>| {
+            request.into_iter().fold(0.0, |a, b| a + b)
+        });
+
+        builder.connect(scope.input, node.input);
+        builder.connect(node.output, scope.terminate);
+    }
+);
+// ANCHOR_END: sum_map_workflow
+
+// ANCHOR: async_map_workflow
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+
+        let node = builder.create_map_async(get_page_title);
+
+        builder.connect(scope.input, node.input);
+        builder.connect(node.output, scope.terminate);
+    }
+);
+// ANCHOR_END: async_map_workflow
+
+// ANCHOR: async_map_nested_workflow
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        let node = builder.create_map_async(|url: String| {
+            async move {
+                let http_response = trpl::get(&url).await;
+                let response_text = http_response.text().await;
+                trpl::Html::parse(&response_text)
+                    .select_first("title")
+                    .map(|title| title.inner_html())
+            }
+        });
+
+        builder.connect(scope.input, node.input);
+        builder.connect(node.output, scope.terminate);
+    }
+);
+// ANCHOR_END: async_map_nested_workflow
+
+// ANCHOR: basic_connect_nodes
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        let sum_node = builder.create_map_block(|request: Vec<f32>| {
+            request.into_iter().fold(0.0, |a, b| a + b)
+        });
+        let double_node = builder.create_map_block(|request: f32| {
+            2.0 * request
+        });
+
+        builder.connect(scope.input, sum_node.input);
+        builder.connect(sum_node.output, double_node.input);
+        builder.connect(double_node.output, scope.terminate);
+    }
+);
+// ANCHOR_END: basic_connect_nodes
+
+let sum = (|request: Vec<f32>|
+    request.into_iter().fold(0.0, |a, b| a + b)
+).into_blocking_map();
+let double = (|request: f32| 2.0 * request).into_blocking_map();
+
+// ANCHOR: chain_services
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        builder
+            .chain(scope.input)
+            .then(sum)
+            .then(double)
+            .connect(scope.terminate);
+    }
+);
+// ANCHOR_END: chain_services
+
+// ANCHOR: chain_maps
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        builder
+            .chain(scope.input)
+            .map_block(|request: Vec<f32>| {
+                request.into_iter().fold(0.0, |a, b| a + b)
+            })
+            .map_block(|request: f32| {
+                2.0 * request
+            })
+            .connect(scope.terminate);
+    }
+);
+// ANCHOR_END: chain_maps
+
+// ANCHOR: fork_result_workflow
+let workflow: Service<Json, Result<SchemaV2, Error>> = commands.spawn_io_workflow(
+    |scope, builder| {
+        let parse_schema_v2 = builder.create_map_block(|request: Json| {
+            // Try parsing the JSON with Schema V2
+            serde_json::from_value::<SchemaV2>(request.clone())
+                // If an error happened, pass along the original request message
+                // so we can try parsing it with a different schema.
+                .map_err(|_| request)
+        });
+
+        let parse_schema_v1 = builder.create_map_block(|request: Json| {
+            // Try parsing the JSON with Schema V1 since V2 failed.
+            serde_json::from_value::<SchemaV1>(request)
+                // If the parsing was successful, upgrade the parsed value to
+                // SchemaV2.
+                .map(|value| value.upgrade_to_schema_v2())
+        });
+
+        let to_ok = builder.create_map_block(|request: SchemaV2| {
+            Ok(request)
+        });
+
+        // Create a fork-result operation. We get back a tuple whose first element
+        // is an InputSlot that lets us feed messages into the fork-result, and
+        // whose second element is a struct containing two fields: ok and err,
+        // each representing a different Output and therefore diverging branches
+        // in the workflow.
+        let (fork_result_input, fork_result) = builder.create_fork_result();
+
+        builder.connect(scope.input, parse_schema_v2.input);
+        builder.connect(parse_schema_v2.output, fork_result_input);
+
+        // If parsing SchemaV2 was successful, wrap it back in Ok and terminate
+        builder.connect(fork_result.ok, to_ok.input);
+        builder.connect(to_ok.output, scope.terminate);
+
+        // If we failed to parse the Json as SchemaV2 then try using SchemaV1 instead
+        builder.connect(fork_result.err, parse_schema_v1.input);
+
+        // If parsing SchemaV1 also fails then we have no more fallback, so just
+        // pass back the result, whether it was successful or failed.
+        builder.connect(parse_schema_v1.output, scope.terminate);
+    }
+);
+// ANCHOR_END: fork_result_workflow
+
+// ANCHOR: fork_result_chain
+let workflow: Service<Json, Result<SchemaV2, Error>> = commands.spawn_io_workflow(
+    |scope, builder| {
+        builder
+            .chain(scope.input)
+            .map_block(|message: Json| {
+                // Try parsing the JSON with Schema V2
+                serde_json::from_value::<SchemaV2>(message.clone())
+                    // If an error happened, pass along the original request message
+                    // so we can try parsing it with a different schema.
+                    .map_err(|_| message)
+            })
+            .fork_result(
+                |ok| {
+                    // If ok, wrap the message in Ok and connect it to terminate
+                    ok.map_block(|msg| Ok(msg)).connect(scope.terminate);
+                },
+                |err| {
+                    err
+                    .map_block(|message: Json| {
+                        // Try parsing the JSON with Schema V1 since V2 failed.
+                        serde_json::from_value::<SchemaV1>(message)
+                            // If the parsing was successful, upgrade the parsed
+                            // value to SchemaV2.
+                            .map(|value| value.upgrade_to_schema_v2())
+                    })
+                    // End this branch by feeding it into the terminate operation
+                    .connect(scope.terminate);
+                }
+            );
+    }
+);
+// ANCHOR_END: fork_result_chain
+
+// ANCHOR: branch_for_err
+let workflow: Service<Json, Result<SchemaV2, Error>> = commands.spawn_io_workflow(
+    |scope, builder| {
+        builder
+            .chain(scope.input)
+            .map_block(|request: Json| {
+                // Try parsing the JSON with Schema V2
+                serde_json::from_value::<SchemaV2>(request.clone())
+                    // If an error happened, pass along the original request message
+                    // so we can try parsing it with a different schema.
+                    .map_err(|_| request)
+            })
+            // Create a branch that handles an Err value. This creates a
+            // fork-result under the hood.
+            .branch_for_err(|chain|
+                chain
+                .map_block(|request: Json| {
+                    // Try parsing the JSON with Schema V1 since V2 failed.
+                    serde_json::from_value::<SchemaV1>(request)
+                        // If the parsing was successful, upgrade the parsed value to
+                        // SchemaV2.
+                        .map(|value| value.upgrade_to_schema_v2())
+                })
+                // End this branch by feeding it into the terminate operation
+                .connect(scope.terminate)
+            )
+            // Continue the original chain, but only for Ok values.
+            .map_block(|ok| Ok(ok))
+            .connect(scope.terminate);
+    }
+);
+// ANCHOR_END: branch_for_err
+
+// ANCHOR: fork_option_workflow
+let workflow: Service<(), f32> = commands.spawn_io_workflow(
+    |scope, builder| {
+        let get_random = builder.create_map_block(|request: ()| {
+            // Generate some random number between 0.0 and 1.0
+            rand::random::<f32>()
+        });
+
+        let less_than_half = builder.create_map_block(|value: f32| {
+            if value < 0.5 {
+                Some(value)
+            } else {
+                None
+            }
+        });
+
+        // Create a fork-option operation. We get back a tuple whose first element
+        // is an InputSlot that lets us feed messages into the fork-option, and
+        // whose second element is a struct containing two fields: some and none,
+        // each representing a different Output and therefore diverging branches
+        // in the workflow.
+        let (fork_option_input, fork_option) = builder.create_fork_option();
+
+        // Chain the three operations together.
+        builder.connect(scope.input, get_random.input);
+        builder.connect(get_random.output, less_than_half.input);
+        builder.connect(less_than_half.output, fork_option_input);
+
+        // Trigger the randomizer again if the value was not less than one-half.
+        // This creates a cycle in the workflow.
+        builder.connect(fork_option.none, get_random.input);
+
+        // Terminate the workflow if it was less than one-half.
+        // The value produced by the randomizer will be the workflow's output.
+        builder.connect(fork_option.some, scope.terminate);
+    }
+);
+// ANCHOR_END: fork_option_workflow
+
+// ANCHOR: fork_option_chain
+let workflow: Service<(), f32> = commands.spawn_io_workflow(
+    |scope, builder| {
+        // Make a small chain that returns a Node. We need to create an explicit
+        // Node for get_random because we will need to refer to its InputSlot
+        // later to create a cycle.
+        let get_random: Node<(), f32> = builder
+            .chain(scope.input)
+            .map_block_node(|request: ()| rand::random::<f32>());
+
+        builder
+            .chain(get_random.output)
+            .map_block(|value: f32| {
+                if value < 0.5 {
+                    Some(value)
+                } else {
+                    None
+                }
+            })
+            // This creates a fork-option and sends None values back to the
+            // get_random node. This creates a cycle in the workflow.
+            .branch_for_none(|none| none.connect(get_random.input))
+            // As we continue the chain, only Some(T) values will reach this
+            // point, so the chain simplifies the Option<T> to just a T. We can
+            // now connect this directly to the terminate operation.
+            .connect(scope.terminate);
+    }
+);
+// ANCHOR_END: fork_option_chain
+
+// Dummy providers to build the emergency_stop_workflow
+let move_to_pick_pregrasp = (|_: ()| { }).into_blocking_map();
+let grasp_item = (|_: ()| { }).into_blocking_map();
+let move_to_placement = (|_: ()| { }).into_blocking_map();
+let release_item = (|_: ()| { }).into_blocking_map();
+let emergency_stop = (|_: ()| { }).into_blocking_map();
+
+// ANCHOR: emergency_stop_workflow
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        // Create nodes for performing a pick and place
+        let move_to_pick_pregrasp = builder.create_node(move_to_pick_pregrasp);
+        let grasp_item = builder.create_node(grasp_item);
+        let move_to_placement = builder.create_node(move_to_placement);
+        let release_item = builder.create_node(release_item);
+
+        // Also create a node that monitors whether an emergency stop is needed
+        let emergency_stop = builder.create_node(emergency_stop);
+
+        // Create a fork-clone operation. We get back a tuple whose first element
+        // is an InputSlot that lets us feed messages into the fork-clone, and
+        // whose second element is a struct that allows us to spawn outputs for
+        // the fork.
+        let (fork_clone_input, fork_clone) = builder.create_fork_clone();
+
+        // Send the scope input message to be cloned
+        builder.connect(scope.input, fork_clone_input);
+
+        // When the scope starts, begin moving the robot to the pregrasp pose
+        let cloned = fork_clone.clone_output(builder);
+        builder.connect(cloned, move_to_pick_pregrasp.input);
+
+        // When the scope starts, also start monitoring whether an emergency
+        // stop is needed. If this gets triggered it will terminate the workflow
+        // immediately.
+        let cloned = fork_clone.clone_output(builder);
+        builder.connect(cloned, emergency_stop.input);
+
+        // Connect the happy path together
+        builder.connect(move_to_pick_pregrasp.output, grasp_item.input);
+        builder.connect(grasp_item.output, move_to_placement.input);
+        builder.connect(move_to_placement.output, release_item.input);
+        builder.connect(release_item.output, scope.terminate);
+
+        // Connect the emergency stop to terminate
+        builder.connect(emergency_stop.output, scope.terminate);
+    }
+);
+// ANCHOR_END: emergency_stop_workflow
+
+// Dummy providers to build the emergency_stop_chain
+let move_to_pick_pregrasp = (|_: ()| { }).into_blocking_map();
+let grasp_item = (|_: ()| { }).into_blocking_map();
+let move_to_placement = (|_: ()| { }).into_blocking_map();
+let release_item = (|_: ()| { }).into_blocking_map();
+let emergency_stop = (|_: ()| { }).into_blocking_map();
+
+// ANCHOR: emergency_stop_chain
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        builder
+            .chain(scope.input)
+            .branch_clone(|chain|
+                // This is a parallel branch fed with a clone of the scope input.
+                chain
+                .then(emergency_stop)
+                .connect(scope.terminate)
+            )
+            // As we continue to build this chain, we are creating a branch that
+            // will run in parallel to the one defined inside of .branch_clone(_).
+            // This is where we'll define the happy path sequence of the
+            // pick-and-place routine.
+            .then(move_to_pick_pregrasp)
+            .then(grasp_item)
+            .then(move_to_placement)
+            .then(release_item)
+            .connect(scope.terminate);
+    }
+);
+// ANCHOR_END: emergency_stop_chain
+
+// Dummy providers to build the use_elevator_workflow
+let move_robot_to_elevator = (|_: ()| { }).into_blocking_map();
+let on_robot_near_elevator = (|_: ()| { }).into_blocking_map();
+let send_elevator_to_location = (|_: ()| { }).into_blocking_map();
+let use_elevator = (|_: ((), ())| { }).into_blocking_map();
+
+// ANCHOR: use_elevator_workflow
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        // Create nodes for moving the robot and summoning the elevator.
+        let move_robot_to_elevator = builder.create_node(move_robot_to_elevator);
+        let on_robot_near_elevator = builder.create_node(on_robot_near_elevator);
+        let send_elevator_to_level = builder.create_node(send_elevator_to_location);
+        let use_elevator = builder.create_node(use_elevator);
+
+        // Create a fork-clone operation. We get back a tuple whose first element
+        // is an InputSlot that lets us feed messages into the fork-clone, and
+        // whose second element is a struct that allows us to spawn outputs for
+        // the fork.
+        let (fork_clone_input, fork_clone) = builder.create_fork_clone();
+
+        // Send the scope input message to be cloned
+        builder.connect(scope.input, fork_clone_input);
+
+        // When the scope starts, begin sending the robot to the elevator
+        let cloned = fork_clone.clone_output(builder);
+        builder.connect(cloned, move_robot_to_elevator.input);
+
+        // When the scope starts, also start detecting whether the robot is
+        // near the elevator so we know when to summon the elevator
+        let cloned = fork_clone.clone_output(builder);
+        builder.connect(cloned, on_robot_near_elevator.input);
+
+        // When the robot has made it close enough to the elevator, begin
+        // summoning the elevator
+        builder.connect(on_robot_near_elevator.output, send_elevator_to_level.input);
+
+        // Create a join operation that will activate when the robot has reached
+        // the elevator lobby and the elevator has arrived on the correct floor.
+        let both_arrived = builder.join((
+            move_robot_to_elevator.output,
+            send_elevator_to_level.output,
+        ))
+        .output();
+
+        // When the robot has reached the elevator lobby and the elevator has
+        // arived on the correct floor, have the robot use the elevator.
+        builder.connect(both_arrived, use_elevator.input);
+
+        // When the robot is done using the elevator, the workflow is finished.
+        builder.connect(use_elevator.output, scope.terminate);
+    }
+);
+// ANCHOR_END: use_elevator_workflow
+
+// Dummy providers to build the use_elevator_chain
+let move_robot_to_elevator = (|_: ()| { }).into_blocking_map();
+let on_robot_near_elevator = (|_: ()| { }).into_blocking_map();
+let send_elevator_to_location = (|_: ()| { }).into_blocking_map();
+let use_elevator = (|_: ((), ())| { }).into_blocking_map();
+
+// ANCHOR: use_elevator_chain
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        builder
+            .chain(scope.input)
+            .fork_clone((
+                |chain: Chain<_>| {
+                    // This branch moves the robot to the elevator
+                    chain
+                    .then(move_robot_to_elevator)
+                    .output()
+                },
+                |chain: Chain<_>| {
+                    // This branch monitors the robot and then summons the lift
+                    chain
+                    .then(on_robot_near_elevator)
+                    .then(send_elevator_to_location)
+                    .output()
+                }
+            ))
+            .join(builder)
+            .then(use_elevator)
+            .connect(scope.terminate);
+    }
+);
+// ANCHOR_END: use_elevator_chain
 
     });
 }
@@ -376,6 +836,16 @@ async fn page_title_service(In(srv): AsyncServiceInput<String>) -> Option<String
 }
 // ANCHOR_END: page_title_service
 
+// ANCHOR: get_page_title
+async fn get_page_title(url: String) -> Option<String> {
+    let http_response = trpl::get(&url).await;
+    let response_text = http_response.text().await;
+    trpl::Html::parse(&response_text)
+        .select_first("title")
+        .map(|title| title.inner_html())
+}
+// ANCHOR_END: get_page_title
+
 // ANCHOR: insert_page_title
 /// A component that stores a web page title inside an Entity
 #[derive(Component)]
@@ -461,4 +931,20 @@ fn hello_continuous_service(
 
 fn help_service_infer_type<Request, Response>(_service: Service<Request, Response>) {
     // Do nothing
+}
+
+#[derive(Serialize, Deserialize)]
+struct SchemaV1 {
+
+}
+
+impl SchemaV1 {
+    fn upgrade_to_schema_v2(self) -> SchemaV2 {
+        SchemaV2 { }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct SchemaV2 {
+
 }
