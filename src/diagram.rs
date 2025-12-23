@@ -409,6 +409,12 @@ pub struct Diagram {
 
     #[serde(flatten)]
     pub extensions: Option<ExtensionSettings>,
+
+    /// Optional text to describe the workflow.
+    pub description: Option<String>,
+
+    /// Examples of inputs that can be used with this workflow.
+    pub example_inputs: Vec<String>,
 }
 
 #[derive(Default, Debug, Clone, Copy, JsonSchema, Serialize, Deserialize, PartialEq, Eq)]
@@ -469,6 +475,8 @@ impl Diagram {
             ops: Default::default(),
             default_trace: Default::default(),
             extensions: None,
+            description: None,
+            example_inputs: Default::default(),
         }
     }
 

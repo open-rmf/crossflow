@@ -395,6 +395,14 @@ export interface ConfigExample {
 export interface Diagram {
   default_trace?: TraceToggle;
   /**
+   * Optional text to describe the workflow.
+   */
+  description?: string | null;
+  /**
+   * Examples of inputs that can be used with this workflow.
+   */
+  example_inputs: string[];
+  /**
    * Settings for each extension.
    */
   extensions?: {

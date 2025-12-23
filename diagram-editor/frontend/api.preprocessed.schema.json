@@ -236,6 +236,20 @@
         "default_trace": {
           "$ref": "#/$defs/TraceToggle"
         },
+        "description": {
+          "description": "Optional text to describe the workflow.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "example_inputs": {
+          "description": "Examples of inputs that can be used with this workflow.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "extensions": {
           "additionalProperties": true,
           "default": {},
@@ -277,7 +291,8 @@
       "required": [
         "version",
         "start",
-        "ops"
+        "ops",
+        "example_inputs"
       ],
       "type": "object"
     },

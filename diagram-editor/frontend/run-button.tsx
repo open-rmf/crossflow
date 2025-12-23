@@ -19,6 +19,7 @@ import { useRegistry } from './registry-provider';
 import { useTemplates } from './templates-provider';
 import { useEdges } from './use-edges';
 import { exportDiagram } from './utils/export-diagram';
+import { Background } from '@xyflow/react';
 
 type ResponseContent = { raw: string } | { err: string };
 
@@ -36,6 +37,8 @@ export function RunButton() {
   const [templates, _setTemplates] = useTemplates();
   const registry = useRegistry();
   const [running, setRunning] = useState(false);
+
+  const diagram = exportDiagram(registry, nodeManager, edges, templates);
 
   const requestError = useMemo(() => {
     try {
@@ -61,7 +64,7 @@ export function RunButton() {
   const handleRunClick = () => {
     try {
       const request = JSON.parse(requestJson);
-      const diagram = exportDiagram(registry, nodeManager, edges, templates);
+      // const diagram = exportDiagram(registry, nodeManager, edges, templates);
       apiClient.postRunWorkflow(diagram, request).subscribe({
         next: (response) => {
           setResponseContent({ raw: JSON.stringify(response, null, 2) });
@@ -122,6 +125,25 @@ export function RunButton() {
         }}
       >
         <DialogTitle>Run Workflow</DialogTitle>
+        <Divider />
+        <DialogContent sx={{ width: 500 }}>
+          <Stack spacing={2}>
+            <Typography variant="body1">Description:</Typography>
+            <Typography
+              variant="body1"
+              sx={{ fontFamily: 'monospace', whiteSpace: 'nowrap' }}
+            >
+              {diagram.description ?? 'n/a'}
+            </Typography>
+            <Typography variant="body1">Example inputs:</Typography>
+            <Typography
+              variant="body1"
+              sx={{ fontFamily: 'monospace', whiteSpace: 'nowrap' }}
+            >
+              {diagram.example_inputs ?? 'n/a'}
+            </Typography>
+          </Stack>
+        </DialogContent>
         <Divider />
         <DialogContent sx={{ width: 500 }}>
           <Stack spacing={2}>
