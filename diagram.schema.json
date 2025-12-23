@@ -46,6 +46,17 @@
     "version": {
       "description": "Version of the diagram, should always be `0.1.0`.",
       "type": "string"
+    },
+    "description": {
+      "description": "Description of the diagram.",
+      "type": "string"
+    },
+    "example_inputs": {
+      "description": "Example inputs for this workflow.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "required": [

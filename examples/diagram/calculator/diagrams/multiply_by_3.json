@@ -1,6 +1,8 @@
 {
   "$schema": "../../../diagram.schema.json",
   "version": "0.1.0",
+  "description": "Basic workflow that multiplies the interger input by 3.",
+  "example_inputs": ["123", "456"],
   "start": "mul3",
   "ops": {
     "mul3": {
