@@ -414,7 +414,7 @@ pub struct Diagram {
     pub description: Option<String>,
 
     /// Examples of inputs that can be used with this workflow.
-    pub example_inputs: Vec<String>,
+    pub example_inputs: Option<Vec<String>>,
 }
 
 #[derive(Default, Debug, Clone, Copy, JsonSchema, Serialize, Deserialize, PartialEq, Eq)]

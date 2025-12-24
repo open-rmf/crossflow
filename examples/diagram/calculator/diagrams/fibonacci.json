@@ -1,6 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/open-rmf/crossflow/refs/heads/main/diagram.schema.json",
   "version": "0.1.0",
+  "description": "Basic workflow that prints out the fibonacci sequence of the input number.",
+  "example_inputs": ["10", "20"],
   "templates": {},
   "start": "fibonacci",
   "ops": {

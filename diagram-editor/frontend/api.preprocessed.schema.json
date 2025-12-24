@@ -248,7 +248,10 @@
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "extensions": {
           "additionalProperties": true,
@@ -291,8 +294,7 @@
       "required": [
         "version",
         "start",
-        "ops",
-        "example_inputs"
+        "ops"
       ],
       "type": "object"
     },

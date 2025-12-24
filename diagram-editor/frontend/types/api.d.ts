@@ -401,7 +401,7 @@ export interface Diagram {
   /**
    * Examples of inputs that can be used with this workflow.
    */
-  example_inputs: string[];
+  example_inputs?: string[] | null;
   /**
    * Settings for each extension.
    */
