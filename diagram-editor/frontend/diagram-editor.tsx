@@ -514,7 +514,6 @@ function DiagramEditor() {
     async (jsonStr: string) => {
       try {
         const [diagram, { graph, isRestored }] = await loadDiagramJson(jsonStr);
-        console.log(diagram);
         setLoadContext({ diagram });
         // do not perform auto layout if the diagram is restored from previous state.
         if (!isRestored) {
