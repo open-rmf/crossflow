@@ -19,6 +19,7 @@
   - [Synchronization](./synchronization.md)
     - [Buffers](./buffers.md)
     - [Join](./join.md)
+    - [Join Rates](./join-rates.md)
     - [Listen](./listen.md)
     - [Buffer Access](./buffer_access.md)
     - [Collect](./collect.md)

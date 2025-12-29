@@ -800,7 +800,7 @@ let approach_door = commands.spawn_service(
 // open_door is not a navigation service so it will only have one
 // output stream: log messages.
 let open_door = commands.spawn_service(
-    |In(input): BlockingServiceInput<(), StreamOf<String>> {
+    |In(input): BlockingServiceInput<(), StreamOf<String>>| {
         input.streams.send(String::from("opening door"));
         /* ... open the door ... */
     }
@@ -825,7 +825,7 @@ let workflow = commands.spawn_workflow(
         // Connect nodes together
         builder.connect(scope.input, approach_door.input);
         builder.connect(approach_door.output, open_door.input);
-        builder.connect(open_door.input, move_through_door.input);
+        builder.connect(open_door.output, move_through_door.input);
         builder.connect(move_through_door.output, scope.terminate);
 
         // Connect node streams to scope streams
@@ -842,7 +842,56 @@ let workflow = commands.spawn_workflow(
 );
 // ANCHOR_END: navigation_streams_workflow
 
+// ANCHOR: buffer_settings_keep_all
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        let lidar_buffer = builder.create_buffer(BufferSettings::keep_all());
+        let camera_buffer = builder.create_buffer(BufferSettings::keep_all());
+
+        let localization_data = builder.join(
+            LocalizationData::select_buffers(lidar_buffer, camera_buffer)
+        );
+    }
+);
+// ANCHOR_END: buffer_settings_keep_all
+        help_service_infer_type::<(), (), ()>(workflow);
+
+// ANCHOR: join_settings_clone
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        let location_buffer = builder.create_buffer(BufferSettings::default());
+        let camera_buffer = builder.create_buffer(BufferSettings::default());
+
+        let image_stamped = builder.join(ImageStamped::select_buffers(
+            // Use .join_by_cloning() to have the location data cloned instead
+            // of pulled for each join operation.
+            location_buffer.join_by_cloning(),
+            camera_buffer,
+        ));
+    }
+);
+// ANCHOR_END: join_settings_clone
+
     });
+}
+
+struct LidarData {}
+struct CameraData {}
+
+// ANCHOR: LocalizationData
+#[derive(Joined)]
+struct LocalizationData {
+    lidar: LidarData,
+    camera: CameraData,
+}
+// ANCHOR_END: LocalizationData
+
+struct Location {}
+
+#[derive(Joined)]
+struct ImageStamped {
+    location: Location,
+    image: CameraData,
 }
 
 // ANCHOR: sum_fn
