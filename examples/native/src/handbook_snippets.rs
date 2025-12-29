@@ -221,7 +221,7 @@ let workflow = commands.spawn_io_workflow(
     }
 );
 // ANCHOR_END: trivial_workflow_concise
-        help_service_infer_type::<String, String>(workflow);
+        help_service_infer_type::<String, String, ()>(workflow);
 
 // ANCHOR: sum_service_workflow
 // Spawn a service that we can use inside a workflow
@@ -715,91 +715,132 @@ let workflow = commands.spawn_io_workflow(
 );
 // ANCHOR_END: use_elevator_chain
 
-let pick_item = (|_: WorkcellTask| { }).into_blocking_map();
-let move_to_location = (|_: MobileRobotTask| { }).into_blocking_map();
-let hand_off_item = (|_: ((), ())| { }).into_blocking_map();
-
-// ANCHOR: unzip_workflow
-let workflow = commands.spawn_io_workflow(
-    |scope, builder| {
-        // Create ndoes for picking an item and moving to a pickup location
-        let pick_item = builder.create_node(pick_item);
-        let move_to_location = builder.create_node(move_to_location);
-        let hand_off_item = builder.create_node(hand_off_item);
-
-        // Create a blocking map to transform the workflow input data into two
-        // separate messages to send to two different branches.
-        //
-        // This returns a tuple with two elements. We will send each element to
-        // a different branch at the same time.
-        let transform_inputs = builder.create_map_block(|request: PickupTask| {
-            (
-                WorkcellTask {
-                    workcell: request.workcell,
-                    item: request.item,
-                },
-                MobileRobotTask {
-                    vehicle: request.vehicle,
-                    location: request.location,
-                }
-            )
-        });
-
-        // Create the unzip forking
-        let (unzip_input, unzip) = builder.create_unzip();
-        // Destructure the unzipped outputs
-        let (workcell_task, mobile_robot_task) = unzip;
-
-        // Synchronize when the workcell and mobile robot are both ready for the
-        // item to be handed off
-        let both_ready = builder.join((
-            pick_item.output,
-            move_to_location.output,
-        ))
-        .output();
-
-        // Connect all the nodes
-        builder.connect(scope.input, transform_inputs.input);
-        builder.connect(transform_inputs.output, unzip_input);
-        builder.connect(workcell_task, pick_item.input);
-        builder.connect(mobile_robot_task, move_to_location.input);
-        builder.connect(both_ready, hand_off_item.input);
-        builder.connect(hand_off_item.output, scope.terminate);
+type T = String;
+// ANCHOR: minimal_workflow_stream_example
+let workflow = commands.spawn_workflow(
+    |scope: Scope<_, _, StreamOf<T>>, builder| {
+        /* ... */
     }
 );
-// ANCHOR_END: unzip_workflow
+// ANCHOR_END: minimal_workflow_stream_example
+help_service_infer_type::<String, String, StreamOf<T>>(workflow);
 
-let pick_item = (|_: WorkcellTask| { }).into_blocking_map();
-let move_to_location = (|_: MobileRobotTask| { }).into_blocking_map();
-let hand_off_item = (|_: ((), ())| { }).into_blocking_map();
-
-// ANCHOR: unzip_chain
-let workflow = commands.spawn_io_workflow(
-    |scope, builder| {
-        builder
-            .chain(scope.input)
-            .map_block(|request: PickupTask| {
-                (
-                    WorkcellTask {
-                        workcell: request.workcell,
-                        item: request.item,
-                    },
-                    MobileRobotTask {
-                        vehicle: request.vehicle,
-                        location: request.location,
-                    }
-                )
-            })
-            .fork_unzip((
-                |workcell_branch: Chain<_>| workcell_branch.then(pick_item).output(),
-                |amr_branch: Chain<_>| amr_branch.then(move_to_location).output(),
-            ))
-            .join(builder)
-            .then(hand_off_item)
-            .connect(scope.terminate);
+let deposit_apples = commands.spawn_service(
+    |In(input): BlockingServiceInput<Vec<Apple>, StreamOf<Apple>>| {
+        for apple in input.request {
+            input.streams.send(apple);
+        }
     }
 );
-// ANCHOR_END: unzip_chain
+
+let try_take_apple = commands.spawn_service(
+    |
+        In(input): BlockingServiceInput<((), BufferKey<Apple>)>,
+        mut access: BufferAccessMut<Apple>,
+    | {
+        access.get_mut(&input.request.1).ok()?.pull()
+    }
+);
+
+let chop_apple = commands.spawn_service(
+    |In(input): BlockingServiceInput<Apple, StreamOf<AppleSlice>>| {
+        input.streams.send(AppleSlice { });
+    }
+);
+
+// ANCHOR: apple_stream_out
+let workflow = commands.spawn_workflow(
+    |scope: Scope<_, _, StreamOf<AppleSlice>>, builder| {
+        // Create the service nodes that will be involved in chopping apples
+        let deposit_apples = builder.create_node(deposit_apples);
+        let try_take_apple = builder.create_node(try_take_apple);
+        let (have_apple_input, have_apple) = builder.create_fork_option();
+        let chop_apple = builder.create_node(chop_apple);
+
+        // Create a buffer to hold apples that are waiting to be chopped, and
+        // an operation to access that buffer.
+        let apple_buffer = builder.create_buffer(BufferSettings::keep_all());
+        let access_apple_buffer = builder.create_buffer_access(apple_buffer);
+
+        // Connect the scope input message to the deposit_apples service
+        builder.connect(scope.input, deposit_apples.input);
+
+        // Connect the stream of incoming apples to the apple buffer
+        builder.connect(deposit_apples.streams, apple_buffer.input_slot());
+
+        // When done depositing apples, start trying to take them by accessing
+        // the buffer
+        builder.connect(deposit_apples.output, access_apple_buffer.input);
+        builder.connect(access_apple_buffer.output, try_take_apple.input);
+
+        // Try to take an apple and check if we ran out
+        builder.connect(try_take_apple.output, have_apple_input);
+        // If there's another apple, send it to be chopped
+        builder.connect(have_apple.some, chop_apple.input);
+        // If there are no more apples, terminate the workflow
+        builder.connect(have_apple.none, scope.terminate);
+
+        // Stream the apple slices out of the scope, and then cycle back to
+        // taking another apple when the current one is finished.
+        builder.connect(chop_apple.streams, scope.streams);
+        builder.connect(chop_apple.output, access_apple_buffer.input);
+    }
+);
+// ANCHOR_END: apple_stream_out
+
+// ANCHOR: navigation_streams_workflow
+// This service will have a mobile robot approach a door.
+let approach_door = commands.spawn_service(
+    |In(input): BlockingServiceInput<(), NavigationStreams>| {
+        input.streams.log.send(String::from("approaching door"));
+        /* ... approach the door ... */
+    }
+);
+
+// open_door is not a navigation service so it will only have one
+// output stream: log messages.
+let open_door = commands.spawn_service(
+    |In(input): BlockingServiceInput<(), StreamOf<String>> {
+        input.streams.send(String::from("opening door"));
+        /* ... open the door ... */
+    }
+);
+
+// This service will have a mobile robot move through a door.
+let move_through_door = commands.spawn_service(
+    |In(input): BlockingServiceInput<(), NavigationStreams>| {
+        input.streams.log.send(String::from("moving through door"));
+        /* ... move through the door ... */
+    }
+);
+
+// This workflow will handle the whole process of moving a robot through a door,
+// while streaming navigation and log information from all the services it runs.
+let workflow = commands.spawn_workflow(
+    |scope: Scope<_, _, NavigationStreams>, builder| {
+        let approach_door = builder.create_node(approach_door);
+        let open_door = builder.create_node(open_door);
+        let move_through_door = builder.create_node(move_through_door);
+
+        // Connect nodes together
+        builder.connect(scope.input, approach_door.input);
+        builder.connect(approach_door.output, open_door.input);
+        builder.connect(open_door.input, move_through_door.input);
+        builder.connect(move_through_door.output, scope.terminate);
+
+        // Connect node streams to scope streams
+        builder.connect(approach_door.streams.log, scope.streams.log);
+        builder.connect(approach_door.streams.location, scope.streams.location);
+        builder.connect(approach_door.streams.error, scope.streams.error);
+
+        builder.connect(open_door.streams, scope.streams.log);
+
+        builder.connect(move_through_door.streams.log, scope.streams.log);
+        builder.connect(move_through_door.streams.location, scope.streams.location);
+        builder.connect(move_through_door.streams.error, scope.streams.error);
+    }
+);
+// ANCHOR_END: navigation_streams_workflow
 
     });
 }
@@ -1015,7 +1056,7 @@ fn hello_continuous_service(
 }
 // ANCHOR_END: hello_continuous_service
 
-fn help_service_infer_type<Request, Response>(_service: Service<Request, Response>) {
+fn help_service_infer_type<Request, Response, Streams>(_service: Service<Request, Response, Streams>) {
     // Do nothing
 }
 
@@ -1036,24 +1077,26 @@ struct SchemaV2 {
 }
 
 struct Item {}
-struct Workcell {}
 struct Location {}
-struct Vehicle {}
 
-struct WorkcellTask {
-    workcell: Workcell,
+struct Pickup {
     item: Item,
-}
-
-struct MobileRobotTask {
-    vehicle: Vehicle,
     location: Location,
 }
 
-struct PickupTask {
-    item: Item,
-    workcell: Workcell,
-    location: Location,
-    vehicle: Vehicle,
+enum NavigationError {
+
 }
 
+// ANCHOR: navigation_streams
+#[derive(StreamPack)]
+struct NavigationStreams {
+    log: String,
+    location: Vec2,
+    error: NavigationError,
+}
+// ANCHOR_END: navigation_streams
+
+struct Apple {}
+
+struct AppleSlice {}

@@ -30,6 +30,19 @@ use crate::{
 /// Each [`Provider`](crate::Provider) can provide zero, one, or more streams of data
 /// that may be sent out while it's running. The `StreamPack` allows those
 /// streams to be packed together as one generic argument.
+///
+/// To create a stream pack, simply define a struct whose fields are valid message
+/// types and derive the `StreamPack` trait for it:
+///
+/// ```
+/// # use crossflow::StreamPack;
+///
+/// #[derive(StreamPack)]
+/// struct NavigationStreams {
+///     log: String,
+///     position: [f32; 2],
+/// }
+/// ```
 pub trait StreamPack: 'static + Send + Sync {
     type StreamInputPack;
     type StreamOutputPack;
