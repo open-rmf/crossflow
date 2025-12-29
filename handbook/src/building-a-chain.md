@@ -101,6 +101,17 @@ You can mix and match uses of [`Chain`][Chain] with uses of [`Builder`][Builder]
 Ultimately both APIs boil down to [InputSlots][InputSlot], [Outputs][Output], and [Buffers](./using-buffers.md) (which will be covered later),
 making these APIs fully interoperable. Use whichever allows your workflow to be as understandable as possible.
 
+#### recreating [unzipping](./connecting-nodes.md#unzipping)
+
+Chains can also create forks using the unzip operation and join them together ergonomically:
+
+```rust,no_run,noplayground
+{{#include ./examples/native/src/handbook_snippets.rs:unzip_chain}}
+```
+
+
+
+
 [Builder]: https://docs.rs/crossflow/latest/crossflow/builder/struct.Builder.html
 [Builder::chain]: https://docs.rs/crossflow/latest/crossflow/builder/struct.Builder.html#method.chain
 [Builder::create_node]: https://docs.rs/crossflow/latest/crossflow/builder/struct.Builder.html#method.create_node

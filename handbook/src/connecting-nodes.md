@@ -78,6 +78,20 @@ When the robot and elevator both arrive in the elevator lobby, we will have the 
 {{#include ./examples/native/src/handbook_snippets.rs:use_elevator_workflow}}
 ```
 
+#### unzipping
+
+It's not often that a message can be trivially fed directly from the output of one service to the input of another service.
+Most of the time the services that you want to connect to each other will have slight differences between the `Response` type that the first produces and the `Request` type that you're trying to pass it along to.
+If you have two or more parallel branches that expect different inputs from each other, fork-clone might not seem like a good fit because every branch will receive the same message.
+
+We've seen how blocking maps can be used to perform quick data transforms.
+If we combine a blocking map with the [unzip operation](./parallelism.md#unzip), we can perform parallel branching where a specific message is sent down each branch:
+
+```rust,no_run,noplayground
+{{#include ./examples/native/src/handbook_snippets.rs:unzip_workflow}}
+```
+
+
 [Result]: https://doc.rust-lang.org/std/result/
 [Ok]: https://doc.rust-lang.org/std/result/enum.Result.html#variant.Ok
 [Err]: https://doc.rust-lang.org/std/result/enum.Result.html#variant.Err

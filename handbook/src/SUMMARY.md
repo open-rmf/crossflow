@@ -35,7 +35,6 @@
   - [Creating a Node](./creating-a-node.md)
   - [Connecting Nodes](./connecting-nodes.md)
   - [Building a Chain](./building-a-chain.md)
-  - [Message Transformation](./message-transformation.md)
   - [Output Streams](./workflow-output-streams.md)
   - [Using Buffers](./using-buffers.md)
   - [Using an Accessor](./using_an_accessor.md)
