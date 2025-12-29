@@ -20,7 +20,7 @@ jobs:
       matrix:
         rust-version: [stable]
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
     - uses: actions/checkout@v3
@@ -42,27 +42,26 @@ jobs:
     - name: Test default features
       run: |
         cargo test --workspace
-        rm -rf target/debug/build
 
     - name: Test single_threaded_async
       run: |
-        cargo test --features single_threaded_async
         rm -rf target/debug/build
+        cargo test --features single_threaded_async
 
     - name: Test diagram
       run: |
-        cargo test --workspace -F=diagram
         rm -rf target/debug/build
+        cargo test --workspace -F=diagram
 
     - name: Test trace
       run: |
-        cargo test --workspace -F=trace
         rm -rf target/debug/build
+        cargo test --workspace -F=trace
 
     - name: Test all capabilities combined
       run: |
+        rm -rf target/
         cargo test --workspace -F=maximal
-        rm -rf target/debug/build
 
     - name: Build docs
       run: cargo doc --no-deps --all-features
