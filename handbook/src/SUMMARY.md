@@ -38,7 +38,7 @@
   - [Building a Chain](./building-a-chain.md)
   - [Output Streams](./workflow-output-streams.md)
   - [Using Buffers](./using-buffers.md)
-  - [Using an Accessor](./using_an_accessor.md)
+  - [Using Buffer Accessors](./using-buffer-accessors.md)
   - [Workflow Setings](./workflow-settings.md)
 - [JSON Diagrams](./json_diagrams.md)
   - [Basic Syntax](./json_diagram_syntax.md)

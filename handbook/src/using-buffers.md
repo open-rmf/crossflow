@@ -4,7 +4,7 @@
 They are the key to both synchronizing parallel activity inside of a workflow and also tracking the overall state of the workflow.
 
 Crossflow uses Bevy's ECS to manage the data inside of buffers.
-This means if you want a node to directly access the data inside of a buffer you will need to implement the node with a [service](./spawn_a_service.md) or a [callback](./callbacks.md) and use an [accessor](./using_an_accessor.md), which is explained on the next page.
+This means if you want a node to directly access the data inside of a buffer you will need to implement the node with a [service](./spawn_a_service.md) or a [callback](./callbacks.md) and use an [accessor](./using-buffer-accessors.md), which is explained on the next page.
 
 ## joining
 

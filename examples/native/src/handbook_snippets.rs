@@ -41,6 +41,8 @@ use glam::Vec2;
 use serde::{Serialize, Deserialize};
 use serde_json::{Value as Json, Error};
 
+use std::time::SystemTime;
+
 fn main() {
     let mut app = App::new();
 
@@ -871,8 +873,108 @@ let workflow = commands.spawn_io_workflow(
     }
 );
 // ANCHOR_END: join_settings_clone
+        help_service_infer_type::<(), (), ()>(workflow);
 
+let traffic_signal_service = commands.spawn_service(
+    |_: In<BlockingService<(), StreamOf<TrafficSignal>>>| { }
+);
+let approach_intersection = commands.spawn_service(
+    |_: In<BlockingService<()>>| { [1_f32, 2_f32] }
+);
+let send_robot_command = commands.spawn_service(
+    |_: In<BlockingService<RobotCommand>>| -> Option<()> { None }
+);
+
+// ANCHOR: listen_example
+/// Derive the Accessor trait so this struct of keys can be constructed by the
+/// listen operation. Note that Accessor also requires Clone to be defined.
+#[derive(Accessor, Clone)]
+struct IntersectionKeys {
+    signal: BufferKey<TrafficSignal>,
+    arrival: BufferKey<[f32; 2]>,
+}
+
+/// Define a dervice that evaluates whether or not the robot should proceed
+/// across the intersection.
+fn proceed_or_stop(
+    In(keys): In<IntersectionKeys>,
+    signal_access: BufferAccess<TrafficSignal>,
+    mut arrival_access: BufferAccessMut<[f32; 2]>,
+) -> Option<RobotCommand> {
+    let signal_buffer = signal_access.get(&keys.signal).ok()?;
+    let mut arrival_buffer = arrival_access.get_mut(&keys.arrival).ok()?;
+
+    // Get a reference to the newest message if one is available
+    let signal = signal_buffer.newest()?;
+    // Pull the value from this buffer is one is available
+    let arrived = arrival_buffer.pull()?;
+
+    match signal {
+        TrafficSignal::Green => Some(RobotCommand::Go),
+        TrafficSignal::Red => Some(RobotCommand::Stop),
+    }
+}
+
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        // Create buffers to store the two state variables:
+        // * what the current traffic signal is
+        // * whether the robot has reached the intersection
+        let signal = builder.create_buffer(Default::default());
+        let arrived = builder.create_buffer(Default::default());
+
+        // Create services to update the two state variables
+        let traffic_signal_service = builder.create_node(traffic_signal_service);
+        let approach_intersection = builder.create_node(approach_intersection);
+
+        // Activate both of the state update services at startup
+        builder
+            .chain(scope.input)
+            .fork_clone((
+                |chain: Chain<_>| chain.connect(traffic_signal_service.input),
+                |chain: Chain<_>| chain.connect(approach_intersection.input),
+            ));
+
+        // Connect the services to their respective buffers. For the traffic
+        // signal we connect its stream, because the signal will be changing
+        // over time. For the arrival state we connect the output of the
+        // approach_intersection service because the robot will only ever
+        // approach the intersection once.
+        builder.connect(traffic_signal_service.streams, signal.input_slot());
+        builder.connect(approach_intersection.output, arrived.input_slot());
+
+        builder
+            // Create a listen operation that will active whenever either the
+            // traffic signal or arrival buffer has an update
+            .listen(IntersectionKeys::select_buffers(signal, arrived))
+            // When an update happens, provide both buffer keys to a node that
+            // will evaluate if the robot is ready to cross
+            .then(proceed_or_stop.into_blocking_callback())
+            // If no decision can be made yet (e.g. one of the buffers is
+            // unavailable) then just dispose this message
+            .dispose_on_none()
+            // If a decision was made, send a command to the robot
+            .then(send_robot_command)
+            // The previous service will return None if the command was to stop.
+            // If the command was to go, then it will return Some after the robot
+            // finishes crossing the intersection.
+            .dispose_on_none()
+            // Terminate when the robot has finished crossing.
+            .connect(scope.terminate);
+    }
+);
+// ANCHOR_END: listen_example
     });
+}
+
+enum TrafficSignal {
+    Green,
+    Red,
+}
+
+enum RobotCommand {
+    Go,
+    Stop,
 }
 
 struct LidarData {}
@@ -885,8 +987,6 @@ struct LocalizationData {
     camera: CameraData,
 }
 // ANCHOR_END: LocalizationData
-
-struct Location {}
 
 #[derive(Joined)]
 struct ImageStamped {
@@ -1126,6 +1226,8 @@ struct SchemaV2 {
 }
 
 struct Item {}
+
+#[derive(Clone)]
 struct Location {}
 
 struct Pickup {
@@ -1149,3 +1251,88 @@ struct NavigationStreams {
 struct Apple {}
 
 struct AppleSlice {}
+
+fn buffer_access_example() {
+// ANCHOR: buffer_access_example
+use crossflow::{prelude::*, testing::*};
+
+/// Use mutable access (BufferAccessMut) to push values into a buffer. The
+/// values are guaranteed to be present in the buffer before this service
+/// finishes running. Therefore any service that accesses the buffer after this
+/// service finishes is guaranteed to find the values present inside.
+fn push_values(
+    In(input): In<(Vec<i32>, BufferKey<i32>)>,
+    mut access: BufferAccessMut<i32>,
+) {
+    let Ok(mut access) = access.get_mut(&input.1) else {
+        return;
+    };
+    for value in input.0 {
+        access.push(value);
+    }
+}
+
+/// Use read-only access (BufferAccess) to look through the values in the
+/// buffer. We pick out the largest value and clone it to pass it along. This
+/// read-only access cannot pull or modify the data inside the buffer in any
+/// way, it can only view and clone (if the data is cloneable) from the buffer.
+fn get_largest_value(
+    In(input): In<((), BufferKey<i32>)>,
+    access: BufferAccess<i32>,
+) -> Option<i32> {
+    let access = access.get(&input.1).ok()?;
+    access.iter().max().cloned()
+}
+
+let mut context = TestingContext::minimal_plugins();
+
+let workflow = context.spawn_io_workflow(|scope, builder| {
+    let buffer = builder.create_buffer(BufferSettings::keep_all());
+    builder
+        .chain(scope.input)
+        .with_access(buffer)
+        .then(push_values.into_blocking_callback())
+        .with_access(buffer)
+        .then(get_largest_value.into_blocking_callback())
+        .connect(scope.terminate);
+});
+
+let mut promise = context.command(|commands| {
+    commands.request(vec![-3, 2, 10], workflow).take_response()
+});
+
+context.run_with_conditions(&mut promise, Duration::from_secs(1));
+
+let r = promise.take().available().unwrap().unwrap();
+assert_eq!(r, 10);
+// ANCHOR_END: buffer_access_example
+}
+
+
+
+struct Order {}
+
+#[derive(Resource)]
+struct WorkingHours {
+    open: SystemTime,
+    close: SystemTime,
+}
+
+// ANCHOR: gate_example
+fn manage_opening_time(
+    In(input): In<(SystemTime, BufferKey<Order>)>,
+    mut gate: BufferGateAccessMut,
+    hours: Res<WorkingHours>,
+) {
+    let Ok(mut gate) = gate.get_mut(input.1) else {
+        return;
+    };
+
+    let time = input.0;
+    if time < hours.open || hours.close < time {
+        gate.close_gate();
+    } else {
+        gate.open_gate();
+    }
+}
+// ANCHOR_END: gate_example

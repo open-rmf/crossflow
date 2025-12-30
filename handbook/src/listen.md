@@ -94,7 +94,7 @@ incompatibility will produce a compilation error.
 
 > [!TIP]
 > To learn how to use an accessor within your service, see
-> [Using an Accessor](./using_an_accessor.md).
+> [Using an Accessor](./using-buffer-accessors.md).
 
 [BufferKey]: https://docs.rs/crossflow/latest/crossflow/buffer/struct.BufferKey.html
 [BufferAccess]: https://docs.rs/crossflow/latest/crossflow/buffer/struct.BufferAccess.html

@@ -82,7 +82,7 @@ resume.
 
 > [!NOTE]
 > Closing a buffer gate does **not** block the [buffer access](./buffer_access.md)
-> operation, and it does **not** prevent [buffer keys](./using_an_accessor.md)
+> operation, and it does **not** prevent [buffer keys](./using-buffer-accessors.md)
 > from working.
 
 Whenever a buffer's gate transitions from closed to open status, any attached
