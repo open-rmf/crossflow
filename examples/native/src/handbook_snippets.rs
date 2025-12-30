@@ -964,6 +964,77 @@ let workflow = commands.spawn_io_workflow(
     }
 );
 // ANCHOR_END: listen_example
+
+// ANCHOR: explicit_workflow_settings
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        builder.connect(scope.input, scope.terminate);
+
+        // Return explicit workflow settings.
+        WorkflowSettings::new()
+            .uninterruptible()
+            .with_delivery(DeliverySettings::Serial)
+    }
+);
+// ANCHOR_END: explicit_workflow_settings
+        help_service_infer_type::<(), (), ()>(workflow);
+
+// ANCHOR: explicit_delivery_settings
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        builder.connect(scope.input, scope.terminate);
+
+        // Return explicit delivery settings.
+        // The scope settings will be the default (interruptible).
+        DeliverySettings::Serial
+    }
+);
+// ANCHOR_END: explicit_delivery_settings
+        help_service_infer_type::<(), (), ()>(workflow);
+
+// ANCHOR: explicit_scope_settings
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        builder.connect(scope.input, scope.terminate);
+
+        // Return explicit scope settings.
+        // The delivery settings will be the default (parallel).
+        ScopeSettings::uninterruptible()
+    }
+);
+// ANCHOR_END: explicit_scope_settings
+        help_service_infer_type::<(), (), ()>(workflow);
+
+// ANCHOR: default_workflow_settings
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        builder.connect(scope.input, scope.terminate);
+
+        // Simply don't return anything from the closure
+        // to get the default workflow settings.
+    }
+);
+// ANCHOR_END: default_workflow_settings
+        help_service_infer_type::<(), (), ()>(workflow);
+
+// ANCHOR: inner_scope_settings
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        builder
+            .chain(scope.input)
+            .then_scope(
+                |scope, builder| {
+                    builder.connect(scope.input, scope.output);
+
+                    // Set only this inner scope to be uninterruptible.
+                    ScopeSettings::uninterruptible()
+                }
+            )
+            .connect(scope.terminate);
+    }
+);
+// ANCHOR_END: inner_scope_settings
+        help_service_infer_type::<(), (), ()>(workflow);
     });
 }
 
