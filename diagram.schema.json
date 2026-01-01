@@ -5,10 +5,7 @@
   "properties": {
     "description": {
       "description": "Optional text to describe the workflow.",
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "default_trace": {
       "description": "Whether the operations in the workflow should be traced by default.\n Being traced means each operation will emit an event each time it is\n triggered. You can decide whether that event contains the serialized\n message data that triggered the operation.\n\n If crossflow is not compiled with the \"trace\" feature then this\n setting will have no effect.",
@@ -16,12 +13,9 @@
     },
     "example_inputs": {
       "description": "Examples of inputs that can be used with this workflow.",
-      "type": [
-        "array",
-        "null"
-      ],
+      "type": "array",
       "items": {
-        "type": "string"
+        "$ref": "#/$defs/ExampleInput"
       }
     },
     "extensions": {
@@ -390,6 +384,19 @@
             "type"
           ]
         }
+      ]
+    },
+    "ExampleInput": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "value": true
+      },
+      "required": [
+        "value",
+        "description"
       ]
     },
     "ForkCloneSchema": {

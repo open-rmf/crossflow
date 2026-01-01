@@ -238,20 +238,14 @@
         },
         "description": {
           "description": "Optional text to describe the workflow.",
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "string"
         },
         "example_inputs": {
           "description": "Examples of inputs that can be used with this workflow.",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/ExampleInput"
           },
-          "type": [
-            "array",
-            "null"
-          ]
+          "type": "array"
         },
         "extensions": {
           "additionalProperties": true,
@@ -585,6 +579,19 @@
           ]
         }
       ]
+    },
+    "ExampleInput": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "value": true
+      },
+      "required": [
+        "value",
+        "description"
+      ],
+      "type": "object"
     },
     "ForkCloneSchema": {
       "description": "If the request is cloneable, clone it into multiple responses that can\n each be sent to a different operation. The `next` property is an array.\n\n This creates multiple simultaneous branches of execution within the\n workflow. Usually when you have multiple branches you will either\n * race - connect all branches to `terminate` and the first branch to\n   finish \"wins\" the race and gets to the be output\n * join - connect each branch into a buffer and then use the `join`\n   operation to reunite them\n * collect - TODO(@mxgrey): [add the collect operation](https://github.com/open-rmf/crossflow/issues/59)\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"begin_race\",\n     \"ops\": {\n         \"begin_race\": {\n             \"type\": \"fork_clone\",\n             \"next\": [\n                 \"ferrari\",\n                 \"mustang\"\n             ]\n         },\n         \"ferrari\": {\n             \"type\": \"node\",\n             \"builder\": \"drive\",\n             \"config\": \"ferrari\",\n             \"next\": { \"builtin\": \"terminate\" }\n         },\n         \"mustang\": {\n             \"type\": \"node\",\n             \"builder\": \"drive\",\n             \"config\": \"mustang\",\n             \"next\": { \"builtin\": \"terminate\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())",

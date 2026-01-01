@@ -397,11 +397,11 @@ export interface Diagram {
   /**
    * Optional text to describe the workflow.
    */
-  description?: string | null;
+  description?: string;
   /**
    * Examples of inputs that can be used with this workflow.
    */
-  example_inputs?: string[] | null;
+  example_inputs?: ExampleInput[];
   /**
    * Settings for each extension.
    */
@@ -423,6 +423,15 @@ export interface Diagram {
    * Version of the diagram, should always be `0.1.0`.
    */
   version: string;
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "ExampleInput".
+ */
+export interface ExampleInput {
+  description: string;
+  value: unknown;
   [k: string]: unknown;
 }
 /**

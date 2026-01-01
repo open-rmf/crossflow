@@ -45,6 +45,12 @@ function ExportDiagramDialogInternal({
     if (loadContext?.diagram.extensions) {
       diagram.extensions = loadContext.diagram.extensions;
     }
+    if (loadContext?.diagram.description) {
+      diagram.description = loadContext.diagram.description;
+    }
+    if (loadContext?.diagram.example_inputs) {
+      diagram.example_inputs = loadContext.diagram.example_inputs;
+    }
     await saveState(diagram, {
       nodes: [...nodeManager.nodes],
       edges: [...edges],
