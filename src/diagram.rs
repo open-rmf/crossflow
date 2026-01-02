@@ -40,11 +40,10 @@ pub mod zenoh;
 
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::system::Commands;
-use buffer_schema::{BufferAccessSchema, BufferSchema, ListenSchema};
-use fork_clone_schema::{DynForkClone, ForkCloneSchema, RegisterClone};
-use fork_result_schema::{DynForkResult, ForkResultSchema};
-pub use join_schema::JoinOutput;
-use join_schema::JoinSchema;
+pub use buffer_schema::{BufferAccessSchema, BufferSchema, ListenSchema};
+pub use fork_clone_schema::{DynForkClone, ForkCloneSchema, RegisterClone};
+pub use fork_result_schema::{DynForkResult, ForkResultSchema};
+pub use join_schema::JoinSchema;
 pub use node_schema::NodeSchema;
 pub use operation_ref::*;
 pub use registration::*;
@@ -54,8 +53,8 @@ pub use serialization::*;
 pub use split_schema::*;
 pub use stream_out_schema::*;
 use tracing::debug;
-use transform_schema::{TransformError, TransformSchema};
-use unzip_schema::UnzipSchema;
+pub use transform_schema::{TransformError, TransformSchema};
+pub use unzip_schema::UnzipSchema;
 pub use workflow_builder::*;
 
 use anyhow::Error as Anyhow;

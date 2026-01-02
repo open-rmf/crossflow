@@ -149,11 +149,6 @@ impl BuildDiagramOperation for JoinSchema {
     }
 }
 
-/// The resulting type of a `join` operation. Nodes receiving a join output must have request
-/// of this type. Note that the join output is NOT serializable. If you would like to serialize it,
-/// convert it to a `Vec` first.
-pub type JoinOutput<T> = SmallVec<[T; 4]>;
-
 #[cfg(test)]
 mod tests {
     use crossflow_derive::Joined;
