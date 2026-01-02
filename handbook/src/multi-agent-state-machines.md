@@ -197,7 +197,7 @@ through their shared use of the buffers.
 
 The logic of each of the state transitions that can be performed are encapsulated
 by three different services that do not need to know about each other's existence.
-Each of these services can be implemented as an [async function](./spawn_async_service.md)
+Each of these services can be implemented as an [async function](./spawn-async-services.md)
 *or* by defining a separate lower-level workflow for each of them.
 
 This kind of free-form reactive async system cannot be expressed by most graphical

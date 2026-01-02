@@ -1,7 +1,7 @@
 # How to Run a Service
 
-Once you have [spawned a service](./spawn_a_service.md) or have some other type
-of "provider" available [[1](./callbacks.md)][[2](./maps.md)][[3](./build_a_workflow.md)],
+Once you have [spawned a service](./spawn-services.md) or have some other type
+of "provider" available [[1](./callbacks.md)][[2](./maps.md)][[3](./spawn-workflows.md)],
 you can run it by passing in a request. This can be done from inside of any Bevy
 system by including a [`Commands`](https://docs.rs/bevy/latest/bevy/prelude/struct.Commands.html):
 
@@ -60,9 +60,9 @@ There are often times where you'll want to immediately feed the result of one
 service into another in a chain of service calls. We call this a `Series`, and
 you can continue to the next page to find out how to do this.
 
-Some services have [output streams](./output_streams.md) in addition to a response,
+Some services have [output streams](./output-streams.md) in addition to a response,
 and you may need to receive data from those. You can learn about how to receive
-from output streams in [Receiving from Output Streams](./receiving_from_output_streams.md).
+from output streams in [Receiving from Output Streams](./receiving-from-output-streams.md).
 
 If simply receiving the final response of a service is enough for your needs,
-then you can move along to the [Introduction to Workflows](./introduction_to_workflows.md) section.
+then you can move along to the [Introduction to Workflows](./introduction-to-workflows.md) section.

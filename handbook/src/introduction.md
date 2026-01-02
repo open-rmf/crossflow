@@ -52,7 +52,7 @@ as input to another service. Workflows are excellent for defining state machines
 that have async state transitions or that have lots of parallel activity that
 needs to be managed and synchronized.
 
-When you [create a workflow](./build_a_workflow.md) you will ultimately be
+When you [create a workflow](./spawn-workflows.md) you will ultimately be
 creating yet another *service* that can be treated exactly the same as a service
 created using a Bevy System. This workflow-based service can even be used as a
 node inside of another workflow. In other words, you can build hierarchical
@@ -79,12 +79,12 @@ with each other.
 ## Getting Started
 
 To get you started with crossflow, the next chapter will teach you how to spawn
-a basic service. After that you will see [how to run a service](./run_a_service.md),
-then how to [assemble services into a workflow](./build_a_workflow.md) (which is
+a basic service. After that you will see [how to run a service](./run-services.md),
+then how to [assemble services into a workflow](./spawn-workflows.md) (which is
 itself a service) and execute it.
 
 To learn the fundamental concepts around what a "workflow" is in the crossflow
-library, see the [Introduction to Workflows](./introduction_to_workflows.md) chapter.
+library, see the [Introduction to Workflows](./introduction-to-workflows.md) chapter.
 
 [Service]: https://docs.rs/crossflow/latest/crossflow/service/struct.Service.html
 [spawn_workflow]: https://docs.rs/crossflow/latest/crossflow/workflow/trait.SpawnWorkflowExt.html#tymethod.spawn_workflow

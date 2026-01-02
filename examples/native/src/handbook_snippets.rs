@@ -1022,9 +1022,9 @@ let workflow = commands.spawn_io_workflow(
     |scope, builder| {
         builder
             .chain(scope.input)
-            .then_scope(
+            .then_io_scope(
                 |scope, builder| {
-                    builder.connect(scope.input, scope.output);
+                    builder.connect(scope.input, scope.terminate);
 
                     // Set only this inner scope to be uninterruptible.
                     ScopeSettings::uninterruptible()

@@ -60,14 +60,14 @@ All of the messages coming out of the spread operation will be sent to the same
 input slot. In principle they are all sent to the input slot "at the same time"
 although the exact outcome will vary based on what kind of operation they are
 being sent to:
-* If they are sent to a [blocking service](./spawn_a_service.md#spawn-a-blocking-service) then
+* If they are sent to a [blocking service](./spawn-services.md#spawn-a-blocking-service) then
   they will be processed one-at-a-time but all of them will be processed within the same "flush"
   of the workflow (i.e. within one update frame of the Bevy [schedule][Schedule]).
-* If they are sent to an [async](./spawn_async_service.md) service then the
+* If they are sent to an [async](./spawn-async-services.md) service then the
   service will be activated with one message at a time, but the Futures of all
   the calls will be processed in parallel by the
   [async compute task pool](https://docs.rs/bevy/latest/bevy/tasks/struct.AsyncComputeTaskPool.html).
-* If they are sent to a [continuous](./spawn_continuous_service.md) service then
+* If they are sent to a [continuous](./spawn-continuous-services.md) service then
   they will all be queued up for the continuous service together, and the
   continuous service will see all of them in its queue the next time it gets run.
 

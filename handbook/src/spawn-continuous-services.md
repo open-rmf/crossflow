@@ -1,7 +1,7 @@
 # Continuous Services
 
-Most of the time a service can be written as a [blocking service](./spawn_a_service.md#spawn-a-blocking-service)
-or an [async service](./spawn_async_service.md#spawn-an-async-service) depending on
+Most of the time a service can be written as a [blocking service](./spawn-services.md#spawn-a-blocking-service)
+or an [async service](./spawn-async-services.md#spawn-an-async-service) depending on
 whether the service is known to be short-lived or long-lived and whether it needs
 to use the async feature of Rust. But there's one more shape a service can take
 on: continuous.

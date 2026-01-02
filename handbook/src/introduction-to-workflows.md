@@ -1,10 +1,10 @@
 # Introduction to Workflows
 
-If you need to assemble services in a more complex way than a [series](./run_a_series.md),
+If you need to assemble services in a more complex way than a [series](./run-series.md),
 you can build a workflow. Building a workflow will ultimately leave you with a
-[`Service`][Service] which you can use to [run the workflow](./run_a_service.md).
+[`Service`][Service] which you can use to [run the workflow](./run-services.md).
 
-Fundamentally, workflows define how the output of one [service](./spawn_a_service.md)
+Fundamentally, workflows define how the output of one [service](./spawn-services.md)
 should connect to the input of another service. Along the way, the data that is
 being passed might undergo transformations.
 
@@ -27,14 +27,14 @@ table th:nth-of-type(3) {
 
 |  | Description | Benefits |
 |--|-------------|----------|
-| [![native Rust API](./assets/figures/binary-matrix.png "Native Rust API")](./build_a_workflow.md) | Write Rust code to define nodes and workflows using the native Rust API of crossflow |  🠚 compile-time validation <br> 🠚 access to all native features <br> 🠚 easily import plugins |
-| [![runtime generation](./assets/figures/cyber-brain.png "Runtime Generation")](./json_diagrams.md) | Generate a JSON diagram based on the output of a planner or a description of some process | 🠚 runtime validation of diagram <br> 🠚 visualize generated diagrams <br> 🠚 implement highly dynamic systems |
+| [![native Rust API](./assets/figures/binary-matrix.png "Native Rust API")](./spawn-workflows.md) | Write Rust code to define nodes and workflows using the native Rust API of crossflow |  🠚 compile-time validation <br> 🠚 access to all native features <br> 🠚 easily import plugins |
+| [![runtime generation](./assets/figures/cyber-brain.png "Runtime Generation")](./json-diagrams.md) | Generate a JSON diagram based on the output of a planner or a description of some process | 🠚 runtime validation of diagram <br> 🠚 visualize generated diagrams <br> 🠚 implement highly dynamic systems |
 | [![visual editor](./assets/figures/visual-diagram.png "Visual Editor")](https://open-rmf.github.io/crossflow/) | Visually design and configure a workflow with a graphical editor | 🠚 no-code programming <br> 🠚 validate diagram while editing <br> 🠚 runtime validation of diagram |
 
 This chapter will introduce concepts that are relevant to all three. For building
-workflows using the native Rust API, you can go to the [How to Build a Workflow](./build_a_workflow.md)
+workflows using the native Rust API, you can go to the [How to Build a Workflow](./spawn-workflows.md)
 chapter. To learn about runtime generation and visual (no-code) editing of workflows,
-go to [JSON Diagrams](./json_diagrams.md).
+go to [JSON Diagrams](./json-diagrams.md).
 
 > [!TIP]
 > See our [live web demo](https://open-rmf.github.io/crossflow/) of the open
@@ -42,7 +42,7 @@ go to [JSON Diagrams](./json_diagrams.md).
 
 ## Node
 
-To put a service into a workflow you [create a node](./build_a_workflow.md#creating-a-node)
+To put a service into a workflow you [create a node](./spawn-workflows.md#creating-a-node)
 by specifying a service that will be run when the node is given an input:
 
 ![workflow-node](./assets/figures/workflow-node.svg)
@@ -77,7 +77,7 @@ not be allowed to run until the mismatch is resolved.
 
 ### Streams
 
-If the service used by your node has [output streams](./output_streams.md) then
+If the service used by your node has [output streams](./output-streams.md) then
 you will receive a separate [`Output`][Output] for each stream:
 
 ![output-streams](./assets/figures/output-streams.svg)

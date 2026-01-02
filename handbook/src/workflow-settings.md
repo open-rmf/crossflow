@@ -1,6 +1,6 @@
 # Workflow Setings
 
-In general, services allow you to specify [delivery settings](./delivery_instructions.md) which affect whether the service can run in parallel across one or more sessions, or whether the service can only be run once at a time across all sessions.
+In general, services allow you to specify [delivery settings](./delivery-instructions.md) which affect whether the service can run in parallel across one or more sessions, or whether the service can only be run once at a time across all sessions.
 There are also [scope settings][ScopeSettings] which determine whether a given scope is "interruptible", meaning it cannot be cancelled from the outside---only an internal cancellation or successful termination can end the scope session.
 
 Both of these settings are relevant to a workflow.

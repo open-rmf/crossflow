@@ -81,7 +81,7 @@ undoes the effect of **gate close**, allowing the join and listen operations to
 resume.
 
 > [!NOTE]
-> Closing a buffer gate does **not** block the [buffer access](./buffer_access.md)
+> Closing a buffer gate does **not** block the [buffer access](./buffer-access.md)
 > operation, and it does **not** prevent [buffer keys](./using-buffer-accessors.md)
 > from working.
 

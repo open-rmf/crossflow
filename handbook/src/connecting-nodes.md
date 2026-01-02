@@ -1,7 +1,7 @@
 # Connecting Nodes
 
 The examples on the [previous page](./creating-a-node.md) are completely trivial workflows.
-In each one we're just starting the workflow, running one service (or [provider](./provider_overview.md)), and then terminating the workflow with the output of the service.
+In each one we're just starting the workflow, running one service (or [provider](./provider-overview.md)), and then terminating the workflow with the output of the service.
 The real value of a workflow is being able to assemble multiple services together into something more complex.
 
 Here is an example of creating two nodes and chaining them:
@@ -12,7 +12,7 @@ Here is an example of creating two nodes and chaining them:
 
 A common pattern when building workflows is to declare the nodes or operations at the top and then connect them together below.
 
-The above workflow still doesn't accomplish anything that we couldn't get from running a [Series](./run_a_series.md) instead.
+The above workflow still doesn't accomplish anything that we couldn't get from running a [Series](./run-series.md) instead.
 It's just a sequence of actions that feed into each other.
 What makes workflows interesting is their ability to branch, cycle, and flow freely through a directed graph structure.
 

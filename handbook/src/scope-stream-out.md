@@ -1,6 +1,6 @@
 # Stream Out
 
-In crossflow all services are able to have [output streams](./output_streams.md),
+In crossflow all services are able to have [output streams](./output-streams.md),
 which allow services to produce output messages while still running. These are
 different from the *final output* in two ways:
 * A service can have multiple output streams with different names and message

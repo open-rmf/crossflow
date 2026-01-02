@@ -1,6 +1,6 @@
 # Branching
 
-What distinguishes a workflow from a [series](./run_a_series.md) is that workflows
+What distinguishes a workflow from a [series](./run-series.md) is that workflows
 support additional **operations** besides just chaining services together. For
 example, fork-result creates a fork (a point with diverging branches) in the
 workflow where one of two branches will be run based on the value of the input

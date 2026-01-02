@@ -7,7 +7,7 @@ For one-off requests you can chain services together by building a [`Series`][Se
 > [!TIP]
 > If you need to assemble services into a more complex structure than a linear
 > sequence (e.g. parallel threads, conditional branching, loops), you can
-> build a [workflow](./introduction_to_workflows.md) instead.
+> build a [workflow](./introduction-to-workflows.md) instead.
 >
 > The advantage of using a `Series` over a workflow is that you can run a series
 > once and forget about it (cleanup is automatic), whereas when you build a workflow

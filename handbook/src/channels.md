@@ -22,7 +22,7 @@ trajectory controller could send a `Receiver` to the motor controller service,
 allowing the motor controller to run its feedback loop at its own rate and
 receive new targets as they arrive.
 
-We use a [stream](./output_streams.md) to send out the receiver because streams
+We use a [stream](./output-streams.md) to send out the receiver because streams
 can send messages out of the service while the service continues to run. This
 means the `trajectory_controller` service and `motor_controller` service can run
 simultaneously as async services, and those specific service sessions can

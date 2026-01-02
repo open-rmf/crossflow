@@ -64,7 +64,7 @@ available whenever we need it. A common practice is to save your services into
 they can be accessed at runtime when needed.
 
 Now that you've seen how to spawn a system, you could move on to
-[How to Run a Service](./run_a_service.md). Or you can continue on this page to
+[How to Run a Service](./run-services.md). Or you can continue on this page to
 learn about the more sophisticated abilities of services.
 
 ### Services as Bevy Systems
@@ -84,7 +84,7 @@ special type of [`SystemParam`](https://docs.rs/bevy/latest/bevy/ecs/system/trai
 for a value that is being directly passed into the system rather than being
 accessed from the world. For blocking services we pass in a
 [`BlockingService`][BlockingService] as the input, which contains the request data,
-[output streams](./output_streams.md), and some other fields that represent metadata about the service.
+[output streams](./output-streams.md), and some other fields that represent metadata about the service.
 
 Just like any other Bevy system, you can add as many system params to your service
 as you would like. Here is an example of a blocking service that includes a
@@ -129,7 +129,7 @@ for managing the components of an entity.
 
 ### More kinds of services
 
-If you are interested in non-blocking service types, continue on to [Async Services](./spawn_async_service.md) and [Continuous Services](./spawn_continuous_service.md).
+If you are interested in non-blocking service types, continue on to [Async Services](./spawn-async-services.md) and [Continuous Services](./spawn-continuous-services.md).
 
 If you need your service to be a portable object that isn't associated with an
 entity, take a look at [Callbacks](./callbacks.md). If you don't care about your
@@ -137,4 +137,4 @@ service being a Bevy system at all (i.e. it should just be a plain function with
 a single input argument) then take a look at [Maps](./maps.md).
 
 If blocking services are enough to get you started, then you can skip ahead to
-[How to Run a Service](./run_a_service.md).
+[How to Run a Service](./run-services.md).

@@ -1,6 +1,6 @@
 # Output Streams
 
-Up until now all the examples of spawning a workflow have used [`spawn_io_workflow`][spawn_io_workflow] which spawns a service that takes in a single request and yields a single response with no [output streams](./output_streams.md).
+Up until now all the examples of spawning a workflow have used [`spawn_io_workflow`][spawn_io_workflow] which spawns a service that takes in a single request and yields a single response with no [output streams](./output-streams.md).
 Just as services support output streams, so do workflows.
 To stream messages out of your workflow while it is still running, you can use the [stream out](./scope-stream-out.md) operation.
 

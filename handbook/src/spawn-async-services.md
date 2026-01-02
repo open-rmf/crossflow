@@ -1,6 +1,6 @@
 # Async Services
 
-We've seen how to spawn a [blocking service](./spawn_a_service.md#spawn-a-blocking-service),
+We've seen how to spawn a [blocking service](./spawn-services.md#spawn-a-blocking-service),
 but blocking services have an important drawback: While a blocking service is running,
 no other systems or services in the [system schedule][schedules] can run. This
 allows blocking services to have unfettered instant access to all resources in the
@@ -79,7 +79,7 @@ However there are some disadvantages to be mindful of:
 
 ### Spawn an Async Service
 
-Spawning an async service is similar to [spawning a blocking service](./spawn_a_service.md#how-to-spawn-a-service),
+Spawning an async service is similar to [spawning a blocking service](./spawn-services.md#how-to-spawn-a-service),
 except that your function should take in an `AsyncServiceInput<Request>` and be async:
 
 ```rust,no_run,noplayground

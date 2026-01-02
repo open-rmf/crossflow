@@ -1,8 +1,8 @@
 # Creating a Node
 
 Most of the useful work that happens inside a workflow is done by [nodes][Node].
-A node can be implemented by any [provider](./provider_overview.md).
-Providers will often be services---including [blocking](./spawn_a_service.md#spawn-a-blocking-service), [async](./spawn_async_service.md), and [continuous](./spawn_continuous_service.md) services---but could also be [callbacks](./callbacks.md) or [maps](./maps.md).
+A node can be implemented by any [provider](./provider-overview.md).
+Providers will often be services---including [blocking](./spawn-services.md#spawn-a-blocking-service), [async](./spawn-async-services.md), and [continuous](./spawn-continuous-services.md) services---but could also be [callbacks](./callbacks.md) or [maps](./maps.md).
 
 ### From a Service
 

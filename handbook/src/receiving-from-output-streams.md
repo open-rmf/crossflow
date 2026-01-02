@@ -1,6 +1,6 @@
 # Receiving from Output Streams
 
-Some services also have [output streams](./output_streams.md) that you may want
+Some services also have [output streams](./output-streams.md) that you may want
 to receive data from. In that case you will need to take a [`Recipient`][Recipient]
 instead of only taking the response:
 
