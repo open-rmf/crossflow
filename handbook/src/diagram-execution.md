@@ -1,8 +1,14 @@
-# Registration
+# Execution
 
-Before a diagram can be executed, you will need to create an executor that can take in the JSON diagram, build it into an executable workflow, and then run that workflow.
-The most important piece of an executor to understand is the [`DiagramElementRegistry`][DiagramElementRegistry].
-The registry stores builders that allow the elements in a JSON diagram to be translated into actual workflow elements.
+Crossflow is first and foremost a library to facilitate the execution of workflows, so there is not a single canonical way for JSON diagrams to be executed.
+However, there are certain requirements to meet and recommended code paths to follow for an application to be effective at executing diagrams.
+
+Just like when workflows are [built the native Rust API](./spawn-workflows.md), a crossflow **JSON diagram executor** needs to be built as part of a Bevy [App].
+You can either make a Bevy app that is entirely dedicated to executing JSON diagrams, or you can make the execution of JSON diagrams simply one feature within a broader app.
+In order for your app to execute diagrams, you will need to create a [system] that can receive JSON diagrams, build the diagrams into executable workflows, and then run those workflows.
+
+The most important piece to understand when implementing an executor app is the [`DiagramElementRegistry`][DiagramElementRegistry].
+The registry stores "builders" that allow the operations (`"ops"`) within a JSON diagram to be translated into workflow elements that can actually be executed.
 
 There are three types of registrations present in the registry:
 
@@ -39,9 +45,9 @@ This will create a new registry that only contains registrations for the the "bu
 * [`String`](https://doc.rust-lang.org/std/string/struct.String.html)
 * [`JsonMessage`](https://docs.rs/serde_json/latest/serde_json/value/enum.Value.html)
 
-You'll notice that we declared `mut registry` in the above code snippet.
+You'll notice that we declared `mut registry` as *mutable* in the above code snippet.
 This is because the registry isn't very useful until you start registering your own node builders.
-Without any node builders, your executor will only be able to build workflows that exclusively use the builtin types listed above and basic operations.
+Without any node builders, your executor will only be able to build workflows that exclusively use the builtin message types listed above and the basic builtin operations.
 
 Registering a node builder will allow you to build workflows that use custom services.
 Use [`DiagramElementRegistry::register_node_builder`][DiagramElementRegistry::register_node_builder] as shown below to register a new node builder.
@@ -50,10 +56,10 @@ Use [`DiagramElementRegistry::register_node_builder`][DiagramElementRegistry::re
 {{#include ./examples/diagram/calculator_ops_catalog/src/handbook_snippets.rs:minimal_add_example}}
 ```
 
-Node builders are covered in more detail in the [next page](./diagram-nodes.md).
+Node builders are covered in more detail on the [next page](./diagram-nodes.md).
 
 > [!TIP]
-> When you register a node builder, you will also automatically register any input and output messages types used by the nodes that are created by the node builder.
+> When you register a node builder, you will also automatically register any input and output messages types needed by the node builder.
 
 ### Building workflows with a registry
 
@@ -76,15 +82,17 @@ From there you can follow the same guidance in [How to Run a Service](./run-serv
 
 > [!TIP]
 > To build the [service][Service] and execute the workflow, your executor application will need to know the input and output message types of the diagram at compile time.
-> This typically isn't feasible, so instead you can use [`JsonMessage`][JsonMessage] as both the input and output message types (`Request` and `Response`) of the service.
-> As long as the actual input and output message types are deserializable and serializable (respectively), the workflow builder can convert to/from [`JsonMessage`][JsonMessage] to handle the input and output messages.
+> In most cases you can't expect all incoming diagrams to have the exact same input and output message types as each other, so instead you can use [`JsonMessage`][JsonMessage] as both the input and output message types (`Request` and `Response`) of all diagrams.
+> As long as the actual input and output message types are deserializable and serializable (respectively), the workflow builder can convert to/from [`JsonMessage`][JsonMessage] to run the workflow and receive its response.
 
 ## Premade Executor
 
-If you would like to get started with crossflow with minimal effort, you can use the [`crossflow-diagram-editor`](https://github.com/open-rmf/crossflow/tree/main/diagram-editor) to quickly make a basic executor that implements the most common ways that an executor might be used.
+If you would like to get started with crossflow with minimal effort, you can use the [`crossflow-diagram-editor`](https://github.com/open-rmf/crossflow/tree/main/diagram-editor) library to quickly make a basic executor that implements the most common ways that an executor might be used.
 
-The [calculator example](https://github.com/open-rmf/crossflow/tree/main/examples/diagram/calculator) shows the `crossflow-diagram-editor` used to create a workflow executor that provides simple calculator operations.
+The [calculator example](https://github.com/open-rmf/crossflow/tree/main/examples/diagram/calculator) shows how to use the `crossflow-diagram-editor` to create a workflow executor that provides simple calculator operations.
+For your own custom executor, you can replace the calculator node builders with your own more useful node builders.
 
+[App]: https://docs.rs/bevy/latest/bevy/app/struct.App.html
 [DiagramElementRegistry]: https://docs.rs/crossflow/latest/crossflow/diagram/struct.DiagramElementRegistry.html
 [DiagramElementRegistry::register_node_builder]: https://docs.rs/crossflow/latest/crossflow/diagram/struct.DiagramElementRegistry.html#method.register_node_builder
 [Diagram]: https://docs.rs/crossflow/latest/crossflow/diagram/struct.Diagram.html
@@ -92,3 +100,4 @@ The [calculator example](https://github.com/open-rmf/crossflow/tree/main/example
 [Service]: https://docs.rs/crossflow/latest/crossflow/service/struct.Service.html
 [Commands]: https://docs.rs/bevy/latest/bevy/prelude/struct.Commands.html
 [JsonMessage]: https://docs.rs/crossflow/latest/crossflow/buffer/enum.JsonMessage.html
+[system]: https://bevy-cheatbook.github.io/programming/systems.html

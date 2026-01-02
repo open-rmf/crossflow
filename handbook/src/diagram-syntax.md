@@ -140,7 +140,7 @@ This is a more complex operation schema that contains several significant fields
   Node builders will be covered later in the [Nodes](./diagram-nodes.md) page.
 * `"config"` is a configuration for this operation instance.
   The value associated with `"config"` has a dynamic schema determined by the `"builder"` that you chose.
-  That schema can be looked up in the [diagram element registry](./diagram-registration.md) described in the next page.
+  That schema can be looked up in the [diagram element registry](./diagram-execution.md) described in the next page.
 * `"next"` indicates where the final output message of the operation should be sent.
   This is a required field because we generally assume that the output of a node is valuable information that should be passed along.
   If you are running a node for its side-effects and don't need to use its final output then you can set `"next"` to `{ "builtin": "dispose" }`.

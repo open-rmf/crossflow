@@ -42,7 +42,7 @@
   - [Workflow Setings](./workflow-settings.md)
 - [JSON Diagrams](./json-diagrams.md)
   - [Diagram Syntax](./diagram-syntax.md)
-  - [Registration](./diagram-registration.md)
+  - [Execution](./diagram-execution.md)
   - [Nodes](./diagram-nodes.md)
   - [Sections](./diagram-sections.md)
   - [Middlewares](./diagram-middlewares.md)
