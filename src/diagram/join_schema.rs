@@ -17,7 +17,6 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
 
 use super::{
     BufferSelection, BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode,

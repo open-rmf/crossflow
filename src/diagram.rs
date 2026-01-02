@@ -481,7 +481,10 @@ impl Diagram {
     /// let mut app = bevy_app::App::new();
     /// let mut registry = DiagramElementRegistry::new();
     /// registry.register_node_builder(NodeBuilderOptions::new("echo".to_string()), |builder, _config: ()| {
-    ///     builder.create_map_block(|msg: String| msg)
+    ///     builder.create_map_block(|msg: String| {
+    ///         println!("{msg}");
+    ///         msg
+    ///     })
     /// });
     ///
     /// let json_str = r#"
@@ -502,9 +505,7 @@ impl Diagram {
     /// let workflow = app.world_mut().command(|cmds| diagram.spawn_io_workflow::<JsonMessage, JsonMessage>(cmds, &registry))?;
     /// # Ok::<_, Box<dyn std::error::Error>>(())
     /// ```
-    // TODO(koonpeng): Support streams other than `()` #43.
-    /* pub */
-    fn spawn_workflow<Request, Response, Streams>(
+    pub fn spawn_workflow<Request, Response, Streams>(
         &self,
         cmds: &mut Commands,
         registry: &DiagramElementRegistry,
@@ -516,18 +517,6 @@ impl Diagram {
     {
         let mut err: Option<DiagramError> = None;
 
-        macro_rules! unwrap_or_return {
-            ($v:expr) => {
-                match $v {
-                    Ok(v) => v,
-                    Err(e) => {
-                        err = Some(e);
-                        return;
-                    }
-                }
-            };
-        }
-
         let w = cmds.spawn_workflow(
             |scope: Scope<Request, Response, Streams>, builder: &mut Builder| {
                 debug!(
@@ -536,11 +525,15 @@ impl Diagram {
                     scope.terminate.id()
                 );
 
-                unwrap_or_return!(create_workflow(scope, builder, registry, self));
+                if let Err(had_err) = create_workflow(scope, builder, registry, self) {
+                    err = Some(had_err);
+                }
             },
         );
 
         if let Some(err) = err {
+            // Despawn the workflow because we did not build it successfully.
+            cmds.entity(w.provider()).despawn();
             return Err(err);
         }
 

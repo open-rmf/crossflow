@@ -1,4 +1,94 @@
 # Registration
 
-> [!CAUTION]
-> 🚧 Under Construction 🚧
+Before a diagram can be executed, you will need to create an executor that can take in the JSON diagram, build it into an executable workflow, and then run that workflow.
+The most important piece of an executor to understand is the [`DiagramElementRegistry`][DiagramElementRegistry].
+The registry stores builders that allow the elements in a JSON diagram to be translated into actual workflow elements.
+
+There are three types of registrations present in the registry:
+
+* **Message registration** stores information about the message types supported by the executor, including what operations can be performed on the message type and how to perform it.
+* **Node builder registration** stores the [Node Builders](./diagram-nodes.md) that allow `"type": "node"` operations in a diagram to be built into workflow nodes.
+  This registration also stores the schema of the `"config"` field for each unique `"builder"` ID.
+* **Section builder registration** is similar to the node builder registration, except it stores information on [Section Builders](./diagram-sections.md).
+
+### Creating a registry
+
+Initializing a registry is simple:
+
+```rust,no_run,noplayground
+{{#include ./examples/diagram/calculator_ops_catalog/src/handbook_snippets.rs:new_diagram_element_registry}}
+```
+
+This will create a new registry that only contains registrations for the the "builtin" message types:
+* Rust primitive types
+    * [`()`](https://doc.rust-lang.org/std/primitive.unit.html)
+    * [`u8`](https://doc.rust-lang.org/std/primitive.u8.html)
+    * [`u16`](https://doc.rust-lang.org/std/primitive.u16.html)
+    * [`u32`](https://doc.rust-lang.org/std/primitive.u32.html)
+    * [`u64`](https://doc.rust-lang.org/std/primitive.u64.html)
+    * [`usize`](https://doc.rust-lang.org/std/primitive.usize.html)
+    * [`i8`](https://doc.rust-lang.org/std/primitive.i8.html)
+    * [`i16`](https://doc.rust-lang.org/std/primitive.i16.html)
+    * [`i32`](https://doc.rust-lang.org/std/primitive.i32.html)
+    * [`i64`](https://doc.rust-lang.org/std/primitive.i64.html)
+    * [`isize`](https://doc.rust-lang.org/std/primitive.isize.html)
+    * [`f32`](https://doc.rust-lang.org/std/primitive.f32.html)
+    * [`f64`](https://doc.rust-lang.org/std/primitive.f64.html)
+    * [`bool`](https://doc.rust-lang.org/std/primitive.bool.html)
+    * [`char`](https://doc.rust-lang.org/std/primitive.char.html)
+* [`String`](https://doc.rust-lang.org/std/string/struct.String.html)
+* [`JsonMessage`](https://docs.rs/serde_json/latest/serde_json/value/enum.Value.html)
+
+You'll notice that we declared `mut registry` in the above code snippet.
+This is because the registry isn't very useful until you start registering your own node builders.
+Without any node builders, your executor will only be able to build workflows that exclusively use the builtin types listed above and basic operations.
+
+Registering a node builder will allow you to build workflows that use custom services.
+Use [`DiagramElementRegistry::register_node_builder`][DiagramElementRegistry::register_node_builder] as shown below to register a new node builder.
+
+```rust,no_run,noplayground
+{{#include ./examples/diagram/calculator_ops_catalog/src/handbook_snippets.rs:minimal_add_example}}
+```
+
+Node builders are covered in more detail in the [next page](./diagram-nodes.md).
+
+> [!TIP]
+> When you register a node builder, you will also automatically register any input and output messages types used by the nodes that are created by the node builder.
+
+### Building workflows with a registry
+
+Once you've registered all the builders that your executor needs, you can start building workflows from diagrams.
+Simply create a valid [`Diagram`][Diagram] instance and then call [`Diagram::spawn_io_workflow`][Diagram::spawn_io_workflow]:
+
+```rust,no_run,noplayground
+{{#include ./examples/diagram/calculator_ops_catalog/src/handbook_snippets.rs:build_workflow_example}}
+```
+
+> [!NOTE]
+>
+> In the above example, `commands` is a [`Commands`][Commands] instance.
+> Typically you will need to create a Bevy system that receives JSON diagrams and builds them into workflows.
+
+### Executing built workflows
+
+Once you've used the [Diagram] and [registry][DiagramElementRegistry] to build the workflow, you will be holding a [`Service`][Service] that you can execute.
+From there you can follow the same guidance in [How to Run a Service](./run-services.md) or [How to Run a Series](./run-series.md).
+
+> [!TIP]
+> To build the [service][Service] and execute the workflow, your executor application will need to know the input and output message types of the diagram at compile time.
+> This typically isn't feasible, so instead you can use [`JsonMessage`][JsonMessage] as both the input and output message types (`Request` and `Response`) of the service.
+> As long as the actual input and output message types are deserializable and serializable (respectively), the workflow builder can convert to/from [`JsonMessage`][JsonMessage] to handle the input and output messages.
+
+## Premade Executor
+
+If you would like to get started with crossflow with minimal effort, you can use the [`crossflow-diagram-editor`](https://github.com/open-rmf/crossflow/tree/main/diagram-editor) to quickly make a basic executor that implements the most common ways that an executor might be used.
+
+The [calculator example](https://github.com/open-rmf/crossflow/tree/main/examples/diagram/calculator) shows the `crossflow-diagram-editor` used to create a workflow executor that provides simple calculator operations.
+
+[DiagramElementRegistry]: https://docs.rs/crossflow/latest/crossflow/diagram/struct.DiagramElementRegistry.html
+[DiagramElementRegistry::register_node_builder]: https://docs.rs/crossflow/latest/crossflow/diagram/struct.DiagramElementRegistry.html#method.register_node_builder
+[Diagram]: https://docs.rs/crossflow/latest/crossflow/diagram/struct.Diagram.html
+[Diagram::spawn_io_workflow]: https://docs.rs/crossflow/latest/crossflow/diagram/struct.Diagram.html#method.spawn_io_workflow
+[Service]: https://docs.rs/crossflow/latest/crossflow/service/struct.Service.html
+[Commands]: https://docs.rs/bevy/latest/bevy/prelude/struct.Commands.html
+[JsonMessage]: https://docs.rs/crossflow/latest/crossflow/buffer/enum.JsonMessage.html

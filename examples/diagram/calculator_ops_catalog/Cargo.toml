@@ -4,6 +4,10 @@ version = "0.0.4"
 edition = "2021"
 description = "catalog of reusable calculator operations"
 
+[[bin]]
+name = "handbook-snippets"
+path = "src/handbook_snippets.rs"
+
 [dependencies]
 bevy_app = { workspace = true }
 crossflow = { version = "0.0.4", path = "../../..", features = ["diagram"] }
