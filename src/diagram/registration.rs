@@ -650,7 +650,7 @@ pub trait IntoNodeRegistration {
     ) -> NodeRegistration;
 }
 
-type CreateSectionFn = dyn FnMut(&mut Builder, serde_json::Value) -> Box<dyn Section> + Send;
+type CreateSectionFn = dyn FnMut(&mut Builder, serde_json::Value) -> Result<Box<dyn Section>, DiagramErrorCode> + Send;
 
 #[derive(Serialize, JsonSchema)]
 pub struct SectionRegistration {
@@ -671,7 +671,7 @@ impl SectionRegistration {
         config: serde_json::Value,
     ) -> Result<Box<dyn Section>, DiagramErrorCode> {
         let mut create_section_impl = self.create_section_impl.borrow_mut();
-        let section = create_section_impl(builder, config);
+        let section = create_section_impl(builder, config)?;
         Ok(section)
     }
 }
@@ -689,7 +689,7 @@ where
 
 impl<F, SectionT, Config> IntoSectionRegistration<SectionT, Config> for F
 where
-    F: FnMut(&mut Builder, Config) -> SectionT + Send + 'static,
+    F: FnMut(&mut Builder, Config) -> Result<SectionT, Anyhow> + Send + 'static,
     SectionT: Section + SectionMetadataProvider + 'static,
     Config: DeserializeOwned + JsonSchema,
 {
@@ -698,6 +698,7 @@ where
         options: &SectionBuilderOptions,
         schema_generator: &mut SchemaGenerator,
     ) -> SectionRegistration {
+        let builder_id = Arc::clone(&options.id);
         SectionRegistration {
             default_display_text: options
                 .default_display_text
@@ -707,8 +708,12 @@ where
             metadata: SectionT::metadata().clone(),
             config_schema: schema_generator.subschema_for::<()>(),
             create_section_impl: RefCell::new(Box::new(move |builder, config| {
-                let section = self(builder, serde_json::from_value::<Config>(config).unwrap());
-                Box::new(section)
+                let section = self(builder, serde_json::from_value::<Config>(config).unwrap())
+                    .map_err(|error| DiagramErrorCode::NodeBuildingError {
+                        builder: Arc::clone(&builder_id),
+                        error
+                    })?;
+                Ok(Box::new(section))
             })),
             description: options.description.clone(),
             config_examples: options.config_examples.clone(),
@@ -1456,7 +1461,7 @@ impl DiagramElementRegistry {
     /// Equivalent to [`Self::register_node_builder`] except the builder is allowed
     /// to fail building the node by returning [`Err`]. When [`Err`] is returned,
     /// building of the entire diagram will be cancelled and the user will receive
-    /// an error
+    /// an error.
     pub fn register_node_builder_fallible<Config, Request, Response, Streams: StreamPack>(
         &mut self,
         options: NodeBuilderOptions,
@@ -1500,18 +1505,58 @@ impl DiagramElementRegistry {
     /// * `id` - Id of the builder, this must be unique.
     /// * `name` - Friendly name for the builder, this is only used for display purposes.
     /// * `f` - The section builder to register.
-    pub fn register_section_builder<SectionBuilder, SectionT, Config>(
+    pub fn register_section_builder<Config, SectionT>(
         &mut self,
         options: SectionBuilderOptions,
-        section_builder: SectionBuilder,
-    ) where
-        SectionBuilder: IntoSectionRegistration<SectionT, Config>,
-        SectionT: Section,
+        mut section_builder: impl FnMut(&mut Builder, Config) -> SectionT + Send + 'static,
+    )
+    where
+        SectionT: Section + SectionMetadataProvider + 'static,
+        Config: DeserializeOwned + JsonSchema,
     {
-        let reg = section_builder
-            .into_section_registration(&options, &mut self.messages.schema_generator);
-        self.sections.insert(options.id, reg);
-        SectionT::on_register(self);
+        self.register_section_builder_fallible(
+            options,
+            move |builder, config| {
+                Ok(section_builder(builder, config))
+            }
+        );
+    }
+
+    /// Equivalent to [`Self::register_section_builder`] except the builder is
+    /// allowed to fail building the section by returning [`Err`]. When [`Err`]
+    /// is returned, building tof the entire diagram will be cancelled and the
+    /// user will receive an error.
+    pub fn register_section_builder_fallible<Config, SectionT>(
+        &mut self,
+        options: SectionBuilderOptions,
+        mut section_builder: impl FnMut(&mut Builder, Config) -> Result<SectionT, Anyhow> + Send + 'static,
+    )
+    where
+        SectionT: Section + SectionMetadataProvider + 'static,
+        Config: DeserializeOwned + JsonSchema,
+    {
+        let builder_id = Arc::clone(&options.id);
+        let registration = SectionRegistration {
+            default_display_text: options
+                .default_display_text
+                .as_ref()
+                .unwrap_or(&options.id)
+                .clone(),
+            metadata: SectionT::metadata().clone(),
+            config_schema: self.messages.schema_generator.subschema_for::<()>(),
+            create_section_impl: RefCell::new(Box::new(move |builder, config| {
+                let section = section_builder(builder, serde_json::from_value::<Config>(config).unwrap())
+                    .map_err(|error| DiagramErrorCode::NodeBuildingError {
+                        builder: Arc::clone(&builder_id),
+                        error
+                    })?;
+                Ok(Box::new(section))
+            })),
+            description: options.description.clone(),
+            config_examples: options.config_examples.clone(),
+        };
+
+        self.sections.insert(options.id, registration);
     }
 
     /// In some cases the common operations of deserialization, serialization,

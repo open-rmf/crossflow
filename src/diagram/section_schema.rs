@@ -447,13 +447,11 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        diagram::testing::DiagramTestFixture, testing::TestingContext, BufferAccess,
-        BufferAccessMut, BufferKey, BufferSettings, Builder, Diagram, IntoBlockingCallback,
-        JsonMessage, Node, NodeBuilderOptions, RequestExt, RunCommandsOnWorldExt,
-        SectionBuilderOptions,
+        prelude::*,
+        testing::*,
+        diagram::{testing::*, SectionError, DiagramErrorCode},
+        SectionBuilderOptions, TypeInfo,
     };
-
-    use super::*;
 
     #[derive(Section)]
     struct TestSection {

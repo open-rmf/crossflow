@@ -431,7 +431,7 @@ pub mod prelude {
             JsonBuffer, JsonBufferKey, JsonBufferMut, JsonBufferView, JsonBufferWorldAccess,
             JsonMessage,
         },
-        diagram::{Diagram, DiagramElementRegistry, DiagramError, NodeBuilderOptions, Section},
+        diagram::{Diagram, DiagramElementRegistry, DiagramError, NodeBuilderOptions, Section, SectionItem},
     };
 
     pub use futures::FutureExt;

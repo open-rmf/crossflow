@@ -290,6 +290,162 @@ registry
 fn navigate_to(_: [f32; 2]) -> UnboundedReceiver<Result<State, Error>> {
     tokio::sync::mpsc::unbounded_channel().1
 }
+
+#[derive(Clone, Serialize, Deserialize, Debug, JsonSchema)]
+enum MoveRobotError {
+
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, JsonSchema)]
+enum LocalizationError {
+
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, JsonSchema)]
+enum MoveElevatorError {
+
+}
+
+let enter_elevator = |_: &String, _: &String| {
+    (|_: BlockingMap<()>| { Ok::<(), MoveRobotError>(()) }).as_map()
+};
+let move_elevator = |_: &String, _: &String| {
+    (|_: BlockingMap<()>| { Ok::<(), MoveElevatorError>(()) }).as_map()
+};
+let localize_robot = |_: &String, _: &String| {
+    (|_: BlockingMap<()>| { Ok::<(), LocalizationError>(()) }).as_map()
+};
+
+let exit_elevator = |_: &String, _: &String| {
+    (|_: BlockingMap<()>| { Ok::<(), MoveRobotError>(()) }).as_map()
+};
+
+
+// ANCHOR: elevator_example
+use crossflow::{prelude::*, SectionBuilderOptions};
+
+/// The kind of section produced by the "use_elevator" section builder.
+#[derive(Section)]
+struct UseElevatorSection {
+    /// Begin using the elevator by having the robot enter it.
+    begin: InputSlot<()>,
+    /// Signal that the robot failed to enter the elevator.
+    enter_elevator_failure: Output<MoveRobotError>,
+    /// Signal that the elevator failed to reach its destination.
+    move_elevator_error: Output<MoveElevatorError>,
+    /// Retry moving the elevator. Trigger this when a move_elevator_error is
+    /// resolved.
+    retry_elevator_move: InputSlot<()>,
+    /// Signal that localization failed.
+    localization_error: Output<LocalizationError>,
+    /// Retry localizing the robot at the new floor. Trigger this when a
+    /// localization_error is resolved.
+    retry_localization: InputSlot<()>,
+    /// Signal that the robot failed to exit the elevator.
+    exit_elevator_failure: Output<MoveRobotError>,
+    /// Retry exiting the elevator. Trigger this when an exit_elevator_failure
+    /// is resolved.
+    retry_elevator_exit: InputSlot<()>,
+    /// The robot has successfully exited the elevator at the destination floor.
+    success: Output<()>,
+}
+
+/// The config data structure for the "use_elevator" section builder.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+struct UseElevatorConfig {
+    elevator_id: String,
+    robot_id: String,
+    to_floor: String,
+}
+
+registry.register_section_builder(
+    SectionBuilderOptions::new("use_elevator")
+        .with_default_display_text("Use Elevator")
+        .with_description("Have a robot use an elevator"),
+    move |builder: &mut Builder, config: UseElevatorConfig| {
+        let UseElevatorConfig { elevator_id, robot_id, to_floor } = config;
+
+        // Create a node for entering the elevator
+        let enter_elevator = builder.create_node(enter_elevator(&robot_id, &elevator_id));
+
+        // Create a fork-result that splits based on whether the robot
+        // successfully entered the elevator
+        let (enter_elevator_result, enter_elevator_fork) = builder.create_fork_result();
+        builder.connect(enter_elevator.output, enter_elevator_result);
+
+        // Create a node to move the elevator if the robot successfully entered
+        let move_elevator = builder.create_node(move_elevator(&elevator_id, &to_floor));
+        builder.connect(enter_elevator_fork.ok, move_elevator.input);
+
+        // Create a fork-result that splits based on whether the elevator
+        // successfully arrived at its destination
+        let (move_elevator_result, move_elevator_fork) = builder.create_fork_result();
+        builder.connect(move_elevator.output, move_elevator_result);
+
+        // Create a node to localize the robot once the elevator arrives at the
+        // correct floor
+        let localize_robot = builder.create_node(localize_robot(&robot_id, &to_floor));
+        builder.connect(move_elevator_fork.ok, localize_robot.input);
+
+        // Create a fork-result that splits based on whether the robot
+        // successfully localized
+        let (localize_result, localize_fork) = builder.create_fork_result();
+        builder.connect(localize_robot.output, localize_result);
+
+        // Create a node to exit the elevator after the robot has localized
+        let exit_elevator = builder.create_node(exit_elevator(&robot_id, &elevator_id));
+        builder.connect(localize_fork.ok, exit_elevator.input);
+
+        // Create a fork-result that splits based on whether the robot
+        // successfully exited the lift
+        let (exit_elevator_result, exit_elevator_fork) = builder.create_fork_result();
+        builder.connect(exit_elevator.output, exit_elevator_result);
+
+        UseElevatorSection {
+            begin: enter_elevator.input,
+            enter_elevator_failure: enter_elevator_fork.err,
+            move_elevator_error: move_elevator_fork.err,
+            retry_elevator_move: move_elevator.input,
+            localization_error: localize_fork.err,
+            retry_localization: localize_robot.input,
+            exit_elevator_failure: exit_elevator_fork.err,
+            retry_elevator_exit: exit_elevator.input,
+            success: exit_elevator_fork.ok,
+        }
+    }
+);
+// ANCHOR_END: elevator_example
+
+struct Robot {}
+struct Door {}
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+enum UseDoorError {}
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+struct DoorState {}
+
+// ANCHOR: section_operation_support
+#[derive(Section)]
+struct UseDoorSection {
+    /// Robot and Door cannot be cloned, serialized, or deserialized, so we
+    /// disable those operations. But the overall message can still be unzipped,
+    /// so we enable the minimal version of unzip, which will register both Robot
+    /// and Door, but without the common operations (clone, serialize, and deserialize).
+    #[message(no_clone, no_serialize, no_deserialize, unzip_minimal)]
+    begin: InputSlot<(Robot, Door)>,
+
+    /// UseDoorError is cloneable, serializable, and deserializable, so we don't
+    /// need to disable anything here. The overall message type is a result, so
+    /// we can mark this as a result to register the fork-result operation.
+    #[message(result)]
+    outcome: Output<Result<(), UseDoorError>>,
+
+    /// We can also expose buffers inside the section.
+    door_state: Buffer<DoorState>,
+}
+// ANCHOR_END: section_operation_support
+
 }
 
 fn help_service_infer_type<Request, Response, Streams>(_service: Service<Request, Response, Streams>) {

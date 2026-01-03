@@ -46,7 +46,7 @@ Similar to the display text, the description will be included in the serialized 
 
 Along with the node builder options, you need to provide a closure when registering a node builder.
 The closure is what does the heavy lifting of creating the node for the workflow.
-It will be provided with two arguments: a [`Builder`][Builder] and a `config`.
+It will be provided with two arguments: a [`&mut Builder`][Builder] and a `config`.
 
 The [`Builder`][Builder] API allows your closure to create *any* kind of node.
 You can use it to call [`create_map_block`][Builder::create_map_block] or [`create_map_async`][Builder::create_map_async] for simple functions.
