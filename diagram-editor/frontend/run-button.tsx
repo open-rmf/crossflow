@@ -11,7 +11,7 @@ import {
   Typography,
   useTheme,
 } from '@mui/material';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApiClient } from './api-client-provider';
 import { useNodeManager } from './node-manager';
 import { MaterialSymbol } from './nodes';
@@ -19,16 +19,23 @@ import { useRegistry } from './registry-provider';
 import { useTemplates } from './templates-provider';
 import { useEdges } from './use-edges';
 import { exportDiagram } from './utils/export-diagram';
+import { useDiagramProperties } from './diagram-properties-provider';
 
 type ResponseContent = { raw: string } | { err: string };
 
-export function RunButton() {
+export interface RunButtonProps {
+  requestJsonString: string;
+  runImmediately: boolean;
+  onClose: () => void;
+}
+
+export function RunButton({ requestJsonString, runImmediately, onClose }: RunButtonProps) {
   const nodeManager = useNodeManager();
   const edges = useEdges();
   const [openPopover, setOpenPopover] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const theme = useTheme();
-  const [requestJson, setRequestJson] = useState('');
+  const [requestJson, setRequestJson] = useState(requestJsonString);
   const [responseContent, setResponseContent] = useState<ResponseContent>({
     raw: '',
   });
@@ -36,6 +43,7 @@ export function RunButton() {
   const [templates, _setTemplates] = useTemplates();
   const registry = useRegistry();
   const [running, setRunning] = useState(false);
+  const [diagramProperties, _] = useDiagramProperties();
 
   const requestError = useMemo(() => {
     try {
@@ -61,7 +69,7 @@ export function RunButton() {
   const handleRunClick = () => {
     try {
       const request = JSON.parse(requestJson);
-      const diagram = exportDiagram(registry, nodeManager, edges, templates);
+      const diagram = exportDiagram(registry, nodeManager, edges, templates, diagramProperties);
       apiClient.postRunWorkflow(diagram, request).subscribe({
         next: (response) => {
           setResponseContent({ raw: JSON.stringify(response, null, 2) });
@@ -78,6 +86,12 @@ export function RunButton() {
     }
   };
 
+  useEffect(() => {
+    if (runImmediately) {
+      handleRunClick();
+    }
+  }, [runImmediately]);
+
   return (
     <>
       <Tooltip title="Run Workflow">
@@ -87,7 +101,10 @@ export function RunButton() {
       </Tooltip>
       <Popover
         open={openPopover}
-        onClose={() => setOpenPopover(false)}
+        onClose={() => {
+          setOpenPopover(false);
+          onClose();
+        }}
         anchorEl={buttonRef.current}
         anchorOrigin={{
           vertical: 'bottom',

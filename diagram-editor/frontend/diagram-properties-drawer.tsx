@@ -17,6 +17,7 @@ import { MaterialSymbol } from './nodes';
 import React from 'react';
 import { useDiagramProperties } from './diagram-properties-provider';
 import { useLoadContext } from './load-context-provider';
+import { RunButton } from './run-button';
 
 const DrawerWidth = '20vw';
 
@@ -31,6 +32,8 @@ function DiagramPropertiesDrawer({ open, onClose }: DiagramPropertiesDrawerProps
   const theme = useTheme();
   const [copyTooltipText, setCopyTooltipText] =
     React.useState('Copy this example input into clipboard');
+  const [runWithExample, setRunWithExample] =
+    React.useState<string | null>(null);
 
   React.useEffect(() => {
     setDiagramProperties({
@@ -158,9 +161,13 @@ function DiagramPropertiesDrawer({ open, onClose }: DiagramPropertiesDrawerProps
                                 </IconButton>
                               </Tooltip>
                               <Tooltip title='Run diagram with this example input'>
-                                <IconButton onClick={() => {}}>
-                                  <MaterialSymbol symbol='send' fontSize='large'/>
-                                </IconButton>
+                                <RunButton
+                                  requestJsonString={JSON.stringify(input.value)}
+                                  runImmediately={true}
+                                  onClose={() => {
+                                    setRunWithExample(null);
+                                  }}
+                                />
                               </Tooltip>
                             </Stack>
                           </InputAdornment>
