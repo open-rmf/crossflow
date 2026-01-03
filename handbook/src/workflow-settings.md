@@ -42,9 +42,9 @@ Here are examples of each:
 {{#include ./examples/native/src/handbook_snippets.rs:default_workflow_settings}}
 ```
 
-## Inner Scope
+## Nested Scope
 
-When you use the scope operation inside of a workflow, that inner scope can have its own scope settings, independent from the rest of the workflow.
+When you use the scope operation inside of a workflow, that nested scope can have its own scope settings, independent from the rest of the workflow.
 This allows you to set specific clusters of operations as uninterruptible.
 
 ```rust,no_run,noplayground

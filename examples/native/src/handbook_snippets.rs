@@ -1026,7 +1026,7 @@ let workflow = commands.spawn_io_workflow(
                 |scope, builder| {
                     builder.connect(scope.input, scope.terminate);
 
-                    // Set only this inner scope to be uninterruptible.
+                    // Set only this nested scope to be uninterruptible.
                     ScopeSettings::uninterruptible()
                 }
             )

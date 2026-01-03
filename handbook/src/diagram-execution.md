@@ -82,15 +82,21 @@ From there you can follow the same guidance in [How to Run a Service](./run-serv
 
 > [!TIP]
 > To build the [service][Service] and execute the workflow, your executor application will need to know the input and output message types of the diagram at compile time.
-> In most cases you can't expect all incoming diagrams to have the exact same input and output message types as each other, so instead you can use [`JsonMessage`][JsonMessage] as both the input and output message types (`Request` and `Response`) of all diagrams.
-> As long as the actual input and output message types are deserializable and serializable (respectively), the workflow builder can convert to/from [`JsonMessage`][JsonMessage] to run the workflow and receive its response.
+>
+> In most cases you can't expect all incoming diagrams to have the exact same input and output message types as each other, so instead **you can use [`JsonMessage`][JsonMessage] as both the input and output message types (`Request` and `Response`) of all diagrams.**
+>
+> As long as the actual input and output message types of the diagrams are deserializable and serializable (respectively), the workflow builder can convert to/from [`JsonMessage`][JsonMessage] to run the workflow and receive its response.
 
 ## Premade Executor
 
-If you would like to get started with crossflow with minimal effort, you can use the [`crossflow-diagram-editor`](https://github.com/open-rmf/crossflow/tree/main/diagram-editor) library to quickly make a basic executor that implements the most common ways that an executor might be used.
+If you would like to get started with executing crossflow diagrams with minimal effort, you can use the [`crossflow-diagram-editor`](https://github.com/open-rmf/crossflow/tree/main/diagram-editor) library to quickly make a basic executor.
 
 The [calculator example](https://github.com/open-rmf/crossflow/tree/main/examples/diagram/calculator) shows how to use the `crossflow-diagram-editor` to create a workflow executor that provides simple calculator operations.
 For your own custom executor, you can replace the calculator node builders with your own more useful node builders.
+
+```rust,no_run,noplayground
+{{#include ./examples/diagram/calculator/src/main.rs:calculator_example}}
+```
 
 [App]: https://docs.rs/bevy/latest/bevy/app/struct.App.html
 [DiagramElementRegistry]: https://docs.rs/crossflow/latest/crossflow/diagram/struct.DiagramElementRegistry.html

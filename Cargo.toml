@@ -29,6 +29,7 @@ exclude = [
 features = ["maximal"]
 
 [workspace.dependencies]
+anyhow = "1.0"
 axum = { version = "0.8.4", default-features = false }
 bevy_app = "0.16"
 bevy_derive = "0.16"
@@ -59,6 +60,7 @@ zenoh = "1.5.1"
 zenoh-ext = "1.5.1"
 
 [dependencies]
+anyhow = { workspace = true }
 crossflow_derive = { path = "macros", version = "0.0.4" }
 bevy_ecs = { workspace = true }
 bevy_utils = { workspace = true }
@@ -78,7 +80,6 @@ smallvec = { version = "1.13", features = ["serde"] }
 tokio = { workspace = true, features = ["sync"] }
 futures = { workspace = true }
 backtrace = "0.3"
-anyhow = "1.0"
 thiserror = "1.0"
 
 # These dependencies are only used by the testing module.
