@@ -11,9 +11,8 @@ import {
   Typography,
   useTheme,
 } from '@mui/material';
-import React, { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useApiClient } from './api-client-provider';
-import { useLoadContext } from './load-context-provider';
 import { useNodeManager } from './node-manager';
 import { MaterialSymbol } from './nodes';
 import { useRegistry } from './registry-provider';
@@ -24,7 +23,6 @@ import { exportDiagram } from './utils/export-diagram';
 type ResponseContent = { raw: string } | { err: string };
 
 export function RunButton() {
-  const loadContext = useLoadContext();
   const nodeManager = useNodeManager();
   const edges = useEdges();
   const [openPopover, setOpenPopover] = useState(false);
@@ -124,40 +122,6 @@ export function RunButton() {
         }}
       >
         <DialogTitle>Run Workflow</DialogTitle>
-        <Divider />
-        <DialogContent sx={{ width: 500 }}>
-          <Stack spacing={2}>
-            <Typography variant="body1">Description:</Typography>
-            <Typography
-              variant="body1"
-              sx={{ fontFamily: 'monospace' }}
-            >
-              {loadContext?.diagram.description ?? 'n/a'}
-            </Typography>
-            {loadContext?.diagram.example_inputs && loadContext.diagram.example_inputs.length > 0
-            ? (
-              <>
-                <Typography variant="body1">Example inputs:</Typography>
-                <Stack>
-                  {loadContext.diagram.example_inputs.map((value) => (
-                    <TextField
-                      fullWidth
-                      multiline
-                      variant="outlined"
-                      value={value}
-                      slotProps={{
-                        htmlInput: {
-                          sx: { fontFamily: 'monospace'},
-                        },
-                      }}
-                      sx={{ backgroundColor: theme.palette.background.paper }}
-                    />
-                  ))}
-                </Stack>
-              </>
-            ) : null}
-          </Stack>
-        </DialogContent>
         <Divider />
         <DialogContent sx={{ width: 500 }}>
           <Stack spacing={2}>

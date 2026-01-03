@@ -1,24 +1,24 @@
 import {
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   Divider,
   Drawer,
+  IconButton,
+  InputAdornment,
   List,
   ListItem,
-  ListItemButton,
-  ListItemIcon,
   ListItemText,
+  Paper,
   Stack,
   TextField,
   Tooltip,
   Typography,
   useTheme,
 } from '@mui/material';
+import { MaterialSymbol } from './nodes';
 import React from 'react';
 import { useDiagramProperties } from './diagram-properties-provider';
+import { useLoadContext } from './load-context-provider';
+
+const DrawerWidth = '20vw';
 
 export interface DiagramPropertiesDrawerProps {
   open: boolean;
@@ -26,174 +26,165 @@ export interface DiagramPropertiesDrawerProps {
 }
 
 function DiagramPropertiesDrawer({ open, onClose }: DiagramPropertiesDrawerProps) {
-  const diagramProperties = useDiagramProperties();
+  const [diagramProperties, setDiagramProperties] = useDiagramProperties();
+  const loadContext = useLoadContext();
   const theme = useTheme();
+  const [copyTooltipText, setCopyTooltipText] =
+    React.useState('Copy this example input into clipboard');
+
+  React.useEffect(() => {
+    setDiagramProperties({
+      description: loadContext?.diagram.description ?? '',
+      example_inputs: loadContext?.diagram.example_inputs ?? []
+    });
+  }, [loadContext]);
 
   return (
     <Drawer
-        sx={{
-          width: 500,
-        // //   width: drawerWidth,
-          // flexShrink: 0,
-        // //   '& .MuiDrawer-paper': {
-        // //     width: drawerWidth,
-        // //   },
-        }}
-        variant="persistent"
-        anchor="right"
-        open={open}
-      >
-        <List>
-          {['Inbox', 'Starred', 'Send email', 'Drafts'].map((text, index) => (
-            <ListItem key={text} disablePadding>
-              <ListItemButton>
-                {/* <ListItemIcon>
-                  {index % 2 === 0 ? <InboxIcon /> : <MailIcon />}
-                </ListItemIcon> */}
-                <ListItemText primary={text} />
-              </ListItemButton>
-            </ListItem>
-          ))}
-        </List>
-      </Drawer>
+      sx={{
+        width: DrawerWidth,
+        flexShrink: 0,
+        '& .MuiDrawer-paper': {
+          width: DrawerWidth,
+        },
+      }}
+      variant='persistent'
+      anchor='right'
+      open={open}
+    >
+      <Stack spacing={2} sx={{ m: 2 }}>
+        <Stack direction='row'>
+          <Stack direction='row' spacing={2} sx={{ alignItems: 'center' }}>
+            <Typography variant='h4'>Diagram properties</Typography>
+            <Tooltip
+              title='Properties that may describe the diagram and provide more
+              information about its inputs and execution.'
+            >
+              <MaterialSymbol symbol='info' fontSize='large' />
+            </Tooltip>
+          </Stack>
+          <Stack direction='row' sx={{ marginLeft: 'auto' }}>
+            <Tooltip title='Hide this panel'>
+              <IconButton onClick={onClose}>
+                <MaterialSymbol symbol='close' />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        </Stack>
+        <Divider />
+        <Stack direction='row' spacing={2} sx={{ alignItems: 'center' }}>
+          <Typography variant='h6'>Description</Typography>
+          <Tooltip
+            title='General description of what this diagram achieves, as well as
+            any other relevant information that may help a user understand its
+            execution.'
+          >
+            <MaterialSymbol symbol='info' fontSize='large' />
+          </Tooltip>
+        </Stack>
+        <TextField
+          fullWidth
+          multiline
+          rows={10}
+          maxRows={10}
+          variant='outlined'
+          value={diagramProperties?.description ?? ''}
+          slotProps={{
+            htmlInput: { sx: { fontFamily: 'monospace' } },
+          }}
+          onChange={(d) => setDiagramProperties((prev) =>
+            ({ ...prev, description: d.target.value }))}
+          sx={{ backgroundColor: theme.palette.background.paper }}
+        />
+        <Divider />
+        <Stack direction='row'>
+          <Stack direction='row' spacing={2} sx={{ alignItems: 'center' }}>
+            <Typography variant='h6'>Example inputs</Typography>
+            <Tooltip
+              title='Input examples that can be executed with this workflow'
+            >
+              <MaterialSymbol symbol='info' fontSize='large' />
+            </Tooltip>
+          </Stack>
+          <Stack direction='row' sx={{ marginLeft: 'auto' }}>
+            <Tooltip title='Add example input'>
+              <IconButton onClick={() => {}}>
+                <MaterialSymbol symbol='add' />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        </Stack>
+        <Paper>
+          <List>
+            {diagramProperties && diagramProperties.example_inputs &&
+            diagramProperties.example_inputs.length > 0 ? (
+              diagramProperties.example_inputs.map((input, index) => (
+                <ListItem key={index}>
+                  <TextField
+                    id='input-with-icon-textfield'
+                    fullWidth
+                    multiline
+                    variant='outlined'
+                    value={input.value}
+                    rows='6'
+                    slotProps={{
+                      htmlInput: {
+                        sx: { fontFamily: 'monospace' },
+                      },
+                      input: {
+                        endAdornment: (
+                          <InputAdornment position='end'>
+                            <Stack direction='column' spacing={2}>
+                              <Tooltip title={input.description}>
+                                <IconButton onClick={() => {}}>
+                                  <MaterialSymbol symbol='info' fontSize='large'/>
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title={copyTooltipText}>
+                                <IconButton
+                                  onClick={async () => {
+                                    const content =
+                                      typeof input.value === 'string'
+                                        ? input.value
+                                        : JSON.stringify(input.value, null, 2) || '';
+                                    await navigator.clipboard.writeText(content);
+                                    setCopyTooltipText('Copied into clipboard!');
+                                    setTimeout(() => {
+                                      setCopyTooltipText('Copy this example input into clipboard');
+                                    }, 3000);
+                                  }}
+                                >
+                                  <MaterialSymbol symbol='content_copy' fontSize='large'/>
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title='Run diagram with this example input'>
+                                <IconButton onClick={() => {}}>
+                                  <MaterialSymbol symbol='send' fontSize='large'/>
+                                </IconButton>
+                              </Tooltip>
+                            </Stack>
+                          </InputAdornment>
+                        )
+                      },
+                    }}
+                  />
+                </ListItem>
+              ))
+            ) : (
+              <ListItem sx={{ textAlign: 'center' }}>
+                <ListItemText
+                  slotProps={{
+                    primary: { color: theme.palette.text.disabled },
+                  }}
+                  primary='No example inputs available'
+                />
+              </ListItem>
+            )}
+          </List>
+        </Paper>
+      </Stack>
+    </Drawer>
   );
-
-  // React.useEffect(() => {
-  //   const diagram = exportDiagram(registry, nodeManager, edges, templates);
-  //   if (loadContext?.diagram.extensions) {
-  //     diagram.extensions = loadContext.diagram.extensions;
-  //   }
-  //   if (loadContext?.diagram.description) {
-  //     diagram.description = loadContext.diagram.description;
-  //   }
-  //   if (loadContext?.diagram.example_inputs) {
-  //     diagram.example_inputs = loadContext.diagram.example_inputs;
-  //   }
-  //   // await saveState(diagram, {
-  //   //   nodes: [...nodeManager.nodes],
-  //   //   edges: [...edges],
-  //   // });
-
-  //   setDescription(diagram.description ?? '');
-  //   setExampleInputs(diagram.example_inputs ?? []);
-  // }, [edges, loadContext, nodeManager, registry, templates]);
-
-  // return (
-  //   <Dialog
-  //     open={open}
-  //     onClose={onClose}
-  //     fullWidth
-  //     maxWidth="sm"
-  //     keepMounted={false}
-  //   >
-  //     <DialogTitle>Diagram information</DialogTitle>
-  //     <DialogContent>
-  //       <Stack spacing={2}>
-  //         <Typography variant="h6">Description</Typography>
-  //         <TextField
-  //           fullWidth
-  //           multiline
-  //           rows={5}
-  //           variant="outlined"
-  //           value={description}
-  //           slotProps={{
-  //             htmlInput: { sx: { fontFamily: 'monospace' } },
-  //           }}
-  //           onChange={(d) => setDescription(d.target.value)}
-  //           sx={{ backgroundColor: theme.palette.background.paper }}
-  //         />
-  //         <Typography variant="h6">Example inputs</Typography>
-  //         <List disablePadding sx={{ maxHeight: '24rem', overflow: 'auto' }}>
-  //           {exampleInputs.length > 0 ? (
-  //             exampleInputs.map((input, index) => (
-  //               <ListItem key={index} divider>
-  //                 <Stack
-  //                   direction="row"
-  //                   alignItems="center"
-  //                   width="100%"
-  //                   height="3em"
-  //                 >
-  //                   <TextField
-  //                     size="small"
-  //                     fullWidth
-  //                     value={input}
-  //                     onChange={(ev) => {
-  //                       setExampleInputs((prev) => {
-  //                         let updated = [...prev];
-  //                         updated[index] = ev.target.value;
-  //                         return updated;
-  //                       });
-  //                     }}
-  //                   />
-  //                   <Tooltip title="Delete">
-  //                     <Button
-  //                       variant="outlined"
-  //                       color="error"
-  //                       onClick={() =>
-  //                         setExampleInputs((prev) => {
-  //                           let updated = [...prev];
-  //                           delete updated[index];
-  //                           return updated;
-  //                         })
-  //                       }
-  //                     >
-  //                       <MaterialSymbol symbol="delete" />
-  //                     </Button>
-  //                   </Tooltip>
-  //                 </Stack>
-  //               </ListItem>
-  //             ))
-  //           ) : (
-  //             <ListItem divider>
-  //               <ListItemText
-  //                 slotProps={{
-  //                   primary: { color: theme.palette.text.disabled },
-  //                 }}
-  //               >
-  //                 No example available
-  //               </ListItemText>
-  //             </ListItem>
-  //           )}
-  //         </List>
-  //         <Divider />
-  //         <ListItem>
-  //           <Stack justifyContent="center" width="100%">
-  //             <Button
-  //               onClick={() => {
-  //                 setExampleInputs((prev) => { return [...prev, '']; });
-  //               }}
-  //             >
-  //               <MaterialSymbol symbol="add" />
-  //             </Button>
-  //           </Stack>
-  //         </ListItem>
-  //       </Stack>
-  //     </DialogContent>
-  //     <DialogActions>
-  //       <Button
-  //         onClick={async () => {
-
-
-  //           await saveState(diagram, {
-  //             nodes: [...nodeManager.nodes],
-  //             edges: [...edges],
-  //           });
-  //         }}
-  //       >
-  //         Save
-  //       </Button>
-  //       <Button
-  //         onClick={() => {
-  //           setDescription(loadContext?.diagram.description ?? '');
-  //           setExampleInputs(loadContext?.diagram.example_inputs ?? []);
-  //           onClose();
-  //         }}
-  //       >
-  //         Close
-  //       </Button>
-  //     </DialogActions>
-  //   </Dialog>
-  // );
 }
 
 export default DiagramPropertiesDrawer;

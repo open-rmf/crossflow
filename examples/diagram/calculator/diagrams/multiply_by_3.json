@@ -2,7 +2,16 @@
   "$schema": "../../../diagram.schema.json",
   "version": "0.1.0",
   "description": "Basic workflow that multiplies the interger input by 3.",
-  "example_inputs": ["123", "456"],
+  "example_inputs": [
+    {
+      "value": 123,
+      "description": "Multiply 123 by 3 to get 369"
+    },
+    {
+      "value": 456,
+      "description": "Multiply 456 by 3 to get 1368"
+    }
+  ],
   "start": "mul3",
   "ops": {
     "mul3": {

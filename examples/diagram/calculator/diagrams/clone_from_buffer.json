@@ -2,7 +2,6 @@
   "$schema": "https://raw.githubusercontent.com/open-rmf/crossflow/refs/heads/main/diagram.schema.json",
   "version": "0.1.0",
   "description": "Workflow that splits up the 2-number input list, multiplies them individually, checks if the output of the first multiplication is smaller than the output of the second, terminates if so, otherwise, multiply the second output again and repeat.",
-  "example_inputs":  ["[123, 456]", "[1, 10]"],
   "templates": {},
   "start": "initial_split",
   "ops": {

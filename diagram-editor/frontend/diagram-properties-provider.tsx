@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react';
+import { createContext, PropsWithChildren, useContext, useState } from 'react';
 import type { ExampleInput } from './types/api';
 
 export interface DiagramProperties {
@@ -6,12 +6,32 @@ export interface DiagramProperties {
   example_inputs?: ExampleInput[];
 }
 
+export type DiagramPropertiesContext = [
+  DiagramProperties,
+  React.Dispatch<React.SetStateAction<DiagramProperties>>,
+];
+
 const DiagramPropertiesContextComp =
-  createContext<DiagramProperties | null>(null);
+  createContext<DiagramPropertiesContext | null>(null);
 
-export const DiagramPropertiesProvider =
-  DiagramPropertiesContextComp.Provider;
+export function DiagramPropertiesProvider({ children }: PropsWithChildren) {
+  const [diagramProperties, setDiagramProperties] =
+    useState<DiagramProperties>({});
 
-export const useDiagramProperties = (): DiagramProperties | null => {
-  return useContext(DiagramPropertiesContextComp);
+  return (
+    <DiagramPropertiesContextComp.Provider
+      value={[diagramProperties, setDiagramProperties]}
+    >
+      {children}
+    </DiagramPropertiesContextComp.Provider>
+  );
+}
+
+export const useDiagramProperties = (): DiagramPropertiesContext => {
+  const context = useContext(DiagramPropertiesContextComp);
+  if (!context) {
+    throw new Error(
+      'useDiagramProperties must be used within a TemplatesProvider');
+  }
+  return context;
 };
