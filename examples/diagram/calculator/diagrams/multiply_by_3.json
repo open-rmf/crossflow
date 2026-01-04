@@ -4,12 +4,12 @@
   "description": "Basic workflow that multiplies the interger input by 3.",
   "example_inputs": [
     {
-      "value": "123",
-      "description": "Multiply 123 by 3 to get 369"
+      "description": "Multiply 123 by 3 to get 369",
+      "value": "123"
     },
     {
-      "value": "456",
-      "description": "Multiply 456 by 3 to get 1368"
+      "description": "Multiply 456 by 3 to get 1368",
+      "value": "456"
     }
   ],
   "start": "mul3",

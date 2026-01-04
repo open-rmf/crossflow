@@ -44,7 +44,7 @@ function CommandPanel({
       <Panel position="top-center">
         <ButtonGroup variant="contained">
           {editorMode.mode === EditorMode.Normal && (
-            <RunButton requestJsonString='' runImmediately={false}/>
+            <RunButton requestJsonString=''/>
           )}
           {editorMode.mode === EditorMode.Normal && (
             <Tooltip title="Diagram properties">

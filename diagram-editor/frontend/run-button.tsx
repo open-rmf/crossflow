@@ -23,21 +23,22 @@ import { useDiagramProperties } from './diagram-properties-provider';
 
 type ResponseContent = { raw: string } | { err: string };
 
+const DefaultResponseContent: ResponseContent = { raw: '' };
+
 export interface RunButtonProps {
   requestJsonString: string;
-  runImmediately: boolean;
 }
 
-export function RunButton({ requestJsonString, runImmediately }: RunButtonProps) {
+export function RunButton({ requestJsonString }: RunButtonProps) {
   const nodeManager = useNodeManager();
   const edges = useEdges();
   const [openPopover, setOpenPopover] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const theme = useTheme();
   const [requestJson, setRequestJson] = useState(requestJsonString);
-  const [responseContent, setResponseContent] = useState<ResponseContent>({
-    raw: '',
-  });
+  const [responseContent, setResponseContent] = useState<ResponseContent>(
+    DefaultResponseContent
+  );
   const apiClient = useApiClient();
   const [templates, _setTemplates] = useTemplates();
   const registry = useRegistry();
@@ -85,12 +86,6 @@ export function RunButton({ requestJsonString, runImmediately }: RunButtonProps)
     }
   };
 
-  useEffect(() => {
-    if (runImmediately) {
-      handleRunClick();
-    }
-  }, [runImmediately]);
-
   return (
     <>
       <Tooltip title="Run Workflow">
@@ -100,7 +95,10 @@ export function RunButton({ requestJsonString, runImmediately }: RunButtonProps)
       </Tooltip>
       <Popover
         open={openPopover}
-        onClose={() => setOpenPopover(false)}
+        onClose={() => {
+          setOpenPopover(false);
+          setResponseContent(DefaultResponseContent);
+        }}
         anchorEl={buttonRef.current}
         anchorOrigin={{
           vertical: 'bottom',

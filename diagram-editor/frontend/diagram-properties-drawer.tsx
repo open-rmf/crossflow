@@ -219,7 +219,6 @@ function DiagramPropertiesDrawer({
                                 >
                                   <RunButton
                                     requestJsonString={input.value as string}
-                                    runImmediately={true}
                                   />
                                 </Tooltip>
                               </Stack>
