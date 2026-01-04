@@ -22,8 +22,7 @@
         {
           "type": "null"
         }
-      ],
-      "default": null
+      ]
     },
     "ops": {
       "description": "Operations that define the workflow",
@@ -1013,8 +1012,7 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         },
         "trace": {
           "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",

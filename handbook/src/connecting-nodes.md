@@ -7,7 +7,7 @@ The real value of a workflow is being able to assemble multiple services togethe
 Here is an example of creating two nodes and chaining them:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:basic_connect_nodes}}
+{{#include ./examples/handbook_snippets/src/native.rs:basic_connect_nodes}}
 ```
 
 A common pattern when building workflows is to declare the nodes or operations at the top and then connect them together below.
@@ -28,7 +28,7 @@ Commonly used for error handling in workflows, the fork-result operation will ta
 the `ok` branch or the `err` branch---depending on whether the input message had an [`Ok`][Ok] or [`Err`][Err] value.
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:fork_result_workflow}}
+{{#include ./examples/handbook_snippets/src/native.rs:fork_result_workflow}}
 ```
 
 Note how in this example both branches converge back to the same terminate operation.
@@ -40,7 +40,7 @@ Similar to fork-result, this creates two branches.
 One sends the value contained inside `Some` inputs while the other will produce a [trigger](./branching.md#trigger) `()` when the input value was `None`.
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:fork_option_workflow}}
+{{#include ./examples/handbook_snippets/src/native.rs:fork_option_workflow}}
 ```
 
 ### Parallel Branches
@@ -60,7 +60,7 @@ The pick-and-place operation and the emergency stop both connect to the [termina
 Whichever yields an output first will end the workflow. This is known as a [race](./scope-operation.md#racing).
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:emergency_stop_workflow}}
+{{#include ./examples/handbook_snippets/src/native.rs:emergency_stop_workflow}}
 ```
 
 #### joining
@@ -75,7 +75,7 @@ When the robot is close enough to the elevator lobby, we will summon the elevato
 When the robot and elevator both arrive in the elevator lobby, we will have the robot use the elevator.
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:use_elevator_workflow}}
+{{#include ./examples/handbook_snippets/src/native.rs:use_elevator_workflow}}
 ```
 
 #### unzipping
@@ -88,7 +88,7 @@ We've seen how blocking maps can be used to perform quick data transforms.
 If we combine a blocking map with the [unzip operation](./parallelism.md#unzip), we can perform parallel branching where a specific message is sent down each branch:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:unzip_workflow}}
+{{#include ./examples/handbook_snippets/src/native.rs:unzip_workflow}}
 ```
 
 

@@ -5,20 +5,20 @@ to receive data from. In that case you will need to take a [`Recipient`][Recipie
 instead of only taking the response:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:take_recipient}}
+{{#include ./examples/handbook_snippets/src/native.rs:take_recipient}}
 ```
 
 The `parsing_service` provides this `ParsedStreams` stream output pack:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:parsed_streams_struct}}
+{{#include ./examples/handbook_snippets/src/native.rs:parsed_streams_struct}}
 ```
 
 The string value `"3.14"` should be able to parse to `f32` but not `u32` or `i32`.
 We can receive whichever values were produced with the following code:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:receive_streams}}
+{{#include ./examples/handbook_snippets/src/native.rs:receive_streams}}
 ```
 
 The `streams` field of [`Recipient`][Recipient] will itself contain one field for
@@ -52,7 +52,7 @@ macro that allows you to await on multiple streams at once and immediately recei
 the next message that emerges from any one of them:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:receive_streams_parallel}}
+{{#include ./examples/handbook_snippets/src/native.rs:receive_streams_parallel}}
 ```
 
 [Recipient]: https://docs.rs/crossflow/latest/crossflow/series/struct.Recipient.html
@@ -65,7 +65,7 @@ stream outputs for later use, you can use
 to store all the stream outputs in an entity of your choosing:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:collect_streams}}
+{{#include ./examples/handbook_snippets/src/native.rs:collect_streams}}
 ```
 
 Then you can schedule a system to query the [`Collection`](https://docs.rs/crossflow/latest/crossflow/series/struct.Collection.html)
@@ -74,5 +74,5 @@ named streams make sure to use [`NamedValue<T>`](https://docs.rs/crossflow/lates
 for the inner type of the `Collection`:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:query_stream_storage}}
+{{#include ./examples/handbook_snippets/src/native.rs:query_stream_storage}}
 ```

@@ -11,4 +11,13 @@ Then the diagrams can be sent to an executor to be run.
 
 This chapter will explain the syntax of Crossflow JSON Diagrams and how to put together an executor.
 
+To enable the diagram feature, remember to enable the `diagram` feature of crossflow:
+
+```toml
+# Cargo.toml
+
+[dependencies]
+crossflow = { version = "*", features = ["diagram"] }
+```
+
 [Diagram]: https://docs.rs/crossflow/latest/crossflow/diagram/struct.Diagram.html

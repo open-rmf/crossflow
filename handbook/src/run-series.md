@@ -39,7 +39,7 @@ into another service with a `.map_block` between them to transform the first
 service's output into a data type that can be consumed by the second service.
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:simple_series}}
+{{#include ./examples/handbook_snippets/src/native.rs:simple_series}}
 ```
 
 ## Dependencies and Detachment

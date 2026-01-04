@@ -14,7 +14,7 @@ You can spawn a workflow anywhere that you can access Bevy [Commands][Commands] 
 This is an example of spawning an input/output (i/o) workflow---a workflow that doesn't have any output streams, just one input message and one final output message:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:trivial_workflow}}
+{{#include ./examples/handbook_snippets/src/native.rs:trivial_workflow}}
 ```
 
 Notice some key details:
@@ -28,7 +28,7 @@ Notice some key details:
 Very often the Rust compiler can infer the generic types of the service and scope, so the above example can usually be reduced to:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:trivial_workflow_concise}}
+{{#include ./examples/handbook_snippets/src/native.rs:trivial_workflow_concise}}
 ```
 
 The `spawn_io_workflow` command exists to make this inference easy and concise.

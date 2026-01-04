@@ -12,7 +12,7 @@ The easiest way to specify the streams is to do it in the `Scope`.
 The `Request` and `Response` parameters can still be inferred by putting a placeholder `_` in for them:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:minimal_workflow_stream_example}}
+{{#include ./examples/handbook_snippets/src/native.rs:minimal_workflow_stream_example}}
 ```
 
 ### Single Stream
@@ -22,7 +22,7 @@ If you workflow has a single output stream, you can use the [`StreamOf<T>`][Stre
 Here is how the [stream out](./scope-stream-out.md) conceptual example of slicing apples would be written with the native Rust API:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:apple_stream_out}}
+{{#include ./examples/handbook_snippets/src/native.rs:apple_stream_out}}
 ```
 
 The workflow has a single stream output that produces `AppleSlice` objects.
@@ -35,14 +35,14 @@ If your workflow needs multiple stream outputs, you can use a custom [`StreamPac
 Here's an example of a stream pack that might be provided by a navigation workflow:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:navigation_streams}}
+{{#include ./examples/handbook_snippets/src/native.rs:navigation_streams}}
 ```
 
 With that defined, we can emit multiple output streams from our workflow.
 Here is an example of a robot navigating through a doorway and streaming out information while it goes along:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:navigation_streams_workflow}}
+{{#include ./examples/handbook_snippets/src/native.rs:navigation_streams_workflow}}
 ```
 
 > [!TIP]

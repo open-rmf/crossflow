@@ -1557,6 +1557,7 @@ impl DiagramElementRegistry {
         };
 
         self.sections.insert(options.id, registration);
+        SectionT::on_register(self);
     }
 
     /// In some cases the common operations of deserialization, serialization,

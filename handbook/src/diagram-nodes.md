@@ -12,7 +12,7 @@ Each time you register a node builder you will need to set its [`NodeBuilderOpti
 The only *required* field in [`NodeBuilderOptions`][NodeBuilderOptions] is the `id`:
 
 ```rust,no_run,noplayground
-{{#include ./examples/diagram/calculator_ops_catalog/src/handbook_snippets.rs:minimal_multiply_by_example}}
+{{#include ./examples/handbook_snippets/src/diagram.rs:minimal_multiply_by_example}}
 ```
 
 #### Display Text
@@ -25,7 +25,7 @@ This isn't always a good idea since the unique ID could be an unintelligible UUI
 Instead you can add a default display text to the node builder options:
 
 ```rust,no_run,noplayground
-{{#include ./examples/diagram/calculator_ops_catalog/src/handbook_snippets.rs:default_display_text}}
+{{#include ./examples/handbook_snippets/src/diagram.rs:default_display_text}}
 ```
 
 The [diagram element registry][DiagramElementRegistry] can be serialized into JSON and exported from the executor.
@@ -37,7 +37,7 @@ When someone is manually editing or viewing a workflow diagram, the purpose of a
 Therefore your node builder options can also include a description for the nodes that will be built:
 
 ```rust,no_run,noplayground
-{{#include ./examples/diagram/calculator_ops_catalog/src/handbook_snippets.rs:node_builder_description}}
+{{#include ./examples/handbook_snippets/src/diagram.rs:node_builder_description}}
 ```
 
 Similar to the display text, the description will be included in the serialized [registry][DiagramElementRegistry], allowing diagram editors or visualizers to render the description for each node.
@@ -63,7 +63,7 @@ The return type of your closure must be [`Node<Request, Response, Streams>`][Nod
 That happens to be the return type of [`create_map_block`][Builder::create_map_block], [`create_map_async`][Builder::create_map_async], and [`create_node`][Builder::create_node], so your entire closure could be as simple as calling one of those methods on [`Builder`][Builder]:
 
 ```rust,no_run,noplayground
-{{#include ./examples/diagram/calculator_ops_catalog/src/handbook_snippets.rs:minimal_add_example}}
+{{#include ./examples/handbook_snippets/src/diagram.rs:minimal_add_example}}
 ```
 
 The `Request`, `Response`, and `Streams` of the [`Node`][Node] that you return will be automatically detected by the registry.
@@ -86,7 +86,7 @@ Any type that implements [`Deserialize`][Deserialize] and [`JsonSchema`][JsonSch
 For complex node configurations, you can define your own custom struct and derive the necessary traits:
 
 ```rust,no_run,noplayground
-{{#include ./examples/diagram/calculator_ops_catalog/src/handbook_snippets.rs:custom_config}}
+{{#include ./examples/handbook_snippets/src/diagram.rs:custom_config}}
 ```
 
 Deriving [`JsonSchema`][JsonSchema] for the config type allows us to **save a schema for the config in the registry**.
@@ -102,7 +102,7 @@ Despite being provided with a config schema, human users may still struggle to f
 To mitigate this problem, you can provide example configurations in your node builder options:
 
 ```rust,no_run,noplayground
-{{#include ./examples/diagram/calculator_ops_catalog/src/handbook_snippets.rs:custom_config_with_examples}}
+{{#include ./examples/handbook_snippets/src/diagram.rs:custom_config_with_examples}}
 ```
 
 Crossflow graphical editing tools are encouraged to make these examples visible to users, and allow users to copy/paste the examples.
@@ -120,7 +120,7 @@ The node builder API above assumes that building the node will always be success
 To allow the node building to fail, you can use the fallible API instead:
 
 ```rust,no_run,noplayground
-{{#include ./examples/diagram/calculator_ops_catalog/src/handbook_snippets.rs:division_example}}
+{{#include ./examples/handbook_snippets/src/diagram.rs:division_example}}
 ```
 
 You can return any error that can be converted into an [`anyhow::Error`][anyhow::Error].
@@ -144,7 +144,7 @@ To get around this, the [`register_node_builder`][DiagramElementRegistry] return
 At the end of registering a node, you can chain support for additional operators:
 
 ```rust,no_run,noplayground
-{{#include ./examples/diagram/calculator_ops_catalog/src/handbook_snippets.rs:get_url_header_example}}
+{{#include ./examples/handbook_snippets/src/diagram.rs:get_url_header_example}}
 ```
 
 In the above example `WebPageQuery` implements the `Joined` trait, which means it can be the output of a [join](./using-buffers.md#joining) operation.
@@ -178,7 +178,7 @@ If you forget to opt-out of the default operations for message types that don't 
 Here's an example of a node with an input value that supports none of the default operations:
 
 ```rust,no_run,noplayground
-{{#include ./examples/diagram/calculator_ops_catalog/src/handbook_snippets.rs:opt_out_example}}
+{{#include ./examples/handbook_snippets/src/diagram.rs:opt_out_example}}
 ```
 
 The [`UnboundedReceiver`][UnboundedReceiver] does not support serialization, deserialization, or even cloning.
@@ -200,7 +200,7 @@ If you have output streams that produce custom data structures, they will be reg
 Instead of using the [`NodeRegistrationBuilder`][NodeRegistrationBuilder] API, you will need to use [`register_message`][DiagramElementRegistry::register_message]:
 
 ```rust,no_run,noplayground
-{{#include ./examples/diagram/calculator_ops_catalog/src/handbook_snippets.rs:state_update_example}}
+{{#include ./examples/handbook_snippets/src/diagram.rs:state_update_example}}
 ```
 
 [DiagramElementRegistry]: https://docs.rs/crossflow/latest/crossflow/diagram/struct.DiagramElementRegistry.html

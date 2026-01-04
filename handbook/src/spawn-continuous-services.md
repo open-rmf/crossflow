@@ -66,7 +66,7 @@ parameters of `ContinuousServiceInput` above it. This pattern is mandatory for
 continuous services so they can access their order queue.
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:hello_continuous_service}}
+{{#include ./examples/handbook_snippets/src/native.rs:hello_continuous_service}}
 ```
 
 Unlike other service types, the `srv` input arguments contains nothing but a `key`
@@ -89,7 +89,7 @@ can be spawned anywhere that you have access to a `Commands`, continuous service
 can only be spawned when you have access to an `App`:
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:spawn_hello_continuous_service}}
+{{#include ./examples/handbook_snippets/src/native.rs:spawn_hello_continuous_service}}
 ```
 
 Instead of `spawn_service` which gets used by blocking and async services,

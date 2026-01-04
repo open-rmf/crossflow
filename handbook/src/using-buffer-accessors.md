@@ -25,7 +25,7 @@ The following example shows the [`Chain::with_access`][Chain::with_access] metho
 It also shows how those services use [`BufferAccess`][BufferAccess] and [`BufferAccessMut`][BufferAccessMut] to view and modify the contents of a buffer.
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:buffer_access_example}}
+{{#include ./examples/handbook_snippets/src/native.rs:buffer_access_example}}
 ```
 
 ### Listen
@@ -43,7 +43,7 @@ The following code example recreates a simple intersection crossing workflow:
 ![listen-accessor](./assets/figures/listen-accessor.svg)
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:listen_example}}
+{{#include ./examples/handbook_snippets/src/native.rs:listen_example}}
 ```
 
 ### Gate
@@ -56,7 +56,7 @@ However ***this does not prevent*** the buffer from being accessed by any servic
 > Closing a buffer gate has no effect on the [buffer access operation](#with-access).
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:gate_example}}
+{{#include ./examples/handbook_snippets/src/native.rs:gate_example}}
 ```
 
 [Entity]: https://docs.rs/bevy/latest/bevy/prelude/struct.Entity.html

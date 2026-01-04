@@ -21,25 +21,25 @@ Here are examples of each:
 #### `WorkflowSettings`
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:explicit_workflow_settings}}
+{{#include ./examples/handbook_snippets/src/native.rs:explicit_workflow_settings}}
 ```
 
 #### `DeliverySettings`
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:explicit_delivery_settings}}
+{{#include ./examples/handbook_snippets/src/native.rs:explicit_delivery_settings}}
 ```
 
 #### `ScopeSettings`
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:explicit_scope_settings}}
+{{#include ./examples/handbook_snippets/src/native.rs:explicit_scope_settings}}
 ```
 
 #### Default
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:default_workflow_settings}}
+{{#include ./examples/handbook_snippets/src/native.rs:default_workflow_settings}}
 ```
 
 ## Nested Scope
@@ -48,7 +48,7 @@ When you use the scope operation inside of a workflow, that nested scope can hav
 This allows you to set specific clusters of operations as uninterruptible.
 
 ```rust,no_run,noplayground
-{{#include ./examples/native/src/handbook_snippets.rs:inner_scope_settings}}
+{{#include ./examples/handbook_snippets/src/native.rs:inner_scope_settings}}
 ```
 
 

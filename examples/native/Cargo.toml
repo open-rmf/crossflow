@@ -8,10 +8,6 @@ name = "delivery-instructions"
 path = "src/delivery_instructions.rs"
 
 [[bin]]
-name = "handbook-snippets"
-path = "src/handbook_snippets.rs"
-
-[[bin]]
 name = "blocking-service-example"
 path = "src/blocking_service_example.rs"
 
