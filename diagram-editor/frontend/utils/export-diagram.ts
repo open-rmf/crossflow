@@ -22,6 +22,7 @@ import type {
 import { exhaustiveCheck } from './exhaustive-check';
 import { ROOT_NAMESPACE, splitNamespaces } from './namespace';
 import { isArrayBufferSelection, isKeyedBufferSelection } from './operation';
+import type { DiagramProperties } from '../diagram-properties-provider';
 
 interface SubOperations {
   start: NextOperation;
@@ -453,6 +454,7 @@ export function exportDiagram(
   nodeManager: NodeManager,
   edges: DiagramEditorEdge[],
   templates: Record<string, SectionTemplate>,
+  diagramProperties: DiagramProperties,
 ): Diagram {
   const diagram: Diagram = {
     $schema:
@@ -483,6 +485,8 @@ export function exportDiagram(
     }
   }
 
+  diagram.description = diagramProperties.description;
+  diagram.example_inputs = diagramProperties.example_inputs;
   return diagram;
 }
 

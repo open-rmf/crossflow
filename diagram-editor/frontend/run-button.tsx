@@ -11,7 +11,7 @@ import {
   Typography,
   useTheme,
 } from '@mui/material';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApiClient } from './api-client-provider';
 import { useNodeManager } from './node-manager';
 import { MaterialSymbol } from './nodes';
@@ -19,23 +19,31 @@ import { useRegistry } from './registry-provider';
 import { useTemplates } from './templates-provider';
 import { useEdges } from './use-edges';
 import { exportDiagram } from './utils/export-diagram';
+import { useDiagramProperties } from './diagram-properties-provider';
 
 type ResponseContent = { raw: string } | { err: string };
 
-export function RunButton() {
+const DefaultResponseContent: ResponseContent = { raw: '' };
+
+export interface RunButtonProps {
+  requestJsonString: string;
+}
+
+export function RunButton({ requestJsonString }: RunButtonProps) {
   const nodeManager = useNodeManager();
   const edges = useEdges();
   const [openPopover, setOpenPopover] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const theme = useTheme();
-  const [requestJson, setRequestJson] = useState('');
-  const [responseContent, setResponseContent] = useState<ResponseContent>({
-    raw: '',
-  });
+  const [requestJson, setRequestJson] = useState(requestJsonString);
+  const [responseContent, setResponseContent] = useState<ResponseContent>(
+    DefaultResponseContent
+  );
   const apiClient = useApiClient();
   const [templates, _setTemplates] = useTemplates();
   const registry = useRegistry();
   const [running, setRunning] = useState(false);
+  const [diagramProperties, _] = useDiagramProperties();
 
   const requestError = useMemo(() => {
     try {
@@ -61,7 +69,7 @@ export function RunButton() {
   const handleRunClick = () => {
     try {
       const request = JSON.parse(requestJson);
-      const diagram = exportDiagram(registry, nodeManager, edges, templates);
+      const diagram = exportDiagram(registry, nodeManager, edges, templates, diagramProperties);
       apiClient.postRunWorkflow(diagram, request).subscribe({
         next: (response) => {
           setResponseContent({ raw: JSON.stringify(response, null, 2) });
@@ -87,7 +95,10 @@ export function RunButton() {
       </Tooltip>
       <Popover
         open={openPopover}
-        onClose={() => setOpenPopover(false)}
+        onClose={() => {
+          setOpenPopover(false);
+          setResponseContent(DefaultResponseContent);
+        }}
         anchorEl={buttonRef.current}
         anchorOrigin={{
           vertical: 'bottom',
@@ -141,7 +152,26 @@ export function RunButton() {
               error={requestError}
               sx={{ backgroundColor: theme.palette.background.paper }}
             />
-            <Typography variant="body1">Response:</Typography>
+            <Stack
+              direction='row'
+              spacing={2}
+              sx={{ alignItems: 'center'}}
+            >
+              <Typography variant="body1">Response:</Typography>
+              {'err' in responseContent ? (
+                <MaterialSymbol
+                  symbol='error'
+                  sx={{ color: theme.palette.error.main }}
+                />
+              ) : 'raw' in responseContent && responseContent.raw.length > 0 ? (
+                <MaterialSymbol
+                  symbol='check_circle'
+                  sx={{ color: theme.palette.success.main }}
+                />
+              ) : (
+                <></>
+              )}
+            </Stack>
             <TextField
               fullWidth
               multiline
