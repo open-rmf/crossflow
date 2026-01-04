@@ -83,14 +83,14 @@ Spawning an async service is similar to [spawning a blocking service](./spawn-se
 except that your function should take in an `AsyncServiceInput<Request>` and be async:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:trivial_async_service}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:trivial_async_service}}
 ```
 
 If your function matches these requirements, then you can spawn it with the exact
 same API as the blocking service:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:spawn_trivial_async_service}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:spawn_trivial_async_service}}
 ```
 
 Notice that even though this is an async service and has some different behavior
@@ -106,7 +106,7 @@ parallel threads. Here's an example of a service that gets the title of a webpag
 based on a URL passed in as the request message:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:page_title_service}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:page_title_service}}
 ```
 
 This example is adapted from [the Rust handbook][rust-handbook-page-title-example].
@@ -129,7 +129,7 @@ async services with a [`Channel`][WorldChannel] that supports querying or sendin
 commands to the [World][World]:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:insert_page_title}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:insert_page_title}}
 ```
 
 In the above example, the `insert_page_title` service ends by inserting the result
@@ -173,7 +173,7 @@ But there is a workaround! You can create an async function without using the
 `impl Future<Output = Response>`:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:fetch_page_title}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:fetch_page_title}}
 ```
 
 At the start of your function it will behave just like a normal Bevy system.

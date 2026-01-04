@@ -30,7 +30,7 @@ The key difference for a section is that it does ***not*** output a [`Node`][Nod
 Instead it outputs any struct that implements the [`Section`][Section] trait:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/diagram.rs:elevator_example}}
+{{#include ./examples/handbook_snippets/src/diagram-snippets.rs:elevator_example}}
 ```
 
 In the above example we create a custom struct named `UseElevatorSection` to define what the inputs and outputs of our section are.
@@ -49,7 +49,7 @@ However it wouldn't make sense to use chain methods to register additioanl opera
 Instead we use Rust's procedural macro system:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/diagram.rs:section_operation_support}}
+{{#include ./examples/handbook_snippets/src/diagram-snippets.rs:section_operation_support}}
 ```
 
 ### Connecting to sections

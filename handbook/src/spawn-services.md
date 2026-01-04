@@ -43,7 +43,7 @@ until it is done running. Therefore blocking services must be short-lived.
 To define a blocking service, create a function whose input argument is a `BlockingServiceInput`:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:sum_fn}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:sum_fn}}
 ```
 
 This function will define the behavior of our service: The request (input)
@@ -55,7 +55,7 @@ Before we can run this function as a service, we need to spawn an instance of it
 We can use the [`AddServicesExt`](https://docs.rs/crossflow/latest/crossflow/service/trait.AddServicesExt.html#tymethod.spawn_service) trait for this:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:spawn_sum}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:spawn_sum}}
 ```
 
 We can spawn the service while building our Bevy [`App`](https://docs.rs/bevy/latest/bevy/app/struct.App.html) to make sure that it's
@@ -91,7 +91,7 @@ as you would like. Here is an example of a blocking service that includes a
 [`Query`](https://docs.rs/bevy/latest/bevy/prelude/struct.Query.html):
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:apply_offset_fn}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:apply_offset_fn}}
 ```
 
 First we define a component struct named `Offset` which simply stores a
@@ -110,7 +110,7 @@ of `Offset` is being applied.
 When spawning the service, you can use `.with` to initialize the provider entity:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:spawn_apply_offset}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:spawn_apply_offset}}
 ```
 
 In general you can use [`Service::provider`](https://docs.rs/crossflow/latest/crossflow/service/struct.Service.html#method.provider)

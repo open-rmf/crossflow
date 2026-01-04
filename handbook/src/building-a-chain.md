@@ -14,7 +14,7 @@ Here we will recreate the workflows of the previous page, simplifying them using
 Sequences of services can be chained together with a simple `.then(_)`:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:chain_services}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:chain_services}}
 ```
 
 A few notes about this example:
@@ -27,7 +27,7 @@ A few notes about this example:
 If you are dealing with [maps](./maps.md) and want to define in them inline when building the workflow, you can use [`Chain::map_block`][Chain::map_block] or [`Chain::map_async`][Chain::map_async] for that:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:chain_maps}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:chain_maps}}
 ```
 
 The [`Chain::map_block`][Chain::map_block] and [`Chain::map_async`][Chain::map_async] methods are just syntactic sugar around [`Chain::then`][Chain::then] that makes it easier to put maps into the chain.
@@ -39,14 +39,14 @@ The [`Chain::fork_result`][Chain::fork_result] method allows you to create two d
 It takes two closures as arguments, where each closure builds one of the diverging branches.
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:fork_result_chain}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:fork_result_chain}}
 ```
 
 The chain operation has special methods for certain message types that can further simplify how you express the chain.
 For example the [`Result`][Result] type gets access to [`Chain::branch_for_err`][Chain::branch_for_err] that isolates the err branch of a fork-result and allows the rest of the chain to proceed with the ok branch:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:branch_for_err}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:branch_for_err}}
 ```
 
 This is typically used if the error handling branch is relatively small while the ok branch continues on for a long time.
@@ -58,7 +58,7 @@ The key is to first create a [Node] so you can refer to the [`InputSlot`][InputS
 Here's an example of creating a cycle using a chain:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:fork_option_chain}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:fork_option_chain}}
 ```
 
 A few notes about this example:
@@ -73,7 +73,7 @@ You just pass in a closure that builds off a new chain that will be fed a clone 
 The return value of `branch_clone(_)` will be a continuation of the original [`Chain`][Chain] that the `branch_clone` forked off of.
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:emergency_stop_chain}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:emergency_stop_chain}}
 ```
 
 #### recreating [joining](./connecting-nodes.md#joining)
@@ -82,7 +82,7 @@ Chains even support synchronization operations like [join](./join.md).
 We can structure our fork-clone a bit differently than we did in the racing example to set it up for an easy join:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:use_elevator_chain}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:use_elevator_chain}}
 ```
 
 A few notes about this example:
@@ -106,7 +106,7 @@ making these APIs fully interoperable. Use whichever allows your workflow to be 
 Chains can also create forks using the unzip operation and join them together ergonomically:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:unzip_chain}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:unzip_chain}}
 ```
 
 

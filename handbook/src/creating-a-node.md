@@ -9,13 +9,13 @@ Providers will often be services---including [blocking](./spawn-services.md#spaw
 Suppose we have a sum function defined to be a blocking service:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:sum_fn}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:sum_fn}}
 ```
 
 We can spawn this as a service and then use it to create a node inside a workflow:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:sum_service_workflow}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:sum_service_workflow}}
 ```
 
 A few things to note:
@@ -34,7 +34,7 @@ This allows services to have greater reusability, as they could be copied into m
 However if you do want to spawn the service from inside the workflow building closure, that option is available:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:sum_nested_service_workflow}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:sum_nested_service_workflow}}
 ```
 
 ### From a Callback
@@ -43,7 +43,7 @@ Using a [callback](./callbacks.md) instead of a service looks much the same.
 The only difference is that callbacks don't need to be spawned:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:sum_callback_workflow}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:sum_callback_workflow}}
 ```
 
 The fact that it was implemented as a callback instead of as a service makes no difference to the workflow builder.
@@ -63,7 +63,7 @@ These are very useful for adapting message types in-between services that are ch
 To create a blocking map you can simply pass a closure into the `Builder::create_map_block` method:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:sum_map_workflow}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:sum_map_workflow}}
 ```
 
 You might notice that maps are often defined within the workflow building closure itself even though Services and Callbacks are usually created outside.
@@ -76,20 +76,20 @@ An async map is simply used to run a basic async function.
 Suppose you have an async function like:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:get_page_title}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:get_page_title}}
 ```
 
 You can use this async function as a map by simply passing its name into `Builder::create_map_async`:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:async_map_workflow}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:async_map_workflow}}
 ```
 
 Alternatively you can define the async map inline as a closure.
 Just take note that Rust [does not currently support async closures][async-closures], so you will need your closure to return an `async move { ... }` block, like this:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:async_map_nested_workflow}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:async_map_nested_workflow}}
 ```
 
 #### Chain

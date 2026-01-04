@@ -461,3 +461,7 @@ enum FetchError {
 async fn fetch_content_from_url(_: String) -> Result<HashMap<String, String>, FetchError> {
     Err(FetchError::MissingUrl)
 }
+
+fn grpc_examples() {
+    let mut registry = DiagramElementRegistry::new();
+}

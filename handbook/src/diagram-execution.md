@@ -22,7 +22,7 @@ There are three types of registrations present in the registry:
 Initializing a registry is simple:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/diagram.rs:new_diagram_element_registry}}
+{{#include ./examples/handbook_snippets/src/diagram-snippets.rs:new_diagram_element_registry}}
 ```
 
 This will create a new registry that only contains registrations for the the "builtin" message types:
@@ -53,7 +53,7 @@ Registering a node builder will allow you to build workflows that use custom ser
 Use [`DiagramElementRegistry::register_node_builder`][DiagramElementRegistry::register_node_builder] as shown below to register a new node builder.
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/diagram.rs:minimal_add_example}}
+{{#include ./examples/handbook_snippets/src/diagram-snippets.rs:minimal_add_example}}
 ```
 
 Node builders are covered in more detail on the [next page](./diagram-nodes.md).
@@ -67,7 +67,7 @@ Once you've registered all the builders that your executor needs, you can start 
 Simply create a valid [`Diagram`][Diagram] instance and then call [`Diagram::spawn_io_workflow`][Diagram::spawn_io_workflow]:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/diagram.rs:build_workflow_example}}
+{{#include ./examples/handbook_snippets/src/diagram-snippets.rs:build_workflow_example}}
 ```
 
 > [!NOTE]

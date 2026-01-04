@@ -26,13 +26,13 @@ Each kind of data is processed at different rates, but there are pairs of data b
 To set this up in a workflow, we can explicitly create each of the buffers with the `keep_all` setting as seen in this code example:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:buffer_settings_keep_all}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:buffer_settings_keep_all}}
 ```
 
 The data from the buffers will be joined into `LocalizationData`, defined here:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:LocalizationData}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:LocalizationData}}
 ```
 
 Notice that `LocalizationData` has derived the [`Joined`][Joined] trait which allows it to be an output of the join operation.
@@ -50,7 +50,7 @@ Since `keep_last: 1` is the default buffer setting, we can just use `BufferSetti
 What we need to do differently is apply `.join_by_cloning()` to the `location_buffer` when creating the join operation:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native.rs:join_settings_clone}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:join_settings_clone}}
 ```
 
 > [!NOTE]
