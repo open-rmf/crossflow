@@ -26,10 +26,9 @@ type ResponseContent = { raw: string } | { err: string };
 export interface RunButtonProps {
   requestJsonString: string;
   runImmediately: boolean;
-  onClose: () => void;
 }
 
-export function RunButton({ requestJsonString, runImmediately, onClose }: RunButtonProps) {
+export function RunButton({ requestJsonString, runImmediately }: RunButtonProps) {
   const nodeManager = useNodeManager();
   const edges = useEdges();
   const [openPopover, setOpenPopover] = useState(false);
@@ -101,10 +100,7 @@ export function RunButton({ requestJsonString, runImmediately, onClose }: RunBut
       </Tooltip>
       <Popover
         open={openPopover}
-        onClose={() => {
-          setOpenPopover(false);
-          onClose();
-        }}
+        onClose={() => setOpenPopover(false)}
         anchorEl={buttonRef.current}
         anchorOrigin={{
           vertical: 'bottom',
@@ -158,7 +154,26 @@ export function RunButton({ requestJsonString, runImmediately, onClose }: RunBut
               error={requestError}
               sx={{ backgroundColor: theme.palette.background.paper }}
             />
-            <Typography variant="body1">Response:</Typography>
+            <Stack
+              direction='row'
+              spacing={2}
+              sx={{ alignItems: 'center'}}
+            >
+              <Typography variant="body1">Response:</Typography>
+              {'err' in responseContent ? (
+                <MaterialSymbol
+                  symbol='error'
+                  sx={{ color: theme.palette.error.main }}
+                />
+              ) : 'raw' in responseContent && responseContent.raw.length > 0 ? (
+                <MaterialSymbol
+                  symbol='check_circle'
+                  sx={{ color: theme.palette.success.main }}
+                />
+              ) : (
+                <></>
+              )}
+            </Stack>
             <TextField
               fullWidth
               multiline

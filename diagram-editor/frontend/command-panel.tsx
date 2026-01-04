@@ -44,11 +44,7 @@ function CommandPanel({
       <Panel position="top-center">
         <ButtonGroup variant="contained">
           {editorMode.mode === EditorMode.Normal && (
-            <RunButton
-              requestJsonString=''
-              runImmediately={false}
-              onClose={() => {}}
-            />
+            <RunButton requestJsonString='' runImmediately={false}/>
           )}
           {editorMode.mode === EditorMode.Normal && (
             <Tooltip title="Diagram properties">
@@ -108,26 +104,6 @@ function CommandPanel({
         open={openEditTemplatesDialog}
         onClose={() => setOpenEditTemplatesDialog(false)}
       />
-      {/* <Panel
-        position="top-right"
-      >
-        <ButtonGroup variant="contained">
-          {editorMode.mode === EditorMode.Normal && (
-            <Tooltip title="Diagram properties">
-              <Button
-                onClick={() => setOpenDiagramPropertiesDrawer((prev) => !prev)}
-                sx={
-                  openDiagramPropertiesDrawer
-                    ? { backgroundColor: theme.palette.primary.light }
-                    : undefined
-                }
-              >
-                <MaterialSymbol symbol="info" />
-              </Button>
-            </Tooltip>
-          )}
-        </ButtonGroup>
-      </Panel> */}
       <DiagramPropertiesDrawer
         open={openDiagramPropertiesDrawer}
         onClose={() => setOpenDiagramPropertiesDrawer(false)}
