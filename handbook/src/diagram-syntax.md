@@ -197,6 +197,51 @@ These fields are *flattened* into the operation definition, so you would put the
 }
 ```
 
+## Type Inference
+
+You'll notice that none of the schemas in a diagram specify any input or output message types.
+The workflow builder has the ability to infer what message types need to pass between operations.
+This is inferred from registered node and section builder information which have fixed message types.
+
+> [!NOTE]
+> There are some niche cases where buffer message types can't be automatically inferred.
+> We might allow message types to be explicitly set for buffers.
+> This is being tracked by [#60](https://github.com/open-rmf/crossflow/issues/60).
+
+### Serialization / Deserialization
+
+When a message type `M` is serializable, the workflow builder will automatically insert a conversion from `M` to [`JsonMessage`][JsonMessage] when an output of `M` is connected to an input slot of [`JsonMessage`][JsonMessage]:
+
+![implicit-serialize](./assets/figures/implicit-serialize.svg)
+
+Similarly when a [`JsonMessage`][JsonMessage] output is connected to an input slot expecting a deserializable message `M`, the workflow builder will automatically insert a conversion from [`JsonMessage`][JsonMessage] to `M`:
+
+![implicit-deserialize](./assets/figures/implicit-deserialize.svg)
+
+In both cases there is a risk that the serialization or deserialization will fail.
+This is especially a concern for deserialization, since there is a wide space of [`JsonMessage`][JsonMessage] values that cannot be successfully deserialized into an arbitrary data type `M`.
+There are significantly fewer ways in which serialization can fail, but the possibility does still exist.
+
+For both automatic serialization and deserialization, we call the failure case an **implicit error**.
+
+#### Implicit Errors
+
+Implicit errors are error-related outputs that were not explicitly created by the user but which may occur because of unexpected circumstances.
+They can be thought of as similar to [exceptions][exceptions] from conventional programming.
+The implicit serialize and implicit deserialize operations are examples of places where implicit errors may be produced.
+
+The diagram schema provides an [`on_implicit_error`][Diagram::on_implicit_error] hook that lets you specify what should be done with implicit errors.
+Similarly the scope operation schema also provides [`on_implicit_error`][ScopeSchema::on_implicit_error].
+You can set these fields to a valid input slot within the scope, or to a [builtin target](#builtin-targets).
+Implicit error handling is managed per scope, so the `on_implicit_error` of a parent scope has no effect on its nested scopes.
+
+If `on_implicit_error` for a scope is not set to anything, then **the default behavior is to trigger [cancellation](./scope-cancellation.md)**.
+In the case of implicit serialization or deserialization, the serialization/deserialization failure message will be stringified and passed along as the cancellation message.
+
+Some operations that can produce errors will automatically connect their errors to the `on_implicit_error` handler if you don't specify what should be done with it.
+For example the `Transform` schema has an optional `on_error` field.
+Setting that field will pass transformation errors along to whichever target you specify, but leaving it unset will cause the `Transform` operation to connect its errors to the implicit error handler of the current scope.
+
 [schema]: https://github.com/open-rmf/crossflow/blob/main/diagram.schema.json
 [schemars]: https://docs.rs/schemars/latest/schemars/
 [Diagram]: https://docs.rs/crossflow/latest/crossflow/diagram/struct.Diagram.html
@@ -212,3 +257,7 @@ These fields are *flattened* into the operation definition, so you would put the
 [Diagram::default_trace]: https://docs.rs/crossflow/latest/crossflow/diagram/struct.Diagram.html#structfield.default_trace
 [TraceToggle::On]: https://docs.rs/crossflow/latest/crossflow/diagram/enum.TraceToggle.html#variant.On
 [TraceToggle::Messages]: https://docs.rs/crossflow/latest/crossflow/diagram/enum.TraceToggle.html#variant.Messages
+[JsonMessage]: https://docs.rs/crossflow/latest/crossflow/buffer/enum.JsonMessage.html
+[Diagram::on_implicit_error]: https://docs.rs/crossflow/latest/crossflow/diagram/struct.Diagram.html#structfield.on_implicit_error
+[ScopeSchema::on_implicit_error]: https://docs.rs/crossflow/latest/crossflow/diagram/struct.ScopeSchema.html#structfield.on_implicit_error
+[exceptions]: https://en.wikipedia.org/wiki/Exception_handling_(programming)

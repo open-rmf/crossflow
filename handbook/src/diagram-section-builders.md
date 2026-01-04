@@ -52,6 +52,52 @@ Instead we use Rust's procedural macro system:
 {{#include ./examples/diagram/calculator_ops_catalog/src/handbook_snippets.rs:section_operation_support}}
 ```
 
+### Connecting to sections
+
+The syntax for connecting to section inputs looks similar to [builtin targets](./diagram-syntax.md#builtin-targets), except you replace `"builtin"` with the ops key of the section.
+For example:
+
+```json
+{
+  "version": "0.1.0",
+  "start": { "use_elevator_West3": "begin" },
+  "ops": {
+    "use_elevator_West3": {
+        "type": "section",
+        "builder": "use_elevator",
+        "config": {
+            "elevator_id": "West3",
+            "robot_id": "cleaning_bot_2",
+            "to_floor": "L5"
+        },
+        "connect": {
+            "exit_elevator_failure": "handle_exit_failure",
+            "success": { "builtin": "terminate" }
+        }
+    },
+    "handle_exit_failure": {
+        "type": "node",
+        "builder": "center_in_elevator",
+        "config": {
+            "elevator_id": "West3",
+            "robot_id": "cleaning_bot_2"
+        },
+        "next": { "use_elevator_West3": "retry_elevator_exit" }
+    }
+  }
+}
+```
+
+This refers to the [`UseElevatorSection`](#closure) example above.
+We can create a workflow with this section and then use its outputs and inputs to create a loop that lets us customize how elevator exit failures are handled.
+
+To pass a message to one of the section inputs we use the syntax `{ "use_elevator_West3": _ }` where `_` is one of the field names of `UseElevatorSection`.
+While the example above doesn't include any buffers, the syntax for referencing section buffers is the same---the workflow builder will know whether you're referring to an input slot or a buffer based on where you are making the reference.
+
+To connect the outputs of the section to other operations in the same scope as the section, use the `"connect":` field of the section operation.
+Note that all operations inside the section are in the same scope as operations outside of the section.
+In general, connections can only be made between operations that are in the same scope.
+
 [SectionBuilderOptions]: https://docs.rs/crossflow/latest/crossflow/diagram/struct.SectionBuilderOptions.html
 [Builder]: https://docs.rs/crossflow/latest/crossflow/builder/struct.Builder.html
 [Node]: https://docs.rs/crossflow/latest/crossflow/node/struct.Node.html

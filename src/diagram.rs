@@ -390,7 +390,7 @@ pub struct Diagram {
     /// This field indicates how a failed implicit operation should be handled.
     /// If left unspecified, an implicit error will cause the entire workflow to
     /// be cancelled.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub on_implicit_error: Option<NextOperation>,
 
     /// Operations that define the workflow
