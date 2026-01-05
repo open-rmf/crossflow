@@ -462,6 +462,31 @@ async fn fetch_content_from_url(_: String) -> Result<HashMap<String, String>, Fe
     Err(FetchError::MissingUrl)
 }
 
+#[allow(unused)]
 fn grpc_examples() {
-    let mut registry = DiagramElementRegistry::new();
+use std::sync::Arc;
+// ANCHOR: grpc_demo
+use crossflow::prelude::*;
+use tokio::runtime::Runtime;
+
+// Initialize a regular registry
+let mut registry = DiagramElementRegistry::new();
+
+// Use a tokio runtime to enable gRPC in the registry. Tonic is only compatible
+// with tokio, so a tokio runtime is necessary to execute it.
+//
+// This will add gRPC node builders to the registry.
+let rt = Arc::new(Runtime::new().unwrap());
+registry.enable_grpc(Arc::clone(&rt));
+
+// Run the tokio runtime on a separate thread.
+//
+// Bevy uses smol-rs for its async runtime, which is not directly compatible with
+// tokio. We let tokio run on a separate thread and use channels to pass data
+// between the runtimes.
+let (exit_notifier, exit_receiver) = tokio::sync::oneshot::channel::<()>();
+std::thread::spawn(move || {
+    let _ = rt.block_on(exit_receiver);
+});
+// ANCHOR_END: grpc_demo
 }

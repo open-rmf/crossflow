@@ -60,10 +60,17 @@ use async_std::future::timeout as until_timeout;
 
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
 pub struct GrpcConfig {
+    /// Name of the [service](https://grpc.io/docs/what-is-grpc/core-concepts/#service-definition)
+    /// that the client should call.
     pub service: Arc<str>,
+    /// Name of the method within the chosen service.
     pub method: Option<NameOrIndex>,
+    /// URI of where the service should be accessed.
     pub uri: Arc<str>,
-    pub timeout: Option<Duration>,
+    /// A timeout (in seconds) for how long to wait for the service to finish before
+    /// cancelling it. This is optional. Leaving it unset will allow the client to
+    /// wait indefinitely.
+    pub timeout: Option<f64>,
 }
 
 #[derive(StreamPack)]
@@ -111,6 +118,36 @@ impl<T> AbortOnDropExt for JoinHandle<T> {
 }
 
 impl DiagramElementRegistry {
+
+    /// Register node builders that allow you to put gRPC clients into workflow
+    /// nodes. This supports unary, server-streaming, client-streaming, and
+    /// bidirectional gRPC clients.
+    ///
+    /// ```
+    /// # use std::sync::Arc;
+    /// use crossflow::prelude::*;
+    /// use tokio::runtime::Runtime;
+    ///
+    /// // Initialize a regular registry
+    /// let mut registry = DiagramElementRegistry::new();
+    ///
+    /// // Use a tokio runtime to enable gRPC in the registry. Tonic is only compatible
+    /// // with tokio, so a tokio runtime is necessary to execute it.
+    /// //
+    /// // This will add gRPC node builders to the registry.
+    /// let rt = Arc::new(Runtime::new().unwrap());
+    /// registry.enable_grpc(Arc::clone(&rt));
+    ///
+    /// // Run the tokio runtime on a separate thread.
+    /// //
+    /// // Bevy uses smol-rs for its async runtime, which is not directly compatible with
+    /// // tokio. We let tokio run on a separate thread and use channels to pass data
+    /// // between the runtimes.
+    /// let (exit_notifier, exit_receiver) = tokio::sync::oneshot::channel::<()>();
+    /// std::thread::spawn(move || {
+    ///     let _ = rt.block_on(exit_receiver);
+    /// });
+    /// ```
     pub fn enable_grpc(&mut self, runtime: Arc<Runtime>) {
         let rt = Arc::clone(&runtime);
         self.register_node_builder_fallible(
@@ -170,8 +207,8 @@ impl DiagramElementRegistry {
             .no_deserializing()
             .no_cloning()
             .register_node_builder_fallible(
-                NodeBuilderOptions::new("grpc_client_stream_out")
-                    .with_default_display_text("grpc Stream Out"),
+                NodeBuilderOptions::new("grpc_client")
+                    .with_default_display_text("gRPC Client"),
                 move |builder, config: GrpcConfig| {
                     let GrpcDescriptions {
                         method,
@@ -310,7 +347,7 @@ async fn execute<S>(
     mut client: Client<Channel>,
     codec: DynamicServiceCodec,
     path: PathAndQuery,
-    timeout: Option<Duration>,
+    timeout: Option<f64>,
     output_streams: <GrpcStreams as StreamPack>::StreamChannels,
     is_server_streaming: bool,
 ) -> Result<(), String>
@@ -318,6 +355,7 @@ where
     S: FutureStream<Item = JsonMessage> + Send + 'static,
 {
     // Wait for client to be ready
+    let timeout = timeout.map(|t| Duration::from_secs_f64(t));
     client.ready().await.map_err(|e| format!("{e}"))?;
     if let Some(t) = timeout {
         until_timeout(t, client.ready())
