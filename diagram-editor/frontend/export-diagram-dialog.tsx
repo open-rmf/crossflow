@@ -23,6 +23,8 @@ import { exportDiagram } from './utils/export-diagram';
 
 export interface ExportDiagramDialogProps {
   open: boolean;
+  suggestedFilename: string | null;
+  onExportedFilename: (filename: string) => void;
   onClose: () => void;
 }
 
@@ -33,6 +35,8 @@ interface DialogData {
 
 function ExportDiagramDialogInternal({
   open,
+  suggestedFilename,
+  onExportedFilename,
   onClose,
 }: ExportDiagramDialogProps) {
   const nodeManager = useNodeManager();
@@ -75,7 +79,7 @@ function ExportDiagramDialogInternal({
 
   const dialogData = use(dialogDataPromise);
 
-  const [downloaded, setDownloaded] = React.useState(false);
+  const [downloaded, setDownloaded] = React.useState<string | null>(null);
 
   const handleDownload = async () => {
     if (!dialogData) {
@@ -89,7 +93,7 @@ function ExportDiagramDialogInternal({
     if ('showSaveFilePicker' in window) {
       try {
         const handle = await (window as any).showSaveFilePicker({
-          suggestedName: 'diagram.json',
+          suggestedName: suggestedFilename ?? 'diagram.json',
           types: [
             {
               description: 'JSON File',
@@ -97,11 +101,11 @@ function ExportDiagramDialogInternal({
             },
           ],
         });
+        const exportedFilename = handle.name;
         const writable = await handle.createWritable();
         await writable.write(blob);
         await writable.close();
-        setDownloaded(true);
-        setTimeout(() => { setDownloaded(false); }, 5000);
+        setDownloaded(exportedFilename);
         return;
       } catch (err) {
         if ((err as Error).name === 'AbortError') {
@@ -111,7 +115,8 @@ function ExportDiagramDialogInternal({
     }
 
     // The showSaveFilePicker API might not be supported in some browsers,
-    // fallback to the default method of downloading if it fails.
+    // fallback to the default method of downloading to just diagram.json if it
+    // fails.
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -121,9 +126,16 @@ function ExportDiagramDialogInternal({
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    setDownloaded(true);
-    setTimeout(() => { setDownloaded(false); }, 5000);
+    setDownloaded('diagram.json');
   };
+
+  React.useEffect(() => {
+    if (downloaded === null || downloaded.length === 0) {
+      return;
+    }
+    onExportedFilename(downloaded);
+    setTimeout(() => { setDownloaded(null); }, 5000);
+  }, [downloaded, onExportedFilename])
 
   const [copiedShareLink, setCopiedShareLink] = React.useState(false);
 
@@ -181,7 +193,11 @@ function ExportDiagramDialogInternal({
                 backgroundColor: downloaded ? theme.palette.success.main : null,
               }}
             >
-              {downloaded ? 'Downloaded' : 'Download'}
+              {downloaded
+                ? typeof downloaded === 'string'
+                  ? `Saved ${downloaded}`
+                  : 'Downloaded'
+                : 'Download'}
             </Button>
           </Stack>
           <TextField
