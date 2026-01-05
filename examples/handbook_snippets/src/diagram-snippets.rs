@@ -490,3 +490,13 @@ std::thread::spawn(move || {
 });
 // ANCHOR_END: grpc_demo
 }
+
+#[allow(unused)]
+fn zenoh_example() {
+// ANCHOR: zenoh_demo
+use crossflow::prelude::*;
+
+let mut registry = DiagramElementRegistry::new();
+registry.enable_zenoh(Default::default());
+// ANCHOR_END: zenoh_demo
+}

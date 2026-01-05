@@ -38,8 +38,13 @@ use thiserror::Error as ThisError;
 use tokio::sync::mpsc::UnboundedSender;
 
 mod register_zenoh_publisher;
+pub use register_zenoh_publisher::*;
+
 mod register_zenoh_querier;
+pub use register_zenoh_querier::*;
+
 mod register_zenoh_subscription;
+pub use register_zenoh_subscription::*;
 
 impl DiagramElementRegistry {
     /// Add nodes to the registry that allow you to interact with the

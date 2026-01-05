@@ -16,7 +16,7 @@ Since each middleware brings a potentially large number of dependencies with it,
 
 Here are the names of the features for activing various middlewares:
 * [`grpc`](./diagram-grpc.md) - uses [tonic] and [prost-reflect] to provide clients for dynamically loaded [gRPC] services.
-* [`zenoh`](./diagram-zenoh.md) - provides full support for [zenoh] publish/subscribe and query/reply paradigms, and supports dynamic use of [protobuf] via [prost-reflect].
+* [`zenoh`](./diagram-zenoh.md) - provides full support for [zenoh] publishers, subscribers, and queriers. Payloads can be [protobuf] via [prost-reflect] or JSON strings.
 * [`ros2`](./diagram-ros2.md) (only on the [`ros2` branch]) - provides registration helpers for ROS 2 subscriptions, publishers, service clients, and action clients via [rclrs].
   For now each message/service/action type needs to be compiled in, but this requirement will relax when [rclrs] supports runtime loading of message definitions.
 
