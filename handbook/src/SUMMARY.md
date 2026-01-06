@@ -36,7 +36,7 @@
   - [Creating a Node](./creating-a-node.md)
   - [Connecting Nodes](./connecting-nodes.md)
   - [Building a Chain](./building-a-chain.md)
-  - [Output Streams](./workflow-output-streams.md)
+  - [Connecting Output Streams](./connecting-output-streams.md)
   - [Using Buffers](./using-buffers.md)
   - [Using Buffer Accessors](./using-buffer-accessors.md)
   - [Workflow Setings](./workflow-settings.md)

@@ -1310,6 +1310,10 @@ enum NavigationError {
 
 }
 
+#[derive(Clone, Resource)]
+struct NavigationGraph;
+
+// ANCHOR: async_streams_example
 // ANCHOR: navigation_streams
 #[derive(StreamPack)]
 struct NavigationStreams {
@@ -1318,6 +1322,90 @@ struct NavigationStreams {
     error: NavigationError,
 }
 // ANCHOR_END: navigation_streams
+
+#[derive(Clone)]
+struct NavigationRequest {
+    destination: Vec2,
+    robot_position_key: BufferKey<Vec2>,
+}
+
+fn navigate(
+    In(input): AsyncServiceInput<NavigationRequest, NavigationStreams>,
+    nav_graph: Res<NavigationGraph>,
+) -> impl Future<Output = Result<(), NavigationError>> {
+    // Clone the nevigation graph resource so we can move the clone into the
+    // async block.
+    let nav_graph = (*nav_graph).clone();
+
+    // Create a callback for fetching the latest position
+    let get_position = |
+        In(key): In<BufferKey<Vec2>>,
+        access: BufferAccess<Vec2>,
+    | {
+        access.get_newest(&key).cloned()
+    };
+    let get_position = get_position.into_blocking_callback();
+
+    // Unpack the input into simpler variables
+    let NavigationRequest { destination, robot_position_key } = input.request;
+    let location_stream = input.streams.location;
+
+    // Begin an async block that will run in the AsyncComputeTaskPool
+    async move {
+        loop {
+            // Fetch the latest position using the async channel
+            let position = input.channel.query(
+                robot_position_key.clone(),
+                get_position.clone()
+            )
+                .await
+                .take()
+                .available()
+                .flatten();
+
+            let Some(position) = position else {
+                // Position has not been reported yet, so just try again later.
+                continue;
+            };
+
+            // Send the current position out over an async stream
+            location_stream.send(position);
+
+            // TODO: Command the robot to proceed towards its destination
+            // TODO: Break the loop when the robot arrives at its destination
+        }
+
+        Ok(())
+    }
+}
+// ANCHOR_END: async_streams_example
+
+// ANCHOR: continuous_streams_example
+fn continuous_navigate(
+    In(srv): ContinuousServiceInput<NavigationRequest, Result<(), NavigationError>, NavigationStreams>,
+    mut continuous: ContinuousQuery<NavigationRequest, Result<(), NavigationError>, NavigationStreams>,
+    position_access: BufferAccess<Vec2>,
+    nav_graph: Res<NavigationGraph>,
+) {
+    let Some(mut orders) = continuous.get_mut(&srv.key) else {
+        // The service provider has despawned, so we can no longer do anything
+        return;
+    };
+
+    orders.for_each(|order| {
+        let NavigationRequest { destination, robot_position_key } = order.request().clone();
+        let Some(position) = position_access.get_newest(&robot_position_key) else {
+            // Position is not available yet
+            return;
+        };
+
+        order.streams().location.send(*position);
+
+        // TODO: Command the robot to proceed towards its destination
+        // TODO: Use order.respond(Ok(())) when the robot arrives at its destination
+    });
+}
+// ANCHOR_END: continuous_streams_example
 
 struct Apple {}
 
@@ -1407,3 +1495,71 @@ fn manage_opening_time(
     }
 }
 // ANCHOR_END: gate_example
+
+// ANCHOR: fibonacci_example
+fn fibonacci_example(
+    In(input): BlockingServiceInput<u32, StreamOf<u32>>
+) {
+    let order = input.request;
+    let stream = input.streams;
+
+    let mut current = 0;
+    let mut next = 1;
+    for _ in 0..order {
+        stream.send(current);
+
+        let sum = current + next;
+        current = next;
+        next = sum;
+    }
+}
+// ANCHOR_END: fibonacci_example
+
+// ANCHOR: fibonacci_string_example
+fn fibonacci_string_example(
+    In(input): BlockingServiceInput<u32, (StreamOf<u32>, StreamOf<String>)>,
+) {
+    let order = input.request;
+    let u32_stream = input.streams.0;
+    let string_stream = input.streams.1;
+
+    let mut current = 0;
+    let mut next = 1;
+    for _ in 0..order {
+        u32_stream.send(current);
+        string_stream.send(format!("{current}"));
+
+        let sum = current + next;
+        current = next;
+        next = sum;
+    }
+}
+// ANCHOR_END: fibonacci_string_example
+
+// ANCHOR: fibonacci_stream_pack_example
+#[derive(StreamPack)]
+struct FibonacciStreams {
+    integers: u32,
+    strings: String,
+}
+
+fn fibonacci_stream_pack_example(
+    In(input): BlockingServiceInput<u32, FibonacciStreams>,
+) {
+    let order = input.request;
+    let streams = input.streams;
+
+    let mut current = 0;
+    let mut next = 1;
+    for _ in 0..order {
+        streams.integers.send(current);
+        streams.strings.send(format!("{current}"));
+
+        let sum = current + next;
+        current = next;
+        next = sum;
+    }
+}
+// ANCHOR_END: fibonacci_stream_pack_example
+
+
