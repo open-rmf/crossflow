@@ -1311,7 +1311,7 @@ struct Pickup {
 }
 
 enum NavigationError {
-
+    MissingGraph,
 }
 
 #[derive(Clone, Resource)]
@@ -1774,4 +1774,83 @@ let promise = commands.request(element, title_callback);
 
 async fn fetch_content_from_url(_: String) -> Option<HashMap<String, String>> {
     None
+}
+
+fn map_demo(commands: &mut Commands) {
+// ANCHOR: fibonacci_map_example
+fn fibonacci_map_example(input: BlockingMap<u32, StreamOf<u32>>) {
+    let order = input.request;
+    let stream = input.streams;
+
+    let mut current = 0;
+    let mut next = 1;
+    for _ in 0..order {
+        stream.send(current);
+
+        let sum = current + next;
+        current = next;
+        next = sum;
+    }
+}
+
+let promise = commands.request(10, fibonacci_map_example.as_map());
+// ANCHOR_END: fibonacci_map_example
+
+// ANCHOR: navigate_map_example
+async fn navigate(
+    input: AsyncMap<NavigationRequest, NavigationStreams>,
+) -> Result<(), NavigationError> {
+    // Clone the nevigation graph resource so we can move the clone into the
+    // async block.
+    let Some(nav_graph) = input
+        .channel
+        .world(|world| {
+            world.resource::<NavigationGraph>().clone()
+        })
+        .await
+        .take()
+        .available()
+    else {
+        return Err(NavigationError::MissingGraph);
+    };
+
+    // Create a callback for fetching the latest position
+    let get_position = |
+        In(key): In<BufferKey<Vec2>>,
+        access: BufferAccess<Vec2>,
+    | {
+        access.get_newest(&key).cloned()
+    };
+    let get_position = get_position.into_blocking_callback();
+
+    // Unpack the input into simpler variables
+    let NavigationRequest { destination, robot_position_key } = input.request;
+    let location_stream = input.streams.location;
+
+    loop {
+        // Fetch the latest position using the async channel
+        let position = input.channel.query(
+            robot_position_key.clone(),
+            get_position.clone()
+        )
+            .await
+            .take()
+            .available()
+            .flatten();
+
+        let Some(position) = position else {
+            // Position has not been reported yet, so just try again later.
+            continue;
+        };
+
+        // Send the current position out over an async stream
+        location_stream.send(position);
+
+        // TODO: Command the robot to proceed towards its destination
+        // TODO: Break the loop when the robot arrives at its destination
+    }
+
+    Ok(())
+}
+// ANCHOR_END: navigate_map_example
 }

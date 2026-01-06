@@ -73,6 +73,27 @@ impl Channel {
         promise
     }
 
+    /// Apply a closure onto the [`World`].
+    pub fn world<F, U>(&self, f: F) -> Promise<U>
+    where
+        F: FnOnce(&mut World) -> U + 'static + Send,
+        U: 'static + Send,
+    {
+        let (sender, promise) = Promise::new();
+        self.inner
+            .sender
+            .send(Box::new(
+                move |world: &mut World, _: &mut OperationRoster| {
+                    let u = f(world);
+                    let _ = sender.send(u);
+                }
+            ))
+            .ok();
+
+        promise
+    }
+
+
     pub(crate) fn for_streams<Streams: StreamPack>(
         &self,
         world: &World,
