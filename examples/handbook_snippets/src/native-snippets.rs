@@ -33,6 +33,7 @@
 use crossflow::bevy_app::{App, Update};
 use crossflow::prelude::*;
 
+use async_std::future::{pending, timeout};
 use bevy_ecs::prelude::*;
 use bevy_derive::*;
 use bevy_time::Time;
@@ -41,7 +42,10 @@ use glam::Vec2;
 use serde::{Serialize, Deserialize};
 use serde_json::{Value as Json, Error};
 
-use std::time::SystemTime;
+use std::{
+    collections::HashMap,
+    time::{Duration, SystemTime}
+};
 
 fn main() {
     let mut app = App::new();
@@ -1562,6 +1566,7 @@ fn fibonacci_stream_pack_example(
 }
 // ANCHOR_END: fibonacci_stream_pack_example
 
+#[allow(unused)]
 fn delivery_instructions_demo(commands: &mut Commands) {
 // ANCHOR: always_serial_example
 async fn delay_service(In(input): AsyncServiceInput<String>) {
@@ -1569,7 +1574,7 @@ async fn delay_service(In(input): AsyncServiceInput<String>) {
     let never = pending::<()>();
     // Wait on the never-ending future until a timeout finishes.
     // This creates an artifical delay for the async service.
-    let _ = timeout(waiting_time, never).await;
+    let _ = timeout(Duration::from_secs(2), never).await;
 
     println!("{}", input.request);
 }
@@ -1614,21 +1619,159 @@ let label = MyDeliveryLabel {
 // Make instructions that include preempting
 let preempt_instructions = DeliveryInstructions::new(label).preempt();
 
-let promise = commands.spawn_service(
-    delay_service
-    .instruct(preempt_instructions)
+let promise = commands.request(
+    String::from("hello"),
+    service.instruct(preempt_instructions)
 );
 // ANCHOR_END: preempt_example
+
+let label = MyDeliveryLabel {
+    set: String::from("my_set")
+};
 
 // ANCHOR: ensure_example
 let instructions = DeliveryInstructions::new(label)
     .preempt()
     .ensure();
 
-let promise = commands.spawn_service(
-    delay_service
-    .instruct(instructions)
+let promise = commands.request(
+    String::from("hello"),
+    service.instruct(instructions)
 );
 // ANCHOR_END: ensure_example
+}
 
+#[allow(unused)]
+fn callback_demo(commands: &mut Commands) {
+// ANCHOR: callback_example
+// We can access this resource from the callback
+#[derive(Resource)]
+struct Greeting {
+    prefix: String,
+}
+
+// Make an fn that defines the callback implementation
+fn perform_greeting(
+    In(input): BlockingCallbackInput<String>,
+    greeting: Res<Greeting>,
+) -> String {
+    let name = input.request;
+    let prefix = &greeting.prefix;
+    format!("{prefix}{name}")
+}
+
+// Convert the fn into a callback.
+// This is necessary to initialize the fn as a bevy system.
+let callback = perform_greeting.as_callback();
+
+// Use the callback in a request
+let promise = commands.request(String::from("Bob"), callback);
+// ANCHOR_END: callback_example
+
+// ANCHOR: async_callback_example
+async fn page_title_callback(In(srv): AsyncCallbackInput<String>) -> Option<String> {
+    let response = trpl::get(&srv.request).await;
+    let response_text = response.text().await;
+    trpl::Html::parse(&response_text)
+        .select_first("title")
+        .map(|title| title.inner_html())
+}
+
+let callback = page_title_callback.as_callback();
+let promise = commands.request(String::from("https://example.com"), callback);
+// ANCHOR_END: async_callback_example
+
+// ANCHOR: closure_callback_example
+// Make an closure that defines the callback implementation
+let perform_greenting = |
+    In(input): BlockingCallbackInput<String>,
+    greeting: Res<Greeting>,
+| {
+    let name = input.request;
+    let prefix = &greeting.prefix;
+    format!("{prefix}{name}")
+};
+
+// Convert the fn into a callback.
+// This is necessary to initialize the fn as a bevy system.
+let callback = perform_greeting.as_callback();
+
+// Use the callback in a request
+let promise = commands.request(String::from("Bob"), callback);
+// ANCHOR_END: closure_callback_example
+
+// ANCHOR: async_closure_callback_example
+let page_title_callback = |In(srv): AsyncCallbackInput<String>| {
+    async move {
+        let response = trpl::get(&srv.request).await;
+        let response_text = response.text().await;
+        trpl::Html::parse(&response_text)
+            .select_first("title")
+            .map(|title| title.inner_html())
+    }
+};
+
+let callback = page_title_callback.as_callback();
+let promise = commands.request(String::from("https://example.com"), callback);
+// ANCHOR_END: async_closure_callback_example
+}
+
+fn agnostic_impl_demos(commands: &mut Commands) {
+#[derive(Resource)]
+struct Greeting {
+    prefix: String,
+}
+
+// ANCHOR: agnostic_blocking_example
+fn perform_greeting(
+    In(name): In<String>,
+    greeting: Res<Greeting>,
+) -> String {
+    let prefix = &greeting.prefix;
+    format!("{prefix}{name}")
+}
+
+// Use as service
+let greeting_service = commands.spawn_service(
+    perform_greeting.into_blocking_service()
+);
+let promise = commands.request(String::from("Bob"), greeting_service);
+
+// Use as callback
+let greeting_callback = perform_greeting.into_blocking_callback();
+let promise = commands.request(String::from("Bob"), greeting_callback);
+// ANCHOR_END: agnostic_blocking_example
+
+#[derive(Resource, Deref)]
+struct Url(String);
+
+// ANCHOR: agnostic_async_example
+fn get_page_element(
+    In(element): In<String>,
+    url: Res<Url>,
+) -> impl Future<Output = Option<String>> {
+    let url = (**url).clone();
+    async move {
+        let content = fetch_content_from_url(url).await?;
+        content.get(&element).cloned()
+    }
+}
+
+let element = String::from("title");
+
+// Use as service
+let title_service = commands.spawn_service(
+    get_page_element.into_async_service()
+);
+let promise = commands.request(element.clone(), title_service);
+
+// Use as callback
+let title_callback = get_page_element.into_async_callback();
+let promise = commands.request(element, title_callback);
+// ANCHOR_END: agnostic_async_example
+
+}
+
+async fn fetch_content_from_url(_: String) -> Option<HashMap<String, String>> {
+    None
 }
