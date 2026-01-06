@@ -1562,4 +1562,73 @@ fn fibonacci_stream_pack_example(
 }
 // ANCHOR_END: fibonacci_stream_pack_example
 
+fn delivery_instructions_demo(commands: &mut Commands) {
+// ANCHOR: always_serial_example
+async fn delay_service(In(input): AsyncServiceInput<String>) {
+    // Create a future that will never finish
+    let never = pending::<()>();
+    // Wait on the never-ending future until a timeout finishes.
+    // This creates an artifical delay for the async service.
+    let _ = timeout(waiting_time, never).await;
 
+    println!("{}", input.request);
+}
+
+let service = commands.spawn_service(
+    delay_service
+    .serial()
+);
+// ANCHOR_END: always_serial_example
+
+// ANCHOR: delivery_label
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DeliveryLabel)]
+struct MyDeliveryLabel {
+    set: String,
+}
+// ANCHOR_END: delivery_label
+
+// ANCHOR: set_instructions
+// Spawn the service as normal
+let service = commands.spawn_service(delay_service);
+
+// Create delivery instructions
+let instructions = DeliveryInstructions::new(
+    MyDeliveryLabel {
+        set: String::from("my_set")
+    }
+);
+
+// Add the instructions while requesting
+let promise = commands.request(
+    String::from("hello"),
+    service.instruct(instructions),
+);
+// ANCHOR_END: set_instructions
+
+// ANCHOR: preempt_example
+// Create a label
+let label = MyDeliveryLabel {
+    set: String::from("my_set")
+};
+
+// Make instructions that include preempting
+let preempt_instructions = DeliveryInstructions::new(label).preempt();
+
+let promise = commands.spawn_service(
+    delay_service
+    .instruct(preempt_instructions)
+);
+// ANCHOR_END: preempt_example
+
+// ANCHOR: ensure_example
+let instructions = DeliveryInstructions::new(label)
+    .preempt()
+    .ensure();
+
+let promise = commands.spawn_service(
+    delay_service
+    .instruct(instructions)
+);
+// ANCHOR_END: ensure_example
+
+}
