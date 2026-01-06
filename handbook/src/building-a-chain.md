@@ -109,9 +109,6 @@ Chains can also create forks using the unzip operation and join them together er
 {{#include ./examples/handbook_snippets/src/native-snippets.rs:unzip_chain}}
 ```
 
-
-
-
 [Builder]: https://docs.rs/crossflow/latest/crossflow/builder/struct.Builder.html
 [Builder::chain]: https://docs.rs/crossflow/latest/crossflow/builder/struct.Builder.html#method.chain
 [Builder::create_node]: https://docs.rs/crossflow/latest/crossflow/builder/struct.Builder.html#method.create_node

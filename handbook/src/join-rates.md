@@ -2,7 +2,7 @@
 
 The default behavior that you get from joining two [buffers](./buffers.md) fits typical fork-then-join uses cases:
 * Each buffer will hold up to one message. Older messages get dropped when new messages arrive.
-* When the join is ready, the single message in each buffer will be pulled out, leaving all the buffers empty.
+* When the join is performed, the single message in each buffer will be pulled out, leaving all the buffers empty.
 
 However this might not be the behavior you want in *all* uses cases of join.
 Sometimes branches that lead into a join will each be streaming messages at different rates.

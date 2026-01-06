@@ -721,6 +721,92 @@ let workflow = commands.spawn_io_workflow(
 );
 // ANCHOR_END: use_elevator_chain
 
+let pick_item = (|_: WorkcellTask| { }).into_blocking_map();
+let move_to_location = (|_: MobileRobotTask| { }).into_blocking_map();
+let hand_off_item = (|_: ((), ())| { }).into_blocking_map();
+
+// ANCHOR: unzip_workflow
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        // Create ndoes for picking an item and moving to a pickup location
+        let pick_item = builder.create_node(pick_item);
+        let move_to_location = builder.create_node(move_to_location);
+        let hand_off_item = builder.create_node(hand_off_item);
+
+        // Create a blocking map to transform the workflow input data into two
+        // separate messages to send to two different branches.
+        //
+        // This returns a tuple with two elements. We will send each element to
+        // a different branch at the same time.
+        let transform_inputs = builder.create_map_block(|request: PickupTask| {
+            (
+                WorkcellTask {
+                    workcell: request.workcell,
+                    item: request.item,
+                },
+                MobileRobotTask {
+                    vehicle: request.vehicle,
+                    location: request.location,
+                }
+            )
+        });
+
+        // Create the unzip forking
+        let (unzip_input, unzip) = builder.create_unzip();
+        // Destructure the unzipped outputs
+        let (workcell_task, mobile_robot_task) = unzip;
+
+        // Synchronize when the workcell and mobile robot are both ready for the
+        // item to be handed off
+        let both_ready = builder.join((
+            pick_item.output,
+            move_to_location.output,
+        ))
+        .output();
+
+        // Connect all the nodes
+        builder.connect(scope.input, transform_inputs.input);
+        builder.connect(transform_inputs.output, unzip_input);
+        builder.connect(workcell_task, pick_item.input);
+        builder.connect(mobile_robot_task, move_to_location.input);
+        builder.connect(both_ready, hand_off_item.input);
+        builder.connect(hand_off_item.output, scope.terminate);
+    }
+);
+// ANCHOR_END: unzip_workflow
+
+let pick_item = (|_: WorkcellTask| { }).into_blocking_map();
+let move_to_location = (|_: MobileRobotTask| { }).into_blocking_map();
+let hand_off_item = (|_: ((), ())| { }).into_blocking_map();
+
+// ANCHOR: unzip_chain
+let workflow = commands.spawn_io_workflow(
+    |scope, builder| {
+        builder
+            .chain(scope.input)
+            .map_block(|request: PickupTask| {
+                (
+                    WorkcellTask {
+                        workcell: request.workcell,
+                        item: request.item,
+                    },
+                    MobileRobotTask {
+                        vehicle: request.vehicle,
+                        location: request.location,
+                    }
+                )
+            })
+            .fork_unzip((
+                |workcell_branch: Chain<_>| workcell_branch.then(pick_item).output(),
+                |amr_branch: Chain<_>| amr_branch.then(move_to_location).output(),
+            ))
+            .join(builder)
+            .then(hand_off_item)
+            .connect(scope.terminate);
+    }
+);
+// ANCHOR_END: unzip_chain
+
 type T = String;
 // ANCHOR: minimal_workflow_stream_example
 let workflow = commands.spawn_workflow(
