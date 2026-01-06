@@ -749,7 +749,7 @@ mod tests {
                 },
                 "guided": {
                     "type": "node",
-                    "builder": "grpc_client_stream_out",
+                    "builder": "grpc_client",
                     "config": {
                         "service": "example_protos.navigation.Navigation",
                         "method": "Guide",
