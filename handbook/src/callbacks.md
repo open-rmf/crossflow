@@ -44,7 +44,7 @@ Same as for blocking callbacks, you turn the `fn` definition into a callback by 
 ##### Closures
 
 You can also turn a closure into a callback.
-Sometimes the sytnax for this is confusing, but the easiest way to make it work is to first define the closure as a variable and then convert that variable into a callback:
+Sometimes the syntax for this is confusing, but the easiest way to make it work is to first define the closure as a variable and then convert that variable into a callback:
 
 ```rust,no_run,noplayground
 {{#include ./examples/handbook_snippets/src/native-snippets.rs:closure_callback_example}}

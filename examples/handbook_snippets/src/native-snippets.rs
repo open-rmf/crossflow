@@ -1769,7 +1769,7 @@ let promise = commands.request(String::from("https://example.com"), callback);
 
 // ANCHOR: closure_callback_example
 // Make an closure that defines the callback implementation
-let perform_greenting = |
+let perform_greeting = |
     In(input): BlockingCallbackInput<String>,
     greeting: Res<Greeting>,
 | {

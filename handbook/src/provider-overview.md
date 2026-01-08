@@ -22,7 +22,7 @@ table th:nth-of-type(4) {
 | | Advantage | Caveat | Providers |
 --|-----------|--------|---------|
 | [Blocking](./spawn-services.md) | No thread-switching overhead <br><br> Instant access to all data in the Bevy ECS world <br><br> Sequences of blocking providers finish in a single flush | While running, block progress of all series, workflows, and scheduled systems in the app <br><br> (these do not block async providers) | ✅ Service <br> ✅ Callback <br> ✅ Map |
-| [Async](./spawn-async-services.md) | Executed in paralell in the async thread pool <br><br> Can query and modify the world asynchronously from the threadpool <br><br> Can use `.await` | Query and modifications of the world take time to flush <br><br> Moving data between threads and spawning async tasks has non-zero overhead | ✅ Service <br> ✅ Callback <br> ✅ Map |
+| [Async](./spawn-async-services.md) | Executed in parallel in the async thread pool <br><br> Can query and modify the world asynchronously from the threadpool <br><br> Can use `.await` | Query and modifications of the world take time to flush <br><br> Moving data between threads and spawning async tasks has non-zero overhead | ✅ Service <br> ✅ Callback <br> ✅ Map |
 | [Continuous](./spawn-continuous-services.md) | Run every system schedule update cycle, making them good for incremental actions <br><br> Run in parallel with other Bevy systems in the schedule <br><br> Instant access to all data in the Bevy ECS world | They wake up every system schedule update cycle, even if there are no requests queued for them | ✅ Service <br> ❌ Callback <br> ❌ Map |
 
 **Service**
