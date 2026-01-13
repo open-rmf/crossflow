@@ -6,8 +6,8 @@ no other systems or services in the [system schedule][schedules] can run. This
 allows blocking services to have unfettered instant access to all resources in the
 bevy [World][World], but long-running blocking services would disrupt the app schedule.
 This does not mean that blocking services should be avoided---they are the fastest
-and most CPU efficient choice for any short-lived service, especially when accessing B
-evy [Components][components] or [Resources][resources]. Each kind of service fits a
+and most CPU efficient choice for any short-lived service, especially when accessing
+Bevy [Components][components] or [Resources][resources]. Each kind of service fits a
 different shape of usage, so go ahead and use blocking services when they fit.
 
 When it comes to long-running services, it's likely that an **async service** is
@@ -118,7 +118,7 @@ its title even if it does.
 
 One drawback of using an async service is that it doesn't have free access to
 the [World][World] (particularly [Components][Components] and [Resources][Resources])
-the way a blocking service does. It would be impossible to give to provide that
+the way a blocking service does. It would be impossible to provide that
 kind of access for something running in the async task pool because any time it
 tries to access data that's stored in the world, it could encounter a conflict
 with a scheduled system that's accessing the same data.

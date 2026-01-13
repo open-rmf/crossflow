@@ -28,7 +28,7 @@ use super::{
 /// output message.
 ///
 /// The behavior is determined by the choice of node `builder` and
-/// optioanlly the `config` that you provide. Each type of node builder has
+/// optionally the `config` that you provide. Each type of node builder has
 /// its own schema for the config.
 ///
 /// The output message will be sent to the operation specified by `next`.
