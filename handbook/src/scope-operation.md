@@ -1,7 +1,7 @@
 # Scope Operation
 
 So far we've talked about how every workflow has a scope with start, terminate,
-and optioanlly stream out operations. But sometimes it's useful for a set of
+and optionally stream out operations. But sometimes it's useful for a set of
 operations *within* a workflow to be scoped.
 
 The scope operation allows you to nest a self-contained workflow inside of another
