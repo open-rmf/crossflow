@@ -1387,9 +1387,29 @@ struct SchemaV2 {
 }
 
 struct Item {}
+struct Workcell {}
 
 #[derive(Clone)]
 struct Location {}
+struct Vehicle {}
+
+
+struct WorkcellTask {
+    workcell: Workcell,
+    item: Item,
+}
+
+struct MobileRobotTask {
+    vehicle: Vehicle,
+    location: Location,
+}
+
+struct PickupTask {
+    item: Item,
+    workcell: Workcell,
+    location: Location,
+    vehicle: Vehicle,
+}
 
 struct Pickup {
     item: Item,
@@ -1654,8 +1674,7 @@ fn fibonacci_stream_pack_example(
 
 #[allow(unused)]
 fn delivery_instructions_demo(commands: &mut Commands) {
-// ANCHOR: always_serial_example
-async fn delay_service(In(input): AsyncServiceInput<String>) {
+async fn my_service(In(input): AsyncServiceInput<String>) {
     // Create a future that will never finish
     let never = pending::<()>();
     // Wait on the never-ending future until a timeout finishes.
@@ -1665,8 +1684,9 @@ async fn delay_service(In(input): AsyncServiceInput<String>) {
     println!("{}", input.request);
 }
 
+// ANCHOR: always_serial_example
 let service = commands.spawn_service(
-    delay_service
+    my_service
     .serial()
 );
 // ANCHOR_END: always_serial_example
@@ -1680,7 +1700,7 @@ struct MyDeliveryLabel {
 
 // ANCHOR: set_instructions
 // Spawn the service as normal
-let service = commands.spawn_service(delay_service);
+let service = commands.spawn_service(my_service);
 
 // Create delivery instructions
 let instructions = DeliveryInstructions::new(

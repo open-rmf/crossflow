@@ -18,7 +18,7 @@ You can have specific queues where requests in the same queue run in serial whil
 
 > [!WARNING]
 > Always-serial services are also serial across different [workflows](./introduction-to-workflows.md) and different [sessions](./scopes.md) of the same workflow.
-> When a service gets used in multiple different nodes, those nodes will only execute once-at-a-time, even if the nodes belong to different workflows or are being trigger across different sessions.
+> When a service gets used in multiple different nodes, those nodes will only execute once-at-a-time, even if the nodes belong to different workflows or are being triggered across different sessions.
 
 You can choose for an async or continuous service to always be run in serial, meaning when multiple requests are sent to it, they will always be run once-at-a-time.
 This does not block any other services from running at the same time.
@@ -46,7 +46,7 @@ The first step is to create a delivery label:
 ```
 
 A delivery label can be any [`struct`] that implements `Debug`, `Clone`, `PartialEq`, `Eq`, `Hash`, and `DeliveryLabel`.
-The `#[derive(DeliveryLabel)]` will fail if any of the required traits are missing, so the compiler will help ensure that your struct implements everything it needs.
+The `#[derive(DeliveryLabel)]` will fail at compile time if any of the required traits are missing, so the compiler will help ensure that your struct has all the traits it needs.
 Other than those traits, there is no restriction on what can be used as a delivery label.
 
 To use a delivery label, spawn a service as normal, but apply instructions with `.instruct(_)` when passing it into a request:
