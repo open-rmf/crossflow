@@ -1227,7 +1227,7 @@ export interface NodeRegistration {
    */
   default_display_text: string;
   description?: string | null;
-  example_configs: ConfigExample[];
+  config_examples: ConfigExample[];
   request: string;
   response: string;
   streams: {
@@ -1243,7 +1243,7 @@ export interface SectionRegistration {
   config_schema: Schema;
   default_display_text: string;
   description?: string | null;
-  example_configs: ConfigExample[];
+  config_examples: ConfigExample[];
   metadata: SectionMetadata;
   [k: string]: unknown;
 }

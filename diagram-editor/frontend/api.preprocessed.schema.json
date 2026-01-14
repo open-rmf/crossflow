@@ -874,7 +874,7 @@
             "null"
           ]
         },
-        "example_configs": {
+        "config_examples": {
           "items": {
             "$ref": "#/$defs/ConfigExample"
           },
@@ -899,7 +899,7 @@
         "response",
         "streams",
         "config_schema",
-        "example_configs"
+        "config_examples"
       ],
       "type": "object"
     },
@@ -1163,7 +1163,7 @@
             "null"
           ]
         },
-        "example_configs": {
+        "config_examples": {
           "items": {
             "$ref": "#/$defs/ConfigExample"
           },
@@ -1177,7 +1177,7 @@
         "default_display_text",
         "metadata",
         "config_schema",
-        "example_configs"
+        "config_examples"
       ],
       "type": "object"
     },
