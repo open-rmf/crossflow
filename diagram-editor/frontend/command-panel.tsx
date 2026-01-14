@@ -36,7 +36,7 @@ function CommandPanel({
   const [openEditTemplatesDialog, setOpenEditTemplatesDialog] =
     React.useState(false);
   const [openDiagramPropertiesDrawer, setOpenDiagramPropertiesDrawer] =
-    React.useState(false);
+    React.useState(true);
   const [editorMode] = useEditorMode();
 
   return (
