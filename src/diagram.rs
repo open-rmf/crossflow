@@ -366,6 +366,12 @@ pub struct ExtensionSettings {
     pub extensions: HashMap<String, serde_json::Value>,
 }
 
+#[derive(Default, Debug, Clone, JsonSchema, PartialEq, Serialize, Deserialize)]
+pub struct InputExample {
+    pub value: JsonMessage,
+    pub description: String,
+}
+
 #[derive(Debug, Clone, JsonSchema, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Diagram {
@@ -408,6 +414,14 @@ pub struct Diagram {
 
     #[serde(flatten)]
     pub extensions: Option<ExtensionSettings>,
+
+    /// Optional text to describe the workflow.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub description: String,
+
+    /// Examples of inputs that can be used with this workflow.
+    #[serde(default, skip_serializing_if = "is_default")]
+    input_examples: Vec<InputExample>,
 }
 
 #[derive(Default, Debug, Clone, Copy, JsonSchema, Serialize, Deserialize, PartialEq, Eq)]
@@ -468,6 +482,8 @@ impl Diagram {
             ops: Default::default(),
             default_trace: Default::default(),
             extensions: None,
+            description: Default::default(),
+            input_examples: Default::default(),
         }
     }
 

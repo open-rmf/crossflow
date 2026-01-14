@@ -1,6 +1,17 @@
 {
   "$schema": "https://raw.githubusercontent.com/open-rmf/crossflow/refs/heads/main/diagram.schema.json",
   "version": "0.1.0",
+  "description": "Basic workflow that counts down from the input number by subtracting 1 each time and printing it out. The remainder will be in the response.",
+  "input_examples": [
+    {
+      "description": "Counts dwon from 123",
+      "value": "123"
+    },
+    {
+      "description": "Counts dwon from 456",
+      "value": "456"
+    }
+  ],
   "templates": {},
   "start": "comparison",
   "ops": {

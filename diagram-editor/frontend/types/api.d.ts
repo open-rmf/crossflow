@@ -395,6 +395,14 @@ export interface ConfigExample {
 export interface Diagram {
   default_trace?: TraceToggle;
   /**
+   * Optional text to describe the workflow.
+   */
+  description?: string;
+  /**
+   * Examples of inputs that can be used with this workflow.
+   */
+  input_examples?: ExampleInput[];
+  /**
    * Settings for each extension.
    */
   extensions?: {
@@ -415,6 +423,15 @@ export interface Diagram {
    * Version of the diagram, should always be `0.1.0`.
    */
   version: string;
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "ExampleInput".
+ */
+export interface ExampleInput {
+  description: string;
+  value: unknown;
   [k: string]: unknown;
 }
 /**

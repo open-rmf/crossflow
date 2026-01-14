@@ -1,6 +1,17 @@
 {
   "$schema": "https://raw.githubusercontent.com/open-rmf/crossflow/refs/heads/main/diagram.schema.json",
   "version": "0.1.0",
+  "description": "Basic workflow that multiplies the interger input by 3.",
+  "input_examples": [
+    {
+      "description": "Multiply 123 by 3 to get 369",
+      "value": "123"
+    },
+    {
+      "description": "Multiply 456 by 3 to get 1368",
+      "value": "456"
+    }
+  ],
   "start": "mul3",
   "ops": {
     "mul3": {

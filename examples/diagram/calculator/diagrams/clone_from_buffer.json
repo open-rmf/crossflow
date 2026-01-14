@@ -1,6 +1,17 @@
 {
   "$schema": "https://raw.githubusercontent.com/open-rmf/crossflow/refs/heads/main/diagram.schema.json",
   "version": "0.1.0",
+  "description": "Workflow that splits up the 2-number input list, multiplies them individually, checks if the output of the first multiplication is smaller than the output of the second, terminates if so, otherwise, multiply the second output again and repeat.",
+  "input_examples": [
+    {
+      "description": "At the first comparison, 123*100=12300 is still more than 456*10=4560, hence 4560 is multiplied again to terminate at 12300 < 45600.",
+      "value": "[123, 456]"
+    },
+    {
+      "description": "At the first comparison, 10*100=1000 is still more than 1*10=10, hence 10 is multiplied 3 more times to terminate at 1000 < 10000.",
+      "value": "[10, 1]"
+    }
+  ],
   "templates": {},
   "start": "initial_split",
   "ops": {
