@@ -218,7 +218,7 @@ fn new_registry_with_basic_nodes() -> DiagramElementRegistry {
             NodeBuilderOptions::new("less_than")
                 .with_default_display_text("Less Than")
                 .with_description(less_than_description)
-                .with_examples_configs(less_than_examples),
+                .with_config_examples(less_than_examples),
             |builder, config: ComparisonConfig| {
                 let settings: ComparisonSettings = config.into();
                 builder.create_map_block(move |request: JsonMessage| {
@@ -274,7 +274,7 @@ fn new_registry_with_basic_nodes() -> DiagramElementRegistry {
         NodeBuilderOptions::new("add")
             .with_default_display_text("Add")
             .with_description(add_description)
-            .with_examples_configs(add_examples),
+            .with_config_examples(add_examples),
         |builder, config: Option<f64>| {
             builder.create_map_block(move |req: JsonMessage| {
                 let input = match req {
@@ -311,7 +311,7 @@ fn new_registry_with_basic_nodes() -> DiagramElementRegistry {
         NodeBuilderOptions::new("mul")
             .with_default_display_text("Multiply")
             .with_description(mul_description)
-            .with_examples_configs(mul_examples),
+            .with_config_examples(mul_examples),
         |builder, config: Option<f64>| {
             builder.create_map_block(move |req: JsonMessage| {
                 let input = match req {
@@ -368,7 +368,7 @@ fn new_registry_with_basic_nodes() -> DiagramElementRegistry {
             NodeBuilderOptions::new("greater_than")
                 .with_default_display_text("Greater Than")
                 .with_description(greater_than_description)
-                .with_examples_configs(greater_than_examples),
+                .with_config_examples(greater_than_examples),
             |builder, config: ComparisonConfig| {
                 let settings: ComparisonSettings = config.into();
                 builder.create_map_block(move |request: JsonMessage| {

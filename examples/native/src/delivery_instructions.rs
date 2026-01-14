@@ -15,6 +15,7 @@
  *
 */
 
+// ANCHOR: full_example
 use async_std::future::{pending, timeout};
 use crossflow::bevy_app::App;
 use crossflow::prelude::*;
@@ -39,7 +40,10 @@ fn main() {
     let waiting_service =
         app.world_mut()
             .spawn_service(move |In(input): AsyncServiceInput<String>| async move {
+                // Create a future that will never finish
                 let never = pending::<()>();
+                // Wait on the never-ending future until a timeout finishes.
+                // This creates an artifical delay for the async service.
                 let _ = timeout(waiting_time, never).await;
 
                 println!("{}", input.request);
@@ -64,3 +68,4 @@ fn main() {
 
     app.run();
 }
+// ANCHOR_END: full_example

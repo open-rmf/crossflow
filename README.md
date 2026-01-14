@@ -11,6 +11,9 @@
 
 > [!TIP]
 > Check out a [live demo](https://open-rmf.github.io/crossflow/?diagram=lZDRboMwDEX%2FxdojJfSVX5mqKSWmpCIJi521FeLf50BH0VRV6lNi3%2BT4%2Bo7wQU2HTkMNHfNAtVJRX8qT5S4dE2Fsgmf0XDbBqTCg30XXqiYGorYPFxWxJdWhNqSctl4Zq09Ru3KhlmcKHgr4wUhWbjVU5b6spMPohl4zEtTjVACxjiwyDb1lkcOQBbjuq90xtS3GXPFtQHlzb8gvkV%2FqC%2B2h%2FNEJv5PsZHUP9edMkaYccFigmy8%2BGBTxmGxv8hRwqZfa4zXb3fgrQJJq7QnqfVWAsTJL3754fZf9nIOVDFb2XGZ2Bsi%2Bi5UHcEM%2FrCMpuXk1OV641MasLse5z3m0xB6d9ZJ7ZvwzeSfPcbwRwNMEnkYgGUzTLw%3D%3D) of the workflow editor!
+>
+> Try passing in `[20, 30]` as the request message and run the workflow to see
+> the message get split and calculated.
 
 # Reactive Programming and Workflow Engine
 
@@ -38,7 +41,7 @@ There are several different categories of problems that crossflow sets out to so
 
 # Helpful Links
 
- * [Introduction to workflows](https://docs.google.com/presentation/d/1_vJTyFKOB1T0ylCbp1jG72tn8AXYQOKgTGh9En9si-w/edit?usp=sharing)
+ * [Crossflow Handbook](https://open-rmf.github.io/crossflow-handbook)
  * [JSON Diagram Format](https://docs.google.com/presentation/d/1ShGRrbXtZYzaHTS-bPCU0nSmY-716OiFiB1VjGGTCfw/edit?usp=sharing)
  * [Crossflow Docs](https://docs.rs/crossflow/latest/crossflow/)
  * [Bevy Engine](https://bevyengine.org/)

@@ -1,0 +1,31 @@
+[package]
+name = "handbook_snippets"
+version = "0.0.4"
+edition = "2021"
+description = "Example code used for in the crossflow handbook"
+
+[[bin]]
+name = "handbook-native-snippets"
+path = "src/native-snippets.rs"
+
+[[bin]]
+name = "handbook-diagram-snippets"
+path = "src/diagram-snippets.rs"
+
+[dependencies]
+crossflow = { version = "0.0.4", path = "../..", features = ["diagram", "grpc", "zenoh"] }
+bevy_app = { workspace = true }
+bevy_ecs = { workspace = true }
+bevy_derive = { workspace = true }
+bevy_time = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true, features = ["sync", "macros", "rt-multi-thread"] }
+async-std = "1.12"
+clap = { workspace = true }
+glam = "*"
+trpl = "0.3"
+rand = "0.9"
