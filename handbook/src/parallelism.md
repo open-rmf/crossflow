@@ -119,7 +119,7 @@ then there will be multiple messages sent down the same branch, similar to the
 The split operation also behaves similar to conditional branching because there
 may be keyed or sequenced branches that have no matching element in the collection.
 When this happens, no message will be sent down those unmatched branches. It is
-also possible that all elemenets will be matched to a keyed or sequenced branch,
+also possible that all elements will be matched to a keyed or sequenced branch,
 in which case no messages will be sent down the `remaining` branch.
 
 > [!NOTE]

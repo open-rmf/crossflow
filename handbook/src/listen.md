@@ -77,7 +77,7 @@ in Rust using the `Accessor` macro:
 
 ![listen-accessor](./assets/figures/listen-accessor.svg)
 
-Simply create a struct who fields are all buffer key types (which may include
+Simply create a struct whose fields are all buffer key types (which may include
 [`JsonBufferKey`][JsonBufferKey] and [`AnyBufferKey`][AnyBufferKey]). Derive
 `Accessor` and `Clone` for your custom struct. Use this custom struct as the
 input type of your service. When you connect a listener to a node that uses your

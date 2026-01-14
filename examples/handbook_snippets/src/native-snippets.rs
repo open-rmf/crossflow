@@ -984,7 +984,7 @@ struct IntersectionKeys {
     arrival: BufferKey<[f32; 2]>,
 }
 
-/// Define a dervice that evaluates whether or not the robot should proceed
+/// Define a device that evaluates whether or not the robot should proceed
 /// across the intersection.
 fn proceed_or_stop(
     In(keys): In<IntersectionKeys>,
@@ -1034,7 +1034,7 @@ let workflow = commands.spawn_io_workflow(
         builder.connect(approach_intersection.output, arrived.input_slot());
 
         builder
-            // Create a listen operation that will active whenever either the
+            // Create a listen operation that will activate whenever either the
             // traffic signal or arrival buffer has an update
             .listen(IntersectionKeys::select_buffers(signal, arrived))
             // When an update happens, provide both buffer keys to a node that
@@ -1789,7 +1789,7 @@ let promise = commands.request(String::from("https://example.com"), callback);
 
 // ANCHOR: closure_callback_example
 // Make an closure that defines the callback implementation
-let perform_greenting = |
+let perform_greeting = |
     In(input): BlockingCallbackInput<String>,
     greeting: Res<Greeting>,
 | {

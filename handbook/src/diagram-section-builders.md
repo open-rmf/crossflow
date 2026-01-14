@@ -44,7 +44,7 @@ When registering node builders, the `Request`, `Response`, and `Streams` message
 You can add support for more operations by chaining them onto the [`NodeRegistrationBuilder`][NodeRegistrationBuilder].
 
 Sections are somewhat similar: The message type of each field in the section will be automatically registered.
-However it wouldn't make sense to use chain methods to register additioanl operations for those message types, because there are arbitrary number of messages within the section, and we can't assume that all the message types will support all the operations we want to add.
+However it wouldn't make sense to use chain methods to register additional operations for those message types, because there are arbitrary number of messages within the section, and we can't assume that all the message types will support all the operations we want to add.
 
 Instead we use Rust's procedural macro system:
 
