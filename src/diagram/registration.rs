@@ -650,7 +650,8 @@ pub trait IntoNodeRegistration {
     ) -> NodeRegistration;
 }
 
-type CreateSectionFn = dyn FnMut(&mut Builder, serde_json::Value) -> Result<Box<dyn Section>, DiagramErrorCode> + Send;
+type CreateSectionFn =
+    dyn FnMut(&mut Builder, serde_json::Value) -> Result<Box<dyn Section>, DiagramErrorCode> + Send;
 
 #[derive(Serialize, JsonSchema)]
 pub struct SectionRegistration {
@@ -711,7 +712,7 @@ where
                 let section = self(builder, serde_json::from_value::<Config>(config).unwrap())
                     .map_err(|error| DiagramErrorCode::NodeBuildingError {
                         builder: Arc::clone(&builder_id),
-                        error
+                        error,
                     })?;
                 Ok(Box::new(section))
             })),
@@ -1509,17 +1510,13 @@ impl DiagramElementRegistry {
         &mut self,
         options: SectionBuilderOptions,
         mut section_builder: impl FnMut(&mut Builder, Config) -> SectionT + Send + 'static,
-    )
-    where
+    ) where
         SectionT: Section + SectionMetadataProvider + 'static,
         Config: DeserializeOwned + JsonSchema,
     {
-        self.register_section_builder_fallible(
-            options,
-            move |builder, config| {
-                Ok(section_builder(builder, config))
-            }
-        );
+        self.register_section_builder_fallible(options, move |builder, config| {
+            Ok(section_builder(builder, config))
+        });
     }
 
     /// Equivalent to [`Self::register_section_builder`] except the builder is
@@ -1529,9 +1526,10 @@ impl DiagramElementRegistry {
     pub fn register_section_builder_fallible<Config, SectionT>(
         &mut self,
         options: SectionBuilderOptions,
-        mut section_builder: impl FnMut(&mut Builder, Config) -> Result<SectionT, Anyhow> + Send + 'static,
-    )
-    where
+        mut section_builder: impl FnMut(&mut Builder, Config) -> Result<SectionT, Anyhow>
+            + Send
+            + 'static,
+    ) where
         SectionT: Section + SectionMetadataProvider + 'static,
         Config: DeserializeOwned + JsonSchema,
     {
@@ -1545,11 +1543,12 @@ impl DiagramElementRegistry {
             metadata: SectionT::metadata().clone(),
             config_schema: self.messages.schema_generator.subschema_for::<()>(),
             create_section_impl: RefCell::new(Box::new(move |builder, config| {
-                let section = section_builder(builder, serde_json::from_value::<Config>(config).unwrap())
-                    .map_err(|error| DiagramErrorCode::NodeBuildingError {
-                        builder: Arc::clone(&builder_id),
-                        error
-                    })?;
+                let section =
+                    section_builder(builder, serde_json::from_value::<Config>(config).unwrap())
+                        .map_err(|error| DiagramErrorCode::NodeBuildingError {
+                            builder: Arc::clone(&builder_id),
+                            error,
+                        })?;
                 Ok(Box::new(section))
             })),
             description: options.description.clone(),

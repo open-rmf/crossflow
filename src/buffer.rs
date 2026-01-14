@@ -1436,10 +1436,7 @@ mod tests {
         access.iter().max().cloned()
     }
 
-    fn push_values(
-        In(input): In<(Vec<i32>, BufferKey<i32>)>,
-        mut access: BufferAccessMut<i32>,
-    ) {
+    fn push_values(In(input): In<(Vec<i32>, BufferKey<i32>)>, mut access: BufferAccessMut<i32>) {
         let Ok(mut access) = access.get_mut(&input.1) else {
             return;
         };
@@ -1464,9 +1461,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| {
-            commands.request(vec![-3, 2, 10], workflow).take_response()
-        });
+        let mut promise =
+            context.command(|commands| commands.request(vec![-3, 2, 10], workflow).take_response());
 
         context.run_with_conditions(&mut promise, Duration::from_secs(1));
         let r = promise.take().available().unwrap().unwrap();

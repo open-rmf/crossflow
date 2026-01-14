@@ -85,7 +85,7 @@ pub trait QuickContinuousServiceBuild<M> {
         configure: Configure,
     ) -> ServiceBuilder<Self::Service, (), (), (), Configure>
     where
-        Configure: FnOnce(ScheduleConfigs<ScheduleSystem>) -> ScheduleConfigs<ScheduleSystem>,;
+        Configure: FnOnce(ScheduleConfigs<ScheduleSystem>) -> ScheduleConfigs<ScheduleSystem>;
 }
 
 /// This trait allows async service systems to be converted into a builder

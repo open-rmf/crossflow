@@ -19,8 +19,8 @@
 use crossflow::bevy_app::{App, Update};
 use crossflow::prelude::*;
 
-use bevy_ecs::prelude::*;
 use bevy_derive::*;
+use bevy_ecs::prelude::*;
 use bevy_time::{Time, TimePlugin};
 use glam::Vec2;
 
@@ -31,30 +31,25 @@ struct MoveBaseVehicle;
 
 fn main() {
     let mut app = App::new();
-    app
-        .add_plugins((
-            CrossflowExecutorApp::default(),
-            TimePlugin::default(),
-        ))
+    app.add_plugins((CrossflowExecutorApp::default(), TimePlugin::default()))
         .insert_resource(Position(Vec2::ZERO));
 
     let move_base = app.spawn_continuous_service(
         Update,
         move_base_vehicle_to_target
-        .with(|mut srv: EntityWorldMut| {
-            // Set the speed component for this service provider
-            srv.insert(Speed(1.0));
-        })
-        .configure(|config| {
-            // Put this service into a system set so that we can order other
-            // services before or after it.
-            config.in_set(MoveBaseVehicle)
-        })
+            .with(|mut srv: EntityWorldMut| {
+                // Set the speed component for this service provider
+                srv.insert(Speed(1.0));
+            })
+            .configure(|config| {
+                // Put this service into a system set so that we can order other
+                // services before or after it.
+                config.in_set(MoveBaseVehicle)
+            }),
     );
     let send_drone = app.spawn_continuous_service(
         Update,
-        send_drone_to_target
-        .configure(|config| {
+        send_drone_to_target.configure(|config| {
             // This service depends on side-effects from move_base, so we should
             // always schedule it afterwards.
             config.after(MoveBaseVehicle)
@@ -63,7 +58,9 @@ fn main() {
 
     let move_vehicle_to_random_position = move |app: &mut App| {
         app.world_mut().command(|commands| {
-            commands.request(random_vec2(20.0), move_base).take_response()
+            commands
+                .request(random_vec2(20.0), move_base)
+                .take_response()
         })
     };
 
@@ -191,18 +188,11 @@ fn send_drone_to_target(
     });
 
     // Remove any old task IDs that are no longer in use
-    drone_positions.retain(|id, _| {
-        orders.iter().any(|order| order.id() == *id)
-    });
+    drone_positions.retain(|id, _| orders.iter().any(|order| order.id() == *id));
 }
 // ANCHOR_END: send_drone_to_target_example
 
-fn move_to(
-    current: Vec2,
-    target: Vec2,
-    speed: f32,
-    dt: f32,
-) -> Result<(), Vec2> {
+fn move_to(current: Vec2, target: Vec2, speed: f32, dt: f32) -> Result<(), Vec2> {
     let dx = f32::max(0.0, speed * dt);
     let dp = target - current;
     let distance = dp.length();
@@ -216,6 +206,6 @@ fn move_to(
         return Ok(());
     };
 
-    return Err(current + u*dx);
+    return Err(current + u * dx);
 }
 // ANCHOR_END: example

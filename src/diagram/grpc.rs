@@ -118,7 +118,6 @@ impl<T> AbortOnDropExt for JoinHandle<T> {
 }
 
 impl DiagramElementRegistry {
-
     /// Register node builders that allow you to put gRPC clients into workflow
     /// nodes. This supports unary, server-streaming, client-streaming, and
     /// bidirectional gRPC clients.
@@ -207,8 +206,7 @@ impl DiagramElementRegistry {
             .no_deserializing()
             .no_cloning()
             .register_node_builder_fallible(
-                NodeBuilderOptions::new("grpc_client")
-                    .with_default_display_text("gRPC Client"),
+                NodeBuilderOptions::new("grpc_client").with_default_display_text("gRPC Client"),
                 move |builder, config: GrpcConfig| {
                     let GrpcDescriptions {
                         method,

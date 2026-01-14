@@ -447,9 +447,9 @@ mod tests {
     use serde_json::json;
 
     use crate::{
+        diagram::{testing::*, DiagramErrorCode, SectionError},
         prelude::*,
         testing::*,
-        diagram::{testing::*, SectionError, DiagramErrorCode},
         SectionBuilderOptions, TypeInfo,
     };
 

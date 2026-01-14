@@ -19,8 +19,8 @@
 use crossflow::bevy_app::App;
 use crossflow::prelude::*;
 
-use bevy_ecs::prelude::*;
 use bevy_derive::*;
+use bevy_ecs::prelude::*;
 use glam::Vec2;
 
 fn main() {
@@ -29,16 +29,13 @@ fn main() {
 
     let offset = Vec2::new(-2.0, 3.0);
 
-    let service = app.spawn_service(
-        apply_offset
-        .with(|mut srv: EntityWorldMut| {
-            srv.insert(Offset(offset));
-        })
-    );
+    let service = app.spawn_service(apply_offset.with(|mut srv: EntityWorldMut| {
+        srv.insert(Offset(offset));
+    }));
 
-    let mut promise = app.world_mut().command(|commands| {
-        commands.request(Vec2::ZERO, service).take_response()
-    });
+    let mut promise = app
+        .world_mut()
+        .command(|commands| commands.request(Vec2::ZERO, service).take_response());
 
     for _ in 0..5 {
         if let Some(response) = promise.peek().as_ref().available() {
@@ -56,10 +53,7 @@ fn main() {
 #[derive(Component, Deref)]
 struct Offset(Vec2);
 
-fn apply_offset(
-    In(input): BlockingServiceInput<Vec2>,
-    offsets: Query<&Offset>,
-) -> Vec2 {
+fn apply_offset(In(input): BlockingServiceInput<Vec2>, offsets: Query<&Offset>) -> Vec2 {
     let offset = offsets
         .get(input.provider)
         .map(|offset| **offset)

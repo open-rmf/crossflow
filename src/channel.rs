@@ -86,13 +86,12 @@ impl Channel {
                 move |world: &mut World, _: &mut OperationRoster| {
                     let u = f(world);
                     let _ = sender.send(u);
-                }
+                },
             ))
             .ok();
 
         promise
     }
-
 
     pub(crate) fn for_streams<Streams: StreamPack>(
         &self,

@@ -19,13 +19,10 @@
 use crossflow::bevy_app::App;
 use crossflow::prelude::*;
 
-use bevy_ecs::prelude::*;
 use bevy_derive::*;
+use bevy_ecs::prelude::*;
 use clap::Parser;
-use std::{
-    future::Future,
-    sync::Arc,
-};
+use std::{future::Future, sync::Arc};
 use tokio::runtime::Runtime;
 
 /// Program that demonstrates an async service in crossflow
@@ -43,19 +40,17 @@ fn main() {
 
     let service = app.spawn_service(update_page_title);
 
-    let entity = app
-        .world_mut()
-        .spawn(Url(args.url))
-        .id();
+    let entity = app.world_mut().spawn(Url(args.url)).id();
 
-    let mut promise = app.world_mut().command(|commands| {
-        commands.request(entity, service).take_response()
-    });
+    let mut promise = app
+        .world_mut()
+        .command(|commands| commands.request(entity, service).take_response());
 
     // Create a tokio runtime and drive it on another thread
     let (finish, finished) = tokio::sync::oneshot::channel();
     let rt = Arc::new(tokio::runtime::Runtime::new().unwrap());
-    app.world_mut().insert_resource(TokioRuntime(Arc::clone(&rt)));
+    app.world_mut()
+        .insert_resource(TokioRuntime(Arc::clone(&rt)));
     let tokio_thread = std::thread::spawn(move || {
         let _ = rt.block_on(finished);
     });
@@ -112,21 +107,23 @@ fn update_page_title(
         // Fetch the page title of the website stored in the Url component of
         // the requested entity. This is run inside a tokio runtime because the
         // trpl library uses reqwest, which is a tokio-based http implementation.
-        let title = rt.spawn(async move {
-            let response = trpl::get(&url).await;
-            let response_text = response.text().await;
-            trpl::Html::parse(&response_text)
-                .select_first("title")
-                .map(|title| title.inner_html())
-                .ok_or(())
-        })
+        let title = rt
+            .spawn(async move {
+                let response = trpl::get(&url).await;
+                let response_text = response.text().await;
+                trpl::Html::parse(&response_text)
+                    .select_first("title")
+                    .map(|title| title.inner_html())
+                    .ok_or(())
+            })
             .await
             .map_err(|_| ())??;
 
         let entity = srv.request;
-        srv.channel.command(move |commands| {
-            commands.entity(entity).insert(PageTitle(title));
-        })
+        srv.channel
+            .command(move |commands| {
+                commands.entity(entity).insert(PageTitle(title));
+            })
             .await
             .available()
             .ok_or(())
