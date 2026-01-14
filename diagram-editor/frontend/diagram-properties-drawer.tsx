@@ -80,10 +80,11 @@ function DiagramPropertiesDrawer({
         <Stack spacing={2} sx={{ m: 2 }}>
           <Stack direction='row'>
             <Stack direction='row' spacing={2} sx={{ alignItems: 'center' }}>
-              <Typography variant='h4'>Diagram properties</Typography>
+              <Typography variant='h6'>Description</Typography>
               <Tooltip
-                title='Properties that may describe the diagram and provide more
-                information about its inputs and execution.'
+                title='General description of what this diagram achieves, as well as
+                any other relevant information that may help a user understand its
+                execution.'
               >
                 <MaterialSymbol symbol='info' fontSize='large' />
               </Tooltip>
@@ -95,17 +96,6 @@ function DiagramPropertiesDrawer({
                 </IconButton>
               </Tooltip>
             </Stack>
-          </Stack>
-          <Divider />
-          <Stack direction='row' spacing={2} sx={{ alignItems: 'center' }}>
-            <Typography variant='h6'>Description</Typography>
-            <Tooltip
-              title='General description of what this diagram achieves, as well as
-              any other relevant information that may help a user understand its
-              execution.'
-            >
-              <MaterialSymbol symbol='info' fontSize='large' />
-            </Tooltip>
           </Stack>
           <TextField
             fullWidth
