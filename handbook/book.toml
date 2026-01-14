@@ -1,0 +1,13 @@
+[book]
+authors = ["Michael X. Grey"]
+language = "en"
+src = "src"
+title = "Crossflow Handbook"
+
+[output.html]
+
+## There are some issues with mdbook-linkcheck so this is not enabled for now,
+## but we might bring it back in the future.
+# [output.linkcheck]
+# follow-web-links = false
+# warning-policy = "warn"

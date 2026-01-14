@@ -40,11 +40,10 @@ pub mod zenoh;
 
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::system::Commands;
-use buffer_schema::{BufferAccessSchema, BufferSchema, ListenSchema};
-use fork_clone_schema::{DynForkClone, ForkCloneSchema, RegisterClone};
-use fork_result_schema::{DynForkResult, ForkResultSchema};
-pub use join_schema::JoinOutput;
-use join_schema::JoinSchema;
+pub use buffer_schema::{BufferAccessSchema, BufferSchema, ListenSchema};
+pub use fork_clone_schema::{DynForkClone, ForkCloneSchema, RegisterClone};
+pub use fork_result_schema::{DynForkResult, ForkResultSchema};
+pub use join_schema::JoinSchema;
 pub use node_schema::NodeSchema;
 pub use operation_ref::*;
 pub use registration::*;
@@ -54,8 +53,8 @@ pub use serialization::*;
 pub use split_schema::*;
 pub use stream_out_schema::*;
 use tracing::debug;
-use transform_schema::{TransformError, TransformSchema};
-use unzip_schema::UnzipSchema;
+pub use transform_schema::{TransformError, TransformSchema};
+pub use unzip_schema::UnzipSchema;
 pub use workflow_builder::*;
 
 use anyhow::Error as Anyhow;
@@ -397,7 +396,7 @@ pub struct Diagram {
     /// This field indicates how a failed implicit operation should be handled.
     /// If left unspecified, an implicit error will cause the entire workflow to
     /// be cancelled.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub on_implicit_error: Option<NextOperation>,
 
     /// Operations that define the workflow
@@ -498,7 +497,10 @@ impl Diagram {
     /// let mut app = bevy_app::App::new();
     /// let mut registry = DiagramElementRegistry::new();
     /// registry.register_node_builder(NodeBuilderOptions::new("echo".to_string()), |builder, _config: ()| {
-    ///     builder.create_map_block(|msg: String| msg)
+    ///     builder.create_map_block(|msg: String| {
+    ///         println!("{msg}");
+    ///         msg
+    ///     })
     /// });
     ///
     /// let json_str = r#"
@@ -519,9 +521,7 @@ impl Diagram {
     /// let workflow = app.world_mut().command(|cmds| diagram.spawn_io_workflow::<JsonMessage, JsonMessage>(cmds, &registry))?;
     /// # Ok::<_, Box<dyn std::error::Error>>(())
     /// ```
-    // TODO(koonpeng): Support streams other than `()` #43.
-    /* pub */
-    fn spawn_workflow<Request, Response, Streams>(
+    pub fn spawn_workflow<Request, Response, Streams>(
         &self,
         cmds: &mut Commands,
         registry: &DiagramElementRegistry,
@@ -533,18 +533,6 @@ impl Diagram {
     {
         let mut err: Option<DiagramError> = None;
 
-        macro_rules! unwrap_or_return {
-            ($v:expr) => {
-                match $v {
-                    Ok(v) => v,
-                    Err(e) => {
-                        err = Some(e);
-                        return;
-                    }
-                }
-            };
-        }
-
         let w = cmds.spawn_workflow(
             |scope: Scope<Request, Response, Streams>, builder: &mut Builder| {
                 debug!(
@@ -553,11 +541,15 @@ impl Diagram {
                     scope.terminate.id()
                 );
 
-                unwrap_or_return!(create_workflow(scope, builder, registry, self));
+                if let Err(had_err) = create_workflow(scope, builder, registry, self) {
+                    err = Some(had_err);
+                }
             },
         );
 
         if let Some(err) = err {
+            // Despawn the workflow because we did not build it successfully.
+            cmds.entity(w.provider()).despawn();
             return Err(err);
         }
 

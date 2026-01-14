@@ -320,7 +320,8 @@ impl DiagramElementRegistry {
                     }
                 };
 
-                Ok(builder.create_map_async(callback))
+                let node = builder.create_map_async(callback);
+                Ok(node)
             },
         );
     }

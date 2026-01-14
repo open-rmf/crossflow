@@ -157,7 +157,7 @@ pub fn register(registry: &mut DiagramElementRegistry) {
         NodeBuilderOptions::new("add")
             .with_default_display_text("Add")
             .with_description(add_description)
-            .with_examples_configs(add_examples),
+            .with_config_examples(add_examples),
         |builder, config: Option<f64>| {
             builder.create_map_block(move |req: JsonMessage| {
                 let input = match req {
@@ -197,7 +197,7 @@ pub fn register(registry: &mut DiagramElementRegistry) {
         NodeBuilderOptions::new("sub")
             .with_default_display_text("Subtract")
             .with_description(sub_description)
-            .with_examples_configs(sub_examples),
+            .with_config_examples(sub_examples),
         |builder, config: Option<f64>| {
             builder.create_map_block(move |req: JsonMessage| {
                 let input = match req {
@@ -234,7 +234,7 @@ pub fn register(registry: &mut DiagramElementRegistry) {
         NodeBuilderOptions::new("mul")
             .with_default_display_text("Multiply")
             .with_description(mul_description)
-            .with_examples_configs(mul_examples),
+            .with_config_examples(mul_examples),
         |builder, config: Option<f64>| {
             builder.create_map_block(move |req: JsonMessage| {
                 let input = match req {
@@ -274,7 +274,7 @@ pub fn register(registry: &mut DiagramElementRegistry) {
         NodeBuilderOptions::new("div")
             .with_default_display_text("Divide")
             .with_description(div_description)
-            .with_examples_configs(div_examples),
+            .with_config_examples(div_examples),
         |builder, config: Option<f64>| {
             builder.create_map_block(move |req: JsonMessage| {
                 let input = match req {
@@ -318,7 +318,7 @@ pub fn register(registry: &mut DiagramElementRegistry) {
         NodeBuilderOptions::new("fibonacci")
             .with_default_display_text("Fibonacci")
             .with_description(fibonacci_description)
-            .with_examples_configs(fibonacci_examples),
+            .with_config_examples(fibonacci_examples),
         |builder, config: Option<u64>| {
             builder.create_map(
                 move |input: AsyncMap<JsonMessage, FibonacciStream>| async move {
@@ -365,7 +365,7 @@ pub fn register(registry: &mut DiagramElementRegistry) {
             NodeBuilderOptions::new("print")
                 .with_default_display_text("Print")
                 .with_description(print_description)
-                .with_examples_configs(print_examples),
+                .with_config_examples(print_examples),
             |builder, config: Option<String>| {
                 let header = config.clone();
                 builder.create_map_block(move |request: JsonMessage| {
@@ -416,7 +416,7 @@ pub fn register(registry: &mut DiagramElementRegistry) {
             NodeBuilderOptions::new("less_than")
                 .with_default_display_text("Less Than")
                 .with_description(less_than_description)
-                .with_examples_configs(less_than_examples),
+                .with_config_examples(less_than_examples),
             |builder, config: ComparisonConfig| {
                 let settings: ComparisonSettings = config.into();
                 builder.create_map_block(move |request: JsonMessage| {
@@ -459,7 +459,7 @@ pub fn register(registry: &mut DiagramElementRegistry) {
             NodeBuilderOptions::new("greater_than")
                 .with_default_display_text("Greater Than")
                 .with_description(greater_than_description)
-                .with_examples_configs(greater_than_examples),
+                .with_config_examples(greater_than_examples),
             |builder, config: ComparisonConfig| {
                 let settings: ComparisonSettings = config.into();
                 builder.create_map_block(move |request: JsonMessage| {

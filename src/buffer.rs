@@ -418,6 +418,54 @@ impl std::fmt::Debug for BufferKeyTag {
 /// within a workflow. Use a [`BufferKey`] to unlock the access.
 ///
 /// See [`BufferAccessMut`] for mutable access.
+///
+/// # Examples
+///
+/// ```
+/// use crossflow::{prelude::*, testing::*};
+///
+/// fn get_largest_value(
+///     In(input): In<((), BufferKey<i32>)>,
+///     access: BufferAccess<i32>,
+/// ) -> Option<i32> {
+///     let access = access.get(&input.1).ok()?;
+///     access.iter().max().cloned()
+/// }
+///
+/// fn push_values(
+///     In(input): In<(Vec<i32>, BufferKey<i32>)>,
+///     mut access: BufferAccessMut<i32>,
+/// ) {
+///     let Ok(mut access) = access.get_mut(&input.1) else {
+///         return;
+///     };
+///
+///     for value in input.0 {
+///         access.push(value);
+///     }
+/// }
+///
+/// let mut context = TestingContext::minimal_plugins();
+///
+/// let workflow = context.spawn_io_workflow(|scope, builder| {
+///     let buffer = builder.create_buffer(BufferSettings::keep_all());
+///     builder
+///         .chain(scope.input)
+///         .with_access(buffer)
+///         .then(push_values.into_blocking_callback())
+///         .with_access(buffer)
+///         .then(get_largest_value.into_blocking_callback())
+///         .connect(scope.terminate);
+/// });
+///
+/// let mut promise = context.command(|commands| {
+///     commands.request(vec![-3, 2, 10], workflow).take_response()
+/// });
+///
+/// context.run_with_conditions(&mut promise, Duration::from_secs(1));
+/// let r = promise.take().available().unwrap().unwrap();
+/// assert_eq!(r, 10);
+/// ```
 #[derive(SystemParam)]
 pub struct BufferAccess<'w, 's, T>
 where
@@ -443,6 +491,54 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
 /// within a workflow. Use a [`BufferKey`] to unlock the access.
 ///
 /// See [`BufferAccess`] for read-only access.
+///
+/// # Examples
+///
+/// ```
+/// use crossflow::{prelude::*, testing::*};
+///
+/// fn get_largest_value(
+///     In(input): In<((), BufferKey<i32>)>,
+///     access: BufferAccess<i32>,
+/// ) -> Option<i32> {
+///     let access = access.get(&input.1).ok()?;
+///     access.iter().max().cloned()
+/// }
+///
+/// fn push_values(
+///     In(input): In<(Vec<i32>, BufferKey<i32>)>,
+///     mut access: BufferAccessMut<i32>,
+/// ) {
+///     let Ok(mut access) = access.get_mut(&input.1) else {
+///         return;
+///     };
+///
+///     for value in input.0 {
+///         access.push(value);
+///     }
+/// }
+///
+/// let mut context = TestingContext::minimal_plugins();
+///
+/// let workflow = context.spawn_io_workflow(|scope, builder| {
+///     let buffer = builder.create_buffer(BufferSettings::keep_all());
+///     builder
+///         .chain(scope.input)
+///         .with_access(buffer)
+///         .then(push_values.into_blocking_callback())
+///         .with_access(buffer)
+///         .then(get_largest_value.into_blocking_callback())
+///         .connect(scope.terminate);
+/// });
+///
+/// let mut promise = context.command(|commands| {
+///     commands.request(vec![-3, 2, 10], workflow).take_response()
+/// });
+///
+/// context.run_with_conditions(&mut promise, Duration::from_secs(1));
+/// let r = promise.take().available().unwrap().unwrap();
+/// assert_eq!(r, 10);
+/// ```
 #[derive(SystemParam)]
 pub struct BufferAccessMut<'w, 's, T>
 where
@@ -1330,5 +1426,46 @@ mod tests {
     struct JoinByCloneTest {
         count: i64,
         message: String,
+    }
+
+    fn get_largest_value(
+        In(input): In<((), BufferKey<i32>)>,
+        access: BufferAccess<i32>,
+    ) -> Option<i32> {
+        let access = access.get(&input.1).ok()?;
+        access.iter().max().cloned()
+    }
+
+    fn push_values(In(input): In<(Vec<i32>, BufferKey<i32>)>, mut access: BufferAccessMut<i32>) {
+        let Ok(mut access) = access.get_mut(&input.1) else {
+            return;
+        };
+
+        for value in input.0 {
+            access.push(value);
+        }
+    }
+
+    #[test]
+    fn test_buffer_access_example() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffer = builder.create_buffer(BufferSettings::keep_all());
+            builder
+                .chain(scope.input)
+                .with_access(buffer)
+                .then(push_values.into_blocking_callback())
+                .with_access(buffer)
+                .then(get_largest_value.into_blocking_callback())
+                .connect(scope.terminate);
+        });
+
+        let mut promise =
+            context.command(|commands| commands.request(vec![-3, 2, 10], workflow).take_response());
+
+        context.run_with_conditions(&mut promise, Duration::from_secs(1));
+        let r = promise.take().available().unwrap().unwrap();
+        assert_eq!(r, 10);
     }
 }

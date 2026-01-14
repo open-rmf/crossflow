@@ -137,18 +137,18 @@
             "null"
           ]
         },
+        "config_examples": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ConfigExample"
+          }
+        },
         "config_schema": {
           "$ref": "#/$defs/Schema"
         },
         "default_display_text": {
           "description": "If the user does not specify a default display text, the node ID will\n be used here.",
           "type": "string"
-        },
-        "example_configs": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/ConfigExample"
-          }
         },
         "request": {
           "type": "string"
@@ -169,7 +169,7 @@
         "response",
         "streams",
         "config_schema",
-        "example_configs"
+        "config_examples"
       ]
     },
     "Schema": {
@@ -248,17 +248,17 @@
             "null"
           ]
         },
+        "config_examples": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ConfigExample"
+          }
+        },
         "config_schema": {
           "$ref": "#/$defs/Schema"
         },
         "default_display_text": {
           "type": "string"
-        },
-        "example_configs": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/ConfigExample"
-          }
         },
         "metadata": {
           "$ref": "#/$defs/SectionMetadata"
@@ -268,7 +268,7 @@
         "default_display_text",
         "metadata",
         "config_schema",
-        "example_configs"
+        "config_examples"
       ]
     }
   }

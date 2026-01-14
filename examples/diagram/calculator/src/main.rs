@@ -15,10 +15,17 @@
  *
 */
 
+// ANCHOR: calculator_example
 use crossflow_diagram_editor::basic_executor::{self, DiagramElementRegistry, Error};
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // Create a new regsitry with the default message types pre-registered.
     let mut registry = DiagramElementRegistry::new();
+
+    // Register calculator-inspired node builders from the calculator_ops_catalog library.
     calculator_ops_catalog::register(&mut registry);
+
+    // Run the basic executor
     basic_executor::run(registry)
 }
+// ANCHOR_END: calculator_example

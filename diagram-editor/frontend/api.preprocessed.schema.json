@@ -898,7 +898,7 @@
             "null"
           ]
         },
-        "example_configs": {
+        "config_examples": {
           "items": {
             "$ref": "#/$defs/ConfigExample"
           },
@@ -923,12 +923,12 @@
         "response",
         "streams",
         "config_schema",
-        "example_configs"
+        "config_examples"
       ],
       "type": "object"
     },
     "NodeSchema": {
-      "description": "Create an operation that that takes an input message and produces an\n output message.\n\n The behavior is determined by the choice of node `builder` and\n optioanlly the `config` that you provide. Each type of node builder has\n its own schema for the config.\n\n The output message will be sent to the operation specified by `next`.\n\n TODO(@mxgrey): [Support stream outputs](https://github.com/open-rmf/crossflow/issues/43)\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"cutting_board\",\n     \"ops\": {\n         \"cutting_board\": {\n             \"type\": \"node\",\n             \"builder\": \"chop\",\n             \"config\": \"diced\",\n             \"next\": \"bowl\"\n         },\n         \"bowl\": {\n             \"type\": \"node\",\n             \"builder\": \"stir\",\n             \"next\": \"oven\"\n         },\n         \"oven\": {\n             \"type\": \"node\",\n             \"builder\": \"bake\",\n             \"config\": {\n                 \"temperature\": 200,\n                 \"duration\": 120\n             },\n             \"next\": { \"builtin\": \"terminate\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())",
+      "description": "Create an operation that that takes an input message and produces an\n output message.\n\n The behavior is determined by the choice of node `builder` and\n optionally the `config` that you provide. Each type of node builder has\n its own schema for the config.\n\n The output message will be sent to the operation specified by `next`.\n\n TODO(@mxgrey): [Support stream outputs](https://github.com/open-rmf/crossflow/issues/43)\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"cutting_board\",\n     \"ops\": {\n         \"cutting_board\": {\n             \"type\": \"node\",\n             \"builder\": \"chop\",\n             \"config\": \"diced\",\n             \"next\": \"bowl\"\n         },\n         \"bowl\": {\n             \"type\": \"node\",\n             \"builder\": \"stir\",\n             \"next\": \"oven\"\n         },\n         \"oven\": {\n             \"type\": \"node\",\n             \"builder\": \"bake\",\n             \"config\": {\n                 \"temperature\": 200,\n                 \"duration\": 120\n             },\n             \"next\": { \"builtin\": \"terminate\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())",
       "properties": {
         "builder": {
           "type": "string"
@@ -1187,7 +1187,7 @@
             "null"
           ]
         },
-        "example_configs": {
+        "config_examples": {
           "items": {
             "$ref": "#/$defs/ConfigExample"
           },
@@ -1201,7 +1201,7 @@
         "default_display_text",
         "metadata",
         "config_schema",
-        "example_configs"
+        "config_examples"
       ],
       "type": "object"
     },

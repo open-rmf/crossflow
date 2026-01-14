@@ -82,7 +82,7 @@ describe('NodeNode', () => {
           streams: {
             test_stream: 'stream_type',
           },
-          example_configs: [],
+          config_examples: [],
         },
       },
       schemas: {},

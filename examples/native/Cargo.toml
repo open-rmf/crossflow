@@ -7,6 +7,28 @@ edition = "2021"
 name = "delivery-instructions"
 path = "src/delivery_instructions.rs"
 
+[[bin]]
+name = "blocking-service-example"
+path = "src/blocking_service_example.rs"
+
+[[bin]]
+name = "async-service-example"
+path = "src/async_service_example.rs"
+
+[[bin]]
+name = "continuous-service-example"
+path = "src/continuous_service_example.rs"
+
 [dependencies]
 crossflow = { path = "../../" }
 async-std = "1.12"
+bevy_ecs = { workspace = true }
+bevy_derive = { workspace = true }
+bevy_time = { workspace = true }
+clap = { workspace = true }
+glam = "*"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+trpl = "0.3"
+rand = "0.9"
+serde = { workspace = true }
+serde_json = { workspace = true }
