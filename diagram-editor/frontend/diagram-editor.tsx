@@ -47,6 +47,7 @@ import { ExportDiagramDialog } from './export-diagram-dialog';
 import { defaultEdgeData, EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
 import { type LoadContext, LoadContextProvider } from './load-context-provider';
+import { type DiagramProperties, DiagramPropertiesProvider } from './diagram-properties-provider';
 import { NodeManager, NodeManagerProvider } from './node-manager';
 import {
   type DiagramEditorNode,
@@ -119,6 +120,7 @@ interface ProvidersProps {
   loadContext: LoadContext | null;
   nodeManager: NodeManager;
   edges: DiagramEditorEdge[];
+  diagramProperties: DiagramProperties;
 }
 
 function Providers({
@@ -126,13 +128,18 @@ function Providers({
   loadContext,
   nodeManager,
   edges,
+  diagramProperties,
   children,
 }: React.PropsWithChildren<ProvidersProps>) {
   return (
     <EditorModeProvider value={editorModeContext}>
       <LoadContextProvider value={loadContext}>
         <NodeManagerProvider value={nodeManager}>
-          <EdgesProvider value={edges}>{children}</EdgesProvider>
+          <EdgesProvider value={edges}>
+            <DiagramPropertiesProvider value={diagramProperties}>
+              {children}
+            </DiagramPropertiesProvider>
+          </EdgesProvider>
         </NodeManagerProvider>
       </LoadContextProvider>
     </EditorModeProvider>
@@ -509,6 +516,8 @@ function DiagramEditor() {
   const [loadContext, setLoadContext] = React.useState<LoadContext | null>(
     null,
   );
+  const [diagramProperties, setDiagramProperties] =
+    React.useState<DiagramProperties>({});
   const [recentlyUsedFilename, setRecentlyUsedFilename] =
     React.useState<string | null>(null);
 
@@ -517,6 +526,9 @@ function DiagramEditor() {
       try {
         const [diagram, { graph, isRestored }] = await loadDiagramJson(jsonStr);
         setLoadContext({ diagram });
+        setDiagramProperties({
+          description: diagram.description,
+          input_examples: diagram.input_examples });
         // do not perform auto layout if the diagram is restored from previous state.
         if (!isRestored) {
           const changes = autoLayout(graph.nodes, graph.edges, LAYOUT_OPTIONS);
@@ -607,6 +619,7 @@ function DiagramEditor() {
       loadContext={loadContext}
       nodeManager={nodeManager}
       edges={edges}
+      diagramProperties={diagramProperties}
     >
       <ReactFlow
         nodes={nodes}

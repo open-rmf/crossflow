@@ -82,6 +82,8 @@ use super::{
 /// # "#)?;
 /// # Ok::<_, serde_json::Error>(())
 /// ```
+///
+/// [`DiagramOperation::ForkClone`]: super::DiagramOperation::ForkClone
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct UnzipSchema {

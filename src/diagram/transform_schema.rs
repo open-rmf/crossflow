@@ -95,7 +95,7 @@ pub struct TransformSchema {
     ///
     /// If left unspecified, a failure will be treated like an implicit operation
     /// failure and behave according to `on_implicit_error`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_error: Option<NextOperation>,
     #[serde(flatten)]
     pub trace_settings: TraceSettings,

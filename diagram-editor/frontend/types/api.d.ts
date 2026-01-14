@@ -395,6 +395,14 @@ export interface ConfigExample {
 export interface Diagram {
   default_trace?: TraceToggle;
   /**
+   * Optional text to describe the workflow.
+   */
+  description?: string;
+  /**
+   * Examples of inputs that can be used with this workflow.
+   */
+  input_examples?: ExampleInput[];
+  /**
    * Settings for each extension.
    */
   extensions?: {
@@ -418,11 +426,20 @@ export interface Diagram {
   [k: string]: unknown;
 }
 /**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "ExampleInput".
+ */
+export interface ExampleInput {
+  description: string;
+  value: unknown;
+  [k: string]: unknown;
+}
+/**
  * Create an operation that that takes an input message and produces an
  *  output message.
  *
  *  The behavior is determined by the choice of node `builder` and
- *  optioanlly the `config` that you provide. Each type of node builder has
+ *  optionally the `config` that you provide. Each type of node builder has
  *  its own schema for the config.
  *
  *  The output message will be sent to the operation specified by `next`.
@@ -1227,7 +1244,7 @@ export interface NodeRegistration {
    */
   default_display_text: string;
   description?: string | null;
-  example_configs: ConfigExample[];
+  config_examples: ConfigExample[];
   request: string;
   response: string;
   streams: {
@@ -1243,7 +1260,7 @@ export interface SectionRegistration {
   config_schema: Schema;
   default_display_text: string;
   description?: string | null;
-  example_configs: ConfigExample[];
+  config_examples: ConfigExample[];
   metadata: SectionMetadata;
   [k: string]: unknown;
 }

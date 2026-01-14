@@ -17,7 +17,6 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
 
 use super::{
     BufferSelection, BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode,
@@ -148,11 +147,6 @@ impl BuildDiagramOperation for JoinSchema {
         Ok(BuildStatus::Finished)
     }
 }
-
-/// The resulting type of a `join` operation. Nodes receiving a join output must have request
-/// of this type. Note that the join output is NOT serializable. If you would like to serialize it,
-/// convert it to a `Vec` first.
-pub type JoinOutput<T> = SmallVec<[T; 4]>;
 
 #[cfg(test)]
 mod tests {

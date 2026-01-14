@@ -64,8 +64,8 @@ pub(crate) fn impl_section(input_struct: &ItemStruct) -> Result<TokenStream> {
         impl #impl_generics ::crossflow::Section for #struct_ident #ty_generics #where_clause {
             fn into_slots(
                 self: Box<Self>,
-            ) -> SectionSlots {
-                let mut slots = SectionSlots::new();
+            ) -> ::crossflow::SectionSlots {
+                let mut slots = ::crossflow::SectionSlots::new();
                 #(
                     self.#field_ident.insert_into_slots(&#field_name_str, &mut slots);
                 )*
@@ -119,8 +119,11 @@ struct FieldConfig {
     no_serialize: bool,
     no_clone: bool,
     unzip: bool,
-    fork_result: bool,
+    unzip_minimal: bool,
+    result: bool,
+    result_minimal: bool,
     split: bool,
+    split_minimal: bool,
     join: bool,
     buffer_access: bool,
     listen: bool,
@@ -133,8 +136,11 @@ impl FieldConfig {
             no_serialize: false,
             no_clone: false,
             unzip: false,
-            fork_result: false,
+            unzip_minimal: false,
+            result: false,
+            result_minimal: false,
             split: false,
+            split_minimal: false,
             join: false,
             buffer_access: false,
             listen: false,
@@ -154,10 +160,16 @@ impl FieldConfig {
                     config.no_clone = true;
                 } else if meta.path.is_ident("unzip") {
                     config.unzip = true;
+                } else if meta.path.is_ident("unzip_minimal") {
+                    config.unzip_minimal = true;
                 } else if meta.path.is_ident("result") {
-                    config.fork_result = true;
+                    config.result = true;
+                } else if meta.path.is_ident("result_minimal") {
+                    config.result_minimal = true;
                 } else if meta.path.is_ident("split") {
                     config.split = true;
+                } else if meta.path.is_ident("split_minimal") {
+                    config.split_minimal = true;
                 } else if meta.path.is_ident("join") {
                     config.join = true;
                 } else if meta.path.is_ident("buffer_access") {
@@ -228,6 +240,10 @@ fn gen_register_unzip(fields: &Vec<(FieldConfig, Span)>) -> Vec<TokenStream> {
                 quote_spanned! {*span=>
                     _message.with_unzip();
                 }
+            } else if config.unzip_minimal {
+                quote_spanned! {*span=>
+                    _message.with_unzip_minimal();
+                }
             } else {
                 TokenStream::new()
             }
@@ -239,9 +255,13 @@ fn gen_register_result(fields: &Vec<(FieldConfig, Span)>) -> Vec<TokenStream> {
     fields
         .into_iter()
         .map(|(config, span)| {
-            if config.fork_result {
+            if config.result {
                 quote_spanned! {*span=>
                     _message.with_result();
+                }
+            } else if config.result_minimal {
+                quote_spanned! {*span=>
+                    _message.with_result_minimal();
                 }
             } else {
                 TokenStream::new()
@@ -257,6 +277,10 @@ fn gen_register_split(fields: &Vec<(FieldConfig, Span)>) -> Vec<TokenStream> {
             if config.split {
                 quote_spanned! {*span=>
                     _message.with_split();
+                }
+            } else if config.split_minimal {
+                quote_spanned! {*span=>
+                    _message.with_split_minimal();
                 }
             } else {
                 TokenStream::new()

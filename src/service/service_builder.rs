@@ -105,6 +105,7 @@ impl<Srv, Deliver, With, Also> ServiceBuilder<Srv, Deliver, With, Also, ()> {
     ) -> ServiceBuilder<Srv, Deliver, With, Also, Configure>
     where
         Srv: IntoContinuousService<M>,
+        Configure: FnOnce(ScheduleConfigs<ScheduleSystem>) -> ScheduleConfigs<ScheduleSystem>,
     {
         ServiceBuilder {
             service: self.service,
@@ -291,7 +292,10 @@ where
     fn configure<Configure>(
         self,
         configure: Configure,
-    ) -> ServiceBuilder<Self::Service, (), (), (), Configure> {
+    ) -> ServiceBuilder<Self::Service, (), (), (), Configure>
+    where
+        Configure: FnOnce(ScheduleConfigs<ScheduleSystem>) -> ScheduleConfigs<ScheduleSystem>,
+    {
         self.into_service_builder().configure(configure)
     }
 }

@@ -1,6 +1,17 @@
 {
   "$schema": "https://raw.githubusercontent.com/open-rmf/crossflow/refs/heads/main/diagram.schema.json",
   "version": "0.1.0",
+  "description": "Workflow that splits up the 2-number input list, multiplies them individually, joins them, and adds them together.",
+  "input_examples": [
+    {
+      "description": "Multiplies 123 by 100 to get 12300, multiplies 456 by 10 to get 4560, summing up the results to get 16860",
+      "value": "[123, 456]"
+    },
+    {
+      "description": "Multiply 10 by 100 to get 1000, multiplies -123 by 10 to get -1230, summing up the results to get -230",
+      "value": "[10, -123]"
+    }
+  ],
   "templates": {},
   "start": "split",
   "ops": {

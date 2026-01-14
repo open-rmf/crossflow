@@ -3,6 +3,10 @@
   "title": "Diagram",
   "type": "object",
   "properties": {
+    "description": {
+      "description": "Optional text to describe the workflow.",
+      "type": "string"
+    },
     "default_trace": {
       "description": "Whether the operations in the workflow should be traced by default.\n Being traced means each operation will emit an event each time it is\n triggered. You can decide whether that event contains the serialized\n message data that triggered the operation.\n\n If crossflow is not compiled with the \"trace\" feature then this\n setting will have no effect.",
       "$ref": "#/$defs/TraceToggle"
@@ -13,6 +17,13 @@
       "additionalProperties": true,
       "default": {}
     },
+    "input_examples": {
+      "description": "Examples of inputs that can be used with this workflow.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/InputExample"
+      }
+    },
     "on_implicit_error": {
       "description": "To simplify diagram definitions, the diagram workflow builder will\n sometimes insert implicit operations into the workflow, such as implicit\n serializing and deserializing. These implicit operations may be fallible.\n\n This field indicates how a failed implicit operation should be handled.\n If left unspecified, an implicit error will cause the entire workflow to\n be cancelled.",
       "anyOf": [
@@ -22,8 +33,7 @@
         {
           "type": "null"
         }
-      ],
-      "default": null
+      ]
     },
     "ops": {
       "description": "Operations that define the workflow",
@@ -454,6 +464,19 @@
         "err"
       ]
     },
+    "InputExample": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "value": true
+      },
+      "required": [
+        "value",
+        "description"
+      ]
+    },
     "InputRemapping": {
       "description": "This defines how sections remap their inner operations (inputs and buffers)\n to expose them to operations that are siblings to the section.",
       "anyOf": [
@@ -600,7 +623,7 @@
       ]
     },
     "NodeSchema": {
-      "description": "Create an operation that that takes an input message and produces an\n output message.\n\n The behavior is determined by the choice of node `builder` and\n optioanlly the `config` that you provide. Each type of node builder has\n its own schema for the config.\n\n The output message will be sent to the operation specified by `next`.\n\n TODO(@mxgrey): [Support stream outputs](https://github.com/open-rmf/crossflow/issues/43)\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"cutting_board\",\n     \"ops\": {\n         \"cutting_board\": {\n             \"type\": \"node\",\n             \"builder\": \"chop\",\n             \"config\": \"diced\",\n             \"next\": \"bowl\"\n         },\n         \"bowl\": {\n             \"type\": \"node\",\n             \"builder\": \"stir\",\n             \"next\": \"oven\"\n         },\n         \"oven\": {\n             \"type\": \"node\",\n             \"builder\": \"bake\",\n             \"config\": {\n                 \"temperature\": 200,\n                 \"duration\": 120\n             },\n             \"next\": { \"builtin\": \"terminate\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())",
+      "description": "Create an operation that that takes an input message and produces an\n output message.\n\n The behavior is determined by the choice of node `builder` and\n optionally the `config` that you provide. Each type of node builder has\n its own schema for the config.\n\n The output message will be sent to the operation specified by `next`.\n\n TODO(@mxgrey): [Support stream outputs](https://github.com/open-rmf/crossflow/issues/43)\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"cutting_board\",\n     \"ops\": {\n         \"cutting_board\": {\n             \"type\": \"node\",\n             \"builder\": \"chop\",\n             \"config\": \"diced\",\n             \"next\": \"bowl\"\n         },\n         \"bowl\": {\n             \"type\": \"node\",\n             \"builder\": \"stir\",\n             \"next\": \"oven\"\n         },\n         \"oven\": {\n             \"type\": \"node\",\n             \"builder\": \"bake\",\n             \"config\": {\n                 \"temperature\": 200,\n                 \"duration\": 120\n             },\n             \"next\": { \"builtin\": \"terminate\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())",
       "type": "object",
       "properties": {
         "builder": {
@@ -1013,8 +1036,7 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         },
         "trace": {
           "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
@@ -1034,7 +1056,7 @@
       ]
     },
     "UnzipSchema": {
-      "description": "If the input message is a tuple of (T1, T2, T3, ...), unzip it into\n multiple output messages of T1, T2, T3, ...\n\n Each output message may have a different type and can be sent to a\n different operation. This creates multiple simultaneous branches of\n execution within the workflow. See [`DiagramOperation::ForkClone`] for\n more information on parallel branches.\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"name_phone_address\",\n     \"ops\": {\n         \"name_phone_address\": {\n             \"type\": \"unzip\",\n             \"next\": [\n                 \"process_name\",\n                 \"process_phone_number\",\n                 \"process_address\"\n             ]\n         },\n         \"process_name\": {\n             \"type\": \"node\",\n             \"builder\": \"process_name\",\n             \"next\": \"name_processed\"\n         },\n         \"process_phone_number\": {\n             \"type\": \"node\",\n             \"builder\": \"process_phone_number\",\n             \"next\": \"phone_number_processed\"\n         },\n         \"process_address\": {\n             \"type\": \"node\",\n             \"builder\": \"process_address\",\n             \"next\": \"address_processed\"\n         },\n         \"name_processed\": { \"type\": \"buffer\" },\n         \"phone_number_processed\": { \"type\": \"buffer\" },\n         \"address_processed\": { \"type\": \"buffer\" },\n         \"finished\": {\n             \"type\": \"join\",\n             \"buffers\": [\n                 \"name_processed\",\n                 \"phone_number_processed\",\n                 \"address_processed\"\n             ],\n             \"next\": { \"builtin\": \"terminate\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())\n ```",
+      "description": "If the input message is a tuple of (T1, T2, T3, ...), unzip it into\n multiple output messages of T1, T2, T3, ...\n\n Each output message may have a different type and can be sent to a\n different operation. This creates multiple simultaneous branches of\n execution within the workflow. See [`DiagramOperation::ForkClone`] for\n more information on parallel branches.\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"name_phone_address\",\n     \"ops\": {\n         \"name_phone_address\": {\n             \"type\": \"unzip\",\n             \"next\": [\n                 \"process_name\",\n                 \"process_phone_number\",\n                 \"process_address\"\n             ]\n         },\n         \"process_name\": {\n             \"type\": \"node\",\n             \"builder\": \"process_name\",\n             \"next\": \"name_processed\"\n         },\n         \"process_phone_number\": {\n             \"type\": \"node\",\n             \"builder\": \"process_phone_number\",\n             \"next\": \"phone_number_processed\"\n         },\n         \"process_address\": {\n             \"type\": \"node\",\n             \"builder\": \"process_address\",\n             \"next\": \"address_processed\"\n         },\n         \"name_processed\": { \"type\": \"buffer\" },\n         \"phone_number_processed\": { \"type\": \"buffer\" },\n         \"address_processed\": { \"type\": \"buffer\" },\n         \"finished\": {\n             \"type\": \"join\",\n             \"buffers\": [\n                 \"name_processed\",\n                 \"phone_number_processed\",\n                 \"address_processed\"\n             ],\n             \"next\": { \"builtin\": \"terminate\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())\n ```\n\n [`DiagramOperation::ForkClone`]: super::DiagramOperation::ForkClone",
       "type": "object",
       "properties": {
         "display_text": {

@@ -20,6 +20,7 @@ import { useRegistry } from './registry-provider';
 import { useTemplates } from './templates-provider';
 import { useEdges } from './use-edges';
 import { exportDiagram } from './utils/export-diagram';
+import { useDiagramProperties } from './diagram-properties-provider';
 
 export interface ExportDiagramDialogProps {
   open: boolean;
@@ -44,10 +45,11 @@ function ExportDiagramDialogInternal({
   const [templates] = useTemplates();
   const registry = useRegistry();
   const loadContext = useLoadContext();
+  const [diagramProperties] = useDiagramProperties();
   const theme = useTheme();
 
   const dialogDataPromise = useMemo(async () => {
-    const diagram = exportDiagram(registry, nodeManager, edges, templates);
+    const diagram = exportDiagram(registry, nodeManager, edges, templates, diagramProperties ?? {});
     if (loadContext?.diagram.extensions) {
       diagram.extensions = loadContext.diagram.extensions;
     }
@@ -75,7 +77,7 @@ function ExportDiagramDialogInternal({
     } satisfies DialogData;
 
     return dialogData;
-  }, [registry, nodeManager, edges, templates, loadContext]);
+  }, [registry, nodeManager, edges, templates, loadContext, diagramProperties]);
 
   const dialogData = use(dialogDataPromise);
 

@@ -1,4 +1,4 @@
-import { Button, ButtonGroup, styled, Tooltip } from '@mui/material';
+import { Button, ButtonGroup, styled, Tooltip, useTheme } from '@mui/material';
 import { type NodeChange, Panel } from '@xyflow/react';
 import React from 'react';
 import AutoLayoutButton from './auto-layout-button';
@@ -7,6 +7,7 @@ import { EditorMode, useEditorMode } from './editor-mode';
 import type { DiagramEditorNode } from './nodes';
 import { MaterialSymbol } from './nodes';
 import { RunButton } from './run-button';
+import DiagramPropertiesDrawer from './diagram-properties-drawer';
 
 export interface CommandPanelProps {
   onNodeChanges: (changes: NodeChange<DiagramEditorNode>[]) => void;
@@ -31,15 +32,34 @@ function CommandPanel({
   onExportClick,
   onLoadDiagram,
 }: CommandPanelProps) {
+  const theme = useTheme();
   const [openEditTemplatesDialog, setOpenEditTemplatesDialog] =
     React.useState(false);
+  const [openDiagramPropertiesDrawer, setOpenDiagramPropertiesDrawer] =
+    React.useState(true);
   const [editorMode] = useEditorMode();
 
   return (
     <>
       <Panel position="top-center">
         <ButtonGroup variant="contained">
-          {editorMode.mode === EditorMode.Normal && <RunButton />}
+          {editorMode.mode === EditorMode.Normal && (
+            <RunButton requestJsonString=''/>
+          )}
+          {editorMode.mode === EditorMode.Normal && (
+            <Tooltip title="Diagram properties">
+              <Button
+                onClick={() => setOpenDiagramPropertiesDrawer((prev) => !prev)}
+                sx={
+                  openDiagramPropertiesDrawer
+                    ? { backgroundColor: theme.palette.primary.light }
+                    : undefined
+                }
+              >
+                <MaterialSymbol symbol="info" />
+              </Button>
+            </Tooltip>
+          )}
           {editorMode.mode === EditorMode.Normal && (
             <Tooltip title="Templates">
               <Button onClick={() => setOpenEditTemplatesDialog(true)}>
@@ -83,6 +103,10 @@ function CommandPanel({
       <EditTemplatesDialog
         open={openEditTemplatesDialog}
         onClose={() => setOpenEditTemplatesDialog(false)}
+      />
+      <DiagramPropertiesDrawer
+        open={openDiagramPropertiesDrawer}
+        onClose={() => setOpenDiagramPropertiesDrawer(false)}
       />
     </>
   );
