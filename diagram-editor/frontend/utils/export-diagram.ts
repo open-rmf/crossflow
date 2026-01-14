@@ -486,7 +486,7 @@ export function exportDiagram(
   }
 
   diagram.description = diagramProperties.description;
-  diagram.example_inputs = diagramProperties.example_inputs;
+  diagram.input_examples = diagramProperties.input_examples;
   return diagram;
 }
 

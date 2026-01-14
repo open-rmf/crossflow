@@ -240,7 +240,7 @@
           "description": "Optional text to describe the workflow.",
           "type": "string"
         },
-        "example_inputs": {
+        "input_examples": {
           "description": "Examples of inputs that can be used with this workflow.",
           "items": {
             "$ref": "#/$defs/ExampleInput"

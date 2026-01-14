@@ -367,7 +367,7 @@ pub struct ExtensionSettings {
 }
 
 #[derive(Default, Debug, Clone, JsonSchema, PartialEq, Serialize, Deserialize)]
-pub struct ExampleInput {
+pub struct InputExample {
     pub value: JsonMessage,
     pub description: String,
 }
@@ -421,7 +421,7 @@ pub struct Diagram {
 
     /// Examples of inputs that can be used with this workflow.
     #[serde(default, skip_serializing_if = "is_default")]
-    example_inputs: Vec<ExampleInput>,
+    input_examples: Vec<InputExample>,
 }
 
 #[derive(Default, Debug, Clone, Copy, JsonSchema, Serialize, Deserialize, PartialEq, Eq)]
@@ -483,7 +483,7 @@ impl Diagram {
             default_trace: Default::default(),
             extensions: None,
             description: Default::default(),
-            example_inputs: Default::default(),
+            input_examples: Default::default(),
         }
     }
 

@@ -3,7 +3,7 @@ import type { ExampleInput } from './types/api';
 
 export interface DiagramProperties {
   description?: string;
-  example_inputs?: ExampleInput[];
+  input_examples?: ExampleInput[];
 }
 
 export type DiagramPropertiesContext = [

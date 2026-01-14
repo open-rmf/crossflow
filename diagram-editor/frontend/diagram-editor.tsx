@@ -526,7 +526,7 @@ function DiagramEditor() {
         setLoadContext({ diagram });
         setDiagramProperties({
           description: diagram.description,
-          example_inputs: diagram.example_inputs });
+          input_examples: diagram.input_examples });
         // do not perform auto layout if the diagram is restored from previous state.
         if (!isRestored) {
           const changes = autoLayout(graph.nodes, graph.edges, LAYOUT_OPTIONS);

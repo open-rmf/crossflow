@@ -44,7 +44,7 @@ function DiagramPropertiesDrawer({
   const loadContext = useLoadContext();
   const theme = useTheme();
   const [copyTooltipText, setCopyTooltipText] =
-    React.useState('Copy this example input into clipboard');
+    React.useState('Copy this input example into clipboard');
   const [openAddExampleDialog, setOpenAddExampleDialog] =
     React.useState(false);
   const [newExampleInput, setNewExampleInput] =
@@ -53,7 +53,7 @@ function DiagramPropertiesDrawer({
   React.useEffect(() => {
     setDiagramProperties({
       description: loadContext?.diagram.description ?? '',
-      example_inputs: loadContext?.diagram.example_inputs ?? []
+      input_examples: loadContext?.diagram.input_examples ?? []
     });
   }, [loadContext]);
 
@@ -114,7 +114,7 @@ function DiagramPropertiesDrawer({
           <Divider />
           <Stack direction='row'>
             <Stack direction='row' spacing={2} sx={{ alignItems: 'center' }}>
-              <Typography variant='h6'>Example inputs</Typography>
+              <Typography variant='h6'>Input Examples</Typography>
               <Tooltip
                 title='Input examples that can be executed with this workflow'
               >
@@ -122,7 +122,7 @@ function DiagramPropertiesDrawer({
               </Tooltip>
             </Stack>
             <Stack direction='row' sx={{ marginLeft: 'auto' }}>
-              <Tooltip title='Add example input'>
+              <Tooltip title='Add input example'>
                 <IconButton onClick={() => setOpenAddExampleDialog(true)}>
                   <MaterialSymbol symbol='add' />
                 </IconButton>
@@ -131,9 +131,9 @@ function DiagramPropertiesDrawer({
           </Stack>
           <Paper>
             <List>
-              {diagramProperties && diagramProperties.example_inputs &&
-              diagramProperties.example_inputs.length > 0 ? (
-                diagramProperties.example_inputs.map((input, index) => (
+              {diagramProperties && diagramProperties.input_examples &&
+              diagramProperties.input_examples.length > 0 ? (
+                diagramProperties.input_examples.map((input, index) => (
                   <ListItem key={index}>
                     <TextField
                       id='input-with-icon-textfield'
@@ -158,17 +158,17 @@ function DiagramPropertiesDrawer({
                                     />
                                   </IconButton>
                                 </Tooltip>
-                                <Tooltip title='Delete example input'>
+                                <Tooltip title='Delete input example'>
                                   <IconButton
                                     onClick={() => {
                                       setDiagramProperties((prev) => {
-                                        const prevExampleInputs = prev.example_inputs ?? [];
+                                        const prevExampleInputs = prev.input_examples ?? [];
                                         if (index >= prevExampleInputs.length) {
                                           return prev;
                                         }
                                         return {
                                           ...prev,
-                                          example_inputs: [
+                                          input_examples: [
                                             ...prevExampleInputs.slice(0, index),
                                             ...prevExampleInputs.slice(index + 1),
                                           ],
@@ -194,7 +194,7 @@ function DiagramPropertiesDrawer({
                                       setCopyTooltipText('Copied into clipboard!');
                                       setTimeout(() => {
                                         setCopyTooltipText(
-                                          'Copy this example input');
+                                          'Copy this input example');
                                       }, 3000);
                                     }}
                                   >
@@ -205,7 +205,7 @@ function DiagramPropertiesDrawer({
                                   </IconButton>
                                 </Tooltip>
                                 <Tooltip
-                                  title='Run diagram with this example input'
+                                  title='Run diagram with this input example'
                                 >
                                   <RunButton
                                     requestJsonString={input.value as string}
@@ -225,7 +225,7 @@ function DiagramPropertiesDrawer({
                     slotProps={{
                       primary: { color: theme.palette.text.disabled },
                     }}
-                    primary='No example inputs available'
+                    primary='No input examples available'
                   />
                 </ListItem>
               )}
@@ -243,7 +243,7 @@ function DiagramPropertiesDrawer({
         maxWidth='sm'
         keepMounted={false}
       >
-        <DialogTitle>Add example input</DialogTitle>
+        <DialogTitle>Add input example</DialogTitle>
         <Divider />
         <DialogContent>
           <Stack spacing={2}>
@@ -274,10 +274,10 @@ function DiagramPropertiesDrawer({
             variant='contained'
             onClick={() => {
               setDiagramProperties((prev) => {
-                const prevExampleInputs = prev.example_inputs ?? [];
+                const prevExampleInputs = prev.input_examples ?? [];
                 return {
                   ...prev,
-                  example_inputs: [
+                  input_examples: [
                     ...prevExampleInputs,
                     newExampleInput
                   ],
