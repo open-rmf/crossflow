@@ -27,6 +27,9 @@
 //! ANCHOR_END markers because these determine what code is being displayed in
 //! the handbook.
 
+#![cfg_attr(rustfmt, rustfmt_skip)]
+#![allow(unused)]
+
 use crossflow::bevy_ecs::prelude::Commands;
 use crossflow::prelude::*;
 use serde::{Serialize, Deserialize};
