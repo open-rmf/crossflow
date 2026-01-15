@@ -29,8 +29,9 @@ can be run in parallel and run them together unless you specify otherwise.
 Some systems demand exclusive world access, meaning no other systems can run
 alongside it. While this reduces opportunities for parallel processing, it
 empowers the exclusive systems to themselves dynamically run systems whose
-world access is not known what the schedule is first being built. The
-`flush_execution` system of crossflow drives all the services that need to be
+data access requirements are not known when the schedule is first being built.
+
+The `flush_execution` system of crossflow drives all the services that need to be
 executed. Since we never know ahead of time which services might need to be run
 or what they will need to acess from the world, `flush_execution` is an exclusive
 system.
@@ -39,16 +40,16 @@ Inside of `flush_execution` we will execute any services that are ready to be
 executed---one at a time since we can't be sure which might have read/write
 conflicts with each other. When we execute a blocking service, we pass the
 request into it and get back the response immediately. We can then pass that
-response message along to the next service it needs to go to if the services are
-chained, and then execute that next service. An arbitrarily long chain of blocking
-services can all be executed within a single run of `flush_execution`, unless
-[`flush_loop_limit`][flush_loop_limit] is set.
+response message along to its target service, and then immediately execute that
+target service. An arbitrarily long chain of blocking services can all be executed
+within a single run of `flush_execution`, unless [`flush_loop_limit`][flush_loop_limit]
+is set.
 
 ![async-task-pool](./assets/figures/async-task-pool.svg)
 
 If the blocking service runs for a very long time, the entire system schedule
 would be held up, which could be detrimental to how the application behaves. In
-a GUI application users would see the window freeze up. In a workflow execution
+a GUI application, users would see the window freeze up. In a workflow execution
 application, clients would think that all execution has frozen. This means
 blocking services are not suitable for any service that represents a physical
 process or involves i/o with external resources.
@@ -68,7 +69,7 @@ We get two advantages with async services:
   of Rust that allows efficient and ergonomic use of i/o and multi-threading.
 
 However there are some disadvantages to be mindful of:
-* Sending the Future to the async task pool and receiving the response have some
+* Sending the Future to the async task pool and receiving the response has some
   overhead (albeit relative small in most cases).
 * The response of an async service will generally not arrive within the same
   schedule update that the service was activated. This means a chain of *N* async
@@ -94,7 +95,7 @@ same API as the blocking service:
 ```
 
 Notice that even though this is an async service and has some different behavior
-than blocking services behind the hood, it is still captured as a [`Service`][Service].
+than blocking services under the hood, it is still captured as a [`Service`][Service].
 Once spawned as a service, blocking and async services will appear exactly the
 same to users.
 
