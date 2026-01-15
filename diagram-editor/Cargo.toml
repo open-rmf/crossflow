@@ -1,6 +1,6 @@
 [package]
 name = "crossflow_diagram_editor"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2024"
 authors = ["Teo Koon Peng <koonpeng@intrinsic.ai>"]
 license = "Apache-2.0"
@@ -29,7 +29,7 @@ path = "server/lib.rs"
 axum = { workspace = true, features = ["json"], default-features = false }
 bevy_app = { workspace = true }
 bevy_ecs = { workspace = true }
-crossflow = { version = "0.0.4", path = "..", features = ["diagram", "trace"] }
+crossflow = { version = "0.0.5", path = "..", features = ["diagram", "trace"] }
 clap = { workspace = true, features = ["derive"], optional = true }
 flate2 = { version = "1.1.1", optional = true }
 futures-util = { workspace = true }
