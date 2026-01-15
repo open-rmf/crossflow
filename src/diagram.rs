@@ -538,7 +538,7 @@ impl Diagram {
             |scope: Scope<Request, Response, Streams>, builder: &mut Builder| {
                 debug!(
                     "spawn workflow, scope input: {:?}, terminate: {:?}",
-                    scope.input.id(),
+                    scope.start.id(),
                     scope.terminate.id()
                 );
 

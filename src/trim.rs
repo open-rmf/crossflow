@@ -165,7 +165,7 @@ mod tests {
         let mut context = TestingContext::minimal_plugins();
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            let fork_input = scope.input.fork_clone(builder);
+            let fork_input = scope.start.fork_clone(builder);
 
             let noop = fork_input.clone_chain(builder).noop_node();
             let doubler_a =
@@ -191,12 +191,11 @@ mod tests {
         let delay = context.spawn_delay::<i32>(Duration::from_secs(20));
         let workflow = context.spawn_io_workflow(|scope, builder| {
             let injection: Node<_, _, StreamOf<()>> =
-                scope.input.chain(builder).then_injection_node();
-            injection.output.chain(builder).connect(scope.terminate);
+                builder.chain(scope.start).then_injection_node();
+            builder.connect(injection.output, scope.terminate);
 
-            injection
-                .streams
-                .chain(builder)
+            builder
+                .chain(injection.streams)
                 .map(print_debug("About to trim"))
                 .then_trim(Some(TrimBranch::single_point(&injection.input)))
                 .map_block(|_| 2)
@@ -215,15 +214,14 @@ mod tests {
 
         let (sender, receiver) = channel::<()>();
         let inner_workflow = context.spawn_workflow(|scope, builder| {
-            let node = scope.input.chain(builder).then_node(delay);
+            let node = builder.chain(scope.start).then_node(delay);
             builder.connect(node.output, scope.terminate);
             builder.connect(node.streams, scope.streams);
 
             let buffer = builder.create_buffer::<()>(BufferSettings::keep_all());
             builder.on_cancel(buffer, |scope, builder| {
-                scope
-                    .input
-                    .chain(builder)
+                builder
+                    .chain(scope.start)
                     .map_block(move |_| {
                         // This is the real test: That the cleanup of the
                         // workflow worked as intended.

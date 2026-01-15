@@ -1284,9 +1284,8 @@ mod tests {
                 .commands()
                 .spawn_service(get_buffer_count.into_blocking_service());
 
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .with_access(buffer)
                 .then(push_multiple_times)
                 .then(count)
@@ -1333,9 +1332,8 @@ mod tests {
                 .commands()
                 .spawn_service(pull_each_buffer_item.into_blocking_service());
 
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .with_access(buffer)
                 .then(push_multiple_times)
                 .then(modify_content)
@@ -1393,9 +1391,8 @@ mod tests {
                 .commands()
                 .spawn_service(drain_buffer_contents.into_blocking_service());
 
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .with_access(buffer)
                 .then(push_multiple_times)
                 .then(modify_content)
@@ -1438,22 +1435,22 @@ mod tests {
                     .create_buffer::<f32>(BufferSettings::default())
                     .into();
 
-                let (input_u32, input_i32, input_f32) = scope.input.chain(builder).unzip();
-                input_u32.chain(builder).map_block(|v| 2 * v).connect(
+                let (input_u32, input_i32, input_f32) = builder.chain(scope.start).unzip();
+                builder.chain(input_u32).map_block(|v| 2 * v).connect(
                     buffer_u32
                         .downcast_for_message::<u32>()
                         .unwrap()
                         .input_slot(),
                 );
 
-                input_i32.chain(builder).map_block(|v| 2 * v).connect(
+                builder.chain(input_i32).map_block(|v| 2 * v).connect(
                     buffer_i32
                         .downcast_for_message::<i32>()
                         .unwrap()
                         .input_slot(),
                 );
 
-                input_f32.chain(builder).map_block(|v| 2.0 * v).connect(
+                builder.chain(input_f32).map_block(|v| 2.0 * v).connect(
                     buffer_f32
                         .downcast_for_message::<f32>()
                         .unwrap()

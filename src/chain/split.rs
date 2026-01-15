@@ -869,9 +869,8 @@ mod tests {
         let mut context = TestingContext::minimal_plugins();
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .split(|split| {
                     let mut outputs = Vec::new();
                     split
@@ -908,7 +907,7 @@ mod tests {
         assert_eq!(value, [5.0, 5.0, 5.0].into());
 
         let workflow = context.spawn_io_workflow(|scope: Scope<[f64; 3], f64>, builder| {
-            scope.input.chain(builder).split(|split| {
+            builder.chain(scope.start).split(|split| {
                 let split = split
                     .sequential_branch(0, |chain| {
                         chain
@@ -981,7 +980,7 @@ mod tests {
             context.spawn_io_workflow(|scope: Scope<BTreeMap<String, f64>, _>, builder| {
                 let collector = builder.create_collect_all::<_, 16>();
 
-                scope.input.chain(builder).split(|split| {
+                builder.chain(scope.start).split(|split| {
                     split
                         .specific_branch("speed".to_owned(), |chain| {
                             chain
@@ -1026,9 +1025,8 @@ mod tests {
                         .unused();
                 });
 
-                collector
-                    .output
-                    .chain(builder)
+                builder
+                    .chain(collector.output)
                     .map_block(|v| HashMap::<String, f64>::from_iter(v))
                     .connect(scope.terminate);
             });
@@ -1078,7 +1076,7 @@ mod tests {
         let mut context = TestingContext::minimal_plugins();
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            scope.input.chain(builder).split(|split| {
+            builder.chain(scope.start).split(|split| {
                 let err = split
                     .next_branch(|_, chain| {
                         chain.value().connect(scope.terminate);

@@ -74,7 +74,7 @@ fn main() {
 
                 let controller_node = builder.create_node(door_controller);
 
-                builder.chain(scope.input).fork_clone((
+                builder.chain(scope.start).fork_clone((
                     |setup: Chain<_>| {
                         setup
                             .with_access(door_control_buffers)

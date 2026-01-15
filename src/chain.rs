@@ -804,7 +804,8 @@ where
     /// let mut context = TestingContext::minimal_plugins();
     ///
     /// let workflow = context.spawn_io_workflow(|scope, builder| {
-    ///     scope.input.chain(builder)
+    ///     builder
+    ///         .chain(scope.start)
     ///         .map_block(produce_err)
     ///         .cancel_on_err()
     ///         .connect(scope.terminate);
@@ -1182,9 +1183,8 @@ mod tests {
         let mut context = TestingContext::minimal_plugins();
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 // (2.0, 2.0)
                 .fork_unzip((
                     |chain: Chain<f64>| {
@@ -1226,16 +1226,14 @@ mod tests {
         let mut context = TestingContext::minimal_plugins();
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 // (2.0, 2.0)
                 .map_block(add)
                 // 4.0
                 .then_io_scope(|scope, builder| {
-                    scope
-                        .input
-                        .chain(builder)
+                    builder
+                        .chain(scope.start)
                         // 4.0
                         .fork_clone((
                             |chain: Chain<f64>| {
@@ -1283,13 +1281,12 @@ mod tests {
         let mut context = TestingContext::minimal_plugins();
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .map_block(add)
                 .map_block(|v| (v, 2.0 * v))
                 .then_io_scope(|scope, builder| {
-                    scope.input.chain(builder).fork_unzip((
+                    builder.chain(scope.start).fork_unzip((
                         |chain: Chain<f64>| {
                             chain
                                 .map_block(|v| (v, 10.0))
@@ -1323,9 +1320,8 @@ mod tests {
         let mut context = TestingContext::minimal_plugins();
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .map_block(duplicate)
                 .map_block(add)
                 .map_block(produce_none)
@@ -1343,9 +1339,8 @@ mod tests {
         assert!(context.no_unhandled_errors());
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .map_block(duplicate)
                 .map_block(add)
                 .map_block(produce_err)
@@ -1368,9 +1363,8 @@ mod tests {
         let mut context = TestingContext::minimal_plugins();
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .map_block(duplicate)
                 .map_block(add)
                 .map_block(produce_none)
@@ -1389,7 +1383,7 @@ mod tests {
 
         let workflow = context.spawn_io_workflow(
             |scope: Scope<Result<f64, Result<f64, TestError>>, f64>, builder| {
-                scope.input.chain(builder).fork_result(
+                builder.chain(scope.start).fork_result(
                     |chain| chain.connect(scope.terminate),
                     |chain| chain.dispose_on_err().connect(scope.terminate),
                 );
@@ -1428,9 +1422,8 @@ mod tests {
         let workflow = context.spawn_io_workflow(|scope, builder| {
             let buffer = builder.create_buffer(BufferSettings::keep_all());
 
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .map_block(|value| {
                     let mut duplicated_values: SmallVec<[i32; 16]> = SmallVec::new();
                     for _ in 0..value {
@@ -1481,21 +1474,21 @@ mod tests {
     fn test_collect() {
         let mut context = TestingContext::minimal_plugins();
 
-        let workflow =
-            context.spawn_io_workflow(|scope, builder| {
-                let node = scope.input.chain(builder).map_node(
-                    |input: BlockingMap<i32, StreamOf<i32>>| {
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let node =
+                builder
+                    .chain(scope.start)
+                    .map_node(|input: BlockingMap<i32, StreamOf<i32>>| {
                         for _ in 0..input.request {
                             input.streams.send(input.request);
                         }
-                    },
-                );
+                    });
 
-                node.streams
-                    .chain(builder)
-                    .collect_all::<16>()
-                    .connect(scope.terminate);
-            });
+            builder
+                .chain(node.streams)
+                .collect_all::<16>()
+                .connect(scope.terminate);
+        });
 
         let mut promise = context.command(|commands| commands.request(8, workflow).take_response());
 
@@ -1508,21 +1501,21 @@ mod tests {
         );
         assert!(context.no_unhandled_errors());
 
-        let workflow =
-            context.spawn_io_workflow(|scope, builder| {
-                let node = scope.input.chain(builder).map_node(
-                    |input: BlockingMap<i32, StreamOf<i32>>| {
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let node =
+                builder
+                    .chain(scope.start)
+                    .map_node(|input: BlockingMap<i32, StreamOf<i32>>| {
                         for _ in 0..input.request {
                             input.streams.send(input.request);
                         }
-                    },
-                );
+                    });
 
-                node.streams
-                    .chain(builder)
-                    .collect::<16>(4, None)
-                    .connect(scope.terminate);
-            });
+            builder
+                .chain(node.streams)
+                .collect::<16>(4, None)
+                .connect(scope.terminate);
+        });
 
         check_collection(0, 4, workflow, &mut context);
         check_collection(2, 4, workflow, &mut context);
@@ -1533,15 +1526,13 @@ mod tests {
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
             let bogus_node = builder.create_map_block(|v: i32| v);
-            bogus_node
-                .output
-                .chain(builder)
+            builder
+                .chain(bogus_node.output)
                 .collect_all::<16>()
                 .connect(scope.terminate);
 
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .map_block(|v: i32| Some(v))
                 .fork_option(
                     |chain: Chain<i32>| {
@@ -1566,9 +1557,8 @@ mod tests {
         assert!(context.no_unhandled_errors());
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .map_block(|v| if v < 4 { None } else { Some(v) })
                 .dispose_on_none()
                 .collect_all::<8>()
@@ -1619,9 +1609,8 @@ mod tests {
 
         let workflow =
             context.spawn_io_workflow(|scope: Scope<Vec<Result<i64, ()>>, i64>, builder| {
-                scope
-                    .input
-                    .chain(builder)
+                builder
+                    .chain(scope.start)
                     .spread()
                     .fork_result(|ok| ok.connect(scope.terminate), |err| err.unused());
             });

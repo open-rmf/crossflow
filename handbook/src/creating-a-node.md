@@ -23,8 +23,10 @@ A few things to note:
 * We use [Builder::create_node][create_node] to create a workflow node that will run the `sum` service.
 * After the node is created, we can access its input through `node.input` and its output through `node.output`.
 * `builder.connect(ouput, input)` will connect an `Output` to an `InputSlot`
-  * Somewhat counter-intuitively we connect `scope.input` to `node.input` because `scope.input` is actually an `Output`. This means whatever is input to the workflow will be sent directly to the `sum` service.
+  * `scope.start` is an `Output` inside the scope that will fire off exactly one message per workflow session. That one message is the input message that was sent into the workflow. It gets fired off as soon as the workflow session begins.
+  * By connecting `scope.start` to `node.input`, we are passing the input message of the workflow directly into the node.
   * To pass back the sum as the output of the workflow, we connect `node.output` to `scope.terminate`.
+  * As soon as any message is passed into `scope.terminate`, all activity in the workflow will terminate, and the first message that was passed into `scope.terminate` for this session will be sent out of the workflow as the workflow's output message.
 * We don't need to explicitly specify the `Request` and `Response` types of the workflow because the compiler can infer those from the two `builder.connect(_, _)` calls.
 
 #### Spawning a service inside workflow building closure

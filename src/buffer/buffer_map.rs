@@ -886,7 +886,7 @@ mod tests {
             buffers.insert_buffer("generic", buffer_generic);
             buffers.insert_buffer("any", buffer_any);
 
-            scope.input.chain(builder).fork_unzip((
+            builder.chain(scope.start).fork_unzip((
                 |chain: Chain<_>| chain.connect(buffer_i64.input_slot()),
                 |chain: Chain<_>| chain.connect(buffer_f64.input_slot()),
                 |chain: Chain<_>| chain.connect(buffer_string.input_slot()),
@@ -927,7 +927,7 @@ mod tests {
             let buffer_generic = builder.create_buffer(BufferSettings::default());
             let buffer_any = builder.create_buffer::<i64>(BufferSettings::default());
 
-            scope.input.chain(builder).fork_unzip((
+            builder.chain(scope.start).fork_unzip((
                 |chain: Chain<_>| chain.connect(buffer_i64.input_slot()),
                 |chain: Chain<_>| chain.connect(buffer_f64.input_slot()),
                 |chain: Chain<_>| chain.connect(buffer_string.input_slot()),
@@ -1003,9 +1003,8 @@ mod tests {
 
                 let copy = multi_generic_buffers;
 
-                scope
-                    .input
-                    .chain(builder)
+                builder
+                    .chain(scope.start)
                     .map_block(|(integer, string)| {
                         (
                             MultiGenericValue {
@@ -1073,7 +1072,7 @@ mod tests {
                 buffer_any.as_any_buffer(),
             );
 
-            scope.input.chain(builder).fork_unzip((
+            builder.chain(scope.start).fork_unzip((
                 |chain: Chain<_>| chain.connect(buffers.integer.input_slot()),
                 |chain: Chain<_>| chain.connect(buffers.float.input_slot()),
                 |chain: Chain<_>| chain.connect(buffers.string.input_slot()),
@@ -1118,7 +1117,7 @@ mod tests {
             let buffer_generic = builder.create_buffer::<&'static str>(BufferSettings::default());
             let buffer_any = builder.create_buffer::<i64>(BufferSettings::default());
 
-            scope.input.chain(builder).fork_unzip((
+            builder.chain(scope.start).fork_unzip((
                 |chain: Chain<_>| chain.connect(buffer_i64.input_slot()),
                 |chain: Chain<_>| chain.connect(buffer_f64.input_slot()),
                 |chain: Chain<_>| chain.connect(buffer_string.input_slot()),

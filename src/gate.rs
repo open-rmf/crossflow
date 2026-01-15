@@ -82,7 +82,7 @@ mod tests {
         let mut context = TestingContext::minimal_plugins();
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            let fork_input = scope.input.fork_clone(builder);
+            let fork_input = scope.start.fork_clone(builder);
             let buffer = builder.create_buffer(BufferSettings::keep_all());
 
             fork_input

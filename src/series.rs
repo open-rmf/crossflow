@@ -590,9 +590,8 @@ mod tests {
 
         let async_service = service;
         let service = context.spawn_io_workflow(|scope, builder| {
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .then(async_service)
                 .connect(scope.terminate);
         });

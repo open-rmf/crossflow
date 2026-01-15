@@ -215,7 +215,7 @@ commands
 // ANCHOR: trivial_workflow
 let workflow: Service<Request, Response> = commands.spawn_io_workflow(
     |scope: Scope<Request, Response>, builder: &mut Builder| {
-        builder.connect(scope.input, scope.terminate);
+        builder.connect(scope.start, scope.terminate);
     }
 );
 // ANCHOR_END: trivial_workflow
@@ -223,7 +223,7 @@ let workflow: Service<Request, Response> = commands.spawn_io_workflow(
 // ANCHOR: trivial_workflow_concise
 let workflow = commands.spawn_io_workflow(
     |scope, builder| {
-        builder.connect(scope.input, scope.terminate);
+        builder.connect(scope.start, scope.terminate);
     }
 );
 // ANCHOR_END: trivial_workflow_concise
@@ -237,7 +237,7 @@ let service = commands.spawn_service(sum);
 let workflow = commands.spawn_io_workflow(
     move |scope, builder| {
         let node = builder.create_node(service);
-        builder.connect(scope.input, node.input);
+        builder.connect(scope.start, node.input);
         builder.connect(node.output, scope.terminate);
     }
 );
@@ -251,7 +251,7 @@ let workflow = commands.spawn_io_workflow(
 
         // Create the node using the newly spawned service
         let node = builder.create_node(service);
-        builder.connect(scope.input, node.input);
+        builder.connect(scope.start, node.input);
         builder.connect(node.output, scope.terminate);
     }
 );
@@ -269,7 +269,7 @@ let callback = f.into_blocking_callback();
 let workflow = commands.spawn_io_workflow(
     move |scope, builder| {
         let node = builder.create_node(callback);
-        builder.connect(scope.input, node.input);
+        builder.connect(scope.start, node.input);
         builder.connect(node.output, scope.terminate);
     }
 );
@@ -282,7 +282,7 @@ let workflow = commands.spawn_io_workflow(
             request.into_iter().fold(0.0, |a, b| a + b)
         });
 
-        builder.connect(scope.input, node.input);
+        builder.connect(scope.start, node.input);
         builder.connect(node.output, scope.terminate);
     }
 );
@@ -294,7 +294,7 @@ let workflow = commands.spawn_io_workflow(
 
         let node = builder.create_map_async(get_page_title);
 
-        builder.connect(scope.input, node.input);
+        builder.connect(scope.start, node.input);
         builder.connect(node.output, scope.terminate);
     }
 );
@@ -313,7 +313,7 @@ let workflow = commands.spawn_io_workflow(
             }
         });
 
-        builder.connect(scope.input, node.input);
+        builder.connect(scope.start, node.input);
         builder.connect(node.output, scope.terminate);
     }
 );
@@ -329,7 +329,7 @@ let workflow = commands.spawn_io_workflow(
             2.0 * request
         });
 
-        builder.connect(scope.input, sum_node.input);
+        builder.connect(scope.start, sum_node.input);
         builder.connect(sum_node.output, double_node.input);
         builder.connect(double_node.output, scope.terminate);
     }
@@ -345,7 +345,7 @@ let double = (|request: f32| 2.0 * request).into_blocking_map();
 let workflow = commands.spawn_io_workflow(
     |scope, builder| {
         builder
-            .chain(scope.input)
+            .chain(scope.start)
             .then(sum)
             .then(double)
             .connect(scope.terminate);
@@ -357,7 +357,7 @@ let workflow = commands.spawn_io_workflow(
 let workflow = commands.spawn_io_workflow(
     |scope, builder| {
         builder
-            .chain(scope.input)
+            .chain(scope.start)
             .map_block(|request: Vec<f32>| {
                 request.into_iter().fold(0.0, |a, b| a + b)
             })
@@ -399,7 +399,7 @@ let workflow: Service<Json, Result<SchemaV2, Error>> = commands.spawn_io_workflo
         // in the workflow.
         let (fork_result_input, fork_result) = builder.create_fork_result();
 
-        builder.connect(scope.input, parse_schema_v2.input);
+        builder.connect(scope.start, parse_schema_v2.input);
         builder.connect(parse_schema_v2.output, fork_result_input);
 
         // If parsing SchemaV2 was successful, wrap it back in Ok and terminate
@@ -420,7 +420,7 @@ let workflow: Service<Json, Result<SchemaV2, Error>> = commands.spawn_io_workflo
 let workflow: Service<Json, Result<SchemaV2, Error>> = commands.spawn_io_workflow(
     |scope, builder| {
         builder
-            .chain(scope.input)
+            .chain(scope.start)
             .map_block(|message: Json| {
                 // Try parsing the JSON with Schema V2
                 serde_json::from_value::<SchemaV2>(message.clone())
@@ -454,7 +454,7 @@ let workflow: Service<Json, Result<SchemaV2, Error>> = commands.spawn_io_workflo
 let workflow: Service<Json, Result<SchemaV2, Error>> = commands.spawn_io_workflow(
     |scope, builder| {
         builder
-            .chain(scope.input)
+            .chain(scope.start)
             .map_block(|request: Json| {
                 // Try parsing the JSON with Schema V2
                 serde_json::from_value::<SchemaV2>(request.clone())
@@ -507,7 +507,7 @@ let workflow: Service<(), f32> = commands.spawn_io_workflow(
         let (fork_option_input, fork_option) = builder.create_fork_option();
 
         // Chain the three operations together.
-        builder.connect(scope.input, get_random.input);
+        builder.connect(scope.start, get_random.input);
         builder.connect(get_random.output, less_than_half.input);
         builder.connect(less_than_half.output, fork_option_input);
 
@@ -529,7 +529,7 @@ let workflow: Service<(), f32> = commands.spawn_io_workflow(
         // Node for get_random because we will need to refer to its InputSlot
         // later to create a cycle.
         let get_random: Node<(), f32> = builder
-            .chain(scope.input)
+            .chain(scope.start)
             .map_block_node(|request: ()| rand::random::<f32>());
 
         builder
@@ -578,7 +578,7 @@ let workflow = commands.spawn_io_workflow(
         let (fork_clone_input, fork_clone) = builder.create_fork_clone();
 
         // Send the scope input message to be cloned
-        builder.connect(scope.input, fork_clone_input);
+        builder.connect(scope.start, fork_clone_input);
 
         // When the scope starts, begin moving the robot to the pregrasp pose
         let cloned = fork_clone.clone_output(builder);
@@ -613,7 +613,7 @@ let emergency_stop = (|_: ()| { }).into_blocking_map();
 let workflow = commands.spawn_io_workflow(
     |scope, builder| {
         builder
-            .chain(scope.input)
+            .chain(scope.start)
             .branch_clone(|chain|
                 // This is a parallel branch fed with a clone of the scope input.
                 chain
@@ -655,7 +655,7 @@ let workflow = commands.spawn_io_workflow(
         let (fork_clone_input, fork_clone) = builder.create_fork_clone();
 
         // Send the scope input message to be cloned
-        builder.connect(scope.input, fork_clone_input);
+        builder.connect(scope.start, fork_clone_input);
 
         // When the scope starts, begin sending the robot to the elevator
         let cloned = fork_clone.clone_output(builder);
@@ -698,7 +698,7 @@ let use_elevator = (|_: ((), ())| { }).into_blocking_map();
 let workflow = commands.spawn_io_workflow(
     |scope, builder| {
         builder
-            .chain(scope.input)
+            .chain(scope.start)
             .fork_clone((
                 |chain: Chain<_>| {
                     // This branch moves the robot to the elevator
@@ -765,7 +765,7 @@ let workflow = commands.spawn_io_workflow(
         .output();
 
         // Connect all the nodes
-        builder.connect(scope.input, transform_inputs.input);
+        builder.connect(scope.start, transform_inputs.input);
         builder.connect(transform_inputs.output, unzip_input);
         builder.connect(workcell_task, pick_item.input);
         builder.connect(mobile_robot_task, move_to_location.input);
@@ -783,7 +783,7 @@ let hand_off_item = (|_: ((), ())| { }).into_blocking_map();
 let workflow = commands.spawn_io_workflow(
     |scope, builder| {
         builder
-            .chain(scope.input)
+            .chain(scope.start)
             .map_block(|request: PickupTask| {
                 (
                     WorkcellTask {
@@ -855,7 +855,7 @@ let workflow = commands.spawn_workflow(
         let access_apple_buffer = builder.create_buffer_access(apple_buffer);
 
         // Connect the scope input message to the deposit_apples service
-        builder.connect(scope.input, deposit_apples.input);
+        builder.connect(scope.start, deposit_apples.input);
 
         // Connect the stream of incoming apples to the apple buffer
         builder.connect(deposit_apples.streams, apple_buffer.input_slot());
@@ -915,7 +915,7 @@ let workflow = commands.spawn_workflow(
         let move_through_door = builder.create_node(move_through_door);
 
         // Connect nodes together
-        builder.connect(scope.input, approach_door.input);
+        builder.connect(scope.start, approach_door.input);
         builder.connect(approach_door.output, open_door.input);
         builder.connect(open_door.output, move_through_door.input);
         builder.connect(move_through_door.output, scope.terminate);
@@ -1019,7 +1019,7 @@ let workflow = commands.spawn_io_workflow(
 
         // Activate both of the state update services at startup
         builder
-            .chain(scope.input)
+            .chain(scope.start)
             .fork_clone((
                 |chain: Chain<_>| chain.connect(traffic_signal_service.input),
                 |chain: Chain<_>| chain.connect(approach_intersection.input),
@@ -1058,7 +1058,7 @@ let workflow = commands.spawn_io_workflow(
 // ANCHOR: explicit_workflow_settings
 let workflow = commands.spawn_io_workflow(
     |scope, builder| {
-        builder.connect(scope.input, scope.terminate);
+        builder.connect(scope.start, scope.terminate);
 
         // Return explicit workflow settings.
         WorkflowSettings::new()
@@ -1072,7 +1072,7 @@ let workflow = commands.spawn_io_workflow(
 // ANCHOR: explicit_delivery_settings
 let workflow = commands.spawn_io_workflow(
     |scope, builder| {
-        builder.connect(scope.input, scope.terminate);
+        builder.connect(scope.start, scope.terminate);
 
         // Return explicit delivery settings.
         // The scope settings will be the default (interruptible).
@@ -1085,7 +1085,7 @@ let workflow = commands.spawn_io_workflow(
 // ANCHOR: explicit_scope_settings
 let workflow = commands.spawn_io_workflow(
     |scope, builder| {
-        builder.connect(scope.input, scope.terminate);
+        builder.connect(scope.start, scope.terminate);
 
         // Return explicit scope settings.
         // The delivery settings will be the default (parallel).
@@ -1098,7 +1098,7 @@ let workflow = commands.spawn_io_workflow(
 // ANCHOR: default_workflow_settings
 let workflow = commands.spawn_io_workflow(
     |scope, builder| {
-        builder.connect(scope.input, scope.terminate);
+        builder.connect(scope.start, scope.terminate);
 
         // Simply don't return anything from the closure
         // to get the default workflow settings.
@@ -1111,10 +1111,10 @@ let workflow = commands.spawn_io_workflow(
 let workflow = commands.spawn_io_workflow(
     |scope, builder| {
         builder
-            .chain(scope.input)
+            .chain(scope.start)
             .then_io_scope(
                 |scope, builder| {
-                    builder.connect(scope.input, scope.terminate);
+                    builder.connect(scope.start, scope.terminate);
 
                     // Set only this nested scope to be uninterruptible.
                     ScopeSettings::uninterruptible()
@@ -1558,7 +1558,7 @@ let mut context = TestingContext::minimal_plugins();
 let workflow = context.spawn_io_workflow(|scope, builder| {
     let buffer = builder.create_buffer(BufferSettings::keep_all());
     builder
-        .chain(scope.input)
+        .chain(scope.start)
         .with_access(buffer)
         .then(push_values.into_blocking_callback())
         .with_access(buffer)

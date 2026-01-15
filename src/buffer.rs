@@ -450,7 +450,7 @@ impl std::fmt::Debug for BufferKeyTag {
 /// let workflow = context.spawn_io_workflow(|scope, builder| {
 ///     let buffer = builder.create_buffer(BufferSettings::keep_all());
 ///     builder
-///         .chain(scope.input)
+///         .chain(scope.start)
 ///         .with_access(buffer)
 ///         .then(push_values.into_blocking_callback())
 ///         .with_access(buffer)
@@ -523,7 +523,7 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
 /// let workflow = context.spawn_io_workflow(|scope, builder| {
 ///     let buffer = builder.create_buffer(BufferSettings::keep_all());
 ///     builder
-///         .chain(scope.input)
+///         .chain(scope.start)
 ///         .with_access(buffer)
 ///         .then(push_values.into_blocking_callback())
 ///         .with_access(buffer)
@@ -935,9 +935,8 @@ mod tests {
         let multiply_buffers_by_copy_cb = multiply_buffers_by_copy.into_blocking_callback();
 
         let workflow = context.spawn_io_workflow(|scope: Scope<(f64, f64), f64>, builder| {
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .unzip()
                 .listen(builder)
                 .then(multiply_buffers_by_copy_cb)
@@ -952,9 +951,8 @@ mod tests {
         assert!(context.no_unhandled_errors());
 
         let workflow = context.spawn_io_workflow(|scope: Scope<(f64, f64), f64>, builder| {
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .unzip()
                 .listen(builder)
                 .then(add_buffers_by_pull_cb)
@@ -971,16 +969,16 @@ mod tests {
 
         let workflow =
             context.spawn_io_workflow(|scope: Scope<(f64, f64), Result<f64, f64>>, builder| {
-                let (branch_to_adder, branch_to_buffer) = scope.input.chain(builder).unzip();
+                let (branch_to_adder, branch_to_buffer) = builder.chain(scope.start).unzip();
                 let buffer = builder.create_buffer::<f64>(BufferSettings::keep_first(10));
                 builder.connect(branch_to_buffer, buffer.input_slot());
 
-                let adder_node = branch_to_adder
-                    .chain(builder)
+                let adder_node = builder
+                    .chain(branch_to_adder)
                     .with_access(buffer)
                     .then_node(add_from_buffer_cb.clone());
 
-                adder_node.output.chain(builder).fork_result(
+                builder.chain(adder_node.output).fork_result(
                     // If the buffer had an item in it, we send it to another
                     // node that tries to pull a second time (we expect the
                     // buffer to be empty this second time) and then
@@ -1011,24 +1009,22 @@ mod tests {
 
         // Same as previous test, but using Builder::create_buffer_access instead
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            let (branch_to_adder, branch_to_buffer) = scope.input.chain(builder).unzip();
+            let (branch_to_adder, branch_to_buffer) = builder.chain(scope.start).unzip();
             let buffer = builder.create_buffer::<f64>(BufferSettings::keep_first(10));
             builder.connect(branch_to_buffer, buffer.input_slot());
 
             let access = builder.create_buffer_access(buffer);
             builder.connect(branch_to_adder, access.input);
-            access
-                .output
-                .chain(builder)
+            builder
+                .chain(access.output)
                 .then(add_from_buffer_cb.clone())
                 .fork_result(
                     |ok| {
                         let (output, builder) = ok.unpack();
                         let second_access = builder.create_buffer_access(buffer);
                         builder.connect(output, second_access.input);
-                        second_access
-                            .output
-                            .chain(builder)
+                        builder
+                            .chain(second_access.output)
                             .then(add_from_buffer_cb.clone())
                             .connect(scope.terminate);
                     },
@@ -1100,9 +1096,8 @@ mod tests {
 
             let decrement_register_cb = decrement_register.into_blocking_callback();
             let async_decrement_register_cb = async_decrement_register.as_callback();
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .with_access(buffer)
                 .then(decrement_register_cb.clone())
                 .with_access(buffer)
@@ -1140,9 +1135,8 @@ mod tests {
                 decrement_register_and_pass_keys.into_blocking_callback();
             let async_decrement_register_and_pass_keys_cb =
                 async_decrement_register_and_pass_keys.as_callback();
-            let (loose_end, dead_end): (_, Output<Option<Register>>) = scope
-                .input
-                .chain(builder)
+            let (loose_end, dead_end): (_, Output<Option<Register>>) = builder
+                .chain(scope.start)
                 .with_access(buffer)
                 .then(decrement_register_and_pass_keys_cb.clone())
                 .then(async_decrement_register_and_pass_keys_cb.clone())
@@ -1151,10 +1145,10 @@ mod tests {
                 .unzip();
 
             // Force the workflow to trigger a disposal while the key is still in flight
-            dead_end.chain(builder).dispose_on_none().unused();
+            builder.chain(dead_end).dispose_on_none().unused();
 
-            loose_end
-                .chain(builder)
+            builder
+                .chain(loose_end)
                 .then(async_decrement_register_and_pass_keys_cb)
                 .dispose_on_none()
                 .then(decrement_register_and_pass_keys_cb)
@@ -1289,7 +1283,7 @@ mod tests {
             let service = builder.commands().spawn_service(gate_access_test_open_loop);
 
             let buffer = builder.create_buffer(BufferSettings::keep_all());
-            builder.connect(scope.input, buffer.input_slot());
+            builder.connect(scope.start, buffer.input_slot());
             builder
                 .listen(buffer)
                 .then_gate_close(buffer)
@@ -1347,7 +1341,7 @@ mod tests {
                 .spawn_service(gate_access_test_closed_loop);
 
             let buffer = builder.create_buffer(BufferSettings::keep_all());
-            builder.connect(scope.input, buffer.input_slot());
+            builder.connect(scope.start, buffer.input_slot());
             builder.listen(buffer).then(service).fork_unzip((
                 |chain: Chain<_>| {
                     chain
@@ -1386,7 +1380,7 @@ mod tests {
         let workflow = context.spawn_io_workflow(|scope, builder| {
             let message_buffer = builder.create_buffer(Default::default()).join_by_cloning();
             let count_buffer = builder.create_buffer(Default::default());
-            let (message, count) = builder.chain(scope.input).unzip();
+            let (message, count) = builder.chain(scope.start).unzip();
             builder.connect(message, message_buffer.input_slot());
             builder.connect(count, count_buffer.input_slot());
 
@@ -1459,7 +1453,7 @@ mod tests {
         let workflow = context.spawn_io_workflow(|scope, builder| {
             let buffer = builder.create_buffer(BufferSettings::keep_all());
             builder
-                .chain(scope.input)
+                .chain(scope.start)
                 .with_access(buffer)
                 .then(push_values.into_blocking_callback())
                 .with_access(buffer)
