@@ -20,7 +20,7 @@ use bevy_ecs::prelude::World;
 use async_task::Runnable;
 pub(crate) use bevy_tasks::{Task as TaskHandle, TaskPool};
 use tokio::sync::mpsc::{
-    unbounded_channel, UnboundedReceiver as TokioReceiver, UnboundedSender as TokioSender,
+    UnboundedReceiver as TokioReceiver, UnboundedSender as TokioSender, unbounded_channel,
 };
 
 use std::{future::Future, pin::Pin};

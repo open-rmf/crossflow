@@ -18,7 +18,7 @@
 use bevy_ecs::prelude::{Bundle, Component, Entity, Resource, World};
 
 use tokio::sync::mpsc::{
-    unbounded_channel, UnboundedReceiver as TokioReceiver, UnboundedSender as TokioSender,
+    UnboundedReceiver as TokioReceiver, UnboundedSender as TokioSender, unbounded_channel,
 };
 
 use anyhow::anyhow;
@@ -26,8 +26,8 @@ use anyhow::anyhow;
 use std::{collections::VecDeque, sync::Arc};
 
 use crate::{
-    dispose_for_despawned_service, DeliveryInstructions, MiscellaneousFailure, OperationError,
-    OperationRequest, OperationRoster, PendingOperationRequest, ServiceTrait, UnhandledErrors,
+    DeliveryInstructions, MiscellaneousFailure, OperationError, OperationRequest, OperationRoster,
+    PendingOperationRequest, ServiceTrait, UnhandledErrors, dispose_for_despawned_service,
 };
 
 pub struct ServiceRequest<'a> {

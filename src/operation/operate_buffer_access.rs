@@ -18,7 +18,7 @@
 use bevy_ecs::prelude::{Component, Entity, World};
 
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     sync::Arc,
 };
 

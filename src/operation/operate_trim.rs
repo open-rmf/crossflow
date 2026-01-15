@@ -19,14 +19,14 @@ use bevy_ecs::prelude::{Component, Entity, World};
 
 use smallvec::SmallVec;
 
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 
 use crate::{
-    emit_disposal, immediately_downstream_of, Cancellation, CleanupContents, Disposal,
-    FinalizeCleanup, FinalizeCleanupRequest, Input, InputBundle, ManageCancellation, ManageInput,
-    Operation, OperationCleanup, OperationError, OperationReachability, OperationRequest,
-    OperationResult, OperationSetup, OrBroken, ReachabilityResult, ScopeEntryStorage, ScopeStorage,
-    SingleInputStorage, SingleTargetStorage, TrimBranch, TrimPoint, TrimPolicy,
+    Cancellation, CleanupContents, Disposal, FinalizeCleanup, FinalizeCleanupRequest, Input,
+    InputBundle, ManageCancellation, ManageInput, Operation, OperationCleanup, OperationError,
+    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
+    ReachabilityResult, ScopeEntryStorage, ScopeStorage, SingleInputStorage, SingleTargetStorage,
+    TrimBranch, TrimPoint, TrimPolicy, emit_disposal, immediately_downstream_of,
 };
 
 pub(crate) struct Trim<T> {

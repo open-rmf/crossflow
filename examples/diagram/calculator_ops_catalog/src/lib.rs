@@ -5,7 +5,7 @@ use crossflow::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Number, Value};
+use serde_json::{Number, Value, json};
 
 #[derive(Clone, Copy, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]

@@ -1,7 +1,7 @@
 use crossflow::{CrossflowExecutorApp, DiagramElementRegistry, NodeBuilderOptions};
 use crossflow_diagram_editor::api::executor::ExecutorOptions;
 
-use super::{init_wasm, setup_wasm, InitOptions};
+use super::{InitOptions, init_wasm, setup_wasm};
 
 init_wasm! {
     let mut app = bevy_app::SubApp::new();

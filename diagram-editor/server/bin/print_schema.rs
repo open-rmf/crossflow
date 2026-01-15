@@ -1,6 +1,6 @@
 use crossflow_diagram_editor::api::{
-    executor::{DebugSessionMessage, PostRunRequest},
     RegistryResponse,
+    executor::{DebugSessionMessage, PostRunRequest},
 };
 use indexmap::IndexMap;
 use schemars::SchemaGenerator;

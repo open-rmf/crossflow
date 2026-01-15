@@ -171,7 +171,7 @@ mod tests {
     ) {
     }
 
-    fn async_exclusive_system(In(_): In<i32>, _: &mut World) -> impl Future<Output = ()> {
+    fn async_exclusive_system(In(_): In<i32>, _: &mut World) -> impl Future<Output = ()> + use<> {
         async {}
     }
 
@@ -179,14 +179,14 @@ mod tests {
         In(_): In<i32>,
         _: &mut World,
         _: &mut QueryState<&mut TestComponent>,
-    ) -> impl Future<Output = ()> {
+    ) -> impl Future<Output = ()> + use<> {
         async {}
     }
 
     fn async_exclusive_service(
         In(_): AsyncServiceInput<i32>,
         _: &mut World,
-    ) -> impl Future<Output = ()> {
+    ) -> impl Future<Output = ()> + use<> {
         async {}
     }
 
@@ -194,14 +194,14 @@ mod tests {
         In(_): AsyncServiceInput<i32>,
         _: &mut World,
         _: &mut QueryState<&mut TestComponent>,
-    ) -> impl Future<Output = ()> {
+    ) -> impl Future<Output = ()> + use<> {
         async {}
     }
 
     fn async_exclusive_callback(
         In(_): AsyncCallbackInput<i32>,
         _: &mut World,
-    ) -> impl Future<Output = ()> {
+    ) -> impl Future<Output = ()> + use<> {
         async {}
     }
 
@@ -209,7 +209,7 @@ mod tests {
         In(_): AsyncCallbackInput<i32>,
         _: &mut World,
         _: &mut QueryState<&mut TestComponent>,
-    ) -> impl Future<Output = ()> {
+    ) -> impl Future<Output = ()> + use<> {
         async {}
     }
 

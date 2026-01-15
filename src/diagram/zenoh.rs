@@ -19,10 +19,10 @@ use super::*;
 use crate::{prelude::*, utils::*};
 
 use ::zenoh::{
+    Session,
     bytes::{Encoding, ZBytes},
     qos::{CongestionControl, Priority},
     sample::{Locality, Sample},
-    Session,
 };
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{
@@ -31,7 +31,7 @@ use bevy_ecs::{
 };
 use futures::future::Shared;
 use prost_reflect::{
-    prost::Message, DescriptorPool, DynamicMessage, MessageDescriptor, SerializeOptions,
+    DescriptorPool, DynamicMessage, MessageDescriptor, SerializeOptions, prost::Message,
 };
 use std::{error::Error, future::Future, sync::Mutex};
 use thiserror::Error as ThisError;

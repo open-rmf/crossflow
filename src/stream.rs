@@ -230,11 +230,13 @@ pub(crate) mod tests {
         let mut recipient = context.command(|commands| commands.request(10, provider).take());
 
         context.run_with_conditions(&mut recipient.response, Duration::from_secs(2));
-        assert!(recipient
-            .response
-            .take()
-            .available()
-            .is_some_and(|v| v == 10));
+        assert!(
+            recipient
+                .response
+                .take()
+                .available()
+                .is_some_and(|v| v == 10)
+        );
 
         let mut stream: Vec<u32> = Vec::new();
         while let Ok(r) = recipient.streams.try_recv() {
@@ -1079,7 +1081,7 @@ pub(crate) mod tests {
 
     fn validate_dynamically_named_streams(
         provider: impl Provider<Request = NamedInputs, Response = (), Streams = TestDynamicNamedStreams>
-            + Clone,
+        + Clone,
         context: &mut TestingContext,
     ) {
         let expected_values_u32 = vec![

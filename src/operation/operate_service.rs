@@ -16,11 +16,11 @@
 */
 
 use crate::{
-    dispatch_service, ActiveContinuousSessions, ActiveTasksStorage, Delivery, DeliveryInstructions,
-    Disposal, DisposalFailure, Input, InputBundle, ManageDisposal, ManageInput, Operation,
-    OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationRoster,
-    OperationSetup, OrBroken, ReachabilityResult, ServiceInstructions, ServiceRequest,
-    SingleInputStorage, SingleTargetStorage, UnhandledErrors, WorkflowHooks,
+    ActiveContinuousSessions, ActiveTasksStorage, Delivery, DeliveryInstructions, Disposal,
+    DisposalFailure, Input, InputBundle, ManageDisposal, ManageInput, Operation, OperationCleanup,
+    OperationReachability, OperationRequest, OperationResult, OperationRoster, OperationSetup,
+    OrBroken, ReachabilityResult, ServiceInstructions, ServiceRequest, SingleInputStorage,
+    SingleTargetStorage, UnhandledErrors, WorkflowHooks, dispatch_service,
 };
 
 use bevy_ecs::{

@@ -1328,7 +1328,7 @@ use std::future::Future;
 fn fetch_page_title(
     In(srv): AsyncServiceInput<Entity>,
     url: Query<&Url>,
-) -> impl Future<Output = Result<String, ()>> {
+) -> impl Future<Output = Result<String, ()>> + use<> {
     // Use a query to get the Url component of this entity
     let url = url.get(srv.request).cloned();
 
@@ -1442,7 +1442,7 @@ struct NavigationRequest {
 fn navigate(
     In(input): AsyncServiceInput<NavigationRequest, NavigationStreams>,
     nav_graph: Res<NavigationGraph>,
-) -> impl Future<Output = Result<(), NavigationError>> {
+) -> impl Future<Output = Result<(), NavigationError>> + use<> {
     // Clone the nevigation graph resource so we can move the clone into the
     // async block.
     let nav_graph = (*nav_graph).clone();
@@ -1855,7 +1855,7 @@ struct Url(String);
 fn get_page_element(
     In(element): In<String>,
     url: Res<Url>,
-) -> impl Future<Output = Option<String>> {
+) -> impl Future<Output = Option<String>> + use<> {
     let url = (**url).clone();
     async move {
         let content = fetch_content_from_url(url).await?;

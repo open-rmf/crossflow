@@ -391,6 +391,10 @@ impl Plugin for CrossflowExecutorApp {
 
 pub mod prelude {
     pub use crate::{
+        AsyncCallback, AsyncCallbackInput, AsyncMap, AsyncService, AsyncServiceInput,
+        BlockingCallback, BlockingCallbackInput, BlockingMap, BlockingService,
+        BlockingServiceInput, ContinuousQuery, ContinuousService, ContinuousServiceInput,
+        CrossflowExecutorApp, CrossflowPlugin,
         buffer::{
             Accessible, Accessor, AnyBuffer, AnyBufferKey, AnyBufferMut, AnyBufferWorldAccess,
             AnyMessageBox, AsAnyBuffer, Buffer, BufferAccess, BufferAccessMut, BufferGateAccess,
@@ -410,17 +414,13 @@ pub mod prelude {
         request::{RequestExt, RunCommandsOnWorldExt},
         series::{Recipient, Series},
         service::{
-            traits::*, AddContinuousServicesExt, AddServicesExt, AsDeliveryInstructions,
-            DeliveryInstructions, DeliveryLabel, DeliveryLabelId, IntoAsyncService,
-            IntoBlockingService, Service, ServiceDiscovery, ServiceInstructions, SpawnServicesExt,
+            AddContinuousServicesExt, AddServicesExt, AsDeliveryInstructions, DeliveryInstructions,
+            DeliveryLabel, DeliveryLabelId, IntoAsyncService, IntoBlockingService, Service,
+            ServiceDiscovery, ServiceInstructions, SpawnServicesExt, traits::*,
         },
         stream::{DynamicallyNamedStream, NamedValue, Stream, StreamFilter, StreamOf, StreamPack},
         trim::{TrimBranch, TrimPoint},
         workflow::{DeliverySettings, Scope, ScopeSettings, SpawnWorkflowExt, WorkflowSettings},
-        AsyncCallback, AsyncCallbackInput, AsyncMap, AsyncService, AsyncServiceInput,
-        BlockingCallback, BlockingCallbackInput, BlockingMap, BlockingService,
-        BlockingServiceInput, ContinuousQuery, ContinuousService, ContinuousServiceInput,
-        CrossflowExecutorApp, CrossflowPlugin,
     };
 
     pub use bevy_ecs::prelude::{In, World};

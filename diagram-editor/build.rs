@@ -6,7 +6,7 @@
 
 #[cfg(feature = "frontend")]
 mod frontend {
-    use flate2::{write::GzEncoder, Compression};
+    use flate2::{Compression, write::GzEncoder};
     use std::fs::File;
     use std::io::{BufReader, Read};
     use std::path::{Path, PathBuf};
@@ -115,7 +115,9 @@ mod frontend {
                 break;
             }
             if a.is_none() || b.is_none() || a.unwrap().unwrap() != b.unwrap().unwrap() {
-                println!("cargo::error=Frontend has changed, run `BUILD_FRONTEND=1 cargo build` to update it");
+                println!(
+                    "cargo::error=Frontend has changed, run `BUILD_FRONTEND=1 cargo build` to update it"
+                );
                 return;
             }
         }

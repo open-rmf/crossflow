@@ -16,14 +16,14 @@
 */
 
 use crate::{
-    async_execution::{spawn_task, task_cancel_sender},
-    dispose_for_despawned_service, emit_disposal, insert_new_order, pop_next_delivery,
-    service::service_builder::{ParallelChosen, SerialChosen},
     AsyncService, AsyncServiceInput, Blocker, Channel, ChannelQueue, ChooseAsyncServiceDelivery,
     Deliver, Delivery, DeliveryOrder, DeliveryUpdate, Disposal, Input, IntoService, ManageInput,
     OperateTask, OperationError, OperationRequest, OperationResult, OperationRoster, OrBroken,
     Sendish, ServiceBuilder, ServiceBundle, ServiceRequest, ServiceTrait, SingleTargetStorage,
     StopTask, StopTaskFailure, StreamPack, UnhandledErrors,
+    async_execution::{spawn_task, task_cancel_sender},
+    dispose_for_despawned_service, emit_disposal, insert_new_order, pop_next_delivery,
+    service::service_builder::{ParallelChosen, SerialChosen},
 };
 
 use bevy_ecs::{

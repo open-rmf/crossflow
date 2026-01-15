@@ -29,20 +29,20 @@ use bevy_ecs::{
     system::SystemState,
 };
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 pub use serde_json::Value as JsonMessage;
 
 use smallvec::SmallVec;
 
 use crate::{
-    add_listener_to_source, Accessing, Accessor, AnyBuffer, AnyBufferAccessInterface, AnyBufferKey,
-    AnyRange, AsAnyBuffer, Buffer, BufferAccessMut, BufferAccessors, BufferError, BufferIdentifier,
-    BufferKey, BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferMap,
-    BufferMapLayout, BufferMapStruct, BufferStorage, Bufferable, Buffering, Builder,
-    CloneFromBuffer, DrainBuffer, Gate, GateState, IncompatibleLayout, InspectBuffer, JoinBehavior,
-    Joined, Joining, ManageBuffer, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
-    NotifyBufferUpdate, OperationError, OperationResult, OrBroken,
+    Accessing, Accessor, AnyBuffer, AnyBufferAccessInterface, AnyBufferKey, AnyRange, AsAnyBuffer,
+    Buffer, BufferAccessMut, BufferAccessors, BufferError, BufferIdentifier, BufferKey,
+    BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferMap, BufferMapLayout,
+    BufferMapStruct, BufferStorage, Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer,
+    Gate, GateState, IncompatibleLayout, InspectBuffer, JoinBehavior, Joined, Joining,
+    ManageBuffer, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
+    NotifyBufferUpdate, OperationError, OperationResult, OrBroken, add_listener_to_source,
 };
 
 /// A [`Buffer`] whose message type has been anonymized, but which is known to
@@ -641,7 +641,7 @@ trait JsonBufferViewing {
 trait JsonBufferManagement: JsonBufferViewing {
     fn json_push(&mut self, session: Entity, value: JsonMessage) -> JsonMessagePushResult;
     fn json_push_as_oldest(&mut self, session: Entity, value: JsonMessage)
-        -> JsonMessagePushResult;
+    -> JsonMessagePushResult;
     fn json_pull(&mut self, session: Entity) -> JsonMessageViewResult;
     fn json_pull_newest(&mut self, session: Entity) -> JsonMessageViewResult;
     fn json_oldest_mut<'a>(
@@ -1364,7 +1364,7 @@ impl Joining for HashMap<BufferIdentifier<'static>, JsonBuffer> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::*, testing::*, AddBufferToMap};
+    use crate::{AddBufferToMap, prelude::*, testing::*};
     use bevy_ecs::prelude::World;
     use serde::{Deserialize, Serialize};
 

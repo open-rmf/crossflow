@@ -27,10 +27,10 @@ use smallvec::SmallVec;
 use bevy_ecs::prelude::{Entity, World};
 
 use crate::{
-    add_listener_to_source, Accessing, AnyBuffer, AnyBufferKey, AnyMessageBox, AsAnyBuffer, Buffer,
-    BufferKeyBuilder, BufferKeyLifecycle, Bufferable, Buffering, Builder, Chain, CloneFromBuffer,
-    FetchFromBuffer, Gate, GateState, Joining, Node, OperationError, OperationResult,
-    OperationRoster, TypeInfo,
+    Accessing, AnyBuffer, AnyBufferKey, AnyMessageBox, AsAnyBuffer, Buffer, BufferKeyBuilder,
+    BufferKeyLifecycle, Bufferable, Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer,
+    Gate, GateState, Joining, Node, OperationError, OperationResult, OperationRoster, TypeInfo,
+    add_listener_to_source,
 };
 
 pub use crossflow_derive::{Accessor, Joined};
@@ -856,7 +856,7 @@ impl<B: 'static + Send + Sync + AsAnyBuffer + Clone, const N: usize> BufferMapLa
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::*, testing::*, AddBufferToMap, BufferMap};
+    use crate::{AddBufferToMap, BufferMap, prelude::*, testing::*};
 
     #[derive(Joined)]
     struct TestJoinedValue<T: Send + Sync + 'static + Clone> {

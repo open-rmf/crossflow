@@ -29,7 +29,7 @@ use derive_stream_pack::impl_stream_pack;
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, ItemStruct};
+use syn::{DeriveInput, ItemStruct, parse_macro_input};
 
 #[proc_macro_derive(Stream)]
 pub fn derive_stream(item: TokenStream) -> TokenStream {

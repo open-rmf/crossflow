@@ -791,7 +791,7 @@ impl<Request, Response, Streams> Provider for ServiceInstructions<Request, Respo
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::*, testing::*, ServiceMarker};
+    use crate::{ServiceMarker, prelude::*, testing::*};
     use bevy_app::{PostUpdate, PreUpdate, Startup};
     use bevy_ecs::{
         prelude::*,
@@ -903,7 +903,7 @@ mod tests {
     fn sys_async_service(
         In(AsyncService { request, .. }): AsyncServiceInput<String>,
         people: Query<&TestPeople>,
-    ) -> impl Future<Output = u64> {
+    ) -> impl Future<Output = u64> + use<> {
         let mut matching_people = Vec::new();
         for person in &people {
             if person.name == request {

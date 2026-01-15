@@ -22,14 +22,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    is_default, Builder, ForRemaining, FromSequential, FromSpecific, ListSplitKey, MapSplitKey,
-    OperationResult, SplitDispatcher, Splittable,
+    Builder, ForRemaining, FromSequential, FromSpecific, ListSplitKey, MapSplitKey,
+    OperationResult, SplitDispatcher, Splittable, is_default,
 };
 
 use super::{
-    supported::*, BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode,
-    DynInputSlot, DynOutput, MessageRegistration, MessageRegistry, NextOperation, OperationName,
-    RegisterClone, SerializeMessage, TraceInfo, TraceSettings, TypeInfo,
+    BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode, DynInputSlot, DynOutput,
+    MessageRegistration, MessageRegistry, NextOperation, OperationName, RegisterClone,
+    SerializeMessage, TraceInfo, TraceSettings, TypeInfo, supported::*,
 };
 
 /// If the input message is a list-like or map-like object, split it into

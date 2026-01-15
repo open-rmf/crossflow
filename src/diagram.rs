@@ -69,16 +69,17 @@ use std::{
 
 pub use crate::type_info::TypeInfo;
 use crate::{
-    is_default, BufferIdentifier, Builder, IncompatibleLayout, IncrementalScopeError, JsonMessage,
+    BufferIdentifier, Builder, IncompatibleLayout, IncrementalScopeError, JsonMessage,
     MessageTypeHint, Scope, Service, SpawnWorkflowExt, SplitConnectionError, StreamPack,
+    is_default,
 };
 
-use schemars::{json_schema, JsonSchema, Schema, SchemaGenerator};
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 
 use serde::{
+    Deserialize, Deserializer, Serialize, Serializer,
     de::{Error, Visitor},
     ser::SerializeMap,
-    Deserialize, Deserializer, Serialize, Serializer,
 };
 
 use thiserror::Error as ThisError;
@@ -831,7 +832,9 @@ pub enum DiagramErrorCode {
     #[error("Operation [{0}] attempted to instantiate a duplicate buffer.")]
     DuplicateBuffersCreated(OperationRef),
 
-    #[error("Missing a connection to start or terminate. A workflow cannot run with a valid connection to each.")]
+    #[error(
+        "Missing a connection to start or terminate. A workflow cannot run with a valid connection to each."
+    )]
     MissingStartOrTerminate,
 
     #[error("Serialization was not registered for the target message type.")]
@@ -846,7 +849,9 @@ pub enum DiagramErrorCode {
     #[error("The target message type does not support unzipping. Type: {0}")]
     NotUnzippable(TypeInfo),
 
-    #[error("The number of elements in the unzip expected by the diagram [{expected}] is different from the real number [{actual}]")]
+    #[error(
+        "The number of elements in the unzip expected by the diagram [{expected}] is different from the real number [{actual}]"
+    )]
     UnzipMismatch {
         expected: usize,
         actual: usize,
@@ -858,7 +863,9 @@ pub enum DiagramErrorCode {
     )]
     CannotForkResult(TypeInfo),
 
-    #[error("Response cannot be split. Make sure to use .with_split() when building the node. Type: {0}")]
+    #[error(
+        "Response cannot be split. Make sure to use .with_split() when building the node. Type: {0}"
+    )]
     NotSplittable(TypeInfo),
 
     #[error(
@@ -875,7 +882,9 @@ pub enum DiagramErrorCode {
         available: Vec<BufferIdentifier<'static>>,
     },
 
-    #[error("Target type cannot be determined from [next] and [target_node] is not provided or cannot be inferred from.")]
+    #[error(
+        "Target type cannot be determined from [next] and [target_node] is not provided or cannot be inferred from."
+    )]
     UnknownTarget,
 
     #[error("There was an attempt to connect to an unknown operation: [{0}]")]
@@ -905,7 +914,9 @@ pub enum DiagramErrorCode {
     #[error("inconsistent type hints for the buffer message: {}", format_list(&.0))]
     InconsistentBufferHints(Vec<MessageTypeHint>),
 
-    #[error("This error should not happen, it means the implementation of buffer hints is broken. Identifier of missing hint: {0}")]
+    #[error(
+        "This error should not happen, it means the implementation of buffer hints is broken. Identifier of missing hint: {0}"
+    )]
     BrokenBufferMessageTypeHint(BufferIdentifier<'static>),
 
     #[error(transparent)]

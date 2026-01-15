@@ -196,7 +196,7 @@ from an async function.
 > fn my_async_service(
 >     In(srv): AsyncServiceInput<Request>,
 >     /* ... Bevy System Params Go Here ... */
-> ) -> impl Future<Output = Response> {
+> ) -> impl Future<Output = Response> + use<> {
 >     /* ... Use Bevy System params, cloning data as needed ... */
 >     async move {
 >         /* ... Perform async operations ... */

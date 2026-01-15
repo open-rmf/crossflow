@@ -21,9 +21,9 @@ use variadics_please::all_tuples;
 use std::sync::Arc;
 
 use crate::{
-    dyn_node::{DynStreamInputPack, DynStreamOutputPack},
     Builder, InnerChannel, OperationError, OperationResult, OperationRoster, StreamAvailability,
     StreamTargetMap, UnusedStreams,
+    dyn_node::{DynStreamInputPack, DynStreamOutputPack},
 };
 
 /// The `StreamPack` trait defines the interface for a pack of one or more streams.

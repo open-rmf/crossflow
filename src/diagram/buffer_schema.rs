@@ -328,10 +328,10 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        diagram::testing::DiagramTestFixture, Accessor, AnyBufferKey, AnyBufferWorldAccess,
-        BufferAccess, BufferAccessMut, BufferKey, BufferWorldAccess, Diagram, DiagramErrorCode,
-        IntoBlockingCallback, JsonBufferKey, JsonBufferWorldAccess, JsonMessage, Node,
-        NodeBuilderOptions,
+        Accessor, AnyBufferKey, AnyBufferWorldAccess, BufferAccess, BufferAccessMut, BufferKey,
+        BufferWorldAccess, Diagram, DiagramErrorCode, IntoBlockingCallback, JsonBufferKey,
+        JsonBufferWorldAccess, JsonMessage, Node, NodeBuilderOptions,
+        diagram::testing::DiagramTestFixture,
     };
 
     /// create a new [`DiagramTestFixture`] with some extra builders.

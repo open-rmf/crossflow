@@ -20,7 +20,7 @@ use bevy_ecs::prelude::{Commands, Component, Entity, World};
 use std::{
     any::TypeId,
     borrow::Cow,
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
 };
 
 use crate::{DuplicateStream, NamedTarget, NamedValue, UnhandledErrors};

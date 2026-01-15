@@ -447,10 +447,10 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        diagram::{testing::*, DiagramErrorCode, SectionError},
+        SectionBuilderOptions, TypeInfo,
+        diagram::{DiagramErrorCode, SectionError, testing::*},
         prelude::*,
         testing::*,
-        SectionBuilderOptions, TypeInfo,
     };
 
     #[derive(Section)]

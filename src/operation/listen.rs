@@ -18,10 +18,10 @@
 use bevy_ecs::prelude::Entity;
 
 use crate::{
-    buffer_key_usage, get_access_keys, Accessing, BufferAccessStorage, BufferKeyUsage,
-    FunnelInputStorage, Input, InputBundle, ManageInput, Operation, OperationCleanup,
-    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ReachabilityResult, SingleInputStorage, SingleTargetStorage,
+    Accessing, BufferAccessStorage, BufferKeyUsage, FunnelInputStorage, Input, InputBundle,
+    ManageInput, Operation, OperationCleanup, OperationReachability, OperationRequest,
+    OperationResult, OperationSetup, OrBroken, ReachabilityResult, SingleInputStorage,
+    SingleTargetStorage, buffer_key_usage, get_access_keys,
 };
 
 pub(crate) struct Listen<B> {

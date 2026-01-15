@@ -19,7 +19,7 @@ use std::iter::zip;
 
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
-use syn::{parse_quote_spanned, spanned::Spanned, Field, Ident, ItemStruct, Member, Type};
+use syn::{Field, Ident, ItemStruct, Member, Type, parse_quote_spanned, spanned::Spanned};
 
 use crate::Result;
 
@@ -60,7 +60,7 @@ pub(crate) fn impl_section(input_struct: &ItemStruct) -> Result<TokenStream> {
         })
         .collect();
 
-    let gen = quote! {
+    let tokens = quote! {
         impl #impl_generics ::crossflow::Section for #struct_ident #ty_generics #where_clause {
             fn into_slots(
                 self: Box<Self>,
@@ -111,7 +111,7 @@ pub(crate) fn impl_section(input_struct: &ItemStruct) -> Result<TokenStream> {
         }
     };
 
-    Ok(gen)
+    Ok(tokens)
 }
 
 struct FieldConfig {

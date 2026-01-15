@@ -21,7 +21,7 @@ use bevy_ecs::prelude::{In, Res};
 use futures::channel::oneshot::{self, Receiver as OneShotReceiver, Sender as OneShotSender};
 use std::time::Duration;
 use thiserror::Error as ThisError;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use zenoh_ext::{AdvancedPublisherBuilderExt, CacheConfig, MissDetectionConfig, RepliesConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]

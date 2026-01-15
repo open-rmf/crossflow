@@ -19,9 +19,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    supported::*, BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode,
-    DynInputSlot, DynOutput, MessageRegistration, MessageRegistry, NextOperation, OperationName,
-    RegisterClone, SerializeMessage, TraceInfo, TraceSettings, TypeInfo,
+    BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode, DynInputSlot, DynOutput,
+    MessageRegistration, MessageRegistry, NextOperation, OperationName, RegisterClone,
+    SerializeMessage, TraceInfo, TraceSettings, TypeInfo, supported::*,
 };
 
 pub struct DynForkResult {
@@ -140,7 +140,7 @@ mod tests {
     use test_log::test;
 
     use crate::{
-        diagram::testing::DiagramTestFixture, Builder, Diagram, JsonMessage, NodeBuilderOptions,
+        Builder, Diagram, JsonMessage, NodeBuilderOptions, diagram::testing::DiagramTestFixture,
     };
 
     #[test]

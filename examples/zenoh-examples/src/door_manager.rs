@@ -25,7 +25,7 @@ use tracing::error;
 use zenoh_examples::protos;
 
 use zenoh_examples::{
-    zenoh_publisher_node, zenoh_subscription_node, ArcError, ZenohCrossflowPlugin,
+    ArcError, ZenohCrossflowPlugin, zenoh_publisher_node, zenoh_subscription_node,
 };
 
 fn main() {

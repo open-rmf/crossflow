@@ -32,7 +32,7 @@ use anyhow::anyhow;
 
 use http::uri::PathAndQuery;
 
-use futures::{stream::once, FutureExt, Stream as FutureStream};
+use futures::{FutureExt, Stream as FutureStream, stream::once};
 use futures_lite::future::race;
 
 use prost::Message;
@@ -40,11 +40,11 @@ use prost_reflect::{
     DescriptorPool, DynamicMessage, MessageDescriptor, MethodDescriptor, SerializeOptions,
 };
 use tonic::{
+    Code, Request, Status,
     client::Grpc as Client,
     codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder},
     codegen::tokio_stream::wrappers::UnboundedReceiverStream,
     transport::Channel,
-    Code, Request, Status,
 };
 
 use schemars::JsonSchema;
@@ -52,7 +52,7 @@ use serde::{Deserialize, Serialize};
 
 use tokio::{
     runtime::Runtime,
-    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
     task::JoinHandle,
 };
 
@@ -483,19 +483,19 @@ mod tests {
     use futures::channel::oneshot::{self, Sender as OneShotSender};
     use prost_reflect::Kind;
     use protos::{
+        FibonacciReply, FibonacciRequest, NavigationGoal, NavigationUpdate,
         fibonacci_server::{Fibonacci, FibonacciServer},
         navigation_server::{Navigation, NavigationServer},
-        FibonacciReply, FibonacciRequest, NavigationGoal, NavigationUpdate,
     };
     use serde_json::json;
     use std::sync::Arc;
     use tokio::{
         runtime::Runtime,
-        sync::mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
+        sync::mpsc::{UnboundedReceiver, UnboundedSender, error::TryRecvError, unbounded_channel},
     };
     use tonic::{
-        codegen::tokio_stream::wrappers::UnboundedReceiverStream, transport::Server, Request,
-        Response, Status, Streaming,
+        Request, Response, Status, Streaming,
+        codegen::tokio_stream::wrappers::UnboundedReceiverStream, transport::Server,
     };
 
     #[test]

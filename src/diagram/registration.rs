@@ -16,7 +16,7 @@
 */
 
 use std::{
-    any::{type_name, Any},
+    any::{Any, type_name},
     borrow::{Borrow, Cow},
     cell::RefCell,
     collections::{HashMap, HashSet},
@@ -40,17 +40,17 @@ use crate::{
 #[cfg(feature = "trace")]
 use crate::Trace;
 
-use schemars::{generate::SchemaSettings, json_schema, JsonSchema, Schema, SchemaGenerator};
-use serde::{de::DeserializeOwned, ser::SerializeMap, Deserialize, Serialize};
+use schemars::{JsonSchema, Schema, SchemaGenerator, generate::SchemaSettings, json_schema};
+use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::SerializeMap};
 use serde_json::json;
 
 use super::{
+    BuilderId, DeserializeMessage, DiagramErrorCode, DynForkClone, DynForkResult, DynSplit,
+    DynType, JsonRegistration, RegisterJson, RegisterSplit, Section, SectionMetadata,
+    SectionMetadataProvider, SerializeMessage, SplitSchema, TransformError, TypeInfo,
     buffer_schema::BufferAccessRequest, fork_clone_schema::RegisterClone,
     fork_result_schema::RegisterForkResult, register_json, supported::*,
-    unzip_schema::PerformUnzip, BuilderId, DeserializeMessage, DiagramErrorCode, DynForkClone,
-    DynForkResult, DynSplit, DynType, JsonRegistration, RegisterJson, RegisterSplit, Section,
-    SectionMetadata, SectionMetadataProvider, SerializeMessage, SplitSchema, TransformError,
-    TypeInfo,
+    unzip_schema::PerformUnzip,
 };
 
 #[derive(Serialize, JsonSchema)]
@@ -202,8 +202,8 @@ impl<'a, DeserializeImpl, SerializeImpl, Cloneable>
         mut self,
         options: NodeBuilderOptions,
         mut f: impl FnMut(&mut Builder, Config) -> Result<Node<Request, Response, Streams>, Anyhow>
-            + Send
-            + 'static,
+        + Send
+        + 'static,
     ) -> NodeRegistrationBuilder<'a, Request, Response, Streams>
     where
         Config: JsonSchema + DeserializeOwned,
@@ -1467,8 +1467,8 @@ impl DiagramElementRegistry {
         &mut self,
         options: NodeBuilderOptions,
         builder: impl FnMut(&mut Builder, Config) -> Result<Node<Request, Response, Streams>, Anyhow>
-            + Send
-            + 'static,
+        + Send
+        + 'static,
     ) -> NodeRegistrationBuilder<'_, Request, Response, Streams>
     where
         Config: JsonSchema + DeserializeOwned,
@@ -1527,8 +1527,8 @@ impl DiagramElementRegistry {
         &mut self,
         options: SectionBuilderOptions,
         mut section_builder: impl FnMut(&mut Builder, Config) -> Result<SectionT, Anyhow>
-            + Send
-            + 'static,
+        + Send
+        + 'static,
     ) where
         SectionT: Section + SectionMetadataProvider + 'static,
         Config: DeserializeOwned + JsonSchema,
@@ -1903,12 +1903,14 @@ mod tests {
                 move |builder: &mut Builder, _config: ()| builder.create_map_block(vec_resp),
             )
             .with_split();
-        assert!(registry
-            .messages
-            .get::<Vec<i64>>()
-            .unwrap()
-            .operations
-            .splittable());
+        assert!(
+            registry
+                .messages
+                .get::<Vec<i64>>()
+                .unwrap()
+                .operations
+                .splittable()
+        );
 
         let map_resp = |_: ()| -> HashMap<String, i64> { HashMap::new() };
         registry
@@ -1917,12 +1919,14 @@ mod tests {
                 move |builder: &mut Builder, _config: ()| builder.create_map_block(map_resp),
             )
             .with_split();
-        assert!(registry
-            .messages
-            .get::<HashMap<String, i64>>()
-            .unwrap()
-            .operations
-            .splittable());
+        assert!(
+            registry
+                .messages
+                .get::<HashMap<String, i64>>()
+                .unwrap()
+                .operations
+                .splittable()
+        );
 
         registry.register_node_builder(
             NodeBuilderOptions::new("not_splittable").with_default_display_text("Test Name"),
@@ -1930,12 +1934,14 @@ mod tests {
         );
         // even though we didn't register with `with_split`, it is still splittable because we
         // previously registered another splittable node with the same response type.
-        assert!(registry
-            .messages
-            .get::<HashMap<String, i64>>()
-            .unwrap()
-            .operations
-            .splittable());
+        assert!(
+            registry
+                .messages
+                .get::<HashMap<String, i64>>()
+                .unwrap()
+                .operations
+                .splittable()
+        );
     }
 
     #[test]
@@ -1998,9 +2004,11 @@ mod tests {
                 },
             )
             .with_deserialize_request();
-        assert!(registry
-            .get_node_registration("opaque_response_map")
-            .is_ok());
+        assert!(
+            registry
+                .get_node_registration("opaque_response_map")
+                .is_ok()
+        );
         let req_ops = &registry.messages.get::<()>().unwrap().operations;
         let resp_ops = &registry
             .messages
@@ -2023,9 +2031,11 @@ mod tests {
                     builder.create_map_block(opaque_req_resp_map)
                 },
             );
-        assert!(registry
-            .get_node_registration("opaque_req_resp_map")
-            .is_ok());
+        assert!(
+            registry
+                .get_node_registration("opaque_req_resp_map")
+                .is_ok()
+        );
         let req_ops = &registry
             .messages
             .get::<NonSerializableRequest>()

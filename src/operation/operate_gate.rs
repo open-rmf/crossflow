@@ -18,9 +18,9 @@
 use bevy_ecs::prelude::{Component, Entity};
 
 use crate::{
-    emit_disposal, Buffering, Disposal, Gate, GateRequest, Input, InputBundle, ManageInput,
-    Operation, OperationCleanup, OperationReachability, OperationRequest, OperationResult,
-    OperationSetup, OrBroken, ReachabilityResult, SingleInputStorage, SingleTargetStorage,
+    Buffering, Disposal, Gate, GateRequest, Input, InputBundle, ManageInput, Operation,
+    OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationSetup,
+    OrBroken, ReachabilityResult, SingleInputStorage, SingleTargetStorage, emit_disposal,
 };
 
 #[derive(Component)]

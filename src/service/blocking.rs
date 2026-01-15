@@ -22,10 +22,10 @@ use bevy_ecs::{
 };
 
 use crate::{
-    dispose_for_despawned_service, make_stream_buffers_from_world,
-    service::service_builder::BlockingChosen, BlockingService, BlockingServiceInput, Input,
-    IntoService, ManageDisposal, ManageInput, OperationError, OperationRequest, OrBroken,
-    ServiceBundle, ServiceRequest, ServiceTrait, StreamPack, UnusedStreams,
+    BlockingService, BlockingServiceInput, Input, IntoService, ManageDisposal, ManageInput,
+    OperationError, OperationRequest, OrBroken, ServiceBundle, ServiceRequest, ServiceTrait,
+    StreamPack, UnusedStreams, dispose_for_despawned_service, make_stream_buffers_from_world,
+    service::service_builder::BlockingChosen,
 };
 
 pub struct Blocking<M>(std::marker::PhantomData<fn(M)>);

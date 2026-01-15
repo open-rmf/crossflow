@@ -923,7 +923,7 @@ pub enum BufferError {
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::*, testing::*, AddBufferToMap, Gate};
+    use crate::{AddBufferToMap, Gate, prelude::*, testing::*};
     use std::future::Future;
 
     #[test]
@@ -1001,10 +1001,12 @@ mod tests {
             context.command(|commands| commands.request((2.0, 3.0), workflow).take_response());
 
         context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise
-            .take()
-            .available()
-            .is_some_and(|value| value.is_err_and(|n| n == 5.0)));
+        assert!(
+            promise
+                .take()
+                .available()
+                .is_some_and(|value| value.is_err_and(|n| n == 5.0))
+        );
         assert!(context.no_unhandled_errors());
 
         // Same as previous test, but using Builder::create_buffer_access instead
@@ -1038,10 +1040,12 @@ mod tests {
             context.command(|commands| commands.request((2.0, 3.0), workflow).take_response());
 
         context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise
-            .take()
-            .available()
-            .is_some_and(|value| value.is_err_and(|n| n == 5.0)));
+        assert!(
+            promise
+                .take()
+                .available()
+                .is_some_and(|value| value.is_err_and(|n| n == 5.0))
+        );
         assert!(context.no_unhandled_errors());
     }
 
@@ -1180,10 +1184,12 @@ mod tests {
 
         context.run_while_pending(&mut promise);
         if expect_success {
-            assert!(promise
-                .take()
-                .available()
-                .is_some_and(|r| r.finished_with(initial_value)));
+            assert!(
+                promise
+                    .take()
+                    .available()
+                    .is_some_and(|r| r.finished_with(initial_value))
+            );
         } else {
             assert!(promise.take().is_cancelled());
         }
@@ -1250,7 +1256,7 @@ mod tests {
 
     fn async_decrement_register(
         In(input): In<AsyncCallback<(Register, BufferKey<Register>)>>,
-    ) -> impl Future<Output = Option<Register>> {
+    ) -> impl Future<Output = Option<Register>> + use<> {
         async move {
             input
                 .channel
@@ -1262,7 +1268,7 @@ mod tests {
 
     fn async_decrement_register_and_pass_keys(
         In(input): In<AsyncCallback<(Register, BufferKey<Register>)>>,
-    ) -> impl Future<Output = Option<(Register, BufferKey<Register>)>> {
+    ) -> impl Future<Output = Option<(Register, BufferKey<Register>)>> + use<> {
         async move {
             input
                 .channel

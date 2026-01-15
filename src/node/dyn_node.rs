@@ -19,12 +19,12 @@ use bevy_ecs::prelude::Entity;
 use std::{
     any::Any,
     borrow::Cow,
-    collections::{hash_map::Keys as HashMapKeys, HashMap},
+    collections::{HashMap, hash_map::Keys as HashMapKeys},
 };
 use thiserror::Error as ThisError;
 
 use crate::{
-    type_info::TypeInfo, AnyBuffer, Builder, Connect, InputSlot, Node, Output, StreamPack,
+    AnyBuffer, Builder, Connect, InputSlot, Node, Output, StreamPack, type_info::TypeInfo,
 };
 
 /// A type erased [`Node`]

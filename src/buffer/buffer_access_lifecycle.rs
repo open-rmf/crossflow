@@ -21,7 +21,7 @@ use tokio::sync::mpsc::UnboundedSender as TokioSender;
 
 use std::sync::Arc;
 
-use crate::{emit_disposal, BufferKeyBuilder, ChannelItem, Disposal, OperationRoster};
+use crate::{BufferKeyBuilder, ChannelItem, Disposal, OperationRoster, emit_disposal};
 
 /// This is used as a field inside of [`crate::BufferKey`] which keeps track of
 /// when a key that was sent out into the world gets fully dropped from use. We

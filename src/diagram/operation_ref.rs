@@ -21,11 +21,11 @@ use std::{borrow::Cow, sync::Arc};
 
 use super::{BuiltinTarget, NamespacedOperation, NextOperation, OperationName};
 
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 
 use serde::{Deserialize, Serialize};
 
-use schemars::{json_schema, JsonSchema};
+use schemars::{JsonSchema, json_schema};
 
 /// This enum allows every operation within a workflow to have a unique key,
 /// even if it is nested inside other operations.

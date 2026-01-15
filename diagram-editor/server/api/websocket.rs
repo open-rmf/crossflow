@@ -2,7 +2,7 @@
 use axum::extract::ws::{Message, Utf8Bytes};
 #[cfg(feature = "router")]
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 #[cfg(feature = "router")]
 use std::fmt::Display;
 use std::ops::Deref;
