@@ -307,9 +307,8 @@ pub(crate) mod tests {
 
         let make_workflow = |service: Service<String, (), FormatStreams>| {
             move |scope: Scope<String, (), FormatStreams>, builder: &mut Builder| {
-                let node = scope
-                    .input
-                    .chain(builder)
+                let node = builder
+                    .chain(scope.start)
                     .map_block(move |value| (value, service.into()))
                     .then_injection_node();
 
@@ -332,9 +331,8 @@ pub(crate) mod tests {
         validate_formatting_stream(continuous_injection_workflow, &mut context);
 
         let nested_workflow = context.spawn_workflow::<_, _, FormatStreams, _>(|scope, builder| {
-            let inner_node = scope
-                .input
-                .chain(builder)
+            let inner_node = builder
+                .chain(scope.start)
                 .then_node(continuous_injection_workflow);
             builder.connect(inner_node.streams.0, scope.streams.0);
             builder.connect(inner_node.streams.1, scope.streams.1);
@@ -346,7 +344,7 @@ pub(crate) mod tests {
         let double_nested_workflow =
             context.spawn_workflow::<_, _, FormatStreams, _>(|scope, builder| {
                 let inner_node = builder.create_node(nested_workflow);
-                builder.connect(scope.input, inner_node.input);
+                builder.connect(scope.start, inner_node.input);
                 builder.connect(inner_node.streams.0, scope.streams.0);
                 builder.connect(inner_node.streams.1, scope.streams.1);
                 builder.connect(inner_node.streams.2, scope.streams.2);
@@ -554,9 +552,8 @@ pub(crate) mod tests {
 
         let make_workflow = |service: Service<Vec<String>, (), TestStreamPack>| {
             move |scope: Scope<Vec<String>, (), TestStreamPack>, builder: &mut Builder| {
-                let node = scope
-                    .input
-                    .chain(builder)
+                let node = builder
+                    .chain(scope.start)
                     .map_block(move |value| (value, service.into()))
                     .then_injection_node();
 
@@ -580,7 +577,7 @@ pub(crate) mod tests {
 
         let nested_workflow =
             context.spawn_workflow::<_, _, TestStreamPack, _>(|scope, builder| {
-                let node = scope.input.chain(builder).then_node(parse_continuous_srv);
+                let node = builder.chain(scope.start).then_node(parse_continuous_srv);
 
                 builder.connect(node.streams.stream_u32, scope.streams.stream_u32);
                 builder.connect(node.streams.stream_i32, scope.streams.stream_i32);
@@ -592,7 +589,7 @@ pub(crate) mod tests {
 
         let double_nested_workflow =
             context.spawn_workflow::<_, _, TestStreamPack, _>(|scope, builder| {
-                let node = scope.input.chain(builder).then_node(nested_workflow);
+                let node = builder.chain(scope.start).then_node(nested_workflow);
 
                 builder.connect(node.streams.stream_u32, scope.streams.stream_u32);
                 builder.connect(node.streams.stream_i32, scope.streams.stream_i32);
@@ -606,7 +603,7 @@ pub(crate) mod tests {
             context.spawn_workflow::<_, _, TestStreamPack, _>(|scope, builder| {
                 let inner_scope =
                     builder.create_scope::<_, _, TestStreamPack, _>(|scope, builder| {
-                        let node = scope.input.chain(builder).then_node(parse_continuous_srv);
+                        let node = builder.chain(scope.start).then_node(parse_continuous_srv);
 
                         builder.connect(node.streams.stream_u32, scope.streams.stream_u32);
                         builder.connect(node.streams.stream_i32, scope.streams.stream_i32);
@@ -615,7 +612,7 @@ pub(crate) mod tests {
                         builder.connect(node.output, scope.terminate);
                     });
 
-                builder.connect(scope.input, inner_scope.input);
+                builder.connect(scope.start, inner_scope.input);
 
                 builder.connect(inner_scope.streams.stream_u32, scope.streams.stream_u32);
                 builder.connect(inner_scope.streams.stream_i32, scope.streams.stream_i32);
@@ -630,7 +627,7 @@ pub(crate) mod tests {
 
         let dyn_stream_workflow =
             context.spawn_workflow::<Vec<String>, (), TestStreamPack, _>(|scope, builder| {
-                let dyn_scope_input: DynOutput = scope.input.into();
+                let dyn_scope_input: DynOutput = scope.start.into();
 
                 let node = builder.create_node(parse_continuous_srv);
                 let mut dyn_node: DynNode = node.into();
@@ -990,9 +987,8 @@ pub(crate) mod tests {
 
         let make_workflow = |service: Service<NamedInputs, (), TestDynamicNamedStreams>| {
             move |scope: Scope<NamedInputs, (), TestDynamicNamedStreams>, builder: &mut Builder| {
-                let node = scope
-                    .input
-                    .chain(builder)
+                let node = builder
+                    .chain(scope.start)
                     .map_block(move |value| (value, service.into()))
                     .then_injection_node();
 
@@ -1016,7 +1012,7 @@ pub(crate) mod tests {
 
         let nested_workflow =
             context.spawn_workflow::<_, _, TestDynamicNamedStreams, _>(|scope, builder| {
-                let node = scope.input.chain(builder).then_node(parse_continuous_srv);
+                let node = builder.chain(scope.start).then_node(parse_continuous_srv);
 
                 builder.connect(node.streams.0, scope.streams.0);
                 builder.connect(node.streams.1, scope.streams.1);
@@ -1028,7 +1024,7 @@ pub(crate) mod tests {
 
         let double_nested_workflow =
             context.spawn_workflow::<_, _, TestDynamicNamedStreams, _>(|scope, builder| {
-                let node = scope.input.chain(builder).then_node(nested_workflow);
+                let node = builder.chain(scope.start).then_node(nested_workflow);
 
                 builder.connect(node.streams.0, scope.streams.0);
                 builder.connect(node.streams.1, scope.streams.1);
@@ -1042,7 +1038,7 @@ pub(crate) mod tests {
             context.spawn_workflow::<_, _, TestDynamicNamedStreams, _>(|scope, builder| {
                 let inner_scope =
                     builder.create_scope::<_, _, TestDynamicNamedStreams, _>(|scope, builder| {
-                        let node = scope.input.chain(builder).then_node(parse_continuous_srv);
+                        let node = builder.chain(scope.start).then_node(parse_continuous_srv);
 
                         builder.connect(node.streams.0, scope.streams.0);
                         builder.connect(node.streams.1, scope.streams.1);
@@ -1051,7 +1047,7 @@ pub(crate) mod tests {
                         builder.connect(node.output, scope.terminate);
                     });
 
-                builder.connect(scope.input, inner_scope.input);
+                builder.connect(scope.start, inner_scope.input);
 
                 builder.connect(inner_scope.streams.0, scope.streams.0);
                 builder.connect(inner_scope.streams.1, scope.streams.1);

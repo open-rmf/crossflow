@@ -75,7 +75,7 @@ pub trait SpawnWorkflowExt {
 pub struct Scope<Request, Response, Streams: StreamPack = ()> {
     /// The data entering the scope. The workflow of the scope must be built
     /// out from here.
-    pub input: Output<Request>,
+    pub start: Output<Request>,
     /// The slot that the final output of the scope must connect into. Once you
     /// provide an input into this slot, the entire session of the scope will
     /// wind down. The input will be passed out of the scope once all
@@ -252,7 +252,7 @@ impl<'w, 's> SpawnWorkflowExt for Commands<'w, 's> {
         let streams = Streams::spawn_workflow_streams(&mut builder);
 
         let scope = Scope {
-            input: Output::new(scope_id, enter_scope),
+            start: Output::new(scope_id, enter_scope),
             terminate: InputSlot::new(scope_id, terminal),
             streams,
         };
@@ -306,9 +306,8 @@ mod tests {
         let mut context = TestingContext::minimal_plugins();
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .map_block(add)
                 .connect(scope.terminate);
         });
@@ -322,7 +321,7 @@ mod tests {
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
             let add_node = builder.create_map_block(add);
-            builder.connect(scope.input, add_node.input);
+            builder.connect(scope.start, add_node.input);
             builder.connect(add_node.output, scope.terminate);
         });
 

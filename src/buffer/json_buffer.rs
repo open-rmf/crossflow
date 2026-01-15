@@ -1398,9 +1398,8 @@ mod tests {
                 .commands()
                 .spawn_service(get_buffer_count.into_blocking_service());
 
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .with_access(buffer)
                 .then(push_multiple_times)
                 .then(count)
@@ -1449,9 +1448,8 @@ mod tests {
                 .commands()
                 .spawn_service(pull_each_buffer_item.into_blocking_service());
 
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .with_access(buffer)
                 .then(push_multiple_times)
                 .then(modify_content)
@@ -1521,9 +1519,8 @@ mod tests {
                 .commands()
                 .spawn_service(drain_buffer_contents.into_blocking_service());
 
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .with_access(buffer)
                 .then(push_multiple_times)
                 .then(modify_content)
@@ -1569,7 +1566,7 @@ mod tests {
                 .create_buffer::<TestMessage>(BufferSettings::default())
                 .into();
 
-            scope.input.chain(builder).fork_clone((
+            builder.chain(scope.start).fork_clone((
                 |chain: Chain<_>| {
                     chain
                         .map_block(|mut msg: TestMessage| {
@@ -1647,9 +1644,8 @@ mod tests {
             let _original_from_json: Buffer<TestMessage> =
                 json_buffer.downcast_for_message().unwrap();
 
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .with_access(buffer)
                 .map_block(|(data, key)| {
                     let any_key: AnyBufferKey = key.clone().into();
@@ -1697,7 +1693,7 @@ mod tests {
             buffers.insert_buffer("float", buffer_f64);
             buffers.insert_buffer("json", buffer_json);
 
-            scope.input.chain(builder).fork_unzip((
+            builder.chain(scope.start).fork_unzip((
                 |chain: Chain<_>| chain.connect(buffer_i64.input_slot()),
                 |chain: Chain<_>| chain.connect(buffer_f64.input_slot()),
                 |chain: Chain<_>| chain.connect(buffer_json.input_slot()),
@@ -1735,7 +1731,7 @@ mod tests {
                 json: json_buffer.into(),
             };
 
-            scope.input.chain(builder).fork_unzip((
+            builder.chain(scope.start).fork_unzip((
                 |chain: Chain<_>| chain.connect(buffers.integer.input_slot()),
                 |chain: Chain<_>| chain.connect(buffers.float.input_slot()),
                 |chain: Chain<_>| chain.connect(json_buffer.input_slot()),
@@ -1772,7 +1768,7 @@ mod tests {
             let buffers =
                 TestJoinedValueJson::select_buffers(buffer_integer, buffer_float, buffer_json);
 
-            scope.input.chain(builder).fork_unzip((
+            builder.chain(scope.start).fork_unzip((
                 |chain: Chain<_>| chain.connect(buffers.integer.input_slot()),
                 |chain: Chain<_>| chain.connect(buffers.float.input_slot()),
                 |chain: Chain<_>| {
@@ -1814,9 +1810,8 @@ mod tests {
                 buffer_msg.into(),
             ];
 
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .map_block(|msg: TestMessage| (msg.v_u32, msg.v_i32, msg.v_string.clone(), msg))
                 .fork_unzip((
                     |chain: Chain<_>| chain.connect(buffer_u32.input_slot()),

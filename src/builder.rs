@@ -737,7 +737,7 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
         };
 
         let scope = Scope {
-            input: Output::new(scope_id, enter_scope),
+            start: Output::new(scope_id, enter_scope),
             terminate: InputSlot::new(scope_id, terminal),
             streams: stream_in,
         };
@@ -826,7 +826,7 @@ mod tests {
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
             let node = builder.create_map_block(|v| v);
-            builder.connect(scope.input, node.input);
+            builder.connect(scope.start, node.input);
             // Create a tight infinite loop that will never reach the terminal
             builder.connect(node.output, node.input);
         });
@@ -835,7 +835,7 @@ mod tests {
         check_unreachable(workflow, 1, &mut context);
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            scope.input.chain(builder).map_block(|v| v).fork_clone((
+            builder.chain(scope.start).map_block(|v| v).fork_clone((
                 |chain: Chain<()>| chain.map_block(|v| v).map_block(|v| v).unused(),
                 |chain: Chain<()>| chain.map_block(|v| v).map_block(|v| v).unused(),
                 |chain: Chain<()>| chain.map_block(|v| v).map_block(|v| v).unused(),
@@ -851,7 +851,7 @@ mod tests {
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
             let entry_buffer = builder.create_buffer::<()>(BufferSettings::keep_all());
-            scope.input.chain(builder).map_block(|v| v).fork_clone((
+            builder.chain(scope.start).map_block(|v| v).fork_clone((
                 |chain: Chain<()>| chain.map_block(|v| v).connect(entry_buffer.input_slot()),
                 |chain: Chain<()>| chain.map_block(|v| v).connect(entry_buffer.input_slot()),
                 |chain: Chain<()>| chain.map_block(|v| v).connect(entry_buffer.input_slot()),
@@ -893,7 +893,7 @@ mod tests {
         let mut context = TestingContext::minimal_plugins();
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            let fork = scope.input.fork_clone(builder);
+            let fork = scope.start.fork_clone(builder);
             let branch_a = fork.clone_output(builder);
             let branch_b = fork.clone_output(builder);
             builder.connect(branch_a, scope.terminate);
@@ -908,7 +908,7 @@ mod tests {
         assert!(context.no_unhandled_errors());
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            scope.input.chain(builder).fork_clone((
+            builder.chain(scope.start).fork_clone((
                 |chain: Chain<f64>| chain.connect(scope.terminate),
                 |chain: Chain<f64>| chain.connect(scope.terminate),
             ));
@@ -922,7 +922,7 @@ mod tests {
         assert!(context.no_unhandled_errors());
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            scope.input.chain(builder).fork_clone((
+            builder.chain(scope.start).fork_clone((
                 |chain: Chain<f64>| {
                     chain
                         .map_block(|t| WaitRequest {
@@ -953,7 +953,7 @@ mod tests {
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
             let (fork_input, fork_output) = builder.create_fork_clone();
-            builder.connect(scope.input, fork_input);
+            builder.connect(scope.start, fork_input);
             let a = fork_output.clone_output(builder);
             let b = fork_output.clone_output(builder);
             builder.join((a, b)).connect(scope.terminate);
@@ -977,10 +977,9 @@ mod tests {
                 // sending off any streams.
             });
 
-            builder.connect(scope.input, stream_node.input);
-            stream_node
-                .streams
-                .chain(builder)
+            builder.connect(scope.start, stream_node.input);
+            builder
+                .chain(stream_node.streams)
                 .map_block(|value| 2 * value)
                 .connect(scope.terminate);
         });
@@ -998,10 +997,9 @@ mod tests {
                 async { /* Do nothing */ }
             });
 
-            builder.connect(scope.input, stream_node.input);
-            stream_node
-                .streams
-                .chain(builder)
+            builder.connect(scope.start, stream_node.input);
+            builder
+                .chain(stream_node.streams)
                 .map_block(|value| 2 * value)
                 .connect(scope.terminate);
         });
@@ -1022,7 +1020,7 @@ mod tests {
 
         let (sender, mut receiver) = unbounded_channel();
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            let input = scope.input.fork_clone(builder);
+            let input = scope.start.fork_clone(builder);
 
             let buffer = builder.create_buffer(BufferSettings::default());
             let input_to_buffer = input.clone_output(builder);
@@ -1031,9 +1029,8 @@ mod tests {
             let none_node = builder.create_map_block(produce_none);
             let input_to_node = input.clone_output(builder);
             builder.connect(input_to_node, none_node.input);
-            none_node
-                .output
-                .chain(builder)
+            builder
+                .chain(none_node.output)
                 .cancel_on_none()
                 .connect(scope.terminate);
 
@@ -1041,9 +1038,8 @@ mod tests {
             // being cancelled. After that, this scope should run, and the value
             // that went into the buffer should get sent over the channel.
             builder.on_cancel(buffer, |scope, builder| {
-                scope
-                    .input
-                    .chain(builder)
+                builder
+                    .chain(scope.start)
                     .consume_buffer::<8>()
                     .map_block(move |values| {
                         for value in values {
@@ -1072,7 +1068,7 @@ mod tests {
         let (terminate_sender, mut terminate_receiver) = unbounded_channel();
         let (cleanup_sender, mut cleanup_receiver) = unbounded_channel();
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            let input = scope.input.fork_clone(builder);
+            let input = scope.start.fork_clone(builder);
 
             let cancel_buffer = builder.create_buffer(BufferSettings::default());
             let input_to_cancel = input.clone_output(builder);
@@ -1090,16 +1086,14 @@ mod tests {
                 builder.create_map_block(|value: u64| if value >= 5 { Some(value) } else { None });
             let input_to_filter_node = input.clone_output(builder);
             builder.connect(input_to_filter_node, filter_node.input);
-            filter_node
-                .output
-                .chain(builder)
+            builder
+                .chain(filter_node.output)
                 .cancel_on_none()
                 .connect(scope.terminate);
 
             builder.on_cancel(cancel_buffer, |scope, builder| {
-                scope
-                    .input
-                    .chain(builder)
+                builder
+                    .chain(scope.start)
                     .consume_buffer::<8>()
                     .map_block(move |values| {
                         for value in values {
@@ -1110,9 +1104,8 @@ mod tests {
             });
 
             builder.on_terminate(terminate_buffer, |scope, builder| {
-                scope
-                    .input
-                    .chain(builder)
+                builder
+                    .chain(scope.start)
                     .consume_buffer::<8>()
                     .map_block(move |values| {
                         for value in values {
@@ -1123,9 +1116,8 @@ mod tests {
             });
 
             builder.on_cleanup(cleanup_buffer, |scope, builder| {
-                scope
-                    .input
-                    .chain(builder)
+                builder
+                    .chain(scope.start)
                     .consume_buffer::<8>()
                     .map_block(move |values| {
                         for value in values {
@@ -1176,22 +1168,20 @@ mod tests {
             let later_collect = builder.create_collect_all::<i32, 8>();
             let earlier_collect = builder.create_collect_all::<i32, 8>();
 
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .spread()
                 .then(delay)
                 .map_block(|v| if v <= 4 { Some(v) } else { None })
                 .dispose_on_none()
                 .connect(earlier_collect.input);
 
-            earlier_collect
-                .output
-                .chain(builder)
+            builder
+                .chain(earlier_collect.output)
                 .spread()
                 .connect(later_collect.input);
 
-            later_collect.output.chain(builder).connect(scope.terminate);
+            builder.connect(later_collect.output, scope.terminate);
         });
 
         let mut promise =
@@ -1215,20 +1205,18 @@ mod tests {
             let earlier_collect = builder.create_collect_all::<i32, 8>();
             let later_collect = builder.create_collect_all::<i32, 8>();
 
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .spread()
                 .then(delay)
                 .connect(earlier_collect.input);
 
-            earlier_collect
-                .output
-                .chain(builder)
+            builder
+                .chain(earlier_collect.output)
                 .spread()
                 .connect(later_collect.input);
 
-            later_collect.output.chain(builder).spread().fork_clone((
+            builder.chain(later_collect.output).spread().fork_clone((
                 |chain: Chain<i32>| chain.connect(earlier_collect.input),
                 |chain: Chain<i32>| chain.connect(scope.terminate),
             ));
@@ -1248,22 +1236,19 @@ mod tests {
             // get the intuitive workflow output from this.
             let earlier_collect = builder.create_collect_all::<i32, 8>();
 
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .spread()
                 .then(delay)
                 .map_block(|v| if v <= 4 { Some(v) } else { None })
                 .dispose_on_none()
                 .connect(earlier_collect.input);
 
-            let _ = earlier_collect
-                .output
-                .chain(builder)
+            let _ = builder
+                .chain(earlier_collect.output)
                 .then_io_scope(|scope, builder| {
-                    scope
-                        .input
-                        .chain(builder)
+                    builder
+                        .chain(scope.start)
                         .spread()
                         .collect_all::<8>()
                         .connect(scope.terminate);
@@ -1327,7 +1312,7 @@ mod tests {
             builder
                 .chain(start_test)
                 .then_io_scope(|scope, builder| {
-                    builder.connect(scope.input, scope.terminate);
+                    builder.connect(scope.start, scope.terminate);
                 })
                 .connect(end_test);
         });
@@ -1359,7 +1344,7 @@ mod tests {
         let initial_node = builder.create_node(initial_time);
         let finish_node = builder.create_node(finish_time);
 
-        builder.connect(scope.input, initial_node.input);
+        builder.connect(scope.start, initial_node.input);
         builder.connect(finish_node.output, samples.input_slot());
 
         builder

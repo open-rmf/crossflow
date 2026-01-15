@@ -2223,7 +2223,7 @@ mod tests {
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
             let inner_scope = builder.create_io_scope(|scope, builder| {
-                builder.chain(scope.input).fork_clone((
+                builder.chain(scope.start).fork_clone((
                     |chain: Chain<_>| {
                         chain
                             .then(long_delay)
@@ -2239,7 +2239,7 @@ mod tests {
                 ));
             });
 
-            builder.connect(scope.input, inner_scope.input);
+            builder.connect(scope.start, inner_scope.input);
             builder.connect(inner_scope.output, scope.terminate);
         });
 
@@ -2351,7 +2351,7 @@ mod tests {
 
             assert!(incremental_scope_builder.is_finished().is_ok());
 
-            let workflow_input: DynOutput = scope.input.into();
+            let workflow_input: DynOutput = scope.start.into();
             workflow_input
                 .connect_to(&external_input.into(), builder)
                 .unwrap();

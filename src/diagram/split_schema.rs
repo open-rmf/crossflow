@@ -376,7 +376,7 @@ mod tests {
 
         // Test multiple layers of splitting
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            scope.input.chain(builder).split(|split| {
+            builder.chain(scope.start).split(|split| {
                 split
                     // Get only the jobs data from the json
                     .specific_branch("jobs".to_owned(), |chain| {
@@ -412,9 +412,8 @@ mod tests {
 
         // Test serializing and splitting a tuple, then deserializing the split item
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            scope
-                .input
-                .chain(builder)
+            builder
+                .chain(scope.start)
                 .map_block(serde_json::to_value)
                 .cancel_on_err()
                 .split(|split| {

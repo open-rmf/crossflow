@@ -19,7 +19,7 @@ Sequences of services can be chained together with a simple `.then(_)`:
 
 A few notes about this example:
 * [`Builder::chain(input)`][Builder::chain] allows us to begin creating a chain.
-  In this case we begin the chain from `scope.input`, but you can begin a chain from *any* [`Output`][Output].
+  In this case we begin the chain from `scope.start`, but you can begin a chain from *any* [`Output`][Output].
 * [`Chain::then`][Chain::then] supports the same arguments as [`Builder::create_node`][Builder::create_node], meaning you can pass in [Services][Service] or [Callbacks][Callback].
 * [`Chain::connect`][Chain::connect] takes in an [`InputSlot`][InputSlot] and ends the chain by feeding it into that input slot.
   This is useful for connecting the end of a chain into the terminate operation or looping it back to an earlier operation to create a cycle.

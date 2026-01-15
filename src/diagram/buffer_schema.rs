@@ -550,7 +550,7 @@ mod tests {
                         })
                         .into_blocking_callback(),
                     );
-                    let output = n.output.chain(builder).dispose_on_none().output();
+                    let output = builder.chain(n.output).dispose_on_none().output();
                     Node::<Vec<BufferKey<String>>, String> {
                         input: n.input,
                         output,

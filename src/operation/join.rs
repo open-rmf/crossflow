@@ -140,7 +140,7 @@ mod tests {
                 input.request
             });
 
-            builder.connect(scope.input, node.input);
+            builder.connect(scope.start, node.input);
 
             let lhs_buffer = builder.create_buffer(BufferSettings::default());
             builder.connect(node.streams, lhs_buffer.input_slot());
@@ -179,7 +179,7 @@ mod tests {
             };
             let set_buffer = set_buffer.into_blocking_callback();
 
-            builder.chain(scope.input).fork_clone((
+            builder.chain(scope.start).fork_clone((
                 |chain: Chain<_>| {
                     chain
                         .with_access(left_buffer)

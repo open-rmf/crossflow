@@ -77,9 +77,8 @@ where
                 serde_json::to_value(message).map_err(|err| err.to_string())
             });
 
-            let (ok, err) = serialize
-                .output
-                .chain(builder)
+            let (ok, err) = builder
+                .chain(serialize.output)
                 .fork_result(|ok| ok.output(), |err| err.output());
 
             Ok(DynForkResult {
@@ -127,9 +126,8 @@ where
                 serde_json::from_value::<T>(message).map_err(|err| err.to_string())
             });
 
-            let (ok, err) = deserialize
-                .output
-                .chain(builder)
+            let (ok, err) = builder
+                .chain(deserialize.output)
                 .fork_result(|ok| ok.output(), |err| err.output());
 
             Ok(DynForkResult {

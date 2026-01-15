@@ -1000,7 +1000,7 @@ where
     Streams: StreamPack,
 {
     // Put the input message into the diagram
-    ctx.add_output_into_target(&start, scope.input.into());
+    ctx.add_output_into_target(&start, scope.start.into());
 
     // Add the terminate operation
     ctx.set_input_for_target(
