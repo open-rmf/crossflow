@@ -46,16 +46,16 @@ that do not receive a response will simply carry over to the next schedule updat
 
 Once an order *is* complete, the continuous service can issue a response to it.
 After issuing a response, the request of the order will immediately become
-inaccessible, even within the current update cycle. Responding to an order fully
-drops the order from the perspective of the continuous service. This prevents
-confusion that might lead to sending two responses for the same order. Nevertheless
-the continuous service can respond to *any number* of unique orders withing a single
-update cycle.
+inaccessible, even within the current update cycle. Responding to an order will
+fully drop the order from the perspective of the continuous service. This prevents
+confusion that might otherwise lead to accidentally sending two responses for the
+same order. Nevertheless the continuous service can respond to *any number* of
+unique orders within a single update cycle.
 
 ### Spawn a Continuous Service
 
-Spawning a continuous service has some crucial differences from spawning blocking
-or async services. These differences come from two facts:
+Spawning a continuous service has some crucial differences from spawning a blocking
+or an async service. These differences come from two facts:
 1. The request information (order queue) persists between service updates as a component
 2. The service needs to be added to the app's system schedule
 
@@ -77,7 +77,7 @@ In most cases when the order queue can no longer be accessed, your continuous
 service can just return immediately. Any requests sent to it will be automatically
 cancelled.
 
-When you do get access---in this case the `orders` variable---you can iterate
+When you do get access to your orders---in this case through the `orders` variable---you can iterate
 through each order, using `.request()` to borrow the request value and then
 `.respond(_)` to send your response for the order.
 
