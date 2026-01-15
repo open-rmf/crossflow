@@ -1,10 +1,10 @@
 use axum::{
+    Router,
     body::Body,
     extract::Path,
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
-    Router,
 };
 use flate2::read::GzDecoder;
 use std::{collections::HashMap, io::Read};
@@ -100,7 +100,7 @@ mod tests {
     use super::*;
     use axum::{
         body::Body,
-        http::{header, Request, StatusCode},
+        http::{Request, StatusCode, header},
         response::Response,
     };
     use tower::Service;

@@ -1,4 +1,4 @@
-use crate::api::{api_router, ApiOptions};
+use crate::api::{ApiOptions, api_router};
 #[cfg(feature = "frontend")]
 use crate::frontend;
 use axum::Router;

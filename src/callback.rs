@@ -16,10 +16,11 @@
 */
 
 use crate::{
+    AddOperation, AsyncCallback, BlockingCallback, Channel, ChannelQueue, Input, ManageDisposal,
+    ManageInput, OperateCallback, OperateTask, OperationError, OperationRoster, OrBroken,
+    ProvideOnce, Provider, Sendish, StreamPack, UnusedStreams,
     async_execution::{spawn_task, task_cancel_sender},
-    make_stream_buffers_from_world, AddOperation, AsyncCallback, BlockingCallback, Channel,
-    ChannelQueue, Input, ManageDisposal, ManageInput, OperateCallback, OperateTask, OperationError,
-    OperationRoster, OrBroken, ProvideOnce, Provider, Sendish, StreamPack, UnusedStreams,
+    make_stream_buffers_from_world,
 };
 
 use bevy_ecs::{
@@ -70,7 +71,7 @@ use std::{
 /// fn add_integer_async(
 ///     In(input): In<AsyncCallback<i32>>,
 ///     integer: Res<Integer>,
-/// ) -> impl Future<Output = i32> {
+/// ) -> impl Future<Output = i32> + use<> {
 ///     let value = integer.value;
 ///     async move { input.request + value }
 /// }
@@ -121,7 +122,7 @@ use std::{
 /// fn add_integer(
 ///     In(input): In<i32>,
 ///     integer: Res<Integer>,
-/// ) -> impl Future<Output = i32> {
+/// ) -> impl Future<Output = i32> + use<> {
 ///     let value = integer.value;
 ///     async move { input + value }
 /// }

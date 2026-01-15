@@ -24,13 +24,13 @@ use smallvec::SmallVec;
 use std::error::Error;
 
 use crate::{
-    make_option_branching, make_result_branching, Accessing, AddOperation, AsMap, Buffer,
-    BufferKey, BufferKeys, Bufferable, Buffering, Builder, Collect, CreateCancelFilter,
-    CreateDisposalFilter, ForkTargetStorage, Gate, GateRequest, InputSlot, IntoAsyncMap,
-    IntoBlockingCallback, IntoBlockingMap, Node, Noop, OperateBufferAccess, OperateCancel,
-    OperateDynamicGate, OperateQuietCancel, OperateSplit, OperateStaticGate, Output, ProvideOnce,
-    Provider, Scope, ScopeSettings, Sendish, ServiceInstructions, Spread, StreamPack,
-    StreamTargetMap, Trim, TrimBranch, UnusedTarget,
+    Accessing, AddOperation, AsMap, Buffer, BufferKey, BufferKeys, Bufferable, Buffering, Builder,
+    Collect, CreateCancelFilter, CreateDisposalFilter, ForkTargetStorage, Gate, GateRequest,
+    InputSlot, IntoAsyncMap, IntoBlockingCallback, IntoBlockingMap, Node, Noop,
+    OperateBufferAccess, OperateCancel, OperateDynamicGate, OperateQuietCancel, OperateSplit,
+    OperateStaticGate, Output, ProvideOnce, Provider, Scope, ScopeSettings, Sendish,
+    ServiceInstructions, Spread, StreamPack, StreamTargetMap, Trim, TrimBranch, UnusedTarget,
+    make_option_branching, make_result_branching,
 };
 
 pub mod fork_clone_builder;
@@ -1451,10 +1451,12 @@ mod tests {
         let mut promise = context.command(|commands| commands.request(7, workflow).take_response());
 
         context.run_with_conditions(&mut promise, 1);
-        assert!(promise
-            .take()
-            .available()
-            .is_some_and(|v| { v.len() == 7 && v.iter().find(|a| **a != 7).is_none() }));
+        assert!(
+            promise
+                .take()
+                .available()
+                .is_some_and(|v| { v.len() == 7 && v.iter().find(|a| **a != 7).is_none() })
+        );
         assert!(context.no_unhandled_errors());
     }
 
@@ -1498,10 +1500,12 @@ mod tests {
         let mut promise = context.command(|commands| commands.request(8, workflow).take_response());
 
         context.run_with_conditions(&mut promise, 1);
-        assert!(promise
-            .take()
-            .available()
-            .is_some_and(|v| { v.len() == 8 && v.iter().find(|a| **a != 8).is_none() }));
+        assert!(
+            promise
+                .take()
+                .available()
+                .is_some_and(|v| { v.len() == 8 && v.iter().find(|a| **a != 8).is_none() })
+        );
         assert!(context.no_unhandled_errors());
 
         let workflow =
@@ -1553,10 +1557,12 @@ mod tests {
         let mut promise = context.command(|commands| commands.request(2, workflow).take_response());
 
         context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise
-            .take()
-            .available()
-            .is_some_and(|v| v.len() == 1 && v.iter().find(|a| **a != 2).is_none()));
+        assert!(
+            promise
+                .take()
+                .available()
+                .is_some_and(|v| v.len() == 1 && v.iter().find(|a| **a != 2).is_none())
+        );
         assert!(context.no_unhandled_errors());
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
@@ -1578,10 +1584,12 @@ mod tests {
         let mut promise = context.command(|commands| commands.request(5, workflow).take_response());
 
         context.run_with_conditions(&mut promise, 1);
-        assert!(promise
-            .take()
-            .available()
-            .is_some_and(|v| v.len() == 1 && v.iter().find(|a| **a != 5).is_none()));
+        assert!(
+            promise
+                .take()
+                .available()
+                .is_some_and(|v| v.len() == 1 && v.iter().find(|a| **a != 5).is_none())
+        );
         assert!(context.no_unhandled_errors());
     }
 

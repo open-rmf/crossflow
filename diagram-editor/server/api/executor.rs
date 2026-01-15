@@ -1,18 +1,18 @@
+use axum::{
+    Json,
+    extract::State,
+    http::StatusCode,
+    response::{self, Response},
+};
+#[cfg(feature = "router")]
+use axum::{Router, routing::post};
 #[cfg(feature = "debug")]
 use axum::{
     extract::ws,
     routing::{self},
 };
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::{self, Response},
-    Json,
-};
-#[cfg(feature = "router")]
-use axum::{routing::post, Router};
 use bevy_ecs::{prelude::Entity, schedule::IntoScheduleConfigs};
-use crossflow::{trace, Diagram, DiagramElementRegistry, OperationStarted, Promise, RequestExt};
+use crossflow::{Diagram, DiagramElementRegistry, OperationStarted, Promise, RequestExt, trace};
 use serde::{Deserialize, Serialize};
 use std::{
     error::Error,
@@ -477,7 +477,7 @@ mod tests {
     use axum::extract::ws;
     use axum::{
         body,
-        http::{header, Request},
+        http::{Request, header},
     };
     use crossflow::{CrossflowExecutorApp, NodeBuilderOptions};
     #[cfg(feature = "debug")]

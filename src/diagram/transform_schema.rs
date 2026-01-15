@@ -149,7 +149,7 @@ mod tests {
     use serde_json::json;
     use test_log::test;
 
-    use crate::{diagram::testing::DiagramTestFixture, Diagram, JsonMessage};
+    use crate::{Diagram, JsonMessage, diagram::testing::DiagramTestFixture};
 
     #[test]
     fn test_transform_node_response() {

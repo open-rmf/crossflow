@@ -22,9 +22,9 @@ use variadics_please::all_tuples_with_size;
 use crate::Builder;
 
 use super::{
-    supported::*, BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode,
-    DynInputSlot, DynOutput, MessageRegistry, NextOperation, OperationName, RegisterClone,
-    SerializeMessage, TraceInfo, TraceSettings, TypeInfo,
+    BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode, DynInputSlot, DynOutput,
+    MessageRegistry, NextOperation, OperationName, RegisterClone, SerializeMessage, TraceInfo,
+    TraceSettings, TypeInfo, supported::*,
 };
 
 /// If the input message is a tuple of (T1, T2, T3, ...), unzip it into
@@ -191,7 +191,7 @@ mod tests {
     use serde_json::json;
     use test_log::test;
 
-    use crate::{diagram::testing::DiagramTestFixture, Diagram, DiagramErrorCode, JsonMessage};
+    use crate::{Diagram, DiagramErrorCode, JsonMessage, diagram::testing::DiagramTestFixture};
 
     #[test]
     fn test_unzip_not_unzippable() {

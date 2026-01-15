@@ -1,5 +1,5 @@
 use crossflow::{CrossflowExecutorApp, DiagramElementRegistry};
-use crossflow_diagram_editor_wasm::{init_wasm, setup_wasm, ExecutorOptions, InitOptions};
+use crossflow_diagram_editor_wasm::{ExecutorOptions, InitOptions, init_wasm, setup_wasm};
 
 init_wasm! {
     wasm_logger::init(wasm_logger::Config::default());

@@ -16,12 +16,12 @@
 */
 
 use crate::{
-    dispatch_service, ActiveTasksStorage, AddExecution, Cleanup, CleanupContents,
-    DisposeForUnavailableService, Executable, FinalizeCleanup, FinalizeCleanupRequest, Input,
-    InputBundle, ManageDisposal, ManageInput, OperateService, Operation, OperationCleanup,
-    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ProviderStorage, ReachabilityResult, ScopeStorage, ServiceInstructions, ServiceRequest,
-    SingleInputStorage, SingleTargetStorage, StreamPack, StreamTargetMap,
+    ActiveTasksStorage, AddExecution, Cleanup, CleanupContents, DisposeForUnavailableService,
+    Executable, FinalizeCleanup, FinalizeCleanupRequest, Input, InputBundle, ManageDisposal,
+    ManageInput, OperateService, Operation, OperationCleanup, OperationReachability,
+    OperationRequest, OperationResult, OperationSetup, OrBroken, ProviderStorage,
+    ReachabilityResult, ScopeStorage, ServiceInstructions, ServiceRequest, SingleInputStorage,
+    SingleTargetStorage, StreamPack, StreamTargetMap, dispatch_service,
 };
 
 use bevy_ecs::prelude::{Command, Component, Entity};

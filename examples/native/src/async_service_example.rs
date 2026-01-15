@@ -95,7 +95,7 @@ fn update_page_title(
     In(srv): AsyncServiceInput<Entity>,
     url: Query<&Url>,
     runtime: Res<TokioRuntime>,
-) -> impl Future<Output = Result<(), ()>> {
+) -> impl Future<Output = Result<(), ()>> + use<> {
     // Use a query to get the Url component of this entity
     let url = url.get(srv.request).cloned();
     let rt = Arc::clone(&**runtime);

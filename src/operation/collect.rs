@@ -22,10 +22,10 @@ use std::collections::HashMap;
 use smallvec::SmallVec;
 
 use crate::{
-    emit_disposal, is_downstream_of, Disposal, DisposalListener, DisposalUpdate, Input,
-    InputBundle, ManageInput, Operation, OperationCleanup, OperationReachability, OperationRequest,
-    OperationResult, OperationRoster, OperationSetup, OrBroken, ReachabilityResult,
-    SingleInputStorage, SingleTargetStorage,
+    Disposal, DisposalListener, DisposalUpdate, Input, InputBundle, ManageInput, Operation,
+    OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationRoster,
+    OperationSetup, OrBroken, ReachabilityResult, SingleInputStorage, SingleTargetStorage,
+    emit_disposal, is_downstream_of,
 };
 
 pub(crate) struct Collect<T, const N: usize> {

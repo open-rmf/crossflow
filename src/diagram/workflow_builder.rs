@@ -17,13 +17,13 @@
 
 use std::{
     borrow::Cow,
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     sync::Arc,
 };
 
 use crate::{
-    dyn_node::DynStreamInputPack, AnyBuffer, BufferIdentifier, BufferMap, Builder,
-    BuilderScopeContext, JsonMessage, MessageTypeHint, MessageTypeHintMap, Scope, StreamPack,
+    AnyBuffer, BufferIdentifier, BufferMap, Builder, BuilderScopeContext, JsonMessage,
+    MessageTypeHint, MessageTypeHintMap, Scope, StreamPack, dyn_node::DynStreamInputPack,
 };
 
 #[cfg(feature = "trace")]
@@ -1257,9 +1257,9 @@ impl ConnectIntoTarget for RedirectConnection {
             // This DynOutput has been redirected by this connector before, so
             // we have a circular connection, making it impossible for the
             // output to ever really be connected to anything.
-            return Err(DiagramErrorCode::CircularRedirect(vec![self
-                .redirect_to
-                .clone()]));
+            return Err(DiagramErrorCode::CircularRedirect(vec![
+                self.redirect_to.clone(),
+            ]));
         }
         Ok(())
     }

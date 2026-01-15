@@ -15,7 +15,7 @@
  *
 */
 
-use crate::{new_router, ServerOptions};
+use crate::{ServerOptions, new_router};
 use bevy_app;
 use clap::Parser;
 use crossflow::{

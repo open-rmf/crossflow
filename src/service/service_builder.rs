@@ -15,7 +15,7 @@
  *
 */
 
-use crate::{stream::*, Delivery, IntoContinuousService, IntoService, Service};
+use crate::{Delivery, IntoContinuousService, IntoService, Service, stream::*};
 
 use bevy_app::prelude::App;
 use bevy_ecs::{

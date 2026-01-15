@@ -22,15 +22,15 @@ use std::future::Future;
 use smallvec::SmallVec;
 
 use crate::{
-    make_option_branching, make_result_branching, Accessible, Accessing, Accessor, AddOperation,
-    AsMap, Buffer, BufferKeys, BufferLocation, BufferMap, BufferSettings, Bufferable, Buffering,
-    Chain, Collect, ForkClone, ForkCloneOutput, ForkOptionOutput, ForkResultOutput,
-    ForkTargetStorage, Gate, GateRequest, IncompatibleLayout, Injection, InputSlot, IntoAsyncMap,
-    IntoBlockingMap, Joinable, Joined, Node, OperateBuffer, OperateCancel, OperateDynamicGate,
-    OperateQuietCancel, OperateScope, OperateSplit, OperateStaticGate, Output, Provider,
-    RequestOfMap, ResponseOfMap, Scope, ScopeEndpoints, ScopeSettings, ScopeSettingsStorage,
-    Sendish, ServiceInstructions, SplitOutputs, Splittable, StreamPack, StreamTargetMap,
-    StreamsOfMap, Trim, TrimBranch, UnusedTarget, Unzippable,
+    Accessible, Accessing, Accessor, AddOperation, AsMap, Buffer, BufferKeys, BufferLocation,
+    BufferMap, BufferSettings, Bufferable, Buffering, Chain, Collect, ForkClone, ForkCloneOutput,
+    ForkOptionOutput, ForkResultOutput, ForkTargetStorage, Gate, GateRequest, IncompatibleLayout,
+    Injection, InputSlot, IntoAsyncMap, IntoBlockingMap, Joinable, Joined, Node, OperateBuffer,
+    OperateCancel, OperateDynamicGate, OperateQuietCancel, OperateScope, OperateSplit,
+    OperateStaticGate, Output, Provider, RequestOfMap, ResponseOfMap, Scope, ScopeEndpoints,
+    ScopeSettings, ScopeSettingsStorage, Sendish, ServiceInstructions, SplitOutputs, Splittable,
+    StreamPack, StreamTargetMap, StreamsOfMap, Trim, TrimBranch, UnusedTarget, Unzippable,
+    make_option_branching, make_result_branching,
 };
 
 pub(crate) mod connect;
@@ -808,7 +808,7 @@ impl CleanupWorkflowConditions {
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::*, testing::*, CancellationCause};
+    use crate::{CancellationCause, prelude::*, testing::*};
     use smallvec::SmallVec;
     use std::time::Instant;
 
@@ -879,10 +879,12 @@ mod tests {
             context.command(|commands| commands.request((), workflow).take_response());
 
         context.run_with_conditions(&mut promise, flush_cycles);
-        assert!(promise
-            .take()
-            .cancellation()
-            .is_some_and(|c| matches!(*c.cause, CancellationCause::Unreachable(_))));
+        assert!(
+            promise
+                .take()
+                .cancellation()
+                .is_some_and(|c| matches!(*c.cause, CancellationCause::Unreachable(_)))
+        );
         assert!(context.no_unhandled_errors());
     }
 
@@ -1196,10 +1198,12 @@ mod tests {
             context.command(|commands| commands.request([1, 2, 3, 4, 5], workflow).take_response());
 
         context.run_with_conditions(&mut promise, Duration::from_secs(5));
-        assert!(promise
-            .take()
-            .available()
-            .is_some_and(|v| &v[..] == [1, 2, 3, 4]));
+        assert!(
+            promise
+                .take()
+                .available()
+                .is_some_and(|v| &v[..] == [1, 2, 3, 4])
+        );
         assert!(context.no_unhandled_errors());
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
@@ -1294,9 +1298,11 @@ mod tests {
             context.command(|commands| commands.request(input, workflow).take_response());
 
         context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(Promise::take(&mut promise)
-            .available()
-            .is_some_and(|v| v == expectation));
+        assert!(
+            Promise::take(&mut promise)
+                .available()
+                .is_some_and(|v| v == expectation)
+        );
         assert!(context.no_unhandled_errors());
     }
 

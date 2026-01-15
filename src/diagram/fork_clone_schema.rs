@@ -21,9 +21,9 @@ use serde::{Deserialize, Serialize};
 use crate::{Builder, CloneFromBuffer, ForkCloneOutput};
 
 use super::{
-    supported::*, BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode,
-    DynInputSlot, DynOutput, MessageOperation, NextOperation, OperationName, TraceInfo,
-    TraceSettings, TypeInfo,
+    BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode, DynInputSlot, DynOutput,
+    MessageOperation, NextOperation, OperationName, TraceInfo, TraceSettings, TypeInfo,
+    supported::*,
 };
 
 /// If the request is cloneable, clone it into multiple responses that can
@@ -182,7 +182,7 @@ mod tests {
     use serde_json::json;
     use test_log::test;
 
-    use crate::{diagram::testing::DiagramTestFixture, Diagram, JsonMessage};
+    use crate::{Diagram, JsonMessage, diagram::testing::DiagramTestFixture};
 
     use super::*;
 

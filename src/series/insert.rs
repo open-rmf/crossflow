@@ -18,8 +18,8 @@
 use bevy_ecs::prelude::{Bundle, Component, Entity};
 
 use crate::{
-    add_lifecycle_dependency, Executable, Input, InputBundle, ManageInput, OperationRequest,
-    OperationResult, OperationSetup, OrBroken,
+    Executable, Input, InputBundle, ManageInput, OperationRequest, OperationResult, OperationSetup,
+    OrBroken, add_lifecycle_dependency,
 };
 
 #[derive(Component)]

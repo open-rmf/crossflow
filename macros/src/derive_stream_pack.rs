@@ -17,7 +17,7 @@
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, quote_spanned};
-use syn::{spanned::Spanned, Generics, Ident, ItemStruct};
+use syn::{Generics, Ident, ItemStruct, spanned::Spanned};
 
 // Top-level attr for StreamPack
 const STREAM_ATTR_TAG: &'static str = "stream";

@@ -33,8 +33,8 @@ use smallvec::SmallVec;
 use thiserror::Error as ThisError;
 
 use crate::{
-    operation::ScopeStorage, Cancel, Cancellation, DisposalFailure, OperationResult,
-    OperationRoster, OrBroken, SeriesMarker, UnhandledErrors, UnusedTarget,
+    Cancel, Cancellation, DisposalFailure, OperationResult, OperationRoster, OrBroken,
+    SeriesMarker, UnhandledErrors, UnusedTarget, operation::ScopeStorage,
 };
 
 #[derive(ThisError, Debug, Clone)]

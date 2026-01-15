@@ -28,13 +28,13 @@ use smallvec::SmallVec;
 use std::collections::HashMap;
 
 use crate::{
-    dispose_for_despawned_service, emit_disposal, insert_new_order, pop_next_delivery, Blocker,
-    Broken, ContinuousService, ContinuousServiceInput, DeferredRoster, Deliver, Delivery,
+    Blocker, Broken, ContinuousService, ContinuousServiceInput, DeferredRoster, Deliver, Delivery,
     DeliveryOrder, DeliveryUpdate, Disposal, Input, IntoContinuousService, IntoServiceBuilder,
     ManageInput, OperationCleanup, OperationError, OperationReachability, OperationRequest,
     OperationResult, OperationRoster, OrBroken, ProviderStorage, ReachabilityResult, ScopeStorage,
     ServiceBuilder, ServiceBundle, ServiceRequest, ServiceTrait, SingleTargetStorage, StreamOf,
-    StreamPack, StreamTargetMap, UnhandledErrors,
+    StreamPack, StreamTargetMap, UnhandledErrors, dispose_for_despawned_service, emit_disposal,
+    insert_new_order, pop_next_delivery,
 };
 
 pub use bevy_ecs::schedule::ScheduleConfigs;

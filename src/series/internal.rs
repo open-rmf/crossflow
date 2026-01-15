@@ -20,7 +20,7 @@ use bevy_ecs::prelude::{ChildOf, Command, Component, Entity, Resource, World};
 use backtrace::Backtrace;
 
 use tokio::sync::mpsc::{
-    unbounded_channel, UnboundedReceiver as TokioReceiver, UnboundedSender as TokioSender,
+    UnboundedReceiver as TokioReceiver, UnboundedSender as TokioSender, unbounded_channel,
 };
 
 use smallvec::SmallVec;

@@ -1,6 +1,6 @@
 use std::{future::Future, task::Poll};
 
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 use crossflow_diagram_editor::api::{self, executor::PostRunRequest};
 use futures::task::noop_waker;
 use wasm_bindgen::prelude::*;

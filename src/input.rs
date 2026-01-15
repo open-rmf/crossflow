@@ -244,18 +244,24 @@ impl<'w> ManageInput for EntityWorldMut<'w> {
             // have the correct input storage type. This indicates a bug in
             // crossflow itself, since the API should ensure that connection
             // mismatches are impossible.
-            self.world_mut()
-                .get_resource_or_insert_with(|| UnhandledErrors::default())
-                .miscellaneous
-                .push(MiscellaneousFailure {
-                    error: std::sync::Arc::new(anyhow::anyhow!(
-                        "Incorrect input type for operation [{:?}]: received [{}], expected [{}]",
-                        id,
-                        std::any::type_name::<T>(),
-                        expected.unwrap_or("<null>"),
-                    )),
-                    backtrace: Some(Backtrace::new()),
-                });
+            unsafe {
+                // SAFETY: .world_mut() is marked unsafe because we must not use
+                // it in a way that could modify the entity's current location.
+                // Since we are only modifying a resource, there should be no
+                // risk of that.
+                self.world_mut()
+                    .get_resource_or_insert_with(|| UnhandledErrors::default())
+                    .miscellaneous
+                    .push(MiscellaneousFailure {
+                        error: std::sync::Arc::new(anyhow::anyhow!(
+                            "Incorrect input type for operation [{:?}]: received [{}], expected [{}]",
+                            id,
+                            std::any::type_name::<T>(),
+                            expected.unwrap_or("<null>"),
+                        )),
+                        backtrace: Some(Backtrace::new()),
+                    });
+            }
             None.or_broken()?;
         }
         Ok(true)

@@ -20,9 +20,9 @@ use bevy_ecs::prelude::Component;
 use tokio::sync::mpsc::UnboundedSender as Sender;
 
 use crate::{
-    promise::private::Sender as PromiseSender, Executable, Input, InputBundle, ManageInput,
-    OnTerminalCancelled, OperationCancel, OperationRequest, OperationResult, OperationSetup,
-    OrBroken, SeriesLifecycleChannel,
+    Executable, Input, InputBundle, ManageInput, OnTerminalCancelled, OperationCancel,
+    OperationRequest, OperationResult, OperationSetup, OrBroken, SeriesLifecycleChannel,
+    promise::private::Sender as PromiseSender,
 };
 
 #[derive(Component)]

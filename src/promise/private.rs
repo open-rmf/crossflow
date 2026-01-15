@@ -19,8 +19,8 @@ use crate::{Cancellation, CancellationCause, Promise, PromiseState};
 
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Condvar, Mutex, MutexGuard, Weak,
+        atomic::{AtomicBool, Ordering},
     },
     task::Waker,
 };

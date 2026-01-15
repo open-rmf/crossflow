@@ -24,8 +24,8 @@ use bevy_ecs::{
 use std::future::Future;
 
 use crate::{
-    cancel_execution, Cancellable, Detached, InputCommand, IntoAsyncMap, IntoBlockingMapOnce,
-    ProvideOnce, Series, SeriesMarker, SessionStatus, StreamPack, UnusedTarget,
+    Cancellable, Detached, InputCommand, IntoAsyncMap, IntoBlockingMapOnce, ProvideOnce, Series,
+    SeriesMarker, SessionStatus, StreamPack, UnusedTarget, cancel_execution,
 };
 
 /// Extensions for creating a series of execution by making a request to a provider or

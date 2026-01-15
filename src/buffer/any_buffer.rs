@@ -19,7 +19,7 @@
 
 use std::{
     any::{Any, TypeId},
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     ops::RangeBounds,
     sync::{Mutex, OnceLock},
 };
@@ -34,13 +34,12 @@ use thiserror::Error as ThisError;
 use smallvec::SmallVec;
 
 use crate::{
-    add_listener_to_source, Accessing, Accessor, Buffer, BufferAccessMut, BufferAccessors,
-    BufferError, BufferIdentifier, BufferKey, BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag,
-    BufferLocation, BufferMap, BufferMapLayout, BufferStorage, Bufferable, Buffering, Builder,
-    CloneFromBuffer, DrainBuffer, FetchFromBuffer, Gate, GateState, IncompatibleLayout,
-    InspectBuffer, Joining, ManageBuffer, MessageTypeHint, MessageTypeHintEvaluation,
-    MessageTypeHintMap, NotifyBufferUpdate, OperationError, OperationResult, OperationRoster,
-    OrBroken, TypeInfo,
+    Accessing, Accessor, Buffer, BufferAccessMut, BufferAccessors, BufferError, BufferIdentifier,
+    BufferKey, BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferMap,
+    BufferMapLayout, BufferStorage, Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer,
+    FetchFromBuffer, Gate, GateState, IncompatibleLayout, InspectBuffer, Joining, ManageBuffer,
+    MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate,
+    OperationError, OperationResult, OperationRoster, OrBroken, TypeInfo, add_listener_to_source,
 };
 
 /// A [`Buffer`] whose message type has been anonymized. Joining with this buffer
@@ -106,8 +105,8 @@ impl AnyBuffer {
     }
 
     /// Get the [`AnyBufferAccessInterface`] for a concrete message type.
-    pub fn interface_for<T: 'static + Send + Sync>(
-    ) -> &'static (dyn AnyBufferAccessInterface + Send + Sync) {
+    pub fn interface_for<T: 'static + Send + Sync>()
+    -> &'static (dyn AnyBufferAccessInterface + Send + Sync) {
         static INTERFACE_MAP: OnceLock<
             Mutex<HashMap<TypeId, &'static (dyn AnyBufferAccessInterface + Send + Sync)>>,
         > = OnceLock::new();
@@ -628,7 +627,7 @@ trait AnyBufferViewing {
 trait AnyBufferManagement: AnyBufferViewing {
     fn any_push(&mut self, session: Entity, value: AnyMessageBox) -> AnyMessagePushResult;
     fn any_push_as_oldest(&mut self, session: Entity, value: AnyMessageBox)
-        -> AnyMessagePushResult;
+    -> AnyMessagePushResult;
     fn any_pull(&mut self, session: Entity) -> Option<AnyMessageBox>;
     fn any_pull_newest(&mut self, session: Entity) -> Option<AnyMessageBox>;
     fn any_oldest_mut<'a>(&'a mut self, session: Entity) -> Option<AnyMessageMut<'a>>;

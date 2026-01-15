@@ -16,9 +16,9 @@
 */
 
 use crate::{
-    emit_disposal, Disposal, Input, InputBundle, ManageInput, Operation, OperationCleanup,
-    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ReachabilityResult, SingleInputStorage, SingleTargetStorage,
+    Disposal, Input, InputBundle, ManageInput, Operation, OperationCleanup, OperationReachability,
+    OperationRequest, OperationResult, OperationSetup, OrBroken, ReachabilityResult,
+    SingleInputStorage, SingleTargetStorage, emit_disposal,
 };
 
 use bevy_ecs::prelude::Entity;

@@ -16,21 +16,22 @@
 */
 
 use crate::{
-    check_reachability, execute_operation, is_downstream_of, Accessing, AddOperation, Blocker,
-    BufferKeyBuilder, Cancel, Cancellable, Cancellation, Cleanup, CleanupContents, ClearBufferFn,
-    CollectMarker, DisposalListener, DisposalUpdate, FinalizeCleanup, FinalizeCleanupRequest,
-    Input, InputBundle, InspectDisposals, ManageCancellation, ManageInput, NamedTarget, NamedValue,
-    Operation, OperationCancel, OperationCleanup, OperationError, OperationReachability,
-    OperationRequest, OperationResult, OperationRoster, OperationSetup, OrBroken,
-    ReachabilityResult, ScopeSettings, SingleInputStorage, SingleTargetStorage, StreamEffect,
-    StreamRequest, StreamTargetMap, UnhandledErrors, Unreachability, UnusedTarget,
+    Accessing, AddOperation, Blocker, BufferKeyBuilder, Cancel, Cancellable, Cancellation, Cleanup,
+    CleanupContents, ClearBufferFn, CollectMarker, DisposalListener, DisposalUpdate,
+    FinalizeCleanup, FinalizeCleanupRequest, Input, InputBundle, InspectDisposals,
+    ManageCancellation, ManageInput, NamedTarget, NamedValue, Operation, OperationCancel,
+    OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
+    OperationRoster, OperationSetup, OrBroken, ReachabilityResult, ScopeSettings,
+    SingleInputStorage, SingleTargetStorage, StreamEffect, StreamRequest, StreamTargetMap,
+    UnhandledErrors, Unreachability, UnusedTarget, check_reachability, execute_operation,
+    is_downstream_of,
 };
 
 #[cfg(feature = "diagram")]
 use crate::{
+    Broken, Builder, BuilderScopeContext,
     dyn_node::{DynInputSlot, DynOutput},
     type_info::TypeInfo,
-    Broken, Builder, BuilderScopeContext,
 };
 
 use backtrace::Backtrace;
@@ -48,7 +49,7 @@ use smallvec::SmallVec;
 
 use std::{
     borrow::Cow,
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
 };
 
 #[cfg(feature = "diagram")]

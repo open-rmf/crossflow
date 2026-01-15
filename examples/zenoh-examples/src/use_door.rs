@@ -27,7 +27,7 @@ use tracing::error;
 use uuid::Uuid;
 use zenoh_examples::protos;
 
-use zenoh_examples::{zenoh_publisher_node, zenoh_subscription_node, ZenohCrossflowPlugin};
+use zenoh_examples::{ZenohCrossflowPlugin, zenoh_publisher_node, zenoh_subscription_node};
 
 #[derive(Parser)]
 struct Args {

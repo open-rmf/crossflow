@@ -376,7 +376,7 @@ impl<T> Default for Collection<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::*, testing::*, ContinuousQueueView};
+    use crate::{ContinuousQueueView, prelude::*, testing::*};
     use smallvec::SmallVec;
     use std::{
         sync::{Arc, Mutex},
@@ -410,9 +410,11 @@ mod tests {
         context.run(1);
         assert_eq!(detached_receiver.try_recv().unwrap(), "HELLO");
         assert!(attached_receiver.try_recv().is_err());
-        assert!(context
-            .get_unhandled_errors()
-            .is_some_and(|e| e.unused_targets.len() == 1));
+        assert!(
+            context
+                .get_unhandled_errors()
+                .is_some_and(|e| e.unused_targets.len() == 1)
+        );
     }
 
     #[test]

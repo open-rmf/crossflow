@@ -122,7 +122,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::*, testing::*, Require};
+    use crate::{Require, prelude::*, testing::*};
     use bevy_ecs::prelude::With;
 
     type NumberStreams = (StreamOf<u32>, StreamOf<i32>, StreamOf<f32>);

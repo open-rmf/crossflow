@@ -20,7 +20,7 @@
 
 pub use bevy_ecs::prelude::{Commands, Entity, With, World};
 
-pub use smallvec::{smallvec, SmallVec};
+pub use smallvec::{SmallVec, smallvec};
 
 pub use std::{clone::Clone, marker::Copy};
 

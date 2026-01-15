@@ -31,11 +31,11 @@ use backtrace::Backtrace;
 use std::sync::Arc;
 
 use crate::{
-    awaken_task, dispose_for_despawned_service, execute_operation, AddExecution, ChannelQueue,
-    Detached, DisposalNotice, Finished, FlushWarning, MiscellaneousFailure, OperationError,
-    OperationRequest, OperationRoster, SeriesLifecycleChannel, ServiceHook, ServiceLifecycle,
-    ServiceLifecycleChannel, UnhandledErrors, UnusedTarget, UnusedTargetDrop,
-    ValidateScopeReachability, ValidationRequest, WakeQueue,
+    AddExecution, ChannelQueue, Detached, DisposalNotice, Finished, FlushWarning,
+    MiscellaneousFailure, OperationError, OperationRequest, OperationRoster,
+    SeriesLifecycleChannel, ServiceHook, ServiceLifecycle, ServiceLifecycleChannel,
+    UnhandledErrors, UnusedTarget, UnusedTargetDrop, ValidateScopeReachability, ValidationRequest,
+    WakeQueue, awaken_task, dispose_for_despawned_service, execute_operation,
 };
 
 #[cfg(feature = "single_threaded_async")]

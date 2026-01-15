@@ -3,12 +3,12 @@ pub mod executor;
 #[cfg(feature = "debug")]
 mod websocket;
 
+#[cfg(feature = "router")]
+use axum::{Router, routing::get};
 use axum::{
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
-#[cfg(feature = "router")]
-use axum::{routing::get, Router};
 use crossflow::DiagramElementRegistry;
 use mime_guess::mime;
 
@@ -74,7 +74,7 @@ pub fn api_router(
 mod tests {
     use axum::{
         body::{self, Body},
-        http::{header, Request, StatusCode},
+        http::{Request, StatusCode, header},
     };
     use crossflow::NodeBuilderOptions;
     use mime_guess::mime;

@@ -1,7 +1,7 @@
 #[cfg(feature = "diagram")]
 use std::borrow::Cow;
 use std::{
-    any::{type_name, Any, TypeId},
+    any::{Any, TypeId, type_name},
     fmt::Display,
     hash::Hash,
 };

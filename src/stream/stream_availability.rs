@@ -19,7 +19,7 @@ use bevy_ecs::prelude::Component;
 
 use std::{
     borrow::Cow,
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
 };
 
 use crate::{MissingStreamsError, NamedValue, TypeInfo};

@@ -22,7 +22,7 @@ use super::{
     BufferSelection, BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode,
     JsonMessage, NextOperation, OperationName,
 };
-use crate::{default_as_false, is_default, is_false, BufferIdentifier, TraceSettings};
+use crate::{BufferIdentifier, TraceSettings, default_as_false, is_default, is_false};
 
 /// Wait for exactly one item to be available in each buffer listed in
 /// `buffers`, then join each of those items into a single output message
@@ -156,8 +156,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        diagram::testing::DiagramTestFixture, Diagram, DiagramElementRegistry, DiagramErrorCode,
-        NodeBuilderOptions,
+        Diagram, DiagramElementRegistry, DiagramErrorCode, NodeBuilderOptions,
+        diagram::testing::DiagramTestFixture,
     };
 
     fn foo(_: serde_json::Value) -> String {

@@ -467,7 +467,7 @@ pub fn say_hello(
 pub fn repeat_service(
     In(input): AsyncServiceInput<RepeatRequest>,
     mut run_count: Query<Option<&mut RunCount>>,
-) -> impl std::future::Future<Output = ()> + 'static + Send + Sync {
+) -> impl std::future::Future<Output = ()> + use<> + 'static + Send + Sync {
     if let Ok(Some(mut count)) = run_count.get_mut(input.provider) {
         count.0 += 1;
     }

@@ -16,8 +16,8 @@
 */
 
 use crate::{
-    service::service_builder::{ParallelChosen, SerialChosen},
     OperationResult, Service, ServiceBuilder, ServiceRequest,
+    service::service_builder::{ParallelChosen, SerialChosen},
 };
 
 use bevy_app::prelude::App;
@@ -50,7 +50,7 @@ pub trait IntoContinuousService<M> {
     type Streams;
 
     fn into_system_config(self, entity_mut: &mut EntityWorldMut)
-        -> ScheduleConfigs<ScheduleSystem>;
+    -> ScheduleConfigs<ScheduleSystem>;
 }
 
 /// This trait allows service systems to be converted into a builder that

@@ -20,8 +20,8 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
 
 use super::{
-    is_default, BuildDiagramOperation, BuildStatus, BuilderId, DiagramContext, DiagramErrorCode,
-    JsonMessage, MissingStream, NextOperation, OperationName, TraceInfo, TraceSettings,
+    BuildDiagramOperation, BuildStatus, BuilderId, DiagramContext, DiagramErrorCode, JsonMessage,
+    MissingStream, NextOperation, OperationName, TraceInfo, TraceSettings, is_default,
 };
 
 /// Create an operation that that takes an input message and produces an

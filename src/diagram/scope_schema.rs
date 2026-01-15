@@ -26,10 +26,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    standard_input_connection, BuildDiagramOperation, BuildStatus, ConnectIntoTarget,
-    DiagramContext, DiagramErrorCode, DynOutput, IncrementalScopeBuilder, IncrementalScopeRequest,
-    IncrementalScopeResponse, InferMessageType, NamespaceList, NextOperation, OperationName,
-    OperationRef, Operations, ScopeSettings, StreamOutRef, TraceSettings,
+    BuildDiagramOperation, BuildStatus, ConnectIntoTarget, DiagramContext, DiagramErrorCode,
+    DynOutput, IncrementalScopeBuilder, IncrementalScopeRequest, IncrementalScopeResponse,
+    InferMessageType, NamespaceList, NextOperation, OperationName, OperationRef, Operations,
+    ScopeSettings, StreamOutRef, TraceSettings, standard_input_connection,
 };
 
 /// Create a scope which will function like its own encapsulated workflow

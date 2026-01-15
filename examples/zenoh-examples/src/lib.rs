@@ -142,7 +142,7 @@ pub fn zenoh_publisher_node<T: 'static + Send + Sync + Message + std::fmt::Debug
 fn get_zenoh_publisher(
     In(topic_name): In<Arc<str>>,
     session: Res<ZenohSession>,
-) -> impl Future<Output = Result<Arc<AdvancedPublisher<'static>>, ArcError>> {
+) -> impl Future<Output = Result<Arc<AdvancedPublisher<'static>>, ArcError>> + use<> {
     let session_promise = session.promise.clone();
 
     async move {

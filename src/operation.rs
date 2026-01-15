@@ -16,8 +16,8 @@
 */
 
 use crate::{
-    try_emit_broken, Broken, Cancel, DeliveryLabelId, InspectInput, SetupFailure, StreamTargetMap,
-    UnhandledErrors,
+    Broken, Cancel, DeliveryLabelId, InspectInput, SetupFailure, StreamTargetMap, UnhandledErrors,
+    try_emit_broken,
 };
 
 use bevy_derive::Deref;
@@ -28,7 +28,7 @@ use bevy_ecs::{
 
 use backtrace::Backtrace;
 
-use std::collections::{hash_map::Entry, HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque, hash_map::Entry};
 
 use smallvec::SmallVec;
 
