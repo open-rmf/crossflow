@@ -12,7 +12,7 @@ import DiagramPropertiesDrawer from './diagram-properties-drawer';
 export interface CommandPanelProps {
   onNodeChanges: (changes: NodeChange<DiagramEditorNode>[]) => void;
   onExportClick: () => void;
-  onLoadDiagram: (jsonStr: string) => void;
+  onLoadDiagram: (jsonStr: string, filename: string) => void;
 }
 
 const VisuallyHiddenInput = styled('input')({
@@ -87,7 +87,7 @@ function CommandPanel({
                   onChange={async (ev) => {
                     if (ev.target.files) {
                       const json = await ev.target.files[0].text();
-                      onLoadDiagram(json);
+                      onLoadDiagram(json, ev.target.files[0].name);
                     }
                   }}
                   onClick={(ev) => {

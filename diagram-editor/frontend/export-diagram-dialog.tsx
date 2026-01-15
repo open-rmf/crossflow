@@ -8,6 +8,7 @@ import {
   Stack,
   TextField,
   Typography,
+  useTheme,
 } from '@mui/material';
 import { deflateSync, strToU8 } from 'fflate';
 import React, { Suspense, use, useMemo } from 'react';
@@ -23,6 +24,8 @@ import { useDiagramProperties } from './diagram-properties-provider';
 
 export interface ExportDiagramDialogProps {
   open: boolean;
+  suggestedFilename: string | null;
+  onExportedFilename: (filename: string) => void;
   onClose: () => void;
 }
 
@@ -33,6 +36,8 @@ interface DialogData {
 
 function ExportDiagramDialogInternal({
   open,
+  suggestedFilename,
+  onExportedFilename,
   onClose,
 }: ExportDiagramDialogProps) {
   const nodeManager = useNodeManager();
@@ -41,6 +46,7 @@ function ExportDiagramDialogInternal({
   const registry = useRegistry();
   const loadContext = useLoadContext();
   const [diagramProperties] = useDiagramProperties();
+  const theme = useTheme();
 
   const dialogDataPromise = useMemo(async () => {
     const diagram = exportDiagram(registry, nodeManager, edges, templates, diagramProperties ?? {});
@@ -75,7 +81,9 @@ function ExportDiagramDialogInternal({
 
   const dialogData = use(dialogDataPromise);
 
-  const handleDownload = () => {
+  const [downloaded, setDownloaded] = React.useState<string | null>(null);
+
+  const handleDownload = async () => {
     if (!dialogData) {
       return;
     }
@@ -83,6 +91,34 @@ function ExportDiagramDialogInternal({
     const blob = new Blob([dialogData.diagramJson], {
       type: 'application/json',
     });
+
+    if ('showSaveFilePicker' in window) {
+      try {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: suggestedFilename ?? 'diagram.json',
+          types: [
+            {
+              description: 'JSON File',
+              accept: { 'application/json': ['.json'] },
+            },
+          ],
+        });
+        const exportedFilename = handle.name;
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        setDownloaded(exportedFilename);
+        return;
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') {
+          return;
+        }
+      }
+    }
+
+    // The showSaveFilePicker API might not be supported in some browsers,
+    // fallback to the default method of downloading to just diagram.json if it
+    // fails.
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -91,7 +127,17 @@ function ExportDiagramDialogInternal({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+
+    setDownloaded('diagram.json');
   };
+
+  React.useEffect(() => {
+    if (downloaded === null || downloaded.length === 0) {
+      return;
+    }
+    onExportedFilename(downloaded);
+    setTimeout(() => { setDownloaded(null); }, 5000);
+  }, [downloaded, onExportedFilename])
 
   const [copiedShareLink, setCopiedShareLink] = React.useState(false);
 
@@ -140,9 +186,20 @@ function ExportDiagramDialogInternal({
             <Button
               variant="contained"
               onClick={handleDownload}
-              startIcon={<MaterialSymbol symbol="download" />}
+              startIcon={downloaded ? (
+                <MaterialSymbol symbol="check_circle" />
+              ) : (
+                <MaterialSymbol symbol="download" />
+              )}
+              sx={{
+                backgroundColor: downloaded ? theme.palette.success.main : null,
+              }}
             >
-              Download
+              {downloaded
+                ? typeof downloaded === 'string'
+                  ? `Saved ${downloaded}`
+                  : 'Downloaded'
+                : 'Download'}
             </Button>
           </Stack>
           <TextField

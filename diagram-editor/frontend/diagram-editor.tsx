@@ -518,9 +518,11 @@ function DiagramEditor() {
   );
   const [diagramProperties, setDiagramProperties] =
     React.useState<DiagramProperties>({});
+  const [recentlyUsedFilename, setRecentlyUsedFilename] =
+    React.useState<string | null>(null);
 
   const loadDiagram = React.useCallback(
-    async (jsonStr: string) => {
+    async (jsonStr: string, filename: string | null) => {
       try {
         const [diagram, { graph, isRestored }] = await loadDiagramJson(jsonStr);
         setLoadContext({ diagram });
@@ -536,6 +538,7 @@ function DiagramEditor() {
         }
         setEdges(graph.edges);
         setTemplates(diagram.templates || {});
+        setRecentlyUsedFilename(filename);
         reactFlowInstance.current?.fitView();
         closeAllPopovers();
       } catch (e) {
@@ -642,7 +645,7 @@ function DiagramEditor() {
               byteArray[i] = binaryString.charCodeAt(i);
             }
             const diagramJson = strFromU8(inflateSync(byteArray));
-            loadDiagram(diagramJson);
+            loadDiagram(diagramJson, null);
           } catch (e) {
             if (e instanceof Error) {
               showErrorToast(`failed to load diagram: ${e.message}`);
@@ -833,6 +836,10 @@ function DiagramEditor() {
         <Suspense>
           <ExportDiagramDialog
             open={openExportDiagramDialog}
+            suggestedFilename={recentlyUsedFilename}
+            onExportedFilename={
+              (filename: string) => setRecentlyUsedFilename(filename)
+            }
             onClose={() => setOpenExportDiagramDialog(false)}
           />
         </Suspense>
