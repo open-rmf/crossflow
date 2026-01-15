@@ -27,7 +27,7 @@ If you are a bevy application developer, then you may be interested in that firs
 
 If you just want something that can execute a graphical description of a workflow, then you will be interested in that second role, in which case bevy is just an implementation detail which might or might not matter to you.
 
-![sense-think-act workflow](assets/figures/sense-think-act_workflow.svg)
+![sense-think-act workflow](assets/sense-think-act_workflow.svg)
 
 # Why use crossflow?
 
@@ -42,7 +42,6 @@ There are several different categories of problems that crossflow sets out to so
 # Helpful Links
 
  * [Crossflow Handbook](https://open-rmf.github.io/crossflow-handbook)
- * [JSON Diagram Format](https://docs.google.com/presentation/d/1ShGRrbXtZYzaHTS-bPCU0nSmY-716OiFiB1VjGGTCfw/edit?usp=sharing)
  * [Crossflow Docs](https://docs.rs/crossflow/latest/crossflow/)
  * [Bevy Engine](https://bevyengine.org/)
  * [Bevy Cheat Book](https://bevy-cheatbook.github.io/)

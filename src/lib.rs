@@ -15,7 +15,7 @@
  *
 */
 
-//! ![sense-think-act workflow](https://raw.githubusercontent.com/open-rmf/crossflow/main/assets/figures/sense-think-act_workflow.svg)
+//! ![sense-think-act workflow](https://raw.githubusercontent.com/open-rmf/crossflow/main/assets/sense-think-act_workflow.svg)
 //!
 //! Crossflow is a workflow execution library built on the [Bevy](https://bevyengine.org)
 //! game engine that allows you to transform [bevy systems](https://bevyengine.org/learn/quick-start/getting-started/ecs/)

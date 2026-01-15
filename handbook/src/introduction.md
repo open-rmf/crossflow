@@ -44,7 +44,7 @@ Best practice when creating complex systems is to encapsulate services into the
 simplest possible building blocks and assemble those blocks into increasingly
 sophisticated structures. This is where workflows come in.
 
-![sense-think-act](./assets/figures/sense-think-act_workflow.svg)
+![sense-think-act](./assets/sense-think-act_workflow.svg)
 
 Workflows allow you to assemble services into a directed graph---cycles *are*
 allowed---that form a more complex behavior, feeding the output of each service
