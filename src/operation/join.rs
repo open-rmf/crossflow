@@ -19,8 +19,8 @@ use bevy_ecs::prelude::{Component, Entity};
 
 use crate::{
     FunnelInputStorage, Input, InputBundle, Joining, ManageInput, Operation, OperationCleanup,
-    OperationReachability, OperationRequest, OperationResult, OperationSetup,
-    OrBroken, ReachabilityResult, SingleInputStorage, SingleTargetStorage,
+    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
+    ReachabilityResult, SingleInputStorage, SingleTargetStorage,
 };
 
 pub(crate) struct Join<Buffers> {
@@ -170,10 +170,8 @@ mod tests {
             let left_buffer = builder.create_buffer(BufferSettings::keep_all());
             let right_buffer = builder.create_buffer(BufferSettings::keep_all());
 
-            let set_buffer = |
-                In(input): In<(u64, BufferKey<u64>)>,
-                mut access: BufferAccessMut<u64>,
-            | {
+            let set_buffer = |In(input): In<(u64, BufferKey<u64>)>,
+                              mut access: BufferAccessMut<u64>| {
                 let mut buffer = access.get_mut(&input.1).unwrap();
                 for i in 1..=input.0 {
                     buffer.push(i);
@@ -181,16 +179,20 @@ mod tests {
             };
             let set_buffer = set_buffer.into_blocking_callback();
 
-            builder
-                .chain(scope.input)
-                .fork_clone((
-                    |chain: Chain<_>| {
-                        chain.with_access(left_buffer).then(set_buffer.clone()).unused();
-                    },
-                    |chain: Chain<_>| {
-                        chain.with_access(right_buffer).then(set_buffer.clone()).unused();
-                    }
-                ));
+            builder.chain(scope.input).fork_clone((
+                |chain: Chain<_>| {
+                    chain
+                        .with_access(left_buffer)
+                        .then(set_buffer.clone())
+                        .unused();
+                },
+                |chain: Chain<_>| {
+                    chain
+                        .with_access(right_buffer)
+                        .then(set_buffer.clone())
+                        .unused();
+                },
+            ));
 
             builder
                 .join((left_buffer, right_buffer))
@@ -199,7 +201,8 @@ mod tests {
         });
 
         let mut test_for_count = |count: u64| {
-            let mut promise = context.command(|commands| commands.request(count, workflow).take_response());
+            let mut promise =
+                context.command(|commands| commands.request(count, workflow).take_response());
             context.run_with_conditions(&mut promise, Duration::from_secs(2));
             context.assert_no_errors();
             let r: Vec<(u64, u64)> = promise.take().available().unwrap().into_iter().collect();
