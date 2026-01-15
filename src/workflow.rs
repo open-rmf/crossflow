@@ -66,15 +66,15 @@ pub trait SpawnWorkflowExt {
     }
 }
 
-/// A view of a scope's inputs and outputs from inside of the scope.
-///
-/// It is _not_ a mistake that the [`Scope::input`] field has an [`Output`]
-/// type or that the [`Scope::terminate`] field has an [`InputSlot`] type. From
-/// the perspective inside of the scope, the scope's input would be received as
-/// an output, and the scope's output would be passed into an input slot.
+/// The internal interface of the scope, used to connect elements inside the
+/// scope to the start, terminate, and stream operations of the scope.
 pub struct Scope<Request, Response, Streams: StreamPack = ()> {
-    /// The data entering the scope. The workflow of the scope must be built
-    /// out from here.
+    /// This output will fire off the request message that was sent into the
+    /// scope. This fires exactly once per session of the scope, and is used to
+    /// initiate the activity in the scope.
+    ///
+    /// Connect this output to the [`InputSlot`] of whichever node or operation
+    /// you want to activate at the start of the scope.
     pub start: Output<Request>,
     /// The slot that the final output of the scope must connect into. Once you
     /// provide an input into this slot, the entire session of the scope will
