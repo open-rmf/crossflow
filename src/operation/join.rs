@@ -19,8 +19,8 @@ use bevy_ecs::prelude::{Component, Entity};
 
 use crate::{
     FunnelInputStorage, Input, InputBundle, Joining, ManageInput, Operation, OperationCleanup,
-    OperationError, OperationReachability, OperationRequest, OperationResult, OperationSetup,
-    OrBroken, ReachabilityResult, SingleInputStorage, SingleTargetStorage,
+    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
+    ReachabilityResult, SingleInputStorage, SingleTargetStorage,
 };
 
 pub(crate) struct Join<Buffers> {
@@ -73,15 +73,18 @@ where
             .or_broken()?
             .0
             .clone();
-        if buffers.buffered_count(session, world)? < 1 {
-            return Err(OperationError::NotReady);
-        }
 
-        let output = buffers.fetch_for_join(session, world)?;
-        world
-            .get_entity_mut(target)
-            .or_broken()?
-            .give_input(session, output, roster)
+        loop {
+            if buffers.buffered_count(session, world)? < 1 {
+                return Ok(());
+            }
+
+            let output = buffers.fetch_for_join(session, world)?;
+            world
+                .get_entity_mut(target)
+                .or_broken()?
+                .give_input(session, output, roster)?;
+        }
     }
 
     fn cleanup(mut clean: OperationCleanup) -> OperationResult {
@@ -154,12 +157,71 @@ mod tests {
         let mut promise =
             context.command(|commands| commands.request(2.0, workflow).take_response());
         context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(
-            context.no_unhandled_errors(),
-            "{:?}",
-            context.get_unhandled_errors()
-        );
+        context.assert_no_errors();
         let r = promise.take().available().unwrap();
         assert_eq!(r, 4.0);
+    }
+
+    #[test]
+    fn test_multi_join() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let left_buffer = builder.create_buffer(BufferSettings::keep_all());
+            let right_buffer = builder.create_buffer(BufferSettings::keep_all());
+
+            let set_buffer = |In(input): In<(u64, BufferKey<u64>)>,
+                              mut access: BufferAccessMut<u64>| {
+                let mut buffer = access.get_mut(&input.1).unwrap();
+                for i in 1..=input.0 {
+                    buffer.push(i);
+                }
+            };
+            let set_buffer = set_buffer.into_blocking_callback();
+
+            builder.chain(scope.input).fork_clone((
+                |chain: Chain<_>| {
+                    chain
+                        .with_access(left_buffer)
+                        .then(set_buffer.clone())
+                        .unused();
+                },
+                |chain: Chain<_>| {
+                    chain
+                        .with_access(right_buffer)
+                        .then(set_buffer.clone())
+                        .unused();
+                },
+            ));
+
+            builder
+                .join((left_buffer, right_buffer))
+                .collect_all::<8>()
+                .connect(scope.terminate);
+        });
+
+        let mut test_for_count = |count: u64| {
+            let mut promise =
+                context.command(|commands| commands.request(count, workflow).take_response());
+            context.run_with_conditions(&mut promise, Duration::from_secs(2));
+            context.assert_no_errors();
+            let r: Vec<(u64, u64)> = promise.take().available().unwrap().into_iter().collect();
+            r
+        };
+
+        let r = test_for_count(1);
+        assert_eq!(r, vec![(1, 1)]);
+
+        let r = test_for_count(2);
+        assert_eq!(r, vec![(1, 1), (2, 2)]);
+
+        let r = test_for_count(3);
+        assert_eq!(r, vec![(1, 1), (2, 2), (3, 3)]);
+
+        let r = test_for_count(4);
+        assert_eq!(r, vec![(1, 1), (2, 2), (3, 3), (4, 4)]);
+
+        let r = test_for_count(5);
+        assert_eq!(r, vec![(1, 1), (2, 2), (3, 3), (4, 4), (5, 5)]);
     }
 }
