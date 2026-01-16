@@ -100,7 +100,7 @@ where
     ///
     /// | Operation                                                 | Drop condition                                        |
     /// |-----------------------------------------------------------|-------------------------------------------------------|
-    /// | [`Self::take`] <br> [`Self::take_response`]               | The promise containing the final response is dropped. |
+    /// | [`Self::capture`] <br> [`Self::outcome`]                  | The [`Outcome`] is dropped.                           |
     /// | [`Self::store`] <br> [`Self::push`] <br> [`Self::insert`] | The target entity of the operation is despawned.      |
     /// | [`Self::detach`] <br> [`Self::send_event`]                | This will never be dropped                            |
     /// | Using none of the above                                   | The series will immediately be dropped during a flush, so it will never be run at all. <br> This will also push an error into [`UnhandledErrors`](crate::UnhandledErrors). |

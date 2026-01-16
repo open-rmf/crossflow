@@ -35,7 +35,7 @@ use crate::{
     ContinuousQuery, ContinuousQueueView, ContinuousService, CrossflowExecutorApp, FlushParameters,
     GetBufferedSessionsFn, Joining, OperationError, OperationResult, OperationRoster, Promise,
     RunCommandsOnWorldExt, Scope, Service, SpawnWorkflowExt, StreamOf, StreamPack, UnhandledErrors,
-    WorkflowSettings,
+    WorkflowSettings, Outcome, ProvideOnce, RequestExt, Cancellation,
 };
 
 pub struct TestingContext {
@@ -101,27 +101,27 @@ impl TestingContext {
         self.run_impl::<()>(None, conditions.into());
     }
 
-    pub fn run_while_pending<T>(&mut self, promise: &mut Promise<T>) {
+    pub fn run_while_pending<R: Resolvable>(&mut self, promise: &mut R) {
         self.run_with_conditions(promise, FlushConditions::new());
     }
 
-    pub fn run_with_conditions<T>(
+    pub fn run_with_conditions<R: Resolvable>(
         &mut self,
-        promise: &mut Promise<T>,
+        promise: &mut R,
         conditions: impl Into<FlushConditions>,
     ) -> bool {
         self.run_impl(Some(promise), conditions)
     }
 
-    fn run_impl<T>(
+    fn run_impl<R: Resolvable>(
         &mut self,
-        mut promise: Option<&mut Promise<T>>,
+        mut promise: Option<&mut R>,
         conditions: impl Into<FlushConditions>,
     ) -> bool {
         let conditions = conditions.into();
         let t_initial = std::time::Instant::now();
         let mut count = 0;
-        while !promise.as_mut().is_some_and(|p| !p.peek().is_pending()) {
+        while promise.as_mut().is_none_or(|r| !r.is_resolved()) {
             if let Some(timeout) = conditions.timeout {
                 let elapsed = std::time::Instant::now() - t_initial;
                 if timeout < elapsed {
@@ -140,6 +140,37 @@ impl TestingContext {
         }
 
         true
+    }
+
+    pub fn resolve_request<P: ProvideOnce>(
+        &mut self,
+        request: P::Request,
+        provider: P,
+    ) -> P::Response
+    where
+        P::Request: 'static + Send + Sync,
+        P::Response: 'static + Send + Sync,
+        P::Streams: StreamPack,
+    {
+        self.try_resolve_request(request, provider, ()).unwrap()
+    }
+
+    pub fn try_resolve_request<P: ProvideOnce>(
+        &mut self,
+        request: P::Request,
+        provider: P,
+        conditions: impl Into<FlushConditions>,
+    ) -> Result<P::Response, Cancellation>
+    where
+        P::Request: 'static + Send + Sync,
+        P::Response: 'static + Send + Sync,
+        P::Streams: StreamPack,
+    {
+        let mut outcome = self.command(move |commands| commands.request(request, provider).outcome());
+
+        self.run_with_conditions(&mut outcome, conditions);
+        self.assert_no_errors();
+        outcome.try_recv().unwrap()
     }
 
     pub fn no_unhandled_errors(&self) -> bool {
@@ -296,6 +327,14 @@ impl From<Duration> for FlushConditions {
 impl From<usize> for FlushConditions {
     fn from(value: usize) -> Self {
         Self::new().with_update_count(value)
+    }
+}
+
+impl From<()> for FlushConditions {
+    fn from(_: ()) -> Self {
+        // The vast majority of tests should finish in less than 2 seconds, so
+        // make this duration limit the default stop condition.
+        Duration::from_secs(2).into()
     }
 }
 
@@ -602,5 +641,27 @@ impl<T: 'static + Send + Sync> Accessing for NonCopyBuffer<T> {
 
     fn is_key_in_use(key: &Self::Key) -> bool {
         key.is_in_use()
+    }
+}
+
+pub trait Resolvable {
+    fn is_resolved(&mut self) -> bool;
+}
+
+impl<T> Resolvable for Promise<T> {
+    fn is_resolved(&mut self) -> bool {
+        !self.peek().is_pending()
+    }
+}
+
+impl<T> Resolvable for Outcome<T> {
+    fn is_resolved(&mut self) -> bool {
+        !self.is_pending()
+    }
+}
+
+impl Resolvable for () {
+    fn is_resolved(&mut self) -> bool {
+        false
     }
 }
