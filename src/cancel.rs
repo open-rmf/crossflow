@@ -523,3 +523,9 @@ impl Cancellable {
         }
     }
 }
+
+impl From<tokio::sync::oneshot::error::RecvError> for Cancellation {
+    fn from(_: tokio::sync::oneshot::error::RecvError) -> Self {
+        CancellationCause::Undeliverable.into()
+    }
+}

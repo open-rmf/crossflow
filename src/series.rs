@@ -20,11 +20,17 @@ use bevy_ecs::{
     prelude::{Bundle, Commands, Component, Entity, Event},
 };
 
-use std::future::Future;
+use std::{
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+use tokio::sync::oneshot::{self, error::{RecvError, TryRecvError}};
 
 use crate::{
     AsMapOnce, Cancellable, IntoAsyncMapOnce, IntoBlockingMapOnce, Promise, ProvideOnce, Sendish,
-    StreamPack, StreamTargetMap, UnusedTarget,
+    StreamPack, StreamTargetMap, UnusedTarget, Cancellation, CancellationCause,
 };
 
 mod detach;
@@ -44,6 +50,9 @@ pub(crate) use map::*;
 
 mod push;
 pub(crate) use push::*;
+
+mod capture;
+pub(crate) use capture::*;
 
 mod send_event;
 pub(crate) use send_event::*;
@@ -128,6 +137,27 @@ where
         }
     }
 
+    /// Capture the outcome of the series and all the stream data of the final
+    /// provider.
+    #[must_use]
+    pub fn capture(self) -> Capture<Response, Streams> {
+        let (response_sender, response_receiver) = oneshot::channel();
+        self.commands.queue(AddExecution::new(
+            Some(self.source),
+            self.target,
+            CaptureOutcome::<Response>::new(response_sender),
+        ));
+        let mut map = StreamTargetMap::default();
+        let stream_receivers = Streams::take_streams(self.target, &mut map, self.commands);
+        self.commands.entity(self.source).insert(map);
+
+        Capture {
+            outcome: Outcome { inner: response_receiver },
+            streams: stream_receivers,
+            session: self.target,
+        }
+    }
+
     /// Take only the response data that comes out of the request.
     pub fn take_response(self) -> Promise<Response> {
         let (response_sender, response_promise) = Promise::<Response>::new();
@@ -137,6 +167,18 @@ where
             TakenResponse::<Response>::new(response_sender),
         ));
         response_promise
+    }
+
+    /// Capture only the outcome (response) of the series.
+    pub fn outcome(self) -> Outcome<Response> {
+        let (response_sender, response_receiver) = oneshot::channel();
+        self.commands.queue(AddExecution::new(
+            Some(self.source),
+            self.target,
+            CaptureOutcome::<Response>::new(response_sender),
+        ));
+
+        Outcome { inner: response_receiver }
     }
 
     /// Pass the outcome of the request to another provider.
@@ -346,6 +388,83 @@ pub struct Recipient<Response, Streams: StreamPack> {
     /// series but structurally we have made it the parent of all the sessions
     /// that will be executed before it. This is done so that despawning behavior
     /// has a more logical relationship with the dependencies between the sessions.
+    pub session: Entity,
+}
+
+pub struct Outcome<T> {
+    inner: oneshot::Receiver<Result<T, Cancellation>>,
+}
+
+impl<T> Future for Outcome<T> {
+    type Output = Result<T, Cancellation>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        Future::poll(Pin::new(&mut self.get_mut().inner), cx)
+            .map(flatten_recv)
+    }
+}
+
+impl<T> Outcome<T> {
+    /// Try receiving the outcome if it's available. This can be used in a
+    /// blocking context but does not block execution itself.
+    ///
+    /// If the outcome is not available yet, this will return None.
+    ///
+    /// If the outcome was previously delivered or if the sender was dropped,
+    /// this will give a [`CancellationCause::Undeliverable`].
+    pub fn try_recv(&mut self) -> Option<Result<T, Cancellation>> {
+        flatten_try_recv(self.inner.try_recv())
+    }
+
+    /// Check if the outcome has already been delivered. If this is true then
+    /// you will no longer be able to poll for the outcome.
+    pub fn is_terminated(&self) -> bool {
+        self.inner.is_terminated()
+    }
+
+    /// Check if the outcome is available to be received.
+    ///
+    /// If the outcome was previously received this will return false. Use
+    /// [`Self::is_terminated`] to tell pending outcomes apart from
+    /// already-delivered outcomes.
+    ///
+    /// If you want to know if an outcome is still pending, use [`Self::is_pending`].
+    pub fn is_available(&self) -> bool {
+        !self.inner.is_empty()
+    }
+
+    /// Check if the outcome is still being determined.
+    pub fn is_pending(&self) -> bool {
+        self.inner.is_empty() && !self.is_terminated()
+    }
+}
+
+fn flatten_recv<T>(
+    response: Result<Result<T, Cancellation>, RecvError>
+) -> Result<T, Cancellation> {
+    match response {
+        Ok(r) => r,
+        Err(err) => Err(err.into())
+    }
+}
+
+fn flatten_try_recv<T>(
+    response: Result<Result<T, Cancellation>, TryRecvError>,
+) -> Option<Result<T, Cancellation>> {
+    match response {
+        Ok(r) => Some(r),
+        Err(err) => {
+            match err {
+                TryRecvError::Empty => None,
+                TryRecvError::Closed => Some(Err(CancellationCause::Undeliverable.into()))
+            }
+        }
+    }
+}
+
+pub struct Capture<Response, Streams: StreamPack> {
+    pub outcome: Outcome<Response>,
+    pub streams: Streams::StreamReceivers,
     pub session: Entity,
 }
 

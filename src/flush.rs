@@ -271,9 +271,8 @@ fn collect_from_channels(
     }
 
     let mut lifecycles = world.get_resource_or_insert_with(SeriesLifecycleChannel::default);
-    let mut dropped_targets: SmallVec<[Entity; 8]> = SmallVec::new();
     while let Ok(dropped_target) = lifecycles.receiver.try_recv() {
-        dropped_targets.push(dropped_target);
+        drop_targets.push(dropped_target);
     }
 
     for target in drop_targets {
