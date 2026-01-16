@@ -513,7 +513,7 @@ pub fn repeat_service(
 
     async move {
         for _ in 0..input.request.count {
-            input.channel.query((), input.request.service).await;
+            let _ = input.channel.request_outcome((), input.request.service).await;
         }
     }
 }

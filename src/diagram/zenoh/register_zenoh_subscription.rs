@@ -225,9 +225,9 @@ impl DiagramElementRegistry {
 
                         // Clear the buffer to indicate that the subscription
                         // could be restarted.
-                        input
+                        let _ = input
                             .channel
-                            .command(move |commands| {
+                            .commands(move |commands| {
                                 commands.queue(move |world: &mut World| {
                                     let _ = world.buffer_mut(&active_key, |mut active_buffer| {
                                         active_buffer.drain(..);

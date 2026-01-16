@@ -1304,15 +1304,13 @@ async fn insert_page_title(
     let insert_into = srv.request.insert_into;
     // Use the async channel to insert a PageTitle component into the entity
     // specified by the request, then await confirmation that the command is finished.
-    srv.channel.command(
+    srv.channel.commands(
         move |commands| {
             commands.entity(insert_into).insert(PageTitle(title));
         }
     )
         .await
-        .take()
-        .available()
-        .ok_or(())
+        .map_err(|_| ())
 }
 // ANCHOR_END: insert_page_title
 
@@ -1460,13 +1458,12 @@ fn navigate(
     async move {
         loop {
             // Fetch the latest position using the async channel
-            let position = input.channel.query(
+            let position = input.channel.request_outcome(
                 robot_position_key.clone(),
                 get_position.clone()
             )
                 .await
-                .take()
-                .available()
+                .ok()
                 .flatten();
 
             let Some(position) = position else {
@@ -1910,8 +1907,7 @@ async fn navigate(
             world.resource::<NavigationGraph>().clone()
         })
         .await
-        .take()
-        .available()
+        .ok()
     else {
         return Err(NavigationError::MissingGraph);
     };
@@ -1931,13 +1927,12 @@ async fn navigate(
 
     loop {
         // Fetch the latest position using the async channel
-        let position = input.channel.query(
+        let position = input.channel.request_outcome(
             robot_position_key.clone(),
             get_position.clone()
         )
             .await
-            .take()
-            .available()
+            .ok()
             .flatten();
 
         let Some(position) = position else {

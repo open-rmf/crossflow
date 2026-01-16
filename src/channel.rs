@@ -21,13 +21,16 @@ use bevy_ecs::{
     world::CommandQueue,
 };
 
-use tokio::sync::mpsc::{
-    UnboundedReceiver as TokioReceiver, UnboundedSender as TokioSender, unbounded_channel,
+use tokio::sync::{
+    oneshot,
+    mpsc::{
+        UnboundedReceiver as TokioReceiver, UnboundedSender as TokioSender, unbounded_channel,
+    }
 };
 
 use std::sync::Arc;
 
-use crate::{OperationError, OperationRoster, Promise, Provider, RequestExt, StreamPack};
+use crate::{OperationError, OperationRoster, Outcome, Promise, Provider, RequestExt, StreamPack};
 
 /// Provides asynchronous access to the [`World`], allowing you to issue queries
 /// or commands and then await the result.
@@ -37,7 +40,29 @@ pub struct Channel {
 }
 
 impl Channel {
+    /// Get the outcome of sending a request to a provider.
+    ///
+    /// If you need to build a [`Series`] or do a full [`Capture`] then use
+    /// [`Self::commands`] and use `.await` to dig into it. This is a convenience
+    /// function for cases where all you need is the outcome.
+    ///
+    /// [`Series`]: crate::Series
+    /// [`Capture`]: crate::Capture
+    pub fn request_outcome<P>(&self, request: P::Request, provider: P) -> Outcome<P::Response>
+    where
+        P: Provider,
+        P::Request: 'static + Send + Sync,
+        P::Response: 'static + Send + Sync,
+        P::Streams: 'static + StreamPack,
+        P: 'static + Send + Sync,
+    {
+        let (sender, receiver) = oneshot::channel();
+        let _ = self.commands(move |commands| commands.request(request, provider).outcome_into(sender));
+        Outcome::new(receiver)
+    }
+
     /// Run a query in the world and receive the promise of the query's output.
+    #[deprecated(since = "0.0.6", note = "Use .request_outcome() instead")]
     pub fn query<P>(&self, request: P::Request, provider: P) -> Promise<P::Response>
     where
         P: Provider,
@@ -51,7 +76,34 @@ impl Channel {
             .flatten()
     }
 
+    /// Get access to a [`Commands`] for the [`World`].
+    ///
+    /// The commands will be carried out asynchronously. You can .await the
+    /// receiver that this returns to know when the commands have been finished.
+    pub fn commands<F, U>(&self, f: F) -> oneshot::Receiver<U>
+    where
+        F: FnOnce(&mut Commands) -> U + 'static + Send,
+        U: 'static + Send,
+    {
+        let (sender, receiver) = oneshot::channel();
+        self.inner
+            .sender
+            .send(Box::new(
+                move |world: &mut World, _: &mut OperationRoster| {
+                    let mut command_queue = CommandQueue::default();
+                    let mut commands = Commands::new(&mut command_queue, world);
+                    let u = f(&mut commands);
+                    command_queue.apply(world);
+                    let _ = sender.send(u);
+                },
+            ))
+            .ok();
+
+        receiver
+    }
+
     /// Get access to a [`Commands`] for the [`World`]
+    #[deprecated(since = "0.0.6", note = "Use .commands() instead")]
     pub fn command<F, U>(&self, f: F) -> Promise<U>
     where
         F: FnOnce(&mut Commands) -> U + 'static + Send,
@@ -75,12 +127,15 @@ impl Channel {
     }
 
     /// Apply a closure onto the [`World`].
-    pub fn world<F, U>(&self, f: F) -> Promise<U>
+    ///
+    /// The closure will be executed asynchronously. You can .await the receiver
+    /// that this returns to know when the closure has been applied.
+    pub fn world<F, U>(&self, f: F) -> oneshot::Receiver<U>
     where
         F: FnOnce(&mut World) -> U + 'static + Send,
         U: 'static + Send,
     {
-        let (sender, promise) = Promise::new();
+        let (sender, receiver) = oneshot::channel();
         self.inner
             .sender
             .send(Box::new(
@@ -91,7 +146,7 @@ impl Channel {
             ))
             .ok();
 
-        promise
+        receiver
     }
 
     pub(crate) fn for_streams<Streams: StreamPack>(

@@ -124,12 +124,11 @@ fn update_page_title(
 
         let entity = srv.request;
         srv.channel
-            .command(move |commands| {
+            .commands(move |commands| {
                 commands.entity(entity).insert(PageTitle(title));
             })
             .await
-            .available()
-            .ok_or(())
+            .map_err(|_| ())
     }
 }
 // ANCHOR_END: example

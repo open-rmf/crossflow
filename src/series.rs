@@ -160,14 +160,10 @@ where
     }
 
     /// Capture only the outcome (response) of the series.
+    #[must_use]
     pub fn outcome(self) -> Outcome<Response> {
         let (response_sender, response_receiver) = oneshot::channel();
-        self.commands.queue(AddExecution::new(
-            Some(self.source),
-            self.target,
-            CaptureOutcome::<Response>::new(response_sender),
-        ));
-
+        self.outcome_into(response_sender);
         Outcome { inner: response_receiver }
     }
 
@@ -333,6 +329,18 @@ where
             .insert((stream_targets, map));
     }
 
+    /// Used internally to allow more flexible way of receiving outcomes.
+    pub(crate) fn outcome_into(
+        self,
+        sender: oneshot::Sender<Result<Response, Cancellation>>,
+    ) {
+        self.commands.queue(AddExecution::new(
+            Some(self.source),
+            self.target,
+            CaptureOutcome::<Response>::new(sender),
+        ));
+    }
+
     // TODO(@mxgrey): Consider offering ways for users to respond to cancellations.
     // For example, offer an on_cancel method that lets users provide a callback
     // to be triggered when a cancellation happens. Or focus on the terminal end
@@ -393,6 +401,11 @@ pub struct Recipient<Response, Streams: StreamPack> {
     pub session: Entity,
 }
 
+/// Contains the final outcome of a request sent to a provider.
+///
+/// This mostly just wraps a oneshot receiver to have nicer ergonomics. If the
+/// oneshot sender disconnects, its error message gets flattened into a regular
+/// cancellation.
 pub struct Outcome<T> {
     inner: oneshot::Receiver<Result<T, Cancellation>>,
 }
@@ -438,6 +451,12 @@ impl<T> Outcome<T> {
     /// Check if the outcome is still being determined.
     pub fn is_pending(&self) -> bool {
         self.inner.is_empty() && !self.is_terminated()
+    }
+
+    /// Make a new Outcome. This is usually created by [`Series`], but the API
+    /// is public in case users have a reason to create one manually.
+    pub fn new(receiver: oneshot::Receiver<Result<T, Cancellation>>) -> Self {
+        Self { inner: receiver }
     }
 }
 

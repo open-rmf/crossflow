@@ -1206,9 +1206,9 @@ mod tests {
         async move {
             input
                 .channel
-                .query(input.request, decrement_register.into_blocking_callback())
+                .request_outcome(input.request, decrement_register.into_blocking_callback())
                 .await
-                .available()
+                .ok()
         }
     }
 
@@ -1218,12 +1218,12 @@ mod tests {
         async move {
             input
                 .channel
-                .query(
+                .request_outcome(
                     input.request,
                     decrement_register_and_pass_keys.into_blocking_callback(),
                 )
                 .await
-                .available()
+                .ok()
         }
     }
 
