@@ -30,13 +30,10 @@ A service can be executed by sending it a request at any time using this line
 of code:
 
 ```rust
-let response = commands.request(input, service).take_response();
+let outcome = commands.request(input, service).outcome();
 ```
 
-This line is non-blocking, meaning the service will be executed concurrently with
-the rest of the application's activity. The `response` is a promise that can be
-polled---or better yet [awaited][await] in an async context---until the service has sent
-its response.
+This line is non-blocking, meaning the service will be executed concurrently with the rest of the application's activity. The `outcome` is a receiver that can be polled---or better yet [awaited][await] in an async context---until the service has sent its response or has been cancelled.
 
 ## Workflows
 

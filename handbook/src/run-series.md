@@ -45,20 +45,14 @@ service's output into a data type that can be consumed by the second service.
 ## Dependencies and Detachment
 
 You may notice the [`.detach()`][detach] at the end of the previous example series.
-Ordinarily a series will automatically stop executing if its result is no longer
-needed, which we detect based on whether the [`Promise`][Promise] of the final
-response gets dropped. This allows us to avoid running services needlessly. However
-sometimes you want services to run even if you won't be observing its final result,
-because you are interested in side-effects from the service rather than the final
-response of the service. You can insert `.detach()` anywhere in a series to ensure
-that everything before the `.detach()` gets run even if the part of the series after
-the `.detach()` gets dropped.
+Ordinarily a series will automatically stop executing if its result is no longer needed, which we detect based on whether the [`Outcome`][Outcome] of the final response gets dropped.
+This allows us to avoid running services needlessly.
+However sometimes you want services to run even if you won't be observing its final result, because you are interested in side-effects from the service rather than the final response of the service.
+You can insert `.detach()` anywhere in a series to ensure that everything before the `.detach()` gets run even if the part of the series after the `.detach()` gets dropped.
 
-There are several ways to terminate a series, and each has drop conditions that
-affect what happens to the series when it gets dropped. You can find a table of
-the different terminating operations and their drop conditions in the
-[`Series::detach()`][detach] documentation.
+There are several ways to terminate a series, and each has drop conditions that affect what happens to the series when it gets dropped.
+You can find a table of the different terminating operations and their drop conditions in the [`Series::detach()`][detach] documentation.
 
 [Series]: https://docs.rs/crossflow/latest/crossflow/series/struct.Series.html
-[Promise]: https://docs.rs/crossflow/latest/crossflow/promise/struct.Promise.html
+[Outcome]: https://docs.rs/crossflow/latest/crossflow/series/struct.Outcome.html
 [detach]: https://docs.rs/crossflow/latest/crossflow/series/struct.Series.html#method.detach
