@@ -42,9 +42,9 @@ fn main() {
 
     let entity = app.world_mut().spawn(Url(args.url)).id();
 
-    let mut promise = app
+    let mut outcome = app
         .world_mut()
-        .command(|commands| commands.request(entity, service).take_response());
+        .command(|commands| commands.request(entity, service).outcome());
 
     // Create a tokio runtime and drive it on another thread
     let (finish, finished) = tokio::sync::oneshot::channel();
@@ -58,12 +58,15 @@ fn main() {
     let start = std::time::Instant::now();
     let time_limit = std::time::Duration::from_secs(5);
     while std::time::Instant::now() - start < time_limit {
-        if let Some(response) = promise.peek().as_ref().available() {
-            if response.is_ok() {
-                let title = app.world().get::<PageTitle>(entity).unwrap();
-                println!("Fetched title: {}", **title);
-            } else {
-                println!("Error encountered while trying to update title");
+        if let Some(response) = outcome.try_recv() {
+            match response {
+                Ok(_) => {
+                    let title = app.world().get::<PageTitle>(entity).unwrap();
+                    println!("Fetched title: {}", **title);
+                }
+                Err(err) => {
+                    println!("Error encountered while trying to update title: {err}");
+                }
             }
 
             let _ = finish.send(());

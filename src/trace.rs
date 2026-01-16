@@ -341,19 +341,19 @@ mod tests {
         fixture: &mut DiagramTestFixture,
         route: &[&str],
     ) {
-        let Recipient {
-            response: mut promise,
+        let Capture {
+            mut outcome,
             session,
             ..
         } = fixture
             .context
-            .command(|commands| commands.request(value, panchinko).take());
+            .command(|commands| commands.request(value, panchinko).capture());
 
         fixture
             .context
-            .run_with_conditions(&mut promise, Duration::from_secs(2));
+            .run_with_conditions(&mut outcome, Duration::from_secs(2));
         assert!(fixture.context.no_unhandled_errors());
-        let result = promise.take().available().unwrap();
+        let result = outcome.try_recv().unwrap().unwrap();
         assert_eq!(value, result);
 
         let recorder = fixture

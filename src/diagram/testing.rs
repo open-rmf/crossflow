@@ -100,11 +100,11 @@ impl DiagramTestFixture {
         Streams: StreamPack,
     {
         let workflow = self.spawn_workflow::<_, _, Streams>(diagram)?;
-        let mut recipient = self
+        let mut capture = self
             .context
-            .command(|cmds| cmds.request(request, workflow).take());
+            .command(|cmds| cmds.request(request, workflow).capture());
         self.context
-            .run_with_conditions(&mut recipient.response, conditions);
+            .run_with_conditions(&mut capture.outcome, conditions);
 
         // Some workflows have callbacks with lifelong state that needs to be
         // cleaned up. In the case of zenoh, it's important to get that state
@@ -118,14 +118,12 @@ impl DiagramTestFixture {
 
         self.context.assert_no_errors();
 
-        let taken = recipient.response.take();
-        if taken.is_available() {
-            Ok((taken.available().unwrap(), recipient.streams))
-        } else if taken.is_cancelled() {
-            let cancellation = taken.cancellation().unwrap();
-            Err(cancellation.clone().into())
+        if let Some(result) = capture.outcome.try_recv() {
+            result
+                .map(|response: Response| (response, capture.streams))
+                .map_err(|err| Box::new(err) as Box<dyn Error>)
         } else {
-            Err(String::from("promise is in invalid state").into())
+            Err(String::from("Outcome has not resolved yet").into())
         }
     }
 }

@@ -458,13 +458,8 @@ impl std::fmt::Debug for BufferKeyTag {
 ///         .connect(scope.terminate);
 /// });
 ///
-/// let mut promise = context.command(|commands| {
-///     commands.request(vec![-3, 2, 10], workflow).take_response()
-/// });
-///
-/// context.run_with_conditions(&mut promise, Duration::from_secs(1));
-/// let r = promise.take().available().unwrap().unwrap();
-/// assert_eq!(r, 10);
+/// let r = context.resolve_request(vec![-3, 2, 10], workflow);
+/// assert_eq!(r, Some(10));
 /// ```
 #[derive(SystemParam)]
 pub struct BufferAccess<'w, 's, T>
@@ -531,13 +526,8 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
 ///         .connect(scope.terminate);
 /// });
 ///
-/// let mut promise = context.command(|commands| {
-///     commands.request(vec![-3, 2, 10], workflow).take_response()
-/// });
-///
-/// context.run_with_conditions(&mut promise, Duration::from_secs(1));
-/// let r = promise.take().available().unwrap().unwrap();
-/// assert_eq!(r, 10);
+/// let r = context.resolve_request(vec![-3, 2, 10], workflow);
+/// assert_eq!(r, Some(10));
 /// ```
 #[derive(SystemParam)]
 pub struct BufferAccessMut<'w, 's, T>
@@ -943,12 +933,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request((2.0, 3.0), workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise.take().available().is_some_and(|value| value == 6.0));
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request((2.0, 3.0), workflow);
+        assert_eq!(r, 6.0);
 
         let workflow = context.spawn_io_workflow(|scope: Scope<(f64, f64), f64>, builder| {
             builder
@@ -960,12 +946,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request((4.0, 5.0), workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise.take().available().is_some_and(|value| value == 9.0));
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request((4.0, 5.0), workflow);
+        assert_eq!(r, 9.0);
 
         let workflow =
             context.spawn_io_workflow(|scope: Scope<(f64, f64), Result<f64, f64>>, builder| {
@@ -995,17 +977,8 @@ mod tests {
                 );
             });
 
-        let mut promise =
-            context.command(|commands| commands.request((2.0, 3.0), workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(
-            promise
-                .take()
-                .available()
-                .is_some_and(|value| value.is_err_and(|n| n == 5.0))
-        );
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request((2.0, 3.0), workflow);
+        assert!(r.is_err_and(|n| n == 5.0));
 
         // Same as previous test, but using Builder::create_buffer_access instead
         let workflow = context.spawn_io_workflow(|scope, builder| {
@@ -1032,17 +1005,8 @@ mod tests {
                 );
         });
 
-        let mut promise =
-            context.command(|commands| commands.request((2.0, 3.0), workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(
-            promise
-                .take()
-                .available()
-                .is_some_and(|value| value.is_err_and(|n| n == 5.0))
-        );
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request((2.0, 3.0), workflow);
+        assert!(r.is_err_and(|n| n == 5.0));
     }
 
     fn add_from_buffer(
@@ -1170,24 +1134,12 @@ mod tests {
         expect_success: bool,
         context: &mut TestingContext,
     ) {
-        let mut promise = context.command(|commands| {
-            commands
-                .request(Register::new(initial_value), workflow)
-                .take_response()
-        });
-
-        context.run_while_pending(&mut promise);
+        let r = context.try_resolve_request(Register::new(initial_value), workflow, ());
         if expect_success {
-            assert!(
-                promise
-                    .take()
-                    .available()
-                    .is_some_and(|r| r.finished_with(initial_value))
-            );
+            assert!(r.unwrap().finished_with(initial_value));
         } else {
-            assert!(promise.take().is_cancelled());
+            assert!(r.is_err());
         }
-        assert!(context.no_unhandled_errors());
     }
 
     // We use this struct to keep track of operations that have occurred in the
@@ -1294,11 +1246,8 @@ mod tests {
                 ));
         });
 
-        let mut promise = context.command(|commands| commands.request(0, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise.take().available().is_some_and(|v| v == 5));
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request(0, workflow);
+        assert_eq!(r, 5);
     }
 
     /// Used to verify that when a key is used to open a buffer gate, it will not
@@ -1353,11 +1302,8 @@ mod tests {
             ));
         });
 
-        let mut promise = context.command(|commands| commands.request(3, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise.take().available().is_some_and(|v| v == 0));
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request(3, workflow);
+        assert_eq!(r, 0);
     }
 
     /// Used to verify that we get spurious wakeups when closed loops are allowed
@@ -1410,14 +1356,7 @@ mod tests {
                 );
         });
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request((String::from("hello"), 0), workflow)
-                .take_response()
-        });
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let r = promise.take().available().unwrap();
+        let r = context.resolve_request((String::from("hello"), 0), workflow);
         assert_eq!(r.count, 10);
         assert_eq!(r.message, "hello");
     }
@@ -1461,11 +1400,7 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request(vec![-3, 2, 10], workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(1));
-        let r = promise.take().available().unwrap().unwrap();
-        assert_eq!(r, 10);
+        let r = context.resolve_request(vec![-3, 2, 10], workflow);
+        assert_eq!(r.unwrap(), 10);
     }
 }

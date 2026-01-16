@@ -227,23 +227,18 @@ pub(crate) mod tests {
         provider: impl Provider<Request = u32, Response = u32, Streams = StreamOf<u32>>,
         context: &mut TestingContext,
     ) {
-        let mut recipient = context.command(|commands| commands.request(10, provider).take());
+        let mut capture = context.command(|commands| commands.request(10, provider).capture());
 
-        context.run_with_conditions(&mut recipient.response, Duration::from_secs(2));
-        assert!(
-            recipient
-                .response
-                .take()
-                .available()
-                .is_some_and(|v| v == 10)
-        );
+        context.run_with_conditions(&mut capture.outcome, Duration::from_secs(2));
+        let r = capture.outcome.try_recv().unwrap().unwrap();
+        assert_eq!(r, 10);
 
         let mut stream: Vec<u32> = Vec::new();
-        while let Ok(r) = recipient.streams.try_recv() {
+        while let Ok(r) = capture.streams.try_recv() {
             stream.push(r);
         }
         assert_eq!(stream, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-        assert!(context.no_unhandled_errors());
+        context.assert_no_errors();
     }
 
     type FormatStreams = (StreamOf<u32>, StreamOf<i32>, StreamOf<f32>);
@@ -412,53 +407,53 @@ pub(crate) mod tests {
         provider: impl Provider<Request = String, Response = (), Streams = FormatStreams> + Clone,
         context: &mut TestingContext,
     ) {
-        let mut recipient =
-            context.command(|commands| commands.request("5".to_owned(), provider.clone()).take());
+        let mut capture =
+            context.command(|commands| commands.request("5".to_owned(), provider.clone()).capture());
 
-        context.run_with_conditions(&mut recipient.response, Duration::from_secs(2));
-        assert!(recipient.response.take().available().is_some());
-        assert!(context.no_unhandled_errors());
+        context.run_with_conditions(&mut capture.outcome, Duration::from_secs(2));
+        assert!(capture.outcome.is_available());
+        context.assert_no_errors();
 
-        let outcome: FormatOutcome = recipient.into();
+        let outcome: FormatOutcome = capture.into();
         assert_eq!(outcome.stream_u32, [5]);
         assert_eq!(outcome.stream_i32, [5]);
         assert_eq!(outcome.stream_f32, [5.0]);
 
-        let mut recipient =
-            context.command(|commands| commands.request("-2".to_owned(), provider.clone()).take());
+        let mut capture =
+            context.command(|commands| commands.request("-2".to_owned(), provider.clone()).capture());
 
-        context.run_with_conditions(&mut recipient.response, Duration::from_secs(2));
-        assert!(recipient.response.take().available().is_some());
+        context.run_with_conditions(&mut capture.outcome, Duration::from_secs(2));
+        assert!(capture.outcome.is_available());
         assert!(context.no_unhandled_errors());
 
-        let outcome: FormatOutcome = recipient.into();
+        let outcome: FormatOutcome = capture.into();
         assert!(outcome.stream_u32.is_empty());
         assert_eq!(outcome.stream_i32, [-2]);
         assert_eq!(outcome.stream_f32, [-2.0]);
 
-        let mut recipient =
-            context.command(|commands| commands.request("6.7".to_owned(), provider.clone()).take());
+        let mut capture =
+            context.command(|commands| commands.request("6.7".to_owned(), provider.clone()).capture());
 
-        context.run_with_conditions(&mut recipient.response, Duration::from_secs(2));
-        assert!(recipient.response.take().available().is_some());
-        assert!(context.no_unhandled_errors());
+        context.run_with_conditions(&mut capture.outcome, Duration::from_secs(2));
+        assert!(capture.outcome.is_available());
+        context.assert_no_errors();
 
-        let outcome: FormatOutcome = recipient.into();
+        let outcome: FormatOutcome = capture.into();
         assert!(outcome.stream_u32.is_empty());
         assert!(outcome.stream_i32.is_empty());
         assert_eq!(outcome.stream_f32, [6.7]);
 
-        let mut recipient = context.command(|commands| {
+        let mut capture = context.command(|commands| {
             commands
                 .request("hello".to_owned(), provider.clone())
-                .take()
+                .capture()
         });
 
-        context.run_with_conditions(&mut recipient.response, Duration::from_secs(2));
-        assert!(recipient.response.take().available().is_some());
-        assert!(context.no_unhandled_errors());
+        context.run_with_conditions(&mut capture.outcome, Duration::from_secs(2));
+        assert!(capture.outcome.is_available());
+        context.assert_no_errors();
 
-        let outcome: FormatOutcome = recipient.into();
+        let outcome: FormatOutcome = capture.into();
         assert!(outcome.stream_u32.is_empty());
         assert!(outcome.stream_i32.is_empty());
         assert!(outcome.stream_f32.is_empty());
@@ -471,18 +466,18 @@ pub(crate) mod tests {
         stream_f32: Vec<f32>,
     }
 
-    impl From<Recipient<(), FormatStreams>> for FormatOutcome {
-        fn from(mut recipient: Recipient<(), FormatStreams>) -> Self {
+    impl From<Capture<(), FormatStreams>> for FormatOutcome {
+        fn from(mut capture: Capture<(), FormatStreams>) -> Self {
             let mut result = Self::default();
-            while let Ok(r) = recipient.streams.0.try_recv() {
+            while let Ok(r) = capture.streams.0.try_recv() {
                 result.stream_u32.push(r);
             }
 
-            while let Ok(r) = recipient.streams.1.try_recv() {
+            while let Ok(r) = capture.streams.1.try_recv() {
                 result.stream_i32.push(r);
             }
 
-            while let Ok(r) = recipient.streams.2.try_recv() {
+            while let Ok(r) = capture.streams.2.try_recv() {
                 result.stream_f32.push(r);
             }
 
@@ -683,36 +678,28 @@ pub(crate) mod tests {
             "hello".to_owned(),
         ];
 
-        let mut recipient =
-            context.command(|commands| commands.request(request, provider.clone()).take());
+        let mut capture =
+            context.command(|commands| commands.request(request, provider.clone()).capture());
 
-        context.run_with_conditions(&mut recipient.response, Duration::from_secs(2));
-        assert!(recipient.response.take().available().is_some());
-        assert!(
-            context.no_unhandled_errors(),
-            "{:#?}",
-            context.get_unhandled_errors()
-        );
+        context.run_with_conditions(&mut capture.outcome, Duration::from_secs(2));
+        assert!(capture.outcome.is_available());
+        context.assert_no_errors();
 
-        let outcome: StreamMapOutcome = recipient.into();
+        let outcome: StreamMapOutcome = capture.into();
         assert_eq!(outcome.stream_u32, [5, 10]);
         assert_eq!(outcome.stream_i32, [5, 10, -3, -27]);
         assert_eq!(outcome.stream_string, ["5", "10", "-3", "-27", "hello"]);
 
         let request = vec![];
 
-        let mut recipient =
-            context.command(|commands| commands.request(request, provider.clone()).take());
+        let mut capture =
+            context.command(|commands| commands.request(request, provider.clone()).capture());
 
-        context.run_with_conditions(&mut recipient.response, Duration::from_secs(2));
-        assert!(recipient.response.take().available().is_some());
-        assert!(
-            context.no_unhandled_errors(),
-            "{:#?}",
-            context.get_unhandled_errors()
-        );
+        context.run_with_conditions(&mut capture.outcome, Duration::from_secs(2));
+        assert!(capture.outcome.is_available());
+        context.assert_no_errors();
 
-        let outcome: StreamMapOutcome = recipient.into();
+        let outcome: StreamMapOutcome = capture.into();
         assert_eq!(outcome.stream_u32, Vec::<u32>::new());
         assert_eq!(outcome.stream_i32, Vec::<i32>::new());
         assert_eq!(outcome.stream_string, Vec::<String>::new());
@@ -724,13 +711,13 @@ pub(crate) mod tests {
             "-8".to_string(),
         ];
 
-        let mut recipient =
-            context.command(|commands| commands.request(request, provider.clone()).take());
+        let mut capture =
+            context.command(|commands| commands.request(request, provider.clone()).capture());
 
-        context.run_with_conditions(&mut recipient.response, Duration::from_secs(2));
-        assert!(recipient.response.take().available().is_some());
+        context.run_with_conditions(&mut capture.outcome, Duration::from_secs(2));
+        assert!(capture.outcome.is_available());
 
-        let outcome: StreamMapOutcome = recipient.into();
+        let outcome: StreamMapOutcome = capture.into();
         assert_eq!(outcome.stream_u32, Vec::<u32>::new());
         assert_eq!(outcome.stream_i32, [-8]);
         assert_eq!(outcome.stream_string, ["foo", "bar", "1.32", "-8"]);
@@ -751,36 +738,36 @@ pub(crate) mod tests {
             "hello".to_owned(),
         ];
 
-        let mut recipient =
-            context.command(|commands| commands.request(request, provider.clone()).take());
+        let mut capture =
+            context.command(|commands| commands.request(request, provider.clone()).capture());
 
-        context.run_with_conditions(&mut recipient.response, Duration::from_secs(2));
-        assert!(recipient.response.take().available().is_some());
+        context.run_with_conditions(&mut capture.outcome, Duration::from_secs(2));
+        assert!(capture.outcome.is_available());
         assert!(
             context.no_unhandled_errors(),
             "{:#?}",
             context.get_unhandled_errors()
         );
 
-        let outcome: StreamMapOutcome = recipient.try_into().unwrap();
+        let outcome: StreamMapOutcome = capture.try_into().unwrap();
         assert_eq!(outcome.stream_u32, [5, 10]);
         assert_eq!(outcome.stream_i32, [5, 10, -3, -27]);
         assert_eq!(outcome.stream_string, ["5", "10", "-3", "-27", "hello"]);
 
         let request = vec![];
 
-        let mut recipient =
-            context.command(|commands| commands.request(request, provider.clone()).take());
+        let mut capture =
+            context.command(|commands| commands.request(request, provider.clone()).capture());
 
-        context.run_with_conditions(&mut recipient.response, Duration::from_secs(2));
-        assert!(recipient.response.take().available().is_some());
+        context.run_with_conditions(&mut capture.outcome, Duration::from_secs(2));
+        assert!(capture.outcome.is_available());
         assert!(
             context.no_unhandled_errors(),
             "{:#?}",
             context.get_unhandled_errors()
         );
 
-        let outcome: StreamMapOutcome = recipient.try_into().unwrap();
+        let outcome: StreamMapOutcome = capture.try_into().unwrap();
         assert_eq!(outcome.stream_u32, Vec::<u32>::new());
         assert_eq!(outcome.stream_i32, Vec::<i32>::new());
         assert_eq!(outcome.stream_string, Vec::<String>::new());
@@ -792,13 +779,13 @@ pub(crate) mod tests {
             "-8".to_string(),
         ];
 
-        let mut recipient =
-            context.command(|commands| commands.request(request, provider.clone()).take());
+        let mut capture =
+            context.command(|commands| commands.request(request, provider.clone()).capture());
 
-        context.run_with_conditions(&mut recipient.response, Duration::from_secs(2));
-        assert!(recipient.response.take().available().is_some());
+        context.run_with_conditions(&mut capture.outcome, Duration::from_secs(2));
+        assert!(capture.outcome.is_available());
 
-        let outcome: StreamMapOutcome = recipient.try_into().unwrap();
+        let outcome: StreamMapOutcome = capture.try_into().unwrap();
         assert_eq!(outcome.stream_u32, Vec::<u32>::new());
         assert_eq!(outcome.stream_i32, [-8]);
         assert_eq!(outcome.stream_string, ["foo", "bar", "1.32", "-8"]);
@@ -866,18 +853,18 @@ pub(crate) mod tests {
         stream_string: Vec<String>,
     }
 
-    impl From<Recipient<(), TestStreamPack>> for StreamMapOutcome {
-        fn from(mut recipient: Recipient<(), TestStreamPack>) -> Self {
+    impl From<Capture<(), TestStreamPack>> for StreamMapOutcome {
+        fn from(mut capture: Capture<(), TestStreamPack>) -> Self {
             let mut result = Self::default();
-            while let Ok(r) = recipient.streams.stream_u32.try_recv() {
+            while let Ok(r) = capture.streams.stream_u32.try_recv() {
                 result.stream_u32.push(r);
             }
 
-            while let Ok(r) = recipient.streams.stream_i32.try_recv() {
+            while let Ok(r) = capture.streams.stream_i32.try_recv() {
                 result.stream_i32.push(r);
             }
 
-            while let Ok(r) = recipient.streams.stream_string.try_recv() {
+            while let Ok(r) = capture.streams.stream_string.try_recv() {
                 result.stream_string.push(r);
             }
 
@@ -891,13 +878,13 @@ pub(crate) mod tests {
         DynamicallyNamedStream<StreamOf<String>>,
     );
 
-    impl TryFrom<Recipient<(), TestDynamicNamedStreams>> for StreamMapOutcome {
+    impl TryFrom<Capture<(), TestDynamicNamedStreams>> for StreamMapOutcome {
         type Error = UnknownName;
         fn try_from(
-            mut recipient: Recipient<(), TestDynamicNamedStreams>,
+            mut capture: Capture<(), TestDynamicNamedStreams>,
         ) -> Result<Self, Self::Error> {
             let mut result = Self::default();
-            while let Ok(NamedValue { name, value }) = recipient.streams.0.try_recv() {
+            while let Ok(NamedValue { name, value }) = capture.streams.0.try_recv() {
                 if name == "stream_u32" {
                     result.stream_u32.push(value);
                 } else {
@@ -905,7 +892,7 @@ pub(crate) mod tests {
                 }
             }
 
-            while let Ok(NamedValue { name, value }) = recipient.streams.1.try_recv() {
+            while let Ok(NamedValue { name, value }) = capture.streams.1.try_recv() {
                 if name == "stream_i32" {
                     result.stream_i32.push(value);
                 } else {
@@ -913,7 +900,7 @@ pub(crate) mod tests {
                 }
             }
 
-            while let Ok(NamedValue { name, value }) = recipient.streams.2.try_recv() {
+            while let Ok(NamedValue { name, value }) = capture.streams.2.try_recv() {
                 if name == "stream_string" {
                     result.stream_string.push(value);
                 } else {
@@ -1104,19 +1091,19 @@ pub(crate) mod tests {
             values_string: expected_values_string.clone(),
         };
 
-        let mut recipient = context.command(|commands| commands.request(request, provider).take());
+        let mut capture = context.command(|commands| commands.request(request, provider).capture());
 
-        context.run_with_conditions(&mut recipient.response, Duration::from_secs(2));
-        assert!(recipient.response.take().available().is_some());
-        assert!(context.no_unhandled_errors());
+        context.run_with_conditions(&mut capture.outcome, Duration::from_secs(2));
+        assert!(capture.outcome.is_available());
+        context.assert_no_errors();
 
-        let received_values_u32 = collect_received_values(recipient.streams.0);
+        let received_values_u32 = collect_received_values(capture.streams.0);
         assert_eq!(expected_values_u32, received_values_u32);
 
-        let received_values_i32 = collect_received_values(recipient.streams.1);
+        let received_values_i32 = collect_received_values(capture.streams.1);
         assert_eq!(expected_values_i32, received_values_i32);
 
-        let received_values_string = collect_received_values(recipient.streams.2);
+        let received_values_string = collect_received_values(capture.streams.2);
         assert_eq!(expected_values_string, received_values_string);
     }
 
@@ -1158,13 +1145,13 @@ pub(crate) mod tests {
             ],
         };
 
-        let mut recipient = context.command(|commands| commands.request(request, provider).take());
+        let mut capture = context.command(|commands| commands.request(request, provider).capture());
 
-        context.run_with_conditions(&mut recipient.response, Duration::from_secs(2));
-        assert!(recipient.response.take().available().is_some());
+        context.run_with_conditions(&mut capture.outcome, Duration::from_secs(2));
+        assert!(capture.outcome.is_available());
         assert!(context.no_unhandled_errors());
 
-        let outcome: StreamMapOutcome = recipient.try_into().unwrap();
+        let outcome: StreamMapOutcome = capture.try_into().unwrap();
         assert_eq!(outcome.stream_u32, [5, 10]);
         assert_eq!(outcome.stream_i32, [2, -5]);
         assert_eq!(outcome.stream_string, ["hello", "8"]);

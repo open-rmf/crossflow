@@ -34,25 +34,25 @@ pub trait RequestExt<'w, 's> {
     /// Call this on [`Commands`] to begin creating a [series](Series).
     ///
     /// A series is a one-time chain of requests where the output of each request
-    /// feeds into the input of the next. You should end the series by [taking][1]
+    /// feeds into the input of the next. You should end the series by [capturing][1]
     /// the response, [detaching][2] the series, or using one of the other terminating
     /// operations mentioned in [the chart](Series::detach). You can do a single
-    /// request (instead of a chain) by just taking the response immediately after
+    /// request (instead of a chain) by just capturing the response immediately after
     /// the first request.
     ///
     /// ```
     /// use crossflow::{prelude::*, testing::*};
     /// let mut context = TestingContext::minimal_plugins();
-    /// let mut promise = context.command(|commands| {
+    /// let mut outcome = context.command(|commands| {
     ///     let service = commands.spawn_service(spawn_test_entities);
-    ///     commands.request(5, service).take().response
+    ///     commands.request(5, service).outcome()
     /// });
     ///
-    /// context.run_while_pending(&mut promise);
-    /// assert!(promise.peek().is_available());
+    /// context.run_while_pending(&mut outcome);
+    /// assert!(outcome.try_recv().unwrap().is_ok());
     /// ```
     ///
-    /// [1]: Series::take
+    /// [1]: Series::capture
     /// [2]: Series::detach
     #[must_use]
     fn request<'a, P: ProvideOnce>(
@@ -155,16 +155,16 @@ mod tests {
     #[test]
     fn simple_spawn() {
         let mut context = TestingContext::minimal_plugins();
-        let mut promise = context.command(|commands| {
+        let mut capture = context.command(|commands| {
             let service = commands.spawn_service(spawn_test_entities);
-            commands.request(3, service).take()
+            commands.request(3, service).capture()
         });
 
         context.run_with_conditions(
-            &mut promise.response,
+            &mut capture.outcome,
             FlushConditions::new().with_update_count(2),
         );
-        assert!(promise.response.peek().is_available());
+        assert!(capture.outcome.try_recv().unwrap().is_ok());
     }
 
     #[test]
@@ -173,21 +173,21 @@ mod tests {
         use std::time::Duration;
 
         let mut context = TestingContext::minimal_plugins();
-        let mut promise = context.command(|commands| {
+        let mut capture = context.command(|commands| {
             let future = async {
                 let never = future::pending::<()>();
                 let _ = future::timeout(Duration::from_secs_f32(0.01), never);
                 "hello"
             };
 
-            commands.serve(future).take()
+            commands.serve(future).capture()
         });
 
         context.run_with_conditions(
-            &mut promise.response,
+            &mut capture.outcome,
             FlushConditions::new().with_timeout(Duration::from_secs_f32(5.0)),
         );
-        assert_eq!(promise.response.take().available(), Some("hello"));
+        assert_eq!(capture.outcome.try_recv().unwrap().unwrap(), "hello");
         assert!(context.no_unhandled_errors());
     }
 }

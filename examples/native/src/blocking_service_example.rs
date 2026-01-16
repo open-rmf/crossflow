@@ -33,13 +33,14 @@ fn main() {
         srv.insert(Offset(offset));
     }));
 
-    let mut promise = app
+    let mut outcome = app
         .world_mut()
-        .command(|commands| commands.request(Vec2::ZERO, service).take_response());
+        .command(|commands| commands.request(Vec2::ZERO, service).outcome());
 
     for _ in 0..5 {
-        if let Some(response) = promise.peek().as_ref().available() {
-            assert_eq!(response, &offset);
+        if let Some(response) = outcome.try_recv() {
+            let response = response.unwrap();
+            assert_eq!(response, offset);
             println!("Successfully applied offset: {response:?}");
             return;
         }

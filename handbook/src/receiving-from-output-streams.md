@@ -1,11 +1,11 @@
 # Receiving from Output Streams
 
 Some services also have [output streams](./output-streams.md) that you may want
-to receive data from. In that case you will need to take a [`Recipient`][Recipient]
-instead of only taking the response:
+to receive data from. In that case you will need to take a [`Capture`][Capture]
+instead of only taking the [`Outcome`]:
 
 ```rust,no_run,noplayground
-{{#include ./examples/handbook_snippets/src/native-snippets.rs:take_recipient}}
+{{#include ./examples/handbook_snippets/src/native-snippets.rs:capture}}
 ```
 
 The `parsing_service` provides this `ParsedStreams` stream output pack:

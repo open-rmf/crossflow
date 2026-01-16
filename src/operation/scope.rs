@@ -2243,13 +2243,8 @@ mod tests {
             builder.connect(inner_scope.output, scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request((), workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(1));
-        assert!(context.no_unhandled_errors());
-        let result = promise.take().available().unwrap();
-        assert_eq!(result, "fast");
+        let r: &'static str = context.resolve_request((), workflow);
+        assert_eq!(r, "fast");
     }
 
     #[cfg(feature = "diagram")]
@@ -2387,16 +2382,7 @@ mod tests {
                 .unwrap();
         });
 
-        let mut promise =
-            context.command(|commands| commands.request((), workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(1));
-        assert!(
-            context.no_unhandled_errors(),
-            "{:#?}",
-            context.get_unhandled_errors()
-        );
-        let result: &'static str = promise.take().available().unwrap();
-        assert_eq!(result, "fast");
+        let r: &'static str = context.resolve_request((), workflow);
+        assert_eq!(r, "fast");
     }
 }

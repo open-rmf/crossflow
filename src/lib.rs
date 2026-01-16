@@ -393,8 +393,8 @@ pub mod prelude {
     pub use crate::{
         AsyncCallback, AsyncCallbackInput, AsyncMap, AsyncService, AsyncServiceInput,
         BlockingCallback, BlockingCallbackInput, BlockingMap, BlockingService,
-        BlockingServiceInput, ContinuousQuery, ContinuousService, ContinuousServiceInput,
-        CrossflowExecutorApp, CrossflowPlugin,
+        BlockingServiceInput, Capture, ContinuousQuery, ContinuousService, ContinuousServiceInput,
+        CrossflowExecutorApp, CrossflowPlugin, Outcome,
         buffer::{
             Accessible, Accessor, AnyBuffer, AnyBufferKey, AnyBufferMut, AnyBufferWorldAccess,
             AnyMessageBox, AsAnyBuffer, Buffer, BufferAccess, BufferAccessMut, BufferGateAccess,

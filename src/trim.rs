@@ -181,12 +181,8 @@ mod tests {
             builder.connect(doubler_b.output, doubler_a.input);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request(2.0, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise.take().available().is_some_and(|v| v == 8.0));
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request(2.0, workflow);
+        assert_eq!(r, 8.0);
 
         let delay = context.spawn_delay::<i32>(Duration::from_secs(20));
         let workflow = context.spawn_io_workflow(|scope, builder| {
@@ -202,15 +198,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request((1, delay.into()), workflow)
-                .take_response()
-        });
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(1));
-        assert!(promise.take().available().is_some_and(|v| v == 2));
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request((1, delay.into()), workflow);
+        assert_eq!(r, 2);
 
         let (sender, receiver) = channel::<()>();
         let inner_workflow = context.spawn_workflow(|scope, builder| {
@@ -231,16 +220,9 @@ mod tests {
             });
         });
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request((1, inner_workflow.into()), workflow)
-                .take_response()
-        });
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(1));
-        assert!(promise.take().available().is_some_and(|v| v == 2));
+        let r = context.resolve_request((1, inner_workflow.into()), workflow);
+        assert_eq!(r, 2);
         assert!(receiver.try_recv().is_ok());
-        assert!(context.no_unhandled_errors());
     }
 
     // TODO(@mxgrey): It would be good to have a testing-only node whose entire

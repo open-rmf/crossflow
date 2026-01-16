@@ -46,6 +46,7 @@ impl Channel {
         P::Streams: 'static + StreamPack,
         P: 'static + Send + Sync,
     {
+        #[allow(deprecated)]
         self.command(move |commands| commands.request(request, provider).take().response)
             .flatten()
     }
@@ -178,26 +179,15 @@ mod tests {
         });
 
         for _ in 0..5 {
-            let mut promise = context.command(|commands| {
-                commands
-                    .request(
-                        RepeatRequest {
-                            service: hello,
-                            count: 5,
-                        },
-                        repeat,
-                    )
-                    .take()
-                    .response
-            });
-
-            context.run_with_conditions(
-                &mut promise,
-                FlushConditions::new().with_timeout(Duration::from_secs(5)),
-            );
-
-            assert!(promise.peek().is_available());
-            assert!(context.no_unhandled_errors());
+            context.try_resolve_request(
+                RepeatRequest {
+                    service: hello,
+                    count: 5,
+                },
+                repeat,
+                Duration::from_secs(5),
+            )
+            .unwrap();
         }
 
         let count = context

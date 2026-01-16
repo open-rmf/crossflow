@@ -537,19 +537,19 @@ mod tests {
         let mut registry = DiagramElementRegistry::new();
         register(&mut registry);
 
-        let mut promise = app
+        let mut outcome = app
             .world_mut()
-            .command(|cmds| -> Result<Promise<JsonMessage>, DiagramError> {
+            .command(|cmds| -> Result<Outcome<JsonMessage>, DiagramError> {
                 let workflow = diagram.spawn_io_workflow(cmds, &registry)?;
-                Ok(cmds.request(request, workflow).take_response())
+                Ok(cmds.request(request, workflow).outcome())
             })
             .unwrap();
 
-        while promise.peek().is_pending() {
+        while outcome.is_pending() {
             app.update();
         }
 
-        let result = promise.take().available().unwrap().as_f64().unwrap();
+        let result = outcome.try_recv().unwrap().unwrap().as_f64().unwrap();
         assert_eq!(result, 210.0);
     }
 }

@@ -105,6 +105,12 @@ impl Cancellation {
     }
 }
 
+impl From<Cancellation> for Arc<dyn std::error::Error + Send + Sync + 'static> {
+    fn from(value: Cancellation) -> Self {
+        Arc::new(value)
+    }
+}
+
 impl<T: Into<CancellationCause>> From<T> for Cancellation {
     fn from(value: T) -> Self {
         Cancellation {

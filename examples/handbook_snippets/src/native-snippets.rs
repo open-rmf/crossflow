@@ -79,38 +79,34 @@ let continuous_service: Service<String, String> = app.spawn_continuous_service(
         let request_msg = Vec2::ZERO;
         app.world_mut().command(|commands| {
 // ANCHOR: request_service_example
-let mut response = commands.request(request_msg, service).take_response();
+let mut outcome = commands.request(request_msg, service).outcome();
 // ANCHOR_END: request_service_example
 
-// ANCHOR: peek_promise
-if let Some(available) = response.peek().as_ref().available() {
-    println!("The final response is {available}");
+// ANCHOR: try_recv
+match outcome.try_recv() {
+    Some(Ok(response)) => {
+        println!("The final response is {response}");
+    }
+    Some(Err(cancellation)) => {
+        println!("The request was cancelled or undeliverable: {cancellation}");
+    }
+    None => {
+        println!("The request is still being processed, try again later")
+    }
 }
-// ANCHOR_END: peek_promise
+// ANCHOR_END: try_recv
 
 commands.serve(async move {
-// ANCHOR: await_promise
-match response.await {
-    PromiseState::Available(available) => {
-        println!("The final response is {available}");
+// ANCHOR: await_outcome
+match outcome.await {
+    Ok(response) => {
+        println!("The final response is {response}");
     }
-    PromiseState::Cancelled(cancellation) => {
+    Err(cancellation) => {
         println!("The request was cancelled: {cancellation}");
     }
-    PromiseState::Disposed => {
-        // This generally should not happen. It means something wiped out the
-        // entities of your request or service.
-        println!("Somehow the request was disposed");
-    }
-    PromiseState::Taken => {
-        println!("The final response was taken before you began awaiting the promise");
-    }
-    PromiseState::Pending => {
-        // The promise cannot have this state after being awaited
-        unreachable!();
-    }
 }
-// ANCHOR_END: await_promise
+// ANCHOR_END: await_outcome
 });
         });
     }
@@ -122,23 +118,23 @@ let parsing_service = app.spawn_service(parse_values);
     {
         let service = parsing_service;
         app.world_mut().command(|commands| {
-// ANCHOR: take_recipient
-let mut recipient = commands.request(String::from("-3.14"), parsing_service).take();
-// ANCHOR_END: take_recipient
+// ANCHOR: capture
+let mut capture = commands.request(String::from("-3.14"), parsing_service).capture();
+// ANCHOR_END: capture
 
             commands.serve(async move {
 // ANCHOR: receive_streams
-let _ = recipient.response.await;
+let _ = capture.outcome.await;
 println!("The service has finished running.");
-while let Some(value) = recipient.streams.parsed_as_u32.recv().await {
+while let Some(value) = capture.streams.parsed_as_u32.recv().await {
     println!("Parsed an unsigned integer: {value}");
 }
 
-while let Some(value) = recipient.streams.parsed_as_i32.recv().await {
+while let Some(value) = capture.streams.parsed_as_i32.recv().await {
     println!("Parsed a signed integer: {value}");
 }
 
-while let Some(value) = recipient.streams.parsed_as_f32.recv().await {
+while let Some(value) = capture.streams.parsed_as_f32.recv().await {
     println!("Parsed a floating point number: {value}");
 }
 // ANCHOR_END: receive_streams
@@ -146,9 +142,9 @@ while let Some(value) = recipient.streams.parsed_as_f32.recv().await {
 // ANCHOR: receive_streams_parallel
 use tokio::select;
 
-let next_u32 = recipient.streams.parsed_as_u32.recv();
-let next_i32 = recipient.streams.parsed_as_i32.recv();
-let next_f32 = recipient.streams.parsed_as_f32.recv();
+let next_u32 = capture.streams.parsed_as_u32.recv();
+let next_i32 = capture.streams.parsed_as_i32.recv();
+let next_f32 = capture.streams.parsed_as_f32.recv();
 select! {
     recv = next_u32 => {
         if let Some(value) = recv {
@@ -176,10 +172,10 @@ let storage = commands.spawn(()).id();
 
 // Request the service, but set an entity to collect the streams before we
 // take the response.
-let response = commands
+let outcome = commands
     .request(String::from("-5"), parsing_service)
     .collect_streams(storage)
-    .take_response();
+    .outcome();
 
 // Save the entity in a resource to keep track of it.
 // You could also save this inside a component or move it
@@ -1566,14 +1562,14 @@ let workflow = context.spawn_io_workflow(|scope, builder| {
         .connect(scope.terminate);
 });
 
-let mut promise = context.command(|commands| {
-    commands.request(vec![-3, 2, 10], workflow).take_response()
+let mut outcome = context.command(|commands| {
+    commands.request(vec![-3, 2, 10], workflow).outcome()
 });
 
-context.run_with_conditions(&mut promise, Duration::from_secs(1));
+context.run_with_conditions(&mut outcome, Duration::from_secs(1));
 
-let r = promise.take().available().unwrap().unwrap();
-assert_eq!(r, 10);
+let r = outcome.try_recv().unwrap().unwrap();
+assert_eq!(r, Some(10));
 // ANCHOR_END: buffer_access_example
 }
 
@@ -1710,10 +1706,10 @@ let instructions = DeliveryInstructions::new(
 );
 
 // Add the instructions while requesting
-let promise = commands.request(
+let outcome = commands.request(
     String::from("hello"),
     service.instruct(instructions),
-);
+).outcome();
 // ANCHOR_END: set_instructions
 
 // ANCHOR: preempt_example
@@ -1725,10 +1721,10 @@ let label = MyDeliveryLabel {
 // Make instructions that include preempting
 let preempt_instructions = DeliveryInstructions::new(label).preempt();
 
-let promise = commands.request(
+let outcome = commands.request(
     String::from("hello"),
     service.instruct(preempt_instructions)
-);
+).outcome();
 // ANCHOR_END: preempt_example
 
 let label = MyDeliveryLabel {
@@ -1740,10 +1736,10 @@ let instructions = DeliveryInstructions::new(label)
     .preempt()
     .ensure();
 
-let promise = commands.request(
+let outcome = commands.request(
     String::from("hello"),
     service.instruct(instructions)
-);
+).outcome();
 // ANCHOR_END: ensure_example
 }
 
@@ -1771,7 +1767,7 @@ fn perform_greeting(
 let callback = perform_greeting.as_callback();
 
 // Use the callback in a request
-let promise = commands.request(String::from("Bob"), callback);
+let outcome = commands.request(String::from("Bob"), callback).outcome();
 // ANCHOR_END: callback_example
 
 // ANCHOR: async_callback_example
@@ -1784,7 +1780,7 @@ async fn page_title_callback(In(srv): AsyncCallbackInput<String>) -> Option<Stri
 }
 
 let callback = page_title_callback.as_callback();
-let promise = commands.request(String::from("https://example.com"), callback);
+let outcome = commands.request(String::from("https://example.com"), callback).outcome();
 // ANCHOR_END: async_callback_example
 
 // ANCHOR: closure_callback_example
@@ -1803,7 +1799,7 @@ let perform_greeting = |
 let callback = perform_greeting.as_callback();
 
 // Use the callback in a request
-let promise = commands.request(String::from("Bob"), callback);
+let outcome = commands.request(String::from("Bob"), callback).outcome();
 // ANCHOR_END: closure_callback_example
 
 // ANCHOR: async_closure_callback_example
@@ -1818,7 +1814,7 @@ let page_title_callback = |In(srv): AsyncCallbackInput<String>| {
 };
 
 let callback = page_title_callback.as_callback();
-let promise = commands.request(String::from("https://example.com"), callback);
+let outcome = commands.request(String::from("https://example.com"), callback).outcome();
 // ANCHOR_END: async_closure_callback_example
 }
 
@@ -1841,11 +1837,11 @@ fn perform_greeting(
 let greeting_service = commands.spawn_service(
     perform_greeting.into_blocking_service()
 );
-let promise = commands.request(String::from("Bob"), greeting_service);
+let outcome = commands.request(String::from("Bob"), greeting_service).outcome();
 
 // Use as callback
 let greeting_callback = perform_greeting.into_blocking_callback();
-let promise = commands.request(String::from("Bob"), greeting_callback);
+let outcome = commands.request(String::from("Bob"), greeting_callback).outcome();
 // ANCHOR_END: agnostic_blocking_example
 
 #[derive(Resource, Deref)]
@@ -1869,11 +1865,11 @@ let element = String::from("title");
 let title_service = commands.spawn_service(
     get_page_element.into_async_service()
 );
-let promise = commands.request(element.clone(), title_service);
+let outcome = commands.request(element.clone(), title_service).outcome();
 
 // Use as callback
 let title_callback = get_page_element.into_async_callback();
-let promise = commands.request(element, title_callback);
+let outcome = commands.request(element, title_callback).outcome();
 // ANCHOR_END: agnostic_async_example
 
 }
@@ -1899,7 +1895,7 @@ fn fibonacci_map_example(input: BlockingMap<u32, StreamOf<u32>>) {
     }
 }
 
-let promise = commands.request(10, fibonacci_map_example.as_map());
+let outcome = commands.request(10, fibonacci_map_example.as_map()).outcome();
 // ANCHOR_END: fibonacci_map_example
 
 // ANCHOR: navigate_map_example

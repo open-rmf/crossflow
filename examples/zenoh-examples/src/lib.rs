@@ -43,12 +43,12 @@ impl Plugin for ZenohCrossflowPlugin {
 
 #[derive(Resource)]
 pub struct ZenohSession {
-    pub promise: Shared<Promise<Result<Session, ArcError>>>,
+    pub outcome: Shared<Outcome<Result<Session, ArcError>>>,
 }
 
 impl FromWorld for ZenohSession {
     fn from_world(world: &mut World) -> Self {
-        let promise = world
+        let outcome = world
             .command(|commands| {
                 commands
                     .serve(async {
@@ -56,11 +56,11 @@ impl FromWorld for ZenohSession {
                             .await
                             .map_err(Arc::from)
                     })
-                    .take_response()
+                    .outcome()
             })
             .shared();
 
-        Self { promise }
+        Self { outcome }
     }
 }
 
@@ -80,10 +80,10 @@ pub fn zenoh_subscription_node<T: 'static + Send + Sync + Message + Default>(
 ) -> Node<(), Result<(), ArcError>, ZenohSubscriptionStream<T>> {
     let callback = move |In(input): AsyncCallbackInput<(), ZenohSubscriptionStream<T>>,
                          session: Res<ZenohSession>| {
-        let session = session.promise.clone();
+        let session = session.outcome.clone();
         let topic_name = topic_name.clone();
         async move {
-            let session = session.await.available().unwrap()?;
+            let session = session.await??;
             println!("Listening for messages on topic [{topic_name}]");
 
             let subscriber = session
@@ -119,14 +119,14 @@ pub fn zenoh_publisher_node<T: 'static + Send + Sync + Message + std::fmt::Debug
             topic_name.clone(),
             get_zenoh_publisher.into_async_callback(),
         )
-        .take_response();
+        .outcome();
     let publisher = publisher.shared();
 
     let callback = move |message: T| {
         let publisher = publisher.clone();
         let topic_name = topic_name.clone();
         async move {
-            let publisher = publisher.await.available().unwrap()?;
+            let publisher = publisher.await??;
 
             println!("Publishing message on topic [{topic_name}]:\n{message:#?}");
             publisher
@@ -143,10 +143,10 @@ fn get_zenoh_publisher(
     In(topic_name): In<Arc<str>>,
     session: Res<ZenohSession>,
 ) -> impl Future<Output = Result<Arc<AdvancedPublisher<'static>>, ArcError>> + use<> {
-    let session_promise = session.promise.clone();
+    let session_outcome = session.outcome.clone();
 
     async move {
-        let session = session_promise.await.available().unwrap()?;
+        let session = session_outcome.await??;
         let publisher = session
             .declare_publisher(topic_name.to_string())
             .cache(CacheConfig::default().max_samples(1))

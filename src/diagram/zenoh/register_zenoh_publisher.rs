@@ -204,14 +204,13 @@ impl DiagramElementRegistry {
                                  encoder,
                              }): In<PublisherSetup>,
                              session: Res<ZenohSession>| {
-            let session_promise = session.promise.clone();
+            let session_outcome = session.outcome.clone();
             async move {
                 let publisher = async move {
-                    let session = session_promise
+                    let session = session_outcome
                         .await
-                        .available()
-                        .map(|r| r.map_err(ZenohPublisherError::ZenohError))
-                        .unwrap_or(Err(ZenohPublisherError::SessionRemoved))?;
+                        .map_err(|_| ZenohPublisherError::SessionRemoved)?
+                        .map_err(ZenohPublisherError::ZenohError)?;
 
                     let publisher = session
                         .declare_publisher(config.key.to_string())

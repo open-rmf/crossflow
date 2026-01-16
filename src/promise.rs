@@ -15,6 +15,8 @@
  *
 */
 
+#![allow(deprecated)]
+
 use std::{
     any::Any,
     future::Future,

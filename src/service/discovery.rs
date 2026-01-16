@@ -148,11 +148,7 @@ mod tests {
             )
         });
 
-        let mut found_service =
-            context.command(|commands| commands.request((), service_finder).take_response());
-
-        context.run_while_pending(&mut found_service);
-        let found_service = found_service.take().available().flatten().unwrap();
+        let found_service = context.resolve_request((), service_finder).unwrap();
         assert_eq!(doubling_service.provider(), found_service.provider());
 
         let service_finder = context.command(|commands| {
@@ -164,11 +160,7 @@ mod tests {
             )
         });
 
-        let mut found_service =
-            context.command(|commands| commands.request((), service_finder).take_response());
-
-        context.run_while_pending(&mut found_service);
-        let found_service = found_service.take().available().flatten().unwrap();
+        let found_service = context.resolve_request((), service_finder).unwrap();
         assert_eq!(doubling_service.provider(), found_service.provider());
 
         let service_finder = context.command(|commands| {
@@ -180,11 +172,7 @@ mod tests {
             )
         });
 
-        let mut found_service =
-            context.command(|commands| commands.request((), service_finder).take_response());
-
-        context.run_while_pending(&mut found_service);
-        let found_service = found_service.take().available().flatten().unwrap();
+        let found_service = context.resolve_request((), service_finder).unwrap();
         assert_eq!(doubling_service.provider(), found_service.provider());
 
         let service_finder = context.command(|commands| {
@@ -196,11 +184,8 @@ mod tests {
             )
         });
 
-        let mut found_service =
-            context.command(|commands| commands.request((), service_finder).take_response());
-
-        context.run_while_pending(&mut found_service);
-        assert!(found_service.take().available().flatten().is_none());
+        let found_service = context.resolve_request((), service_finder);
+        assert!(found_service.is_none());
 
         let service_finder = context.command(|commands| {
             commands.spawn_service(
@@ -213,11 +198,8 @@ mod tests {
             )
         });
 
-        let mut found_service =
-            context.command(|commands| commands.request((), service_finder).take_response());
-
-        context.run_while_pending(&mut found_service);
-        assert!(found_service.take().available().flatten().is_none());
+        let found_service = context.resolve_request((), service_finder);
+        assert!(found_service.is_none());
 
         let service_finder = context.command(|commands| {
             commands.spawn_service(
@@ -231,11 +213,8 @@ mod tests {
             )
         });
 
-        let mut found_service =
-            context.command(|commands| commands.request((), service_finder).take_response());
-
-        context.run_while_pending(&mut found_service);
-        assert!(found_service.take().available().flatten().is_none());
+        let found_service = context.resolve_request((), service_finder);
+        assert!(found_service.is_none());
 
         // Add the missing component that's filtering the discovery and then try
         // running the service finder again.
@@ -245,11 +224,7 @@ mod tests {
                 .insert(TestComponent);
         });
 
-        let mut found_service =
-            context.command(|commands| commands.request((), service_finder).take_response());
-
-        context.run_while_pending(&mut found_service);
-        let found_service = found_service.take().available().flatten().unwrap();
+        let found_service = context.resolve_request((), service_finder).unwrap();
         assert_eq!(doubling_service.provider(), found_service.provider());
     }
 }
