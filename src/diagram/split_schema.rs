@@ -426,7 +426,9 @@ mod tests {
                 });
         });
 
-        let r: Person = context.try_resolve_request((3.14159, Person::new("Charlie", 42)), workflow, 1).unwrap();
+        let r: Person = context
+            .try_resolve_request((3.14159, Person::new("Charlie", 42)), workflow, 1)
+            .unwrap();
         assert_eq!(r, Person::new("Charlie", 42));
     }
 

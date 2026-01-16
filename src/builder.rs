@@ -876,7 +876,10 @@ mod tests {
         context: &mut TestingContext,
     ) {
         let r = context.try_resolve_request((), workflow, flush_cycles);
-        assert!(matches!(*r.unwrap_err().cause, CancellationCause::Unreachable(_)));
+        assert!(matches!(
+            *r.unwrap_err().cause,
+            CancellationCause::Unreachable(_)
+        ));
     }
 
     #[test]
@@ -1239,7 +1242,9 @@ mod tests {
             builder.connect(start_test, end_test);
         });
 
-        let result = context.try_resolve_request((), workflow, Duration::from_secs(10)).unwrap();
+        let result = context
+            .try_resolve_request((), workflow, Duration::from_secs(10))
+            .unwrap();
         println!("Performance for basic connection:\n{result:#?}");
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
@@ -1252,7 +1257,9 @@ mod tests {
                 .connect(end_test);
         });
 
-        let result = context.try_resolve_request((), workflow, Duration::from_secs(10)).unwrap();
+        let result = context
+            .try_resolve_request((), workflow, Duration::from_secs(10))
+            .unwrap();
         println!("Performance for basic connection:\n{result:#?}");
     }
 

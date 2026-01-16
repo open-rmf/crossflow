@@ -26,11 +26,14 @@ use std::{
     task::{Context, Poll},
 };
 
-use tokio::sync::oneshot::{self, error::{RecvError, TryRecvError}};
+use tokio::sync::oneshot::{
+    self,
+    error::{RecvError, TryRecvError},
+};
 
 use crate::{
-    AsMapOnce, Cancellable, IntoAsyncMapOnce, IntoBlockingMapOnce, Promise, ProvideOnce, Sendish,
-    StreamPack, StreamTargetMap, UnusedTarget, Cancellation, CancellationCause,
+    AsMapOnce, Cancellable, Cancellation, CancellationCause, IntoAsyncMapOnce, IntoBlockingMapOnce,
+    Promise, ProvideOnce, Sendish, StreamPack, StreamTargetMap, UnusedTarget,
 };
 
 mod detach;
@@ -131,7 +134,9 @@ where
         self.commands.entity(self.source).insert(map);
 
         Capture {
-            outcome: Outcome { inner: response_receiver },
+            outcome: Outcome {
+                inner: response_receiver,
+            },
             streams: stream_receivers,
             session: self.target,
         }
@@ -164,7 +169,9 @@ where
     pub fn outcome(self) -> Outcome<Response> {
         let (response_sender, response_receiver) = oneshot::channel();
         self.outcome_into(response_sender);
-        Outcome { inner: response_receiver }
+        Outcome {
+            inner: response_receiver,
+        }
     }
 
     /// Take only the response data that comes out of the request.
@@ -330,10 +337,7 @@ where
     }
 
     /// Used internally to allow more flexible way of receiving outcomes.
-    pub(crate) fn outcome_into(
-        self,
-        sender: oneshot::Sender<Result<Response, Cancellation>>,
-    ) {
+    pub(crate) fn outcome_into(self, sender: oneshot::Sender<Result<Response, Cancellation>>) {
         self.commands.queue(AddExecution::new(
             Some(self.source),
             self.target,
@@ -414,8 +418,7 @@ impl<T> Future for Outcome<T> {
     type Output = Result<T, Cancellation>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Future::poll(Pin::new(&mut self.get_mut().inner), cx)
-            .map(flatten_recv)
+        Future::poll(Pin::new(&mut self.get_mut().inner), cx).map(flatten_recv)
     }
 }
 
@@ -461,11 +464,11 @@ impl<T> Outcome<T> {
 }
 
 fn flatten_recv<T>(
-    response: Result<Result<T, Cancellation>, RecvError>
+    response: Result<Result<T, Cancellation>, RecvError>,
 ) -> Result<T, Cancellation> {
     match response {
         Ok(r) => r,
-        Err(err) => Err(err.into())
+        Err(err) => Err(err.into()),
     }
 }
 
@@ -474,12 +477,10 @@ fn flatten_try_recv<T>(
 ) -> Option<Result<T, Cancellation>> {
     match response {
         Ok(r) => Some(r),
-        Err(err) => {
-            match err {
-                TryRecvError::Empty => None,
-                TryRecvError::Closed => Some(Err(CancellationCause::Undeliverable.into()))
-            }
-        }
+        Err(err) => match err {
+            TryRecvError::Empty => None,
+            TryRecvError::Closed => Some(Err(CancellationCause::Undeliverable.into())),
+        },
     }
 }
 
@@ -564,7 +565,8 @@ mod tests {
         let r = context.resolve_request(String::from("hello"), to_uppercase.into_blocking_map());
         assert_eq!(r, "HELLO");
 
-        let r = context.resolve_request(String::from("hello"), to_uppercase.into_blocking_map_once());
+        let r =
+            context.resolve_request(String::from("hello"), to_uppercase.into_blocking_map_once());
         assert_eq!(r, "HELLO");
 
         let mut outcome = context.command(|commands| {
@@ -601,18 +603,22 @@ mod tests {
 
         let conditions = FlushConditions::new().with_timeout(Duration::from_secs_f64(5.0));
 
-        let r = context.try_resolve_request(request.clone(), wait.into_async_map(), conditions.clone()).unwrap();
+        let r = context
+            .try_resolve_request(request.clone(), wait.into_async_map(), conditions.clone())
+            .unwrap();
         assert_eq!(r, "hello");
 
-        let r = context.try_resolve_request(request.clone(), wait.into_async_map_once(), conditions.clone()).unwrap();
+        let r = context
+            .try_resolve_request(
+                request.clone(),
+                wait.into_async_map_once(),
+                conditions.clone(),
+            )
+            .unwrap();
         assert_eq!(r, "hello");
 
-        let mut outcome = context.command(|commands| {
-            commands
-                .provide(request.clone())
-                .map_async(wait)
-                .outcome()
-        });
+        let mut outcome =
+            context.command(|commands| commands.provide(request.clone()).map_async(wait).outcome());
 
         assert!(context.run_with_conditions(&mut outcome, conditions.clone()));
         context.assert_no_errors();
@@ -650,9 +656,7 @@ mod tests {
         });
 
         let (sender, receiver) = tokio::sync::oneshot::channel();
-        let mut outcome = Outcome {
-            inner: receiver,
-        };
+        let mut outcome = Outcome { inner: receiver };
         context.run_with_conditions(&mut outcome, Duration::from_millis(5));
         assert!(
             context.no_unhandled_errors(),
@@ -918,8 +922,8 @@ mod tests {
                 service.instruct(label.clone())
             };
 
-            let outcome = context
-                .command(|commands| commands.request(Arc::clone(&counter), srv).outcome());
+            let outcome =
+                context.command(|commands| commands.request(Arc::clone(&counter), srv).outcome());
 
             queued_outcomes.push((outcome, ensured));
         }

@@ -219,8 +219,9 @@ impl DiagramElementRegistry {
                                     .encode(&input.request)
                                     .map_err(ZenohQuerierError::EncodingError)?;
 
-                                let querier = querier.await
-                                    .map_err(|err| ZenohQuerierError::CreationFailed(ArcError(err.into())))??;
+                                let querier = querier.await.map_err(|err| {
+                                    ZenohQuerierError::CreationFailed(ArcError(err.into()))
+                                })??;
                                 if wait_choice.always() {
                                     wait_for_matching(&querier).await?;
                                 }

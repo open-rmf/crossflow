@@ -1679,7 +1679,8 @@ mod tests {
             builder.try_join(&buffers).unwrap().connect(scope.terminate);
         });
 
-        let value: TestJoinedValueJson = context.resolve_request((5_i64, 3.14_f64, TestMessage::new()), workflow);
+        let value: TestJoinedValueJson =
+            context.resolve_request((5_i64, 3.14_f64, TestMessage::new()), workflow);
         assert_eq!(value.integer, 5);
         assert_eq!(value.float, 3.14);
         let deserialized_json: TestMessage = serde_json::from_value(value.json).unwrap();

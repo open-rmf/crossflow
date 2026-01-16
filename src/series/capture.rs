@@ -20,10 +20,9 @@ use bevy_ecs::prelude::Component;
 use tokio::sync::oneshot;
 
 use crate::{
-    Cancellation,
-    Executable, Input, InputBundle, ManageInput, OnTerminalCancelled, OperationCancel,
-    OperationRequest, OperationResult, OperationSetup, OrBroken, SeriesLifecycleChannel,
-    async_execution::spawn_task,
+    Cancellation, Executable, Input, InputBundle, ManageInput, OnTerminalCancelled,
+    OperationCancel, OperationRequest, OperationResult, OperationSetup, OrBroken,
+    SeriesLifecycleChannel, async_execution::spawn_task,
 };
 
 #[derive(Component)]
@@ -70,7 +69,7 @@ impl<T: 'static + Send + Sync> Executable for CaptureOutcome<T> {
         world.entity_mut(source).insert((
             InputBundle::<T>::new(),
             OnTerminalCancelled(cancel_recv_target::<T>),
-            self
+            self,
         ));
         Ok(())
     }

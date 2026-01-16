@@ -19,7 +19,7 @@ use crate::{ServerOptions, new_router};
 use bevy_app;
 use clap::Parser;
 use crossflow::{
-    CrossflowExecutorApp, Diagram, DiagramError, RequestExt, RunCommandsOnWorldExt, Outcome,
+    CrossflowExecutorApp, Diagram, DiagramError, Outcome, RequestExt, RunCommandsOnWorldExt,
 };
 use std::thread;
 use std::{fs::File, str::FromStr};

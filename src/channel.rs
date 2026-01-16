@@ -22,10 +22,8 @@ use bevy_ecs::{
 };
 
 use tokio::sync::{
+    mpsc::{UnboundedReceiver as TokioReceiver, UnboundedSender as TokioSender, unbounded_channel},
     oneshot,
-    mpsc::{
-        UnboundedReceiver as TokioReceiver, UnboundedSender as TokioSender, unbounded_channel,
-    }
 };
 
 use std::sync::Arc;
@@ -57,7 +55,8 @@ impl Channel {
         P: 'static + Send + Sync,
     {
         let (sender, receiver) = oneshot::channel();
-        let _ = self.commands(move |commands| commands.request(request, provider).outcome_into(sender));
+        let _ =
+            self.commands(move |commands| commands.request(request, provider).outcome_into(sender));
         Outcome::new(receiver)
     }
 
@@ -234,15 +233,16 @@ mod tests {
         });
 
         for _ in 0..5 {
-            context.try_resolve_request(
-                RepeatRequest {
-                    service: hello,
-                    count: 5,
-                },
-                repeat,
-                Duration::from_secs(5),
-            )
-            .unwrap();
+            context
+                .try_resolve_request(
+                    RepeatRequest {
+                        service: hello,
+                        count: 5,
+                    },
+                    repeat,
+                    Duration::from_secs(5),
+                )
+                .unwrap();
         }
 
         let count = context

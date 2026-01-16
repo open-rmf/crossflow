@@ -995,7 +995,8 @@ mod tests {
             .app
             .spawn_event_streaming_service::<CustomEvent>(Update);
 
-        let mut capture = context.command(|commands| commands.request((), event_streamer).capture());
+        let mut capture =
+            context.command(|commands| commands.request((), event_streamer).capture());
 
         context.app.world_mut().send_event(CustomEvent(0));
         context.app.world_mut().send_event(CustomEvent(1));

@@ -407,8 +407,8 @@ pub(crate) mod tests {
         provider: impl Provider<Request = String, Response = (), Streams = FormatStreams> + Clone,
         context: &mut TestingContext,
     ) {
-        let mut capture =
-            context.command(|commands| commands.request("5".to_owned(), provider.clone()).capture());
+        let mut capture = context
+            .command(|commands| commands.request("5".to_owned(), provider.clone()).capture());
 
         context.run_with_conditions(&mut capture.outcome, Duration::from_secs(2));
         assert!(capture.outcome.is_available());
@@ -419,8 +419,11 @@ pub(crate) mod tests {
         assert_eq!(outcome.stream_i32, [5]);
         assert_eq!(outcome.stream_f32, [5.0]);
 
-        let mut capture =
-            context.command(|commands| commands.request("-2".to_owned(), provider.clone()).capture());
+        let mut capture = context.command(|commands| {
+            commands
+                .request("-2".to_owned(), provider.clone())
+                .capture()
+        });
 
         context.run_with_conditions(&mut capture.outcome, Duration::from_secs(2));
         assert!(capture.outcome.is_available());
@@ -431,8 +434,11 @@ pub(crate) mod tests {
         assert_eq!(outcome.stream_i32, [-2]);
         assert_eq!(outcome.stream_f32, [-2.0]);
 
-        let mut capture =
-            context.command(|commands| commands.request("6.7".to_owned(), provider.clone()).capture());
+        let mut capture = context.command(|commands| {
+            commands
+                .request("6.7".to_owned(), provider.clone())
+                .capture()
+        });
 
         context.run_with_conditions(&mut capture.outcome, Duration::from_secs(2));
         assert!(capture.outcome.is_available());

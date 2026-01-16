@@ -101,12 +101,8 @@ pub async fn post_run(
             }
 
             match result {
-                Ok(response) => {
-                    Ok(response)
-                }
-                Err(err) => {
-                    Err(WorkflowCancelledResponse(&err).into())
-                }
+                Ok(response) => Ok(response),
+                Err(err) => Err(WorkflowCancelledResponse(&err).into()),
             }
         }
         Err(err) => Err(Response::builder()

@@ -32,10 +32,10 @@ use smallvec::SmallVec;
 use crate::{
     Accessing, AddContinuousServicesExt, AnyBuffer, AsAnyBuffer, AsyncServiceInput, BlockingMap,
     BlockingServiceInput, Buffer, BufferKey, BufferKeyLifecycle, Bufferable, Buffering, Builder,
-    ContinuousQuery, ContinuousQueueView, ContinuousService, CrossflowExecutorApp, FlushParameters,
-    GetBufferedSessionsFn, Joining, OperationError, OperationResult, OperationRoster, Promise,
-    RunCommandsOnWorldExt, Scope, Service, SpawnWorkflowExt, StreamOf, StreamPack, UnhandledErrors,
-    WorkflowSettings, Outcome, ProvideOnce, RequestExt, Cancellation,
+    Cancellation, ContinuousQuery, ContinuousQueueView, ContinuousService, CrossflowExecutorApp,
+    FlushParameters, GetBufferedSessionsFn, Joining, OperationError, OperationResult,
+    OperationRoster, Outcome, Promise, ProvideOnce, RequestExt, RunCommandsOnWorldExt, Scope,
+    Service, SpawnWorkflowExt, StreamOf, StreamPack, UnhandledErrors, WorkflowSettings,
 };
 
 pub struct TestingContext {
@@ -166,7 +166,8 @@ impl TestingContext {
         P::Response: 'static + Send + Sync,
         P::Streams: StreamPack,
     {
-        let mut outcome = self.command(move |commands| commands.request(request, provider).outcome());
+        let mut outcome =
+            self.command(move |commands| commands.request(request, provider).outcome());
 
         self.run_with_conditions(&mut outcome, conditions);
         self.assert_no_errors();
@@ -513,7 +514,10 @@ pub fn repeat_service(
 
     async move {
         for _ in 0..input.request.count {
-            let _ = input.channel.request_outcome((), input.request.service).await;
+            let _ = input
+                .channel
+                .request_outcome((), input.request.service)
+                .await;
         }
     }
 }

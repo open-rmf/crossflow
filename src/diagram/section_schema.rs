@@ -686,7 +686,7 @@ mod tests {
                 .unwrap()
         });
 
-        let r = context.resolve_request(json!{1}, workflow);
+        let r = context.resolve_request(json! {1}, workflow);
         assert_eq!(r, 2);
     }
 

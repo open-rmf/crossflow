@@ -948,7 +948,9 @@ mod tests {
             });
         });
 
-        let r = context.try_resolve_request([1.0, 2.0, 3.0], workflow, 1).unwrap();
+        let r = context
+            .try_resolve_request([1.0, 2.0, 3.0], workflow, 1)
+            .unwrap();
 
         // Only the third element in the split gets connected to the workflow
         // termination, the rest are discarded. This ensures that SplitBuilder
@@ -1084,7 +1086,9 @@ mod tests {
             })
         });
 
-        let result = context.try_resolve_request([1, 2, 3, 4], workflow, 1).unwrap();
+        let result = context
+            .try_resolve_request([1, 2, 3, 4], workflow, 1)
+            .unwrap();
 
         // All the values in the array are racing to finish, but the first value
         // should finish first since it will naturally get queued first.
