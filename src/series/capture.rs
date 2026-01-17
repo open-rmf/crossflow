@@ -25,51 +25,55 @@ use crate::{
     SeriesLifecycleChannel, async_execution::spawn_task,
 };
 
-#[derive(Component)]
 pub(crate) struct CaptureOutcome<T> {
-    sender: oneshot::Sender<Result<T, Cancellation>>,
+    value: oneshot::Sender<Result<T, Cancellation>>,
+    finished: oneshot::Receiver<()>,
 }
 
+#[derive(Component)]
+struct OutcomeSenderStorage<T>(oneshot::Sender<Result<T, Cancellation>>);
+
 impl<T> CaptureOutcome<T> {
-    pub(crate) fn new(sender: oneshot::Sender<Result<T, Cancellation>>) -> Self {
-        Self { sender }
+    pub(crate) fn new(
+        sender: oneshot::Sender<Result<T, Cancellation>>,
+        finished: oneshot::Receiver<()>,
+    ) -> Self {
+        Self {
+            value: sender,
+            finished,
+        }
     }
 }
 
 impl<T: 'static + Send + Sync> Executable for CaptureOutcome<T> {
-    fn setup(mut self, OperationSetup { source, world }: OperationSetup) -> OperationResult {
+    fn setup(self, OperationSetup { source, world }: OperationSetup) -> OperationResult {
         let lifecycle_sender = world
             .get_resource_or_insert_with(SeriesLifecycleChannel::default)
             .sender
             .clone();
 
-        let (inner_sender, inner_receiver) = oneshot::channel();
-
-        let mut outer_sender = self.sender;
-        self.sender = inner_sender;
-
-        let bridge_channels = async move {
-            tokio::select! {
-                _ = outer_sender.closed() => {
-                    lifecycle_sender.send(source).ok();
+        let finished = self.finished;
+        let monitor_finish = async move {
+            match finished.await {
+                Ok(_) => {
+                    // The outcome was successfully received, there is no action
+                    // to take. We do nothing and let this future end.
                 }
-                value = inner_receiver => {
-                    if let Ok(value) = value {
-                        let _ = outer_sender.send(value);
-                    } else {
-                        // Just let the sender drop. The receiver will get a
-                        // RecvError.
-                    }
+                Err(_) => {
+                    // The Outcome instance was dropped before its result could
+                    // be received. We alert the lifecycle manager so it can
+                    // drop the series that this outcome depends on.
+                    let _ = lifecycle_sender.send(source);
                 }
             }
         };
 
-        spawn_task(bridge_channels, world).detach();
+        spawn_task(monitor_finish, world).detach();
 
         world.entity_mut(source).insert((
             InputBundle::<T>::new(),
             OnTerminalCancelled(cancel_recv_target::<T>),
-            self,
+            OutcomeSenderStorage(self.value),
         ));
         Ok(())
     }
@@ -77,7 +81,7 @@ impl<T: 'static + Send + Sync> Executable for CaptureOutcome<T> {
     fn execute(OperationRequest { source, world, .. }: OperationRequest) -> OperationResult {
         let mut source_mut = world.get_entity_mut(source).or_broken()?;
         let Input { data, .. } = source_mut.take_input::<T>()?;
-        let sender = source_mut.take::<CaptureOutcome<T>>().or_broken()?.sender;
+        let sender = source_mut.take::<OutcomeSenderStorage<T>>().or_broken()?.0;
         sender.send(Ok(data)).ok();
         source_mut.despawn();
 
@@ -90,7 +94,7 @@ where
     T: 'static + Send + Sync,
 {
     let mut target_mut = world.get_entity_mut(cancel.target).or_broken()?;
-    let sender = target_mut.take::<CaptureOutcome<T>>().or_broken()?.sender;
+    let sender = target_mut.take::<OutcomeSenderStorage<T>>().or_broken()?.0;
     let _ = sender.send(Err(cancel.cancellation));
     target_mut.despawn();
 

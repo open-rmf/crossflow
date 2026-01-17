@@ -22,11 +22,9 @@ use bevy_ecs::{
 
 use std::future::Future;
 
-use tokio::sync::oneshot;
-
 use crate::{
-    AsMapOnce, Cancellable, Cancellation, IntoAsyncMapOnce, IntoBlockingMapOnce, Outcome, Promise,
-    ProvideOnce, Sendish, StreamPack, StreamTargetMap, UnusedTarget,
+    AsMapOnce, Cancellable, IntoAsyncMapOnce, IntoBlockingMapOnce, Outcome, Promise, ProvideOnce,
+    Sendish, StreamPack, StreamTargetMap, UnusedTarget,
 };
 
 mod detach;
@@ -118,20 +116,18 @@ where
     /// provider.
     #[must_use]
     pub fn capture(self) -> Capture<Response, Streams> {
-        let (response_sender, response_receiver) = oneshot::channel();
-        self.commands.queue(AddExecution::new(
-            Some(self.source),
-            self.target,
-            CaptureOutcome::<Response>::new(response_sender),
-        ));
+        let target = self.target;
         let mut map = StreamTargetMap::default();
-        let stream_receivers = Streams::take_streams(self.target, &mut map, self.commands);
+        let stream_receivers = Streams::take_streams(target, &mut map, self.commands);
         self.commands.entity(self.source).insert(map);
 
+        let (outcome, capture_outcome) = Outcome::new();
+        self.send_outcome(capture_outcome);
+
         Capture {
-            outcome: Outcome::new(response_receiver),
+            outcome,
             streams: stream_receivers,
-            session: self.target,
+            session: target,
         }
     }
 
@@ -160,9 +156,9 @@ where
     /// Capture only the outcome (response) of the series.
     #[must_use]
     pub fn outcome(self) -> Outcome<Response> {
-        let (response_sender, response_receiver) = oneshot::channel();
-        self.send_outcome(response_sender);
-        Outcome::new(response_receiver)
+        let (outcome, capture) = Outcome::new();
+        self.send_outcome(capture);
+        outcome
     }
 
     /// Take only the response data that comes out of the request.
@@ -327,14 +323,10 @@ where
             .insert((stream_targets, map));
     }
 
-    /// Similar to [`Self::outcome`] except you can specify the sender. This
-    /// allows more flexibility in how you structure the handling of the outcome.
-    pub fn send_outcome(self, sender: oneshot::Sender<Result<Response, Cancellation>>) {
-        self.commands.queue(AddExecution::new(
-            Some(self.source),
-            self.target,
-            CaptureOutcome::<Response>::new(sender),
-        ));
+    /// Used internally to implement various ways of capturing an outcome.
+    pub(crate) fn send_outcome(self, capture: CaptureOutcome<Response>) {
+        self.commands
+            .queue(AddExecution::new(Some(self.source), self.target, capture));
     }
 
     // TODO(@mxgrey): Consider offering ways for users to respond to cancellations.
@@ -568,9 +560,8 @@ mod tests {
             commands.provide(0).then(service).detach();
         });
 
-        let (sender, receiver) = tokio::sync::oneshot::channel();
-        let mut outcome = Outcome::new(receiver);
-        context.run_with_conditions(&mut outcome, Duration::from_millis(5));
+        let (sender, mut receiver) = tokio::sync::oneshot::channel();
+        context.run_with_conditions(&mut receiver, Duration::from_millis(5));
         assert!(
             context.no_unhandled_errors(),
             "Unhandled errors: {:#?}",
@@ -587,7 +578,7 @@ mod tests {
         // sender to drop prematurely, so we don't want to risk that there are
         // other cases where that may happen. It is important for the run to
         // last multiple cycles.
-        let _ = sender.send(Ok(()));
+        let _ = sender.send(());
     }
 
     #[derive(Clone, Debug, PartialEq, Eq, Hash, DeliveryLabel)]

@@ -669,3 +669,9 @@ impl Resolvable for () {
         false
     }
 }
+
+impl<T> Resolvable for tokio::sync::oneshot::Receiver<T> {
+    fn is_resolved(&mut self) -> bool {
+        self.is_terminated()
+    }
+}

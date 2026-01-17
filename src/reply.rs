@@ -39,6 +39,7 @@ use tokio::sync::oneshot;
 /// issue ticket if you ever see that a [`Reply`] has stalled out.
 ///
 /// [`Channel`]: crate::Channel
+/// [`RecvError`]: tokio::sync::oneshot::error::RecvError
 pub struct Reply<T> {
     inner: oneshot::Receiver<T>,
 }

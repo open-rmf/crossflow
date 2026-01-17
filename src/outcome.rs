@@ -26,7 +26,7 @@ use tokio::sync::oneshot::{
     error::{RecvError, TryRecvError},
 };
 
-use crate::{Cancellation, CancellationCause};
+use crate::{Cancellation, CancellationCause, CaptureOutcome};
 
 /// Contains the final outcome of a [`Series`].
 ///
@@ -36,14 +36,33 @@ use crate::{Cancellation, CancellationCause};
 ///
 /// [`Series`]: crate::Series
 pub struct Outcome<T> {
-    inner: oneshot::Receiver<Result<T, Cancellation>>,
+    /// A receiver to receive the actual result of the outcome
+    value: oneshot::Receiver<Result<T, Cancellation>>,
+
+    /// A receiver attached to a sender who is simply monitoring for whether
+    /// the outcome gets dropped.
+    finished: Option<oneshot::Sender<()>>,
 }
 
 impl<T> Future for Outcome<T> {
     type Output = Result<T, Cancellation>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Future::poll(Pin::new(&mut self.get_mut().inner), cx).map(flatten_recv)
+        let self_mut = self.get_mut();
+        let r = Future::poll(Pin::new(&mut self_mut.value), cx).map(flatten_recv);
+
+        match r {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(value) => {
+                // If we are receiving the value then notify the finished monitor
+                // that we successfully received the outcome.
+                if let Some(finished) = self_mut.finished.take() {
+                    let _ = finished.send(());
+                }
+
+                Poll::Ready(value)
+            }
+        }
     }
 }
 
@@ -56,13 +75,31 @@ impl<T> Outcome<T> {
     /// If the outcome was previously delivered or if the sender was dropped,
     /// this will give a [`CancellationCause::Undeliverable`].
     pub fn try_recv(&mut self) -> Option<Result<T, Cancellation>> {
-        flatten_try_recv(self.inner.try_recv())
+        match self.value.try_recv() {
+            Ok(r) => {
+                if let Some(finished) = self.finished.take() {
+                    let _ = finished.send(());
+                }
+
+                Some(r)
+            }
+            Err(err) => match err {
+                TryRecvError::Empty => None,
+                TryRecvError::Closed => {
+                    if let Some(finished) = self.finished.take() {
+                        let _ = finished.send(());
+                    }
+
+                    Some(Err(CancellationCause::Undeliverable.into()))
+                }
+            },
+        }
     }
 
     /// Check if the outcome has already been delivered. If this is true then
     /// you will no longer be able to poll for the outcome.
     pub fn is_terminated(&self) -> bool {
-        self.inner.is_terminated()
+        self.value.is_terminated()
     }
 
     /// Check if the outcome is available to be received.
@@ -73,18 +110,26 @@ impl<T> Outcome<T> {
     ///
     /// If you want to know if an outcome is still pending, use [`Self::is_pending`].
     pub fn is_available(&self) -> bool {
-        !self.inner.is_empty()
+        !self.value.is_empty()
     }
 
     /// Check if the outcome is still being determined.
     pub fn is_pending(&self) -> bool {
-        self.inner.is_empty() && !self.is_terminated()
+        self.value.is_empty() && !self.is_terminated()
     }
 
-    /// Make a new Outcome. This is usually created by [`Series`], but the API
-    /// is public in case users have a reason to create one manually.
-    pub fn new(receiver: oneshot::Receiver<Result<T, Cancellation>>) -> Self {
-        Self { inner: receiver }
+    pub(crate) fn new() -> (Self, CaptureOutcome<T>) {
+        let (value_sender, value_receiver) = oneshot::channel();
+        let (finished_sender, finished_receiver) = oneshot::channel();
+
+        let outcome = Self {
+            value: value_receiver,
+            finished: Some(finished_sender),
+        };
+
+        let capture = CaptureOutcome::new(value_sender, finished_receiver);
+
+        (outcome, capture)
     }
 }
 
@@ -94,17 +139,5 @@ fn flatten_recv<T>(
     match response {
         Ok(r) => r,
         Err(err) => Err(err.into()),
-    }
-}
-
-fn flatten_try_recv<T>(
-    response: Result<Result<T, Cancellation>, TryRecvError>,
-) -> Option<Result<T, Cancellation>> {
-    match response {
-        Ok(r) => Some(r),
-        Err(err) => match err {
-            TryRecvError::Empty => None,
-            TryRecvError::Closed => Some(Err(CancellationCause::Undeliverable.into())),
-        },
     }
 }

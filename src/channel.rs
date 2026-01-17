@@ -56,10 +56,10 @@ impl Channel {
         P::Streams: 'static + StreamPack,
         P: 'static + Send + Sync,
     {
-        let (sender, receiver) = oneshot::channel();
-        let _ =
-            self.commands(move |commands| commands.request(request, provider).send_outcome(sender));
-        Outcome::new(receiver)
+        let (outcome, capture) = Outcome::new();
+        let _ = self
+            .commands(move |commands| commands.request(request, provider).send_outcome(capture));
+        outcome
     }
 
     /// Run a query in the world and receive the promise of the query's output.
