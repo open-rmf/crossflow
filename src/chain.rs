@@ -1485,7 +1485,9 @@ mod tests {
                 );
         });
 
-        let r = context.resolve_request(2, workflow);
+        let r = context
+            .try_resolve_request(2, workflow, Duration::from_secs(30))
+            .unwrap();
         assert_eq!(r.len(), 1);
         assert!(r.iter().all(|v| *v == 2));
 

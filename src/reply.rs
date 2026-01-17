@@ -67,12 +67,23 @@ impl<T> Reply<T> {
     /// Try receiving the outcome if it's available. This can be used in a
     /// blocking context but does not block execution itself.
     ///
-    /// If the outcome is not available yet, this will return None.
+    /// If the reply is not available yet, this will return None.
     ///
-    /// If the outcome was previously delivered or if the sender was dropped,
-    /// this will give a [`CancellationCause::Undeliverable`].
+    /// If the reply was previously delivered or if the sender was dropped this
+    /// will still return [`None`]. You must use [`Self::is_terminated`] and
+    /// [`Self::is_pending`] to determine whether this is the case. There is no
+    /// way to tell apart a dropped sender from an already delivered reply.
     pub fn try_recv(&mut self) -> Option<T> {
         self.inner.try_recv().ok()
+    }
+
+    /// Choose to take the inner receiver of this [`Reply`] in case you want a
+    /// guaranteed safe way to await the reply. This opens the possibility of
+    /// receiving a [`RecvError`].
+    ///
+    /// [`RecvError`]: tokio::sync::oneshot::error::RecvError
+    pub fn safely(self) -> oneshot::Receiver<T> {
+        self.inner
     }
 
     /// Check if the outcome has already been delivered. If this is true then
