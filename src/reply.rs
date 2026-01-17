@@ -15,7 +15,6 @@
  *
 */
 
-
 use std::{
     future::Future,
     pin::Pin,
@@ -54,13 +53,13 @@ impl<T> Future for Reply<T> {
             Poll::Ready(Err(_)) => {
                 error!(
                     "A reply from the async channel has stalled out because \
-                    its sender dropped. Please report this as a bug.");
+                    its sender dropped. Please report this as a bug."
+                );
                 // Just pass back pending. This future can never yield a value
                 // at this point.
                 Poll::Pending
             }
         }
-
     }
 }
 

@@ -28,7 +28,9 @@ use tokio::sync::{
 
 use std::sync::Arc;
 
-use crate::{OperationError, OperationRoster, Outcome, Promise, Provider, Reply, RequestExt, StreamPack};
+use crate::{
+    OperationError, OperationRoster, Outcome, Promise, Provider, Reply, RequestExt, StreamPack,
+};
 
 /// Provides asynchronous access to the [`World`], allowing you to issue queries
 /// or commands and then await the result.

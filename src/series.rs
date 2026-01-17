@@ -25,8 +25,8 @@ use std::future::Future;
 use tokio::sync::oneshot;
 
 use crate::{
-    AsMapOnce, Cancellable, Cancellation, IntoAsyncMapOnce, IntoBlockingMapOnce,
-    Promise, ProvideOnce, Sendish, StreamPack, StreamTargetMap, UnusedTarget, Outcome,
+    AsMapOnce, Cancellable, Cancellation, IntoAsyncMapOnce, IntoBlockingMapOnce, Outcome, Promise,
+    ProvideOnce, Sendish, StreamPack, StreamTargetMap, UnusedTarget,
 };
 
 mod detach;
