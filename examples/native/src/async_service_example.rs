@@ -127,8 +127,9 @@ fn update_page_title(
             .commands(move |commands| {
                 commands.entity(entity).insert(PageTitle(title));
             })
-            .await
-            .map_err(|_| ())
+            .await;
+
+        Ok(())
     }
 }
 // ANCHOR_END: example

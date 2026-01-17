@@ -1309,8 +1309,9 @@ async fn insert_page_title(
             commands.entity(insert_into).insert(PageTitle(title));
         }
     )
-        .await
-        .map_err(|_| ())
+        .await;
+
+    Ok(())
 }
 // ANCHOR_END: insert_page_title
 
@@ -1901,16 +1902,12 @@ async fn navigate(
 ) -> Result<(), NavigationError> {
     // Clone the nevigation graph resource so we can move the clone into the
     // async block.
-    let Some(nav_graph) = input
+    let nav_graph = input
         .channel
         .world(|world| {
             world.resource::<NavigationGraph>().clone()
         })
-        .await
-        .ok()
-    else {
-        return Err(NavigationError::MissingGraph);
-    };
+        .await;
 
     // Create a callback for fetching the latest position
     let get_position = |

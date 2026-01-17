@@ -128,11 +128,17 @@ pub use node::*;
 pub mod operation;
 pub use operation::*;
 
+pub mod outcome;
+pub use outcome::*;
+
 pub mod promise;
 pub use promise::*;
 
 pub mod provider;
 pub use provider::*;
+
+pub mod reply;
+pub use reply::*;
 
 pub mod request;
 pub use request::*;

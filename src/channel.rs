@@ -28,7 +28,7 @@ use tokio::sync::{
 
 use std::sync::Arc;
 
-use crate::{OperationError, OperationRoster, Outcome, Promise, Provider, RequestExt, StreamPack};
+use crate::{OperationError, OperationRoster, Outcome, Promise, Provider, Reply, RequestExt, StreamPack};
 
 /// Provides asynchronous access to the [`World`], allowing you to issue queries
 /// or commands and then await the result.
@@ -56,7 +56,7 @@ impl Channel {
     {
         let (sender, receiver) = oneshot::channel();
         let _ =
-            self.commands(move |commands| commands.request(request, provider).outcome_into(sender));
+            self.commands(move |commands| commands.request(request, provider).send_outcome(sender));
         Outcome::new(receiver)
     }
 
@@ -79,7 +79,7 @@ impl Channel {
     ///
     /// The commands will be carried out asynchronously. You can .await the
     /// receiver that this returns to know when the commands have been finished.
-    pub fn commands<F, U>(&self, f: F) -> oneshot::Receiver<U>
+    pub fn commands<F, U>(&self, f: F) -> Reply<U>
     where
         F: FnOnce(&mut Commands) -> U + 'static + Send,
         U: 'static + Send,
@@ -98,7 +98,7 @@ impl Channel {
             ))
             .ok();
 
-        receiver
+        Reply::new(receiver)
     }
 
     /// Get access to a [`Commands`] for the [`World`]
@@ -129,7 +129,7 @@ impl Channel {
     ///
     /// The closure will be executed asynchronously. You can .await the receiver
     /// that this returns to know when the closure has been applied.
-    pub fn world<F, U>(&self, f: F) -> oneshot::Receiver<U>
+    pub fn world<F, U>(&self, f: F) -> Reply<U>
     where
         F: FnOnce(&mut World) -> U + 'static + Send,
         U: 'static + Send,
@@ -145,7 +145,7 @@ impl Channel {
             ))
             .ok();
 
-        receiver
+        Reply::new(receiver)
     }
 
     pub(crate) fn for_streams<Streams: StreamPack>(

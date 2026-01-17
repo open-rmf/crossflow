@@ -20,20 +20,13 @@ use bevy_ecs::{
     prelude::{Bundle, Commands, Component, Entity, Event},
 };
 
-use std::{
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use std::future::Future;
 
-use tokio::sync::oneshot::{
-    self,
-    error::{RecvError, TryRecvError},
-};
+use tokio::sync::oneshot;
 
 use crate::{
-    AsMapOnce, Cancellable, Cancellation, CancellationCause, IntoAsyncMapOnce, IntoBlockingMapOnce,
-    Promise, ProvideOnce, Sendish, StreamPack, StreamTargetMap, UnusedTarget,
+    AsMapOnce, Cancellable, Cancellation, IntoAsyncMapOnce, IntoBlockingMapOnce,
+    Promise, ProvideOnce, Sendish, StreamPack, StreamTargetMap, UnusedTarget, Outcome,
 };
 
 mod detach;
@@ -70,9 +63,11 @@ pub(crate) use taken::*;
 /// to chain the output of one workflow session into the input of another workflow
 /// session, and then eventually receive the final output of the whole series.
 ///
-/// A series like this can only be a linear sequence, it does not support
+/// You can begin creating a series using [`RequestExt`][crate::RequestExt].
+///
+/// A series like this can only be a linear sequence---it does not support
 /// conditional branching or cycles. If you want a more complex structure than
-/// a linear sequence then you will need to spawn a workflow with the structure
+/// a linear sequence, you will need to spawn a workflow with the structure
 /// that you want, and then issue a request into that workflow.
 ///
 /// A series is a one-time-use sequence of sessions. You will have to reconstruct
@@ -134,9 +129,7 @@ where
         self.commands.entity(self.source).insert(map);
 
         Capture {
-            outcome: Outcome {
-                inner: response_receiver,
-            },
+            outcome: Outcome::new(response_receiver),
             streams: stream_receivers,
             session: self.target,
         }
@@ -168,10 +161,8 @@ where
     #[must_use]
     pub fn outcome(self) -> Outcome<Response> {
         let (response_sender, response_receiver) = oneshot::channel();
-        self.outcome_into(response_sender);
-        Outcome {
-            inner: response_receiver,
-        }
+        self.send_outcome(response_sender);
+        Outcome::new(response_receiver)
     }
 
     /// Take only the response data that comes out of the request.
@@ -336,8 +327,9 @@ where
             .insert((stream_targets, map));
     }
 
-    /// Used internally to allow more flexible way of receiving outcomes.
-    pub(crate) fn outcome_into(self, sender: oneshot::Sender<Result<Response, Cancellation>>) {
+    /// Similar to [`Self::outcome`] except you can specify the sender. This
+    /// allows more flexibility in how you structure the handling of the outcome.
+    pub fn send_outcome(self, sender: oneshot::Sender<Result<Response, Cancellation>>) {
         self.commands.queue(AddExecution::new(
             Some(self.source),
             self.target,
@@ -403,85 +395,6 @@ pub struct Recipient<Response, Streams: StreamPack> {
     /// that will be executed before it. This is done so that despawning behavior
     /// has a more logical relationship with the dependencies between the sessions.
     pub session: Entity,
-}
-
-/// Contains the final outcome of a request sent to a provider.
-///
-/// This mostly just wraps a oneshot receiver to have nicer ergonomics. If the
-/// oneshot sender disconnects, its error message gets flattened into a regular
-/// cancellation.
-pub struct Outcome<T> {
-    inner: oneshot::Receiver<Result<T, Cancellation>>,
-}
-
-impl<T> Future for Outcome<T> {
-    type Output = Result<T, Cancellation>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Future::poll(Pin::new(&mut self.get_mut().inner), cx).map(flatten_recv)
-    }
-}
-
-impl<T> Outcome<T> {
-    /// Try receiving the outcome if it's available. This can be used in a
-    /// blocking context but does not block execution itself.
-    ///
-    /// If the outcome is not available yet, this will return None.
-    ///
-    /// If the outcome was previously delivered or if the sender was dropped,
-    /// this will give a [`CancellationCause::Undeliverable`].
-    pub fn try_recv(&mut self) -> Option<Result<T, Cancellation>> {
-        flatten_try_recv(self.inner.try_recv())
-    }
-
-    /// Check if the outcome has already been delivered. If this is true then
-    /// you will no longer be able to poll for the outcome.
-    pub fn is_terminated(&self) -> bool {
-        self.inner.is_terminated()
-    }
-
-    /// Check if the outcome is available to be received.
-    ///
-    /// If the outcome was previously received this will return false. Use
-    /// [`Self::is_terminated`] to tell pending outcomes apart from
-    /// already-delivered outcomes.
-    ///
-    /// If you want to know if an outcome is still pending, use [`Self::is_pending`].
-    pub fn is_available(&self) -> bool {
-        !self.inner.is_empty()
-    }
-
-    /// Check if the outcome is still being determined.
-    pub fn is_pending(&self) -> bool {
-        self.inner.is_empty() && !self.is_terminated()
-    }
-
-    /// Make a new Outcome. This is usually created by [`Series`], but the API
-    /// is public in case users have a reason to create one manually.
-    pub fn new(receiver: oneshot::Receiver<Result<T, Cancellation>>) -> Self {
-        Self { inner: receiver }
-    }
-}
-
-fn flatten_recv<T>(
-    response: Result<Result<T, Cancellation>, RecvError>,
-) -> Result<T, Cancellation> {
-    match response {
-        Ok(r) => r,
-        Err(err) => Err(err.into()),
-    }
-}
-
-fn flatten_try_recv<T>(
-    response: Result<Result<T, Cancellation>, TryRecvError>,
-) -> Option<Result<T, Cancellation>> {
-    match response {
-        Ok(r) => Some(r),
-        Err(err) => match err {
-            TryRecvError::Empty => None,
-            TryRecvError::Closed => Some(Err(CancellationCause::Undeliverable.into())),
-        },
-    }
 }
 
 pub struct Capture<Response, Streams: StreamPack> {
@@ -656,7 +569,7 @@ mod tests {
         });
 
         let (sender, receiver) = tokio::sync::oneshot::channel();
-        let mut outcome = Outcome { inner: receiver };
+        let mut outcome = Outcome::new(receiver);
         context.run_with_conditions(&mut outcome, Duration::from_millis(5));
         assert!(
             context.no_unhandled_errors(),
