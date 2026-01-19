@@ -1,6 +1,6 @@
 # What is Crossflow?
 
-Crossflow is a general-purpose Rust library for reactive and async programming.
+[Crossflow] is a general-purpose Rust library for reactive and async programming.
 It simplifies the challenges of implementing highly async software systems that
 may have parallel activities with interdependencies, conditional branching,
 and/or cycles. Its specialty is creating event-driven multi-agent state machines.
@@ -83,6 +83,7 @@ itself a service) and execute it.
 To learn the fundamental concepts around what a "workflow" is in the crossflow
 library, see the [Introduction to Workflows](./introduction-to-workflows.md) chapter.
 
+[Crossflow]: https://github.com/open-rmf/crossflow
 [Service]: https://docs.rs/crossflow/latest/crossflow/service/struct.Service.html
 [spawn_workflow]: https://docs.rs/crossflow/latest/crossflow/workflow/trait.SpawnWorkflowExt.html#tymethod.spawn_workflow
 [Commands]: https://docs.rs/bevy/latest/bevy/prelude/struct.Commands.html
