@@ -680,16 +680,14 @@ mod tests {
         .unwrap();
 
         let mut context = TestingContext::minimal_plugins();
-        let mut promise = context.app.world_mut().command(|cmds| {
-            let workflow = diagram
-                .spawn_io_workflow::<JsonMessage, JsonMessage>(cmds, &registry)
-                .unwrap();
-            cmds.request(serde_json::to_value(1).unwrap(), workflow)
-                .take_response()
+        let workflow = context.app.world_mut().command(|commands| {
+            diagram
+                .spawn_io_workflow::<JsonMessage, JsonMessage>(commands, &registry)
+                .unwrap()
         });
-        context.run_while_pending(&mut promise);
-        let result = promise.take().available().unwrap();
-        assert_eq!(result, 2);
+
+        let r = context.resolve_request(json! {1}, workflow);
+        assert_eq!(r, 2);
     }
 
     #[test]

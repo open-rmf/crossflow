@@ -21,13 +21,16 @@ use bevy_ecs::{
     world::CommandQueue,
 };
 
-use tokio::sync::mpsc::{
-    UnboundedReceiver as TokioReceiver, UnboundedSender as TokioSender, unbounded_channel,
+use tokio::sync::{
+    mpsc::{UnboundedReceiver as TokioReceiver, UnboundedSender as TokioSender, unbounded_channel},
+    oneshot,
 };
 
 use std::sync::Arc;
 
-use crate::{OperationError, OperationRoster, Promise, Provider, RequestExt, StreamPack};
+use crate::{
+    OperationError, OperationRoster, Outcome, Promise, Provider, Reply, RequestExt, StreamPack,
+};
 
 /// Provides asynchronous access to the [`World`], allowing you to issue queries
 /// or commands and then await the result.
@@ -37,7 +40,30 @@ pub struct Channel {
 }
 
 impl Channel {
+    /// Get the outcome of sending a request to a provider.
+    ///
+    /// If you need to build a [`Series`] or do a full [`Capture`] then use
+    /// [`Self::commands`] and use `.await` to dig into it. This is a convenience
+    /// function for cases where all you need is the outcome.
+    ///
+    /// [`Series`]: crate::Series
+    /// [`Capture`]: crate::Capture
+    pub fn request_outcome<P>(&self, request: P::Request, provider: P) -> Outcome<P::Response>
+    where
+        P: Provider,
+        P::Request: 'static + Send + Sync,
+        P::Response: 'static + Send + Sync,
+        P::Streams: 'static + StreamPack,
+        P: 'static + Send + Sync,
+    {
+        let (outcome, capture) = Outcome::new();
+        let _ = self
+            .commands(move |commands| commands.request(request, provider).send_outcome(capture));
+        outcome
+    }
+
     /// Run a query in the world and receive the promise of the query's output.
+    #[deprecated(since = "0.0.6", note = "Use .request_outcome() instead")]
     pub fn query<P>(&self, request: P::Request, provider: P) -> Promise<P::Response>
     where
         P: Provider,
@@ -46,11 +72,39 @@ impl Channel {
         P::Streams: 'static + StreamPack,
         P: 'static + Send + Sync,
     {
+        #[allow(deprecated)]
         self.command(move |commands| commands.request(request, provider).take().response)
             .flatten()
     }
 
+    /// Get access to a [`Commands`] for the [`World`].
+    ///
+    /// The commands will be carried out asynchronously. You can .await the
+    /// receiver that this returns to know when the commands have been finished.
+    pub fn commands<F, U>(&self, f: F) -> Reply<U>
+    where
+        F: FnOnce(&mut Commands) -> U + 'static + Send,
+        U: 'static + Send,
+    {
+        let (sender, receiver) = oneshot::channel();
+        self.inner
+            .sender
+            .send(Box::new(
+                move |world: &mut World, _: &mut OperationRoster| {
+                    let mut command_queue = CommandQueue::default();
+                    let mut commands = Commands::new(&mut command_queue, world);
+                    let u = f(&mut commands);
+                    command_queue.apply(world);
+                    let _ = sender.send(u);
+                },
+            ))
+            .ok();
+
+        Reply::new(receiver)
+    }
+
     /// Get access to a [`Commands`] for the [`World`]
+    #[deprecated(since = "0.0.6", note = "Use .commands() instead")]
     pub fn command<F, U>(&self, f: F) -> Promise<U>
     where
         F: FnOnce(&mut Commands) -> U + 'static + Send,
@@ -74,12 +128,15 @@ impl Channel {
     }
 
     /// Apply a closure onto the [`World`].
-    pub fn world<F, U>(&self, f: F) -> Promise<U>
+    ///
+    /// The closure will be executed asynchronously. You can .await the receiver
+    /// that this returns to know when the closure has been applied.
+    pub fn world<F, U>(&self, f: F) -> Reply<U>
     where
         F: FnOnce(&mut World) -> U + 'static + Send,
         U: 'static + Send,
     {
-        let (sender, promise) = Promise::new();
+        let (sender, receiver) = oneshot::channel();
         self.inner
             .sender
             .send(Box::new(
@@ -90,7 +147,7 @@ impl Channel {
             ))
             .ok();
 
-        promise
+        Reply::new(receiver)
     }
 
     pub(crate) fn for_streams<Streams: StreamPack>(
@@ -178,26 +235,16 @@ mod tests {
         });
 
         for _ in 0..5 {
-            let mut promise = context.command(|commands| {
-                commands
-                    .request(
-                        RepeatRequest {
-                            service: hello,
-                            count: 5,
-                        },
-                        repeat,
-                    )
-                    .take()
-                    .response
-            });
-
-            context.run_with_conditions(
-                &mut promise,
-                FlushConditions::new().with_timeout(Duration::from_secs(5)),
-            );
-
-            assert!(promise.peek().is_available());
-            assert!(context.no_unhandled_errors());
+            context
+                .try_resolve_request(
+                    RepeatRequest {
+                        service: hello,
+                        count: 5,
+                    },
+                    repeat,
+                    Duration::from_secs(5),
+                )
+                .unwrap();
         }
 
         let count = context

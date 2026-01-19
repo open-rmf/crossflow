@@ -19,7 +19,7 @@ use crate::{ServerOptions, new_router};
 use bevy_app;
 use clap::Parser;
 use crossflow::{
-    CrossflowExecutorApp, Diagram, DiagramError, Promise, RequestExt, RunCommandsOnWorldExt,
+    CrossflowExecutorApp, Diagram, DiagramError, Outcome, RequestExt, RunCommandsOnWorldExt,
 };
 use std::thread;
 use std::{fs::File, str::FromStr};
@@ -73,18 +73,21 @@ pub fn headless(args: RunArgs, registry: DiagramElementRegistry) -> Result<(), B
     let diagram = Diagram::from_reader(file)?;
 
     let request = serde_json::Value::from_str(&args.request)?;
-    let mut promise =
+    let mut outcome =
         app.world_mut()
-            .command(|cmds| -> Result<Promise<serde_json::Value>, DiagramError> {
+            .command(|cmds| -> Result<Outcome<serde_json::Value>, DiagramError> {
                 let workflow = diagram.spawn_io_workflow(cmds, &registry)?;
-                Ok(cmds.request(request, workflow).take_response())
+                Ok(cmds.request(request, workflow).outcome())
             })?;
 
-    while promise.peek().is_pending() {
+    while outcome.is_pending() {
         app.update();
     }
 
-    println!("{}", promise.take().available().unwrap());
+    match outcome.try_recv().unwrap() {
+        Ok(response) => println!("response: {response}"),
+        Err(err) => println!("error: {err}"),
+    }
     Ok(())
 }
 

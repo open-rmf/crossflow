@@ -1407,13 +1407,8 @@ mod tests {
         });
 
         let msg = TestMessage::new();
-        let mut promise =
-            context.command(|commands| commands.request(msg, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let count = promise.take().available().unwrap();
-        assert_eq!(count, 5);
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request(msg, workflow);
+        assert_eq!(r, 5);
     }
 
     fn push_multiple_times_into_buffer(
@@ -1458,17 +1453,12 @@ mod tests {
         });
 
         let msg = TestMessage::new();
-        let mut promise =
-            context.command(|commands| commands.request(msg, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let values = promise.take().available().unwrap();
+        let values = context.resolve_request(msg, workflow);
         assert_eq!(values.len(), 5);
         for i in 0..values.len() {
             let v_i32 = values[i].get("v_i32").unwrap().as_i64().unwrap();
             assert_eq!(v_i32, i as i64);
         }
-        assert!(context.no_unhandled_errors());
     }
 
     fn modify_buffer_content(In(key): In<JsonBufferKey>, world: &mut World) -> JsonBufferKey {
@@ -1529,17 +1519,12 @@ mod tests {
         });
 
         let msg = TestMessage::new();
-        let mut promise =
-            context.command(|commands| commands.request(msg, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let values = promise.take().available().unwrap();
+        let values = context.resolve_request(msg, workflow);
         assert_eq!(values.len(), 5);
         for i in 0..values.len() {
             let v_i32 = values[i].get("v_i32").unwrap().as_i64().unwrap();
             assert_eq!(v_i32, i as i64);
         }
-        assert!(context.no_unhandled_errors());
     }
 
     fn drain_buffer_contents(In(key): In<JsonBufferKey>, world: &mut World) -> Vec<JsonMessage> {
@@ -1614,18 +1599,14 @@ mod tests {
         });
 
         let msg = TestMessage::new();
-        let mut promise =
-            context.command(|commands| commands.request(msg, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let (double_u32, double_i32, double_string) = promise.take().available().unwrap();
+        let r = context.resolve_request(msg, workflow);
+        let (double_u32, double_i32, double_string) = r;
         assert_eq!(4, double_u32.get("v_u32").unwrap().as_i64().unwrap());
         assert_eq!(2, double_i32.get("v_i32").unwrap().as_i64().unwrap());
         assert_eq!(
             "hellohello",
             double_string.get("v_string").unwrap().as_str().unwrap()
         );
-        assert!(context.no_unhandled_errors());
     }
 
     #[test]
@@ -1660,12 +1641,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| commands.request(1, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let response = promise.take().available().unwrap();
-        assert_eq!(1, response);
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request(1, workflow);
+        assert_eq!(r, 1);
     }
 
     #[derive(Clone, Joined)]
@@ -1702,14 +1679,8 @@ mod tests {
             builder.try_join(&buffers).unwrap().connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request((5_i64, 3.14_f64, TestMessage::new()), workflow)
-                .take_response()
-        });
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let value: TestJoinedValueJson = promise.take().available().unwrap();
+        let value: TestJoinedValueJson =
+            context.resolve_request((5_i64, 3.14_f64, TestMessage::new()), workflow);
         assert_eq!(value.integer, 5);
         assert_eq!(value.float, 3.14);
         let deserialized_json: TestMessage = serde_json::from_value(value.json).unwrap();
@@ -1740,14 +1711,7 @@ mod tests {
             builder.join(buffers).connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request((5_i64, 3.14_f64, TestMessage::new()), workflow)
-                .take_response()
-        });
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let value: TestJoinedValueJson = promise.take().available().unwrap();
+        let value = context.resolve_request((5_i64, 3.14_f64, TestMessage::new()), workflow);
         assert_eq!(value.integer, 5);
         assert_eq!(value.float, 3.14);
         let deserialized_json: TestMessage = serde_json::from_value(value.json).unwrap();
@@ -1779,14 +1743,7 @@ mod tests {
             builder.join(buffers).connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request((5_i64, 3.14_f64, TestMessage::new()), workflow)
-                .take_response()
-        });
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let value: TestJoinedValueJson = promise.take().available().unwrap();
+        let value = context.resolve_request((5_i64, 3.14_f64, TestMessage::new()), workflow);
         assert_eq!(value.integer, 5);
         assert_eq!(value.float, 3.14);
         let deserialized_json: TestMessage = serde_json::from_value(value.json).unwrap();
@@ -1823,14 +1780,7 @@ mod tests {
             builder.join(buffers).connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request(TestMessage::new(), workflow)
-                .take_response()
-        });
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let values = promise.take().available().unwrap();
+        let values = context.resolve_request(TestMessage::new(), workflow);
         assert_eq!(values.len(), 4);
         assert_eq!(values[0], serde_json::Value::Number(1.into()));
         assert_eq!(values[1], serde_json::Value::Number(2.into()));

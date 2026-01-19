@@ -145,7 +145,7 @@ impl DiagramElementRegistry {
                             }
                         });
 
-                    let session = session.promise.clone();
+                    let session = session.outcome.clone();
 
                     let (sender, mut receiver) = unbounded_channel();
                     input.streams.canceller.send(sender);
@@ -172,11 +172,8 @@ impl DiagramElementRegistry {
                             let subscribing = async move {
                                 let session = session
                                     .await
-                                    .available()
-                                    .map(|r| r.map_err(ZenohSubscriptionError::ZenohError))
-                                    .unwrap_or_else(|| {
-                                        Err(ZenohSubscriptionError::SessionRemoved)
-                                    })?;
+                                    .map_err(|_| ZenohSubscriptionError::SessionRemoved)?
+                                    .map_err(ZenohSubscriptionError::ZenohError)?;
 
                                 let subscription_builder = session
                                     .declare_subscriber(config.key.as_ref())
@@ -228,9 +225,9 @@ impl DiagramElementRegistry {
 
                         // Clear the buffer to indicate that the subscription
                         // could be restarted.
-                        input
+                        let _ = input
                             .channel
-                            .command(move |commands| {
+                            .commands(move |commands| {
                                 commands.queue(move |world: &mut World| {
                                     let _ = world.buffer_mut(&active_key, |mut active_buffer| {
                                         active_buffer.drain(..);

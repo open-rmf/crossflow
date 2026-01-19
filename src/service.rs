@@ -995,18 +995,19 @@ mod tests {
             .app
             .spawn_event_streaming_service::<CustomEvent>(Update);
 
-        let mut recipient = context.command(|commands| commands.request((), event_streamer).take());
+        let mut capture =
+            context.command(|commands| commands.request((), event_streamer).capture());
 
         context.app.world_mut().send_event(CustomEvent(0));
         context.app.world_mut().send_event(CustomEvent(1));
         context.app.world_mut().send_event(CustomEvent(2));
 
-        context.run_with_conditions(&mut recipient.response, 1);
+        context.run_with_conditions(&mut capture.outcome, 1);
 
         // We do not expect the response to be available because event streamers
         // never end.
         let mut result: SmallVec<[_; 3]> = SmallVec::new();
-        while let Ok(r) = recipient.streams.try_recv() {
+        while let Ok(r) = capture.streams.try_recv() {
             result.push(r.0);
         }
         assert_eq!(&result[..], &[0, 1, 2]);

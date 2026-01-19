@@ -811,14 +811,8 @@ where
     ///         .connect(scope.terminate);
     /// });
     ///
-    /// let mut promise = context.command(|commands| {
-    ///     commands
-    ///     .request("hello", workflow)
-    ///     .take_response()
-    /// });
-    ///
-    /// context.run_while_pending(&mut promise);
-    /// assert!(promise.peek().is_cancelled());
+    /// let outcome = context.try_resolve_request("hello", workflow, ());
+    /// assert!(outcome.is_err());
     /// ```
     pub fn cancel_on_err(self) -> Chain<'w, 's, 'a, 'b, T>
     where
@@ -1213,12 +1207,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request((2.0, 2.0), workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise.take().available().is_some_and(|value| value == 6.0));
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request((2.0, 2.0), workflow);
+        assert_eq!(r, 6.0);
     }
 
     #[test]
@@ -1267,13 +1257,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request((2.0, 2.0), workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-
-        assert_eq!(promise.take().available(), Some(16.0));
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request((2.0, 2.0), workflow);
+        assert_eq!(r, 16.0);
     }
 
     #[test]
@@ -1307,12 +1292,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request((2.0, 3.0), workflow).take_response());
-
-        context.run_while_pending(&mut promise);
-        assert_eq!(promise.take().available(), Some(15.0));
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request((2.0, 3.0), workflow);
+        assert_eq!(r, 15.0);
     }
 
     #[test]
@@ -1331,12 +1312,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request(2.0, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise.peek().is_cancelled());
-        assert!(context.no_unhandled_errors());
+        let r = context.try_resolve_request(2.0, workflow, ());
+        assert!(r.is_err());
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
             builder
@@ -1350,12 +1327,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request(2.0, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise.peek().is_cancelled());
-        assert!(context.no_unhandled_errors());
+        let r = context.try_resolve_request(2.0, workflow, ());
+        assert!(r.is_err());
     }
 
     #[test]
@@ -1374,12 +1347,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request(2.0, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise.peek().is_cancelled());
-        assert!(context.no_unhandled_errors());
+        let r = context.try_resolve_request(2.0, workflow, ());
+        assert!(r.is_err());
 
         let workflow = context.spawn_io_workflow(
             |scope: Scope<Result<f64, Result<f64, TestError>>, f64>, builder| {
@@ -1390,29 +1359,14 @@ mod tests {
             },
         );
 
-        let mut promise =
-            context.command(|commands| commands.request(Ok(1.0), workflow).take_response());
+        let r = context.resolve_request(Ok(1.0), workflow);
+        assert_eq!(r, 1.0);
 
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise.take().available().is_some_and(|v| v == 1.0));
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request(Err(Ok(5.0)), workflow);
+        assert_eq!(r, 5.0);
 
-        let mut promise =
-            context.command(|commands| commands.request(Err(Ok(5.0)), workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise.take().available().is_some_and(|v| v == 5.0));
-        assert!(context.no_unhandled_errors());
-
-        let mut promise = context.command(|commands| {
-            commands
-                .request(Err(Err(TestError)), workflow)
-                .take_response()
-        });
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise.peek().is_cancelled());
-        assert!(context.no_unhandled_errors());
+        let r = context.try_resolve_request(Err(Err(TestError)), workflow, ());
+        assert!(r.is_err());
     }
 
     #[test]
@@ -1441,16 +1395,9 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| commands.request(7, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, 1);
-        assert!(
-            promise
-                .take()
-                .available()
-                .is_some_and(|v| { v.len() == 7 && v.iter().find(|a| **a != 7).is_none() })
-        );
-        assert!(context.no_unhandled_errors());
+        let r = context.try_resolve_request(7, workflow, 1).unwrap();
+        assert_eq!(r.len(), 7);
+        assert!(r.iter().all(|v| *v == 7));
     }
 
     // This is essentially a collect operation specific to one of our spread
@@ -1490,16 +1437,9 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| commands.request(8, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, 1);
-        assert!(
-            promise
-                .take()
-                .available()
-                .is_some_and(|v| { v.len() == 8 && v.iter().find(|a| **a != 8).is_none() })
-        );
-        assert!(context.no_unhandled_errors());
+        let r = context.try_resolve_request(8, workflow, 1).unwrap();
+        assert_eq!(r.len(), 8);
+        assert!(r.iter().all(|v| *v == 8));
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
             let node =
@@ -1545,16 +1485,11 @@ mod tests {
                 );
         });
 
-        let mut promise = context.command(|commands| commands.request(2, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(
-            promise
-                .take()
-                .available()
-                .is_some_and(|v| v.len() == 1 && v.iter().find(|a| **a != 2).is_none())
-        );
-        assert!(context.no_unhandled_errors());
+        let r = context
+            .try_resolve_request(2, workflow, Duration::from_secs(30))
+            .unwrap();
+        assert_eq!(r.len(), 1);
+        assert!(r.iter().all(|v| *v == 2));
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
             builder
@@ -1565,22 +1500,12 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| commands.request(2, workflow).take_response());
+        let r = context.resolve_request(2, workflow);
+        assert!(r.is_empty());
 
-        context.run_with_conditions(&mut promise, 1);
-        assert!(promise.take().available().is_some_and(|v| v.is_empty()));
-        assert!(context.no_unhandled_errors());
-
-        let mut promise = context.command(|commands| commands.request(5, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, 1);
-        assert!(
-            promise
-                .take()
-                .available()
-                .is_some_and(|v| v.len() == 1 && v.iter().find(|a| **a != 5).is_none())
-        );
-        assert!(context.no_unhandled_errors());
+        let r = context.try_resolve_request(5, workflow, 1).unwrap();
+        assert_eq!(r.len(), 1);
+        assert!(r.iter().all(|v| *v == 5));
     }
 
     fn check_collection(
@@ -1589,18 +1514,14 @@ mod tests {
         workflow: Service<i32, SmallVec<[i32; 16]>>,
         context: &mut TestingContext,
     ) {
-        let mut promise =
-            context.command(|commands| commands.request(value, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, 1);
+        let r = context.try_resolve_request(value, workflow, 1);
         if value < min {
-            assert!(promise.take().is_cancelled());
+            assert!(r.is_err());
         } else {
-            assert!(promise.take().available().is_some_and(|v| {
-                v.len() == value as usize && v.iter().find(|a| **a != value).is_none()
-            }));
+            let r = r.unwrap();
+            assert_eq!(r.len(), value as usize);
+            assert!(r.iter().all(|v| *v == value));
         }
-        assert!(context.no_unhandled_errors());
     }
 
     #[test]
@@ -1616,11 +1537,8 @@ mod tests {
             });
 
         let test_set = vec![Err(()), Err(()), Ok(5), Err(()), Ok(10)];
-        let mut promise =
-            context.command(|commands| commands.request(test_set, workflow).take_response());
 
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(context.no_unhandled_errors());
-        assert_eq!(promise.take().available().unwrap(), 5);
+        let r = context.resolve_request(test_set, workflow);
+        assert_eq!(r, 5);
     }
 }

@@ -875,17 +875,11 @@ mod tests {
         flush_cycles: usize,
         context: &mut TestingContext,
     ) {
-        let mut promise =
-            context.command(|commands| commands.request((), workflow).take_response());
-
-        context.run_with_conditions(&mut promise, flush_cycles);
-        assert!(
-            promise
-                .take()
-                .cancellation()
-                .is_some_and(|c| matches!(*c.cause, CancellationCause::Unreachable(_)))
-        );
-        assert!(context.no_unhandled_errors());
+        let r = context.try_resolve_request((), workflow, flush_cycles);
+        assert!(matches!(
+            *r.unwrap_err().cause,
+            CancellationCause::Unreachable(_)
+        ));
     }
 
     #[test]
@@ -900,12 +894,8 @@ mod tests {
             builder.connect(branch_b, scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request(5.0, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(1));
-        assert!(promise.take().available().is_some_and(|v| v == 5.0));
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request(5.0, workflow);
+        assert_eq!(r, 5.0);
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
             builder.chain(scope.start).fork_clone((
@@ -914,12 +904,8 @@ mod tests {
             ));
         });
 
-        let mut promise =
-            context.command(|commands| commands.request(3.0, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(1));
-        assert!(promise.take().available().is_some_and(|v| v == 3.0));
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request(3.0, workflow);
+        assert_eq!(r, 3.0);
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
             builder.chain(scope.start).fork_clone((
@@ -944,12 +930,8 @@ mod tests {
             ));
         });
 
-        let mut promise =
-            context.command(|commands| commands.request(1.0, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs_f64(0.5));
-        assert!(promise.take().available().is_some_and(|v| v == 0.01));
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request(1.0, workflow);
+        assert_eq!(r, 0.01);
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
             let (fork_input, fork_output) = builder.create_fork_clone();
@@ -959,11 +941,8 @@ mod tests {
             builder.join((a, b)).connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| commands.request(5, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, 1);
-        assert!(promise.take().available().is_some_and(|v| v == (5, 5)));
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request(5, workflow);
+        assert_eq!(r, (5, 5));
     }
 
     #[test]
@@ -984,12 +963,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request((), workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise.peek().is_cancelled());
-        assert!(context.no_unhandled_errors());
+        let r = context.try_resolve_request((), workflow, ());
+        assert!(r.is_err());
 
         // Test for streams from an async node
         let workflow = context.spawn_io_workflow(|scope, builder| {
@@ -1004,12 +979,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request((), workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise.peek().is_cancelled());
-        assert!(context.no_unhandled_errors());
+        let r = context.try_resolve_request((), workflow, ());
+        assert!(r.is_err());
     }
 
     use tokio::sync::mpsc::unbounded_channel;
@@ -1050,15 +1021,9 @@ mod tests {
             });
         });
 
-        let mut promise = context.command(|commands| commands.request(5, workflow).take_response());
+        let r = context.try_resolve_request(5, workflow, ());
+        assert!(r.is_err());
 
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(
-            context.no_unhandled_errors(),
-            "{:#?}",
-            context.get_unhandled_errors(),
-        );
-        assert!(promise.peek().is_cancelled());
         let channel_output = receiver.try_recv().unwrap();
         assert_eq!(channel_output, 5);
         assert!(receiver.try_recv().is_err());
@@ -1128,10 +1093,9 @@ mod tests {
             });
         });
 
-        let mut promise = context.command(|commands| commands.request(3, workflow).take_response());
+        let r = context.try_resolve_request(3, workflow, 10);
+        assert!(r.is_err());
 
-        context.run_with_conditions(&mut promise, 10);
-        assert!(promise.peek().is_cancelled());
         assert_eq!(cancel_receiver.try_recv().unwrap(), 3);
         assert!(cancel_receiver.try_recv().is_err());
         assert_eq!(cleanup_receiver.try_recv().unwrap(), 3);
@@ -1140,10 +1104,9 @@ mod tests {
         assert!(context.no_unhandled_errors());
         assert!(context.confirm_buffers_empty().is_ok());
 
-        let mut promise = context.command(|commands| commands.request(6, workflow).take_response());
+        let r = context.try_resolve_request(6, workflow, 10).unwrap();
+        assert_eq!(r, 6);
 
-        context.run_with_conditions(&mut promise, 10);
-        assert!(promise.take().available().is_some_and(|v| v == 6));
         assert_eq!(terminate_receiver.try_recv().unwrap(), 6);
         assert!(terminate_receiver.try_recv().is_err());
         assert_eq!(cleanup_receiver.try_recv().unwrap(), 6);
@@ -1184,17 +1147,8 @@ mod tests {
             builder.connect(later_collect.output, scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request([1, 2, 3, 4, 5], workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(5));
-        assert!(
-            promise
-                .take()
-                .available()
-                .is_some_and(|v| &v[..] == [1, 2, 3, 4])
-        );
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request([1, 2, 3, 4, 5], workflow);
+        assert_eq!(r.as_slice(), &[1, 2, 3, 4]);
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
             // We create a circular dependency between two collect operations.
@@ -1222,12 +1176,8 @@ mod tests {
             ));
         });
 
-        let mut promise =
-            context.command(|commands| commands.request([1, 2, 3, 4, 5], workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(promise.take().is_cancelled());
-        assert!(context.no_unhandled_errors());
+        let r = context.try_resolve_request([1, 2, 3, 4, 5], workflow, ());
+        assert!(r.is_err());
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
             // We create a circulaur dependency between two collect operations,
@@ -1279,16 +1229,8 @@ mod tests {
     ) {
         let input: SmallVec<[i32; 8]> = SmallVec::from_iter(input);
         let expectation: SmallVec<[i32; 8]> = SmallVec::from_iter(expectation);
-        let mut promise =
-            context.command(|commands| commands.request(input, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        assert!(
-            Promise::take(&mut promise)
-                .available()
-                .is_some_and(|v| v == expectation)
-        );
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request(input, workflow);
+        assert_eq!(r, expectation);
     }
 
     #[test]
@@ -1300,11 +1242,9 @@ mod tests {
             builder.connect(start_test, end_test);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request((), workflow).take_response());
-        context.run_with_conditions(&mut promise, Duration::from_secs(10));
-        assert!(context.no_unhandled_errors());
-        let result = promise.take().available().unwrap();
+        let result = context
+            .try_resolve_request((), workflow, Duration::from_secs(10))
+            .unwrap();
         println!("Performance for basic connection:\n{result:#?}");
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
@@ -1317,11 +1257,9 @@ mod tests {
                 .connect(end_test);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request((), workflow).take_response());
-        context.run_with_conditions(&mut promise, Duration::from_secs(10));
-        assert!(context.no_unhandled_errors());
-        let result = promise.take().available().unwrap();
+        let result = context
+            .try_resolve_request((), workflow, Duration::from_secs(10))
+            .unwrap();
         println!("Performance for basic connection:\n{result:#?}");
     }
 

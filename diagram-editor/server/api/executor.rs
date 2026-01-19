@@ -12,7 +12,7 @@ use axum::{
     routing::{self},
 };
 use bevy_ecs::{prelude::Entity, schedule::IntoScheduleConfigs};
-use crossflow::{Diagram, DiagramElementRegistry, OperationStarted, Promise, RequestExt, trace};
+use crossflow::{Diagram, DiagramElementRegistry, OperationStarted, Outcome, RequestExt, trace};
 use serde::{Deserialize, Serialize};
 use std::{
     error::Error,
@@ -32,7 +32,7 @@ use crate::api::error_responses::WorkflowCancelledResponse;
 type BroadcastRecvError = tokio::sync::broadcast::error::RecvError;
 
 type WorkflowResponseResult =
-    Result<(Promise<serde_json::Value>, Entity), Box<dyn Error + Send + Sync>>;
+    Result<(Outcome<serde_json::Value>, Entity), Box<dyn Error + Send + Sync>>;
 type WorkflowResponseSender = tokio::sync::oneshot::Sender<WorkflowResponseResult>;
 
 type WorkflowFeedback = OperationStarted;
@@ -94,26 +94,15 @@ pub async fn post_run(
     };
 
     let response = (match workflow_response {
-        Ok((promise, workflow)) => {
-            let promise_state = promise.await;
+        Ok((outcome, workflow)) => {
+            let result = outcome.await;
             if let Err(err) = state.despawn_chan.send(workflow).await {
                 error!("Failed to request workflow despawn: {err}");
             }
 
-            if promise_state.is_available() {
-                if let Some(result) = promise_state.available() {
-                    Ok(result)
-                } else {
-                    Err(StatusCode::INTERNAL_SERVER_ERROR.into())
-                }
-            } else if promise_state.is_cancelled() {
-                if let Some(cancellation) = promise_state.cancellation() {
-                    Err(WorkflowCancelledResponse(cancellation).into())
-                } else {
-                    Err(StatusCode::INTERNAL_SERVER_ERROR.into())
-                }
-            } else {
-                Err(StatusCode::INTERNAL_SERVER_ERROR.into())
+            match result {
+                Ok(response) => Ok(response),
+                Err(err) => Err(WorkflowCancelledResponse(&err).into()),
             }
         }
         Err(err) => Err(Response::builder()
@@ -304,20 +293,20 @@ fn execute_requests(
     match rx.try_recv() {
         Ok(ctx) => {
             let registry = &*ctx.registry.lock().unwrap();
-            let maybe_promise = match ctx.diagram.spawn_io_workflow(&mut cmds, registry) {
+            let maybe_outcome = match ctx.diagram.spawn_io_workflow(&mut cmds, registry) {
                 Ok(workflow) => {
                     let series = cmds.request(ctx.request, workflow);
                     let session = series.session_id();
-                    let promise: Promise<serde_json::Value> = series.take_response();
+                    let outcome: Outcome<serde_json::Value> = series.outcome();
                     if let Some(feedback_tx) = ctx.feedback_tx {
                         cmds.entity(session).insert(feedback_tx);
                     }
-                    Ok((promise, workflow.provider()))
+                    Ok((outcome, workflow.provider()))
                 }
                 Err(err) => Err(err.into()),
             };
             // assuming that workflows are automatically cancelled when the promise is dropped.
-            if let Err(_) = ctx.response_tx.send(maybe_promise) {
+            if let Err(_) = ctx.response_tx.send(maybe_outcome) {
                 error!("failed to send response")
             }
         }

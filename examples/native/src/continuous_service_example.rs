@@ -57,11 +57,8 @@ fn main() {
     );
 
     let move_vehicle_to_random_position = move |app: &mut App| {
-        app.world_mut().command(|commands| {
-            commands
-                .request(random_vec2(20.0), move_base)
-                .take_response()
-        })
+        app.world_mut()
+            .command(|commands| commands.request(random_vec2(20.0), move_base).outcome())
     };
 
     let launch_drone_to_random_position = move |app: &mut App| {
@@ -79,7 +76,7 @@ fn main() {
     loop {
         app.update();
 
-        if base_moving.peek().as_ref().is_available() {
+        if base_moving.is_available() {
             // Send the base to a new location
             base_moving = move_vehicle_to_random_position(&mut app);
         }

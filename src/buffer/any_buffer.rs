@@ -1292,12 +1292,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| commands.request(1, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let count = promise.take().available().unwrap();
+        let count = context.resolve_request(1, workflow);
         assert_eq!(count, 5);
-        assert!(context.no_unhandled_errors());
     }
 
     fn push_multiple_times_into_buffer(
@@ -1341,12 +1337,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| commands.request(3, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let values = promise.take().available().unwrap();
+        let values = context.resolve_request(3, workflow);
         assert_eq!(values, vec![0, 3, 6, 9, 12]);
-        assert!(context.no_unhandled_errors());
     }
 
     fn modify_buffer_content(In(key): In<AnyBufferKey>, world: &mut World) -> AnyBufferKey {
@@ -1400,12 +1392,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| commands.request(3, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let values = promise.take().available().unwrap();
+        let values = context.resolve_request(3, workflow);
         assert_eq!(values, vec![0, 3, 6, 9, 12]);
-        assert!(context.no_unhandled_errors());
     }
 
     fn drain_buffer_contents(In(key): In<AnyBufferKey>, world: &mut World) -> Vec<usize> {
@@ -1469,17 +1457,10 @@ mod tests {
                     .connect(scope.terminate);
             });
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request((1u32, 2i32, 3f32), workflow)
-                .take_response()
-        });
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let (v_u32, v_i32, v_f32) = promise.take().available().unwrap();
+        let r = context.resolve_request((1u32, 2i32, 3f32), workflow);
+        let (v_u32, v_i32, v_f32) = r;
         assert_eq!(v_u32, 2);
         assert_eq!(v_i32, 4);
         assert_eq!(v_f32, 6.0);
-        assert!(context.no_unhandled_errors());
     }
 }

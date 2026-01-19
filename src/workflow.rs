@@ -299,7 +299,7 @@ impl SpawnWorkflowExt for World {
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::*, testing::*};
+    use crate::testing::*;
 
     #[test]
     fn test_simple_workflows() {
@@ -312,12 +312,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request((2.0, 2.0), workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(1));
-        assert!(promise.take().available().is_some_and(|v| v == 4.0));
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request((2.0, 2.0), workflow);
+        assert_eq!(r, 4.0);
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
             let add_node = builder.create_map_block(add);
@@ -325,11 +321,7 @@ mod tests {
             builder.connect(add_node.output, scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request((3.0, 3.0), workflow).take_response());
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(1));
-        assert!(promise.take().available().is_some_and(|v| v == 6.0));
-        assert!(context.no_unhandled_errors());
+        let r = context.resolve_request((3.0, 3.0), workflow);
+        assert_eq!(r, 6.0);
     }
 }

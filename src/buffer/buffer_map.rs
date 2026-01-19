@@ -897,17 +897,10 @@ mod tests {
             builder.try_join(&buffers).unwrap().connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request(
-                    (5_i64, 3.14_f64, "hello".to_string(), "world", 42_i64),
-                    workflow,
-                )
-                .take_response()
-        });
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let value: TestJoinedValue<&'static str> = promise.take().available().unwrap();
+        let value: TestJoinedValue<&'static str> = context.resolve_request(
+            (5_i64, 3.14_f64, "hello".to_string(), "world", 42_i64),
+            workflow,
+        );
         assert_eq!(value.integer, 5);
         assert_eq!(value.float, 3.14);
         assert_eq!(value.string, "hello");
@@ -946,17 +939,10 @@ mod tests {
             builder.join(buffers).connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request(
-                    (5_i64, 3.14_f64, "hello".to_string(), "world", 42_i64),
-                    workflow,
-                )
-                .take_response()
-        });
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let value: TestJoinedValue<&'static str> = promise.take().available().unwrap();
+        let value: TestJoinedValue<&'static str> = context.resolve_request(
+            (5_i64, 3.14_f64, "hello".to_string(), "world", 42_i64),
+            workflow,
+        );
         assert_eq!(value.integer, 5);
         assert_eq!(value.float, 3.14);
         assert_eq!(value.string, "hello");
@@ -1024,18 +1010,10 @@ mod tests {
             },
         );
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request((5, "hello".to_string()), workflow)
-                .take_response()
-        });
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let value = promise.take().available().unwrap();
+        let value = context.resolve_request((5, "hello".to_string()), workflow);
         assert_eq!(value.a.t, 5);
         assert_eq!(value.a.u, "hello");
         assert_eq!(value.b, "hello");
-        assert!(context.no_unhandled_errors());
     }
 
     /// We create this struct just to verify that it is able to compile despite
@@ -1087,23 +1065,15 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request(
-                    (5_i64, 3.14_f64, "hello".to_string(), "world", 42_i64),
-                    workflow,
-                )
-                .take_response()
-        });
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let value: TestJoinedValue<&'static str> = promise.take().available().unwrap();
+        let value: TestJoinedValue<&'static str> = context.resolve_request(
+            (5_i64, 3.14_f64, "hello".to_string(), "world", 42_i64),
+            workflow,
+        );
         assert_eq!(value.integer, 5);
         assert_eq!(value.float, 3.14);
         assert_eq!(value.string, "hello");
         assert_eq!(value.generic, "world");
         assert_eq!(*value.any.downcast::<i64>().unwrap(), 42);
-        assert!(context.no_unhandled_errors());
     }
 
     #[test]
@@ -1140,17 +1110,10 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request(
-                    (5_i64, 3.14_f64, "hello".to_string(), "world", 42_i64),
-                    workflow,
-                )
-                .take_response()
-        });
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        let value: TestJoinedValue<&'static str> = promise.take().available().unwrap();
+        let value: TestJoinedValue<&'static str> = context.resolve_request(
+            (5_i64, 3.14_f64, "hello".to_string(), "world", 42_i64),
+            workflow,
+        );
         assert_eq!(value.integer, 5);
         assert_eq!(value.float, 3.14);
         assert_eq!(value.string, "hello");

@@ -5,10 +5,8 @@ terminate, or where a condition is met that requires the workflow to stop before
 it can successfully terminate. The potential causes of a cancellation are
 enumerated in [`CancellationCause`][CancellationCause].
 
-When a workflow is cancelled, the caller will never receive a `Response` message,
-instead the [`Promise`][Promise] they hold will contain a [`PromiseState::Cancelled`][PromiseState]
-value. Inside will be a [`CancellationCause`][CancellationCause] to give some
-information on why the cancellation happened.
+When a workflow is cancelled, the caller will never receive a `Response` message, instead the [`Outcome`][Outcome] will have an `Err(_)` value.
+Inside the `Err` will be a [`Cancellation`][Cancellation] to give some information on why the cancellation happened.
 
 There are a few potential causes of cancellation that are worth being mindful of:
 * [Unreachability](./reachability.md) - The terminate operation is no longer
@@ -42,9 +40,8 @@ information lost by the time the workflow reaches that point. Therefore it is
 best practice to return [`Result`][Result] types for fallible workflows instead of having
 them cancel.
 
-[CancellationCause]: https://docs.rs/crossflow/latest/crossflow/cancel/enum.CancellationCause.html
-[Promise]: https://docs.rs/crossflow/latest/crossflow/promise/struct.Promise.html
-[PromiseState]: https://docs.rs/crossflow/latest/crossflow/promise/enum.PromiseState.html
+[Cancellation]: https://docs.rs/crossflow/latest/crossflow/cancel/enum.Cancellation.html
+[Outcome]: https://docs.rs/crossflow/latest/crossflow/series/struct.Outcome.html
 [disposals]: https://docs.rs/crossflow/latest/crossflow/cancel/struct.Unreachability.html#structfield.disposals
 [TriggeredCancellation]: https://docs.rs/crossflow/latest/crossflow/cancel/struct.TriggeredCancellation.html
 [TriggeredCancellationValue]: https://docs.rs/crossflow/latest/crossflow/cancel/struct.TriggeredCancellation.html#structfield.value

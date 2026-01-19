@@ -401,14 +401,8 @@ mod tests {
             });
         });
 
-        let mut promise =
-            context.command(|commands| commands.request(value, workflow).take_response());
-
-        context.run_with_conditions(&mut promise, 1);
-        assert!(context.no_unhandled_errors());
-
-        let result: Person = promise.take().available().unwrap();
-        assert_eq!(result, Person::new("Bob", 67));
+        let r: Person = context.try_resolve_request(value, workflow, 1).unwrap();
+        assert_eq!(r, Person::new("Bob", 67));
 
         // Test serializing and splitting a tuple, then deserializing the split item
         let workflow = context.spawn_io_workflow(|scope, builder| {
@@ -432,17 +426,10 @@ mod tests {
                 });
         });
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request((3.14159, Person::new("Charlie", 42)), workflow)
-                .take_response()
-        });
-
-        context.run_with_conditions(&mut promise, 1);
-        assert!(context.no_unhandled_errors());
-
-        let result: Person = promise.take().available().unwrap();
-        assert_eq!(result, Person::new("Charlie", 42));
+        let r: Person = context
+            .try_resolve_request((3.14159, Person::new("Charlie", 42)), workflow, 1)
+            .unwrap();
+        assert_eq!(r, Person::new("Charlie", 42));
     }
 
     #[test]

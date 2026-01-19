@@ -895,16 +895,8 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request([5.0, 4.0, 3.0, 2.0, 1.0], workflow)
-                .take_response()
-        });
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(30));
-        assert!(context.no_unhandled_errors());
-        let value = promise.take().available().unwrap();
-        assert_eq!(value, [5.0, 5.0, 5.0].into());
+        let r = context.resolve_request([5.0, 4.0, 3.0, 2.0, 1.0], workflow);
+        assert_eq!(r, [5.0, 5.0, 5.0].into());
 
         let workflow = context.spawn_io_workflow(|scope: Scope<[f64; 3], f64>, builder| {
             builder.chain(scope.start).split(|split| {
@@ -956,15 +948,14 @@ mod tests {
             });
         });
 
-        let mut promise =
-            context.command(|commands| commands.request([1.0, 2.0, 3.0], workflow).take_response());
+        let r = context
+            .try_resolve_request([1.0, 2.0, 3.0], workflow, 1)
+            .unwrap();
 
-        context.run_with_conditions(&mut promise, 1);
-        assert!(context.no_unhandled_errors());
         // Only the third element in the split gets connected to the workflow
         // termination, the rest are discarded. This ensures that SplitBuilder
         // connections still work after multiple failed connection attempts.
-        assert_eq!(promise.take().available().unwrap(), 3.0);
+        assert_eq!(r, 3.0);
     }
 
     #[test]
@@ -1049,16 +1040,7 @@ mod tests {
         .map(|(k, v)| (k.to_owned(), v))
         .collect();
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request(input_map.clone(), workflow)
-                .take_response()
-        });
-
-        context.run_with_conditions(&mut promise, Duration::from_secs(30));
-        assert!(context.no_unhandled_errors());
-
-        let result = promise.take().available().unwrap();
+        let result = context.resolve_request(input_map.clone(), workflow);
         assert_eq!(result.len(), input_map.len());
         assert_eq!(result["a"], input_map["a"] * 0.0);
         assert_eq!(result["b"], input_map["b"] * 1.0);
@@ -1104,13 +1086,10 @@ mod tests {
             })
         });
 
-        let mut promise =
-            context.command(|commands| commands.request([1, 2, 3, 4], workflow).take_response());
+        let result = context
+            .try_resolve_request([1, 2, 3, 4], workflow, 1)
+            .unwrap();
 
-        context.run_with_conditions(&mut promise, 1);
-        assert!(context.no_unhandled_errors());
-
-        let result = promise.take().available().unwrap();
         // All the values in the array are racing to finish, but the first value
         // should finish first since it will naturally get queued first.
         assert_eq!(result, 1);

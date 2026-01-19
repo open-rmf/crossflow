@@ -230,7 +230,7 @@ impl JsonSchema for ArcError {
 
 #[derive(Resource)]
 pub struct ZenohSession {
-    pub promise: Shared<Promise<Result<Session, ArcError>>>,
+    pub outcome: Shared<Outcome<Result<Session, ArcError>>>,
 }
 
 /// Used to perform lazy evaluation in creating a zenoh session. As soon as any
@@ -251,15 +251,15 @@ impl Command for EnsureZenohSession {
             return;
         };
 
-        let promise = world
+        let outcome = world
             .command(|commands| {
                 commands
                     .serve(async { ::zenoh::open(config).await.map_err(ArcError::new) })
-                    .take_response()
+                    .outcome()
             })
             .shared();
 
-        world.insert_resource(ZenohSession { promise });
+        world.insert_resource(ZenohSession { outcome });
     }
 }
 

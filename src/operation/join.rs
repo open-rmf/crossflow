@@ -154,11 +154,7 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let mut promise =
-            context.command(|commands| commands.request(2.0, workflow).take_response());
-        context.run_with_conditions(&mut promise, Duration::from_secs(2));
-        context.assert_no_errors();
-        let r = promise.take().available().unwrap();
+        let r = context.resolve_request(2.0, workflow);
         assert_eq!(r, 4.0);
     }
 
@@ -201,11 +197,10 @@ mod tests {
         });
 
         let mut test_for_count = |count: u64| {
-            let mut promise =
-                context.command(|commands| commands.request(count, workflow).take_response());
-            context.run_with_conditions(&mut promise, Duration::from_secs(2));
-            context.assert_no_errors();
-            let r: Vec<(u64, u64)> = promise.take().available().unwrap().into_iter().collect();
+            let r: Vec<(u64, u64)> = context
+                .resolve_request(count, workflow)
+                .into_iter()
+                .collect();
             r
         };
 

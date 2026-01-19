@@ -105,6 +105,12 @@ impl Cancellation {
     }
 }
 
+impl From<Cancellation> for Arc<dyn std::error::Error + Send + Sync + 'static> {
+    fn from(value: Cancellation) -> Self {
+        Arc::new(value)
+    }
+}
+
 impl<T: Into<CancellationCause>> From<T> for Cancellation {
     fn from(value: T) -> Self {
         Cancellation {
@@ -521,5 +527,11 @@ impl Cancellable {
         Cancellable {
             cancel: OperationCancelStorage(cancel),
         }
+    }
+}
+
+impl From<tokio::sync::oneshot::error::RecvError> for Cancellation {
+    fn from(_: tokio::sync::oneshot::error::RecvError) -> Self {
+        CancellationCause::Undeliverable.into()
     }
 }

@@ -145,6 +145,8 @@ pub enum ZenohQuerierError {
     SessionRemoved,
     #[error("error while encoding message: {}", .0)]
     EncodingError(String),
+    #[error("Failed to create the querier: {}", .0)]
+    CreationFailed(ArcError),
     #[error("{}", .0)]
     ZenohError(#[from] ArcError),
 }
@@ -152,13 +154,12 @@ pub enum ZenohQuerierError {
 impl DiagramElementRegistry {
     pub(super) fn register_zenoh_querier(&mut self, ensure_session: EnsureZenohSession) {
         let create_querier = |In(config): In<ZenohQuerierConfig>, session: Res<ZenohSession>| {
-            let session_promise = session.promise.clone();
+            let session_outcome = session.outcome.clone();
             async move {
-                let session = session_promise
+                let session = session_outcome
                     .await
-                    .available()
-                    .map(|r| r.map_err(ZenohQuerierError::ZenohError))
-                    .unwrap_or(Err(ZenohQuerierError::SessionRemoved))?;
+                    .map_err(|_| ZenohQuerierError::SessionRemoved)?
+                    .map_err(ZenohQuerierError::ZenohError)?;
 
                 let querier = session
                     .declare_querier(config.key.to_string())
@@ -200,7 +201,7 @@ impl DiagramElementRegistry {
                 let querier = builder
                     .commands()
                     .request(config, create_querier.clone())
-                    .take_response()
+                    .outcome()
                     .shared();
 
                 let node =
@@ -218,10 +219,9 @@ impl DiagramElementRegistry {
                                     .encode(&input.request)
                                     .map_err(ZenohQuerierError::EncodingError)?;
 
-                                // SAFETY: There is no mechanism for the querier to be
-                                // taken out of the promise, so it should always be
-                                // available after being awaited.
-                                let querier = querier.await.available().unwrap()?;
+                                let querier = querier.await.map_err(|err| {
+                                    ZenohQuerierError::CreationFailed(ArcError(err.into()))
+                                })??;
                                 if wait_choice.always() {
                                     wait_for_matching(&querier).await?;
                                 }

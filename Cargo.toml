@@ -79,7 +79,7 @@ bevy_tasks = { workspace = true, features = ["multi_threaded"] }
 
 itertools = "0.13"
 smallvec = { version = "1.13", features = ["serde"] }
-tokio = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["sync", "macros"] }
 futures = { workspace = true }
 backtrace = "0.3"
 thiserror = "1.0"

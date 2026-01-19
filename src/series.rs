@@ -23,8 +23,8 @@ use bevy_ecs::{
 use std::future::Future;
 
 use crate::{
-    AsMapOnce, Cancellable, IntoAsyncMapOnce, IntoBlockingMapOnce, Promise, ProvideOnce, Sendish,
-    StreamPack, StreamTargetMap, UnusedTarget,
+    AsMapOnce, Cancellable, IntoAsyncMapOnce, IntoBlockingMapOnce, Outcome, Promise, ProvideOnce,
+    Sendish, StreamPack, StreamTargetMap, UnusedTarget,
 };
 
 mod detach;
@@ -45,6 +45,9 @@ pub(crate) use map::*;
 mod push;
 pub(crate) use push::*;
 
+mod capture;
+pub(crate) use capture::*;
+
 mod send_event;
 pub(crate) use send_event::*;
 
@@ -58,9 +61,11 @@ pub(crate) use taken::*;
 /// to chain the output of one workflow session into the input of another workflow
 /// session, and then eventually receive the final output of the whole series.
 ///
-/// A series like this can only be a linear sequence, it does not support
+/// You can begin creating a series using [`RequestExt`][crate::RequestExt].
+///
+/// A series like this can only be a linear sequence---it does not support
 /// conditional branching or cycles. If you want a more complex structure than
-/// a linear sequence then you will need to spawn a workflow with the structure
+/// a linear sequence, you will need to spawn a workflow with the structure
 /// that you want, and then issue a request into that workflow.
 ///
 /// A series is a one-time-use sequence of sessions. You will have to reconstruct
@@ -91,7 +96,7 @@ where
     ///
     /// | Operation                                                 | Drop condition                                        |
     /// |-----------------------------------------------------------|-------------------------------------------------------|
-    /// | [`Self::take`] <br> [`Self::take_response`]               | The promise containing the final response is dropped. |
+    /// | [`Self::capture`] <br> [`Self::outcome`]                  | The [`Outcome`] is dropped.                           |
     /// | [`Self::store`] <br> [`Self::push`] <br> [`Self::insert`] | The target entity of the operation is despawned.      |
     /// | [`Self::detach`] <br> [`Self::send_event`]                | This will never be dropped                            |
     /// | Using none of the above                                   | The series will immediately be dropped during a flush, so it will never be run at all. <br> This will also push an error into [`UnhandledErrors`](crate::UnhandledErrors). |
@@ -107,9 +112,29 @@ where
         self.source
     }
 
+    /// Capture the outcome of the series and all the stream data of the final
+    /// provider.
+    #[must_use]
+    pub fn capture(self) -> Capture<Response, Streams> {
+        let target = self.target;
+        let mut map = StreamTargetMap::default();
+        let stream_receivers = Streams::take_streams(target, &mut map, self.commands);
+        self.commands.entity(self.source).insert(map);
+
+        let (outcome, capture_outcome) = Outcome::new();
+        self.send_outcome(capture_outcome);
+
+        Capture {
+            outcome,
+            streams: stream_receivers,
+            session: target,
+        }
+    }
+
     /// Take the data that comes out of the request, including both the response
     /// and the streams.
     #[must_use]
+    #[deprecated(since = "0.0.6", note = "Use .capture() instead")]
     pub fn take(self) -> Recipient<Response, Streams> {
         let (response_sender, response_promise) = Promise::<Response>::new();
         self.commands.queue(AddExecution::new(
@@ -128,7 +153,16 @@ where
         }
     }
 
+    /// Capture only the outcome (response) of the series.
+    #[must_use]
+    pub fn outcome(self) -> Outcome<Response> {
+        let (outcome, capture) = Outcome::new();
+        self.send_outcome(capture);
+        outcome
+    }
+
     /// Take only the response data that comes out of the request.
+    #[deprecated(since = "0.0.6", note = "Use .outcome() instead")]
     pub fn take_response(self) -> Promise<Response> {
         let (response_sender, response_promise) = Promise::<Response>::new();
         self.commands.queue(AddExecution::new(
@@ -289,6 +323,12 @@ where
             .insert((stream_targets, map));
     }
 
+    /// Used internally to implement various ways of capturing an outcome.
+    pub(crate) fn send_outcome(self, capture: CaptureOutcome<Response>) {
+        self.commands
+            .queue(AddExecution::new(Some(self.source), self.target, capture));
+    }
+
     // TODO(@mxgrey): Consider offering ways for users to respond to cancellations.
     // For example, offer an on_cancel method that lets users provide a callback
     // to be triggered when a cancellation happens. Or focus on the terminal end
@@ -346,6 +386,12 @@ pub struct Recipient<Response, Streams: StreamPack> {
     /// series but structurally we have made it the parent of all the sessions
     /// that will be executed before it. This is done so that despawning behavior
     /// has a more logical relationship with the dependencies between the sessions.
+    pub session: Entity,
+}
+
+pub struct Capture<Response, Streams: StreamPack> {
+    pub outcome: Outcome<Response>,
+    pub streams: Streams::StreamReceivers,
     pub session: Entity,
 }
 
@@ -421,47 +467,34 @@ mod tests {
     fn test_blocking_map() {
         let mut context = TestingContext::minimal_plugins();
 
-        let mut promise = context.command(|commands| {
+        let r = context.resolve_request(String::from("hello"), to_uppercase.into_blocking_map());
+        assert_eq!(r, "HELLO");
+
+        let r =
+            context.resolve_request(String::from("hello"), to_uppercase.into_blocking_map_once());
+        assert_eq!(r, "HELLO");
+
+        let mut outcome = context.command(|commands| {
             commands
-                .request("hello".to_owned(), to_uppercase.into_blocking_map())
-                .take_response()
-        });
-
-        context.run_while_pending(&mut promise);
-        assert!(promise.take().available().is_some_and(|v| v == "HELLO"));
-        assert!(context.no_unhandled_errors());
-
-        let mut promise = context.command(|commands| {
-            commands
-                .request("hello".to_owned(), to_uppercase.into_blocking_map_once())
-                .take_response()
-        });
-
-        context.run_while_pending(&mut promise);
-        assert!(promise.take().available().is_some_and(|v| v == "HELLO"));
-        assert!(context.no_unhandled_errors());
-
-        let mut promise = context.command(|commands| {
-            commands
-                .provide("hello".to_owned())
+                .provide(String::from("hello"))
                 .map_block(to_uppercase)
-                .take_response()
+                .outcome()
         });
 
-        context.run_while_pending(&mut promise);
-        assert!(promise.take().available().is_some_and(|v| v == "HELLO"));
-        assert!(context.no_unhandled_errors());
+        context.run_while_pending(&mut outcome);
+        context.assert_no_errors();
+        assert_eq!(outcome.try_recv().unwrap().unwrap(), "HELLO");
 
-        let mut promise = context.command(|commands| {
+        let mut outcome = context.command(|commands| {
             commands
-                .provide("hello".to_owned())
+                .provide(String::from("hello"))
                 .map_block(|request| request.to_uppercase())
-                .take_response()
+                .outcome()
         });
 
-        context.run_while_pending(&mut promise);
-        assert!(promise.take().available().is_some_and(|v| v == "HELLO"));
-        assert!(context.no_unhandled_errors());
+        context.run_while_pending(&mut outcome);
+        context.assert_no_errors();
+        assert_eq!(outcome.try_recv().unwrap().unwrap(), "HELLO");
     }
 
     #[test]
@@ -475,38 +508,28 @@ mod tests {
 
         let conditions = FlushConditions::new().with_timeout(Duration::from_secs_f64(5.0));
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request(request.clone(), wait.into_async_map())
-                .take_response()
-        });
+        let r = context
+            .try_resolve_request(request.clone(), wait.into_async_map(), conditions.clone())
+            .unwrap();
+        assert_eq!(r, "hello");
 
-        assert!(context.run_with_conditions(&mut promise, conditions.clone()));
-        assert!(promise.take().available().is_some_and(|v| v == "hello"));
-        assert!(context.no_unhandled_errors());
+        let r = context
+            .try_resolve_request(
+                request.clone(),
+                wait.into_async_map_once(),
+                conditions.clone(),
+            )
+            .unwrap();
+        assert_eq!(r, "hello");
 
-        let mut promise = context.command(|commands| {
-            commands
-                .request(request.clone(), wait.into_async_map_once())
-                .take_response()
-        });
+        let mut outcome =
+            context.command(|commands| commands.provide(request.clone()).map_async(wait).outcome());
 
-        assert!(context.run_with_conditions(&mut promise, conditions.clone()));
-        assert!(promise.take().available().is_some_and(|v| v == "hello"));
-        assert!(context.no_unhandled_errors());
+        assert!(context.run_with_conditions(&mut outcome, conditions.clone()));
+        context.assert_no_errors();
+        assert_eq!(outcome.try_recv().unwrap().unwrap(), "hello");
 
-        let mut promise = context.command(|commands| {
-            commands
-                .provide(request.clone())
-                .map_async(wait)
-                .take_response()
-        });
-
-        assert!(context.run_with_conditions(&mut promise, conditions.clone()));
-        assert!(promise.take().available().is_some_and(|v| v == "hello"));
-        assert!(context.no_unhandled_errors());
-
-        let mut promise = context.command(|commands| {
+        let mut outcome = context.command(|commands| {
             commands
                 .provide(request.clone())
                 .map_async(|request| {
@@ -518,12 +541,12 @@ mod tests {
                         request.value
                     }
                 })
-                .take_response()
+                .outcome()
         });
 
-        assert!(context.run_with_conditions(&mut promise, conditions.clone()));
-        assert!(promise.take().available().is_some_and(|v| v == "hello"));
-        assert!(context.no_unhandled_errors());
+        assert!(context.run_with_conditions(&mut outcome, conditions.clone()));
+        context.assert_no_errors();
+        assert_eq!(outcome.try_recv().unwrap().unwrap(), "hello");
     }
 
     #[test]
@@ -537,8 +560,8 @@ mod tests {
             commands.provide(0).then(service).detach();
         });
 
-        let (sender, mut promise) = Promise::<()>::new();
-        context.run_with_conditions(&mut promise, Duration::from_millis(5));
+        let (sender, mut receiver) = tokio::sync::oneshot::channel();
+        context.run_with_conditions(&mut receiver, Duration::from_millis(5));
         assert!(
             context.no_unhandled_errors(),
             "Unhandled errors: {:#?}",
@@ -555,7 +578,7 @@ mod tests {
         // sender to drop prematurely, so we don't want to risk that there are
         // other cases where that may happen. It is important for the run to
         // last multiple cycles.
-        sender.send(()).ok();
+        let _ = sender.send(());
     }
 
     #[derive(Clone, Debug, PartialEq, Eq, Hash, DeliveryLabel)]
@@ -698,31 +721,31 @@ mod tests {
         context: &mut TestingContext,
     ) {
         let counter = Arc::new(Mutex::new(0_u64));
-        let mut preempted: SmallVec<[Promise<()>; 16]> = SmallVec::new();
+        let mut preempted: SmallVec<[Outcome<()>; 16]> = SmallVec::new();
         for _ in 0..preemptions {
-            let promise = context.command(|commands| {
+            let outcome = context.command(|commands| {
                 commands
                     .request(Arc::clone(&counter), preempted_service.clone())
-                    .take_response()
+                    .outcome()
             });
-            preempted.push(promise);
+            preempted.push(outcome);
         }
 
-        let mut final_promise = context.command(|commands| {
+        let mut final_outcome = context.command(|commands| {
             commands
                 .request(Arc::clone(&counter), preempting_service)
-                .take_response()
+                .outcome()
         });
 
-        for promise in &mut preempted {
-            context.run_with_conditions(promise, Duration::from_secs(2));
-            assert!(promise.take().is_cancelled());
+        for outcome in &mut preempted {
+            context.run_with_conditions(outcome, Duration::from_secs(2));
+            assert!(outcome.try_recv().unwrap().is_err());
         }
 
-        context.run_with_conditions(&mut final_promise, Duration::from_secs(2));
-        assert!(final_promise.take().is_available());
+        context.run_with_conditions(&mut final_outcome, Duration::from_secs(2));
+        assert!(final_outcome.try_recv().unwrap().is_ok());
         assert_eq!(*counter.lock().unwrap(), 1);
-        assert!(context.no_unhandled_errors());
+        context.assert_no_errors();
     }
 
     fn verify_queuing_matrix(
@@ -743,23 +766,23 @@ mod tests {
         context: &mut TestingContext,
     ) {
         let counter = Arc::new(Mutex::new(0_u64));
-        let mut queued: SmallVec<[Promise<()>; 16]> = SmallVec::new();
+        let mut queued: SmallVec<[Outcome<()>; 16]> = SmallVec::new();
         for _ in 0..queue_size {
-            let promise = context.command(|commands| {
+            let outcome = context.command(|commands| {
                 commands
                     .request(Arc::clone(&counter), queuing_service.clone())
-                    .take_response()
+                    .outcome()
             });
-            queued.push(promise);
+            queued.push(outcome);
         }
 
-        for promise in &mut queued {
-            context.run_with_conditions(promise, Duration::from_secs(2));
-            assert!(promise.take().is_available());
+        for outcome in &mut queued {
+            context.run_with_conditions(outcome, Duration::from_secs(2));
+            assert!(outcome.try_recv().unwrap().is_ok());
         }
 
         assert_eq!(*counter.lock().unwrap(), queue_size as u64);
-        assert!(context.no_unhandled_errors());
+        context.assert_no_errors();
     }
 
     fn verify_ensured_matrix<L: DeliveryLabel + Clone>(
@@ -792,7 +815,7 @@ mod tests {
         context: &mut TestingContext,
     ) {
         let counter = Arc::new(Mutex::new(0_u64));
-        let mut queued_promises: SmallVec<[(Promise<()>, bool); 16]> = SmallVec::new();
+        let mut queued_outcomes: SmallVec<[(Outcome<()>, bool); 16]> = SmallVec::new();
         // This counter starts out at 1 to account for the preempting request.
         let mut expected_count = 1;
         for ensured in queued {
@@ -803,10 +826,10 @@ mod tests {
                 service.instruct(label.clone())
             };
 
-            let promise = context
-                .command(|commands| commands.request(Arc::clone(&counter), srv).take_response());
+            let outcome =
+                context.command(|commands| commands.request(Arc::clone(&counter), srv).outcome());
 
-            queued_promises.push((promise, ensured));
+            queued_outcomes.push((outcome, ensured));
         }
 
         let mut preempter = context.command(|commands| {
@@ -815,21 +838,21 @@ mod tests {
                     Arc::clone(&counter),
                     service.instruct(label.clone().preempt()),
                 )
-                .take_response()
+                .outcome()
         });
 
-        for (promise, ensured) in &mut queued_promises {
-            context.run_with_conditions(promise, Duration::from_secs(2));
+        for (outcome, ensured) in &mut queued_outcomes {
+            context.run_with_conditions(outcome, Duration::from_secs(2));
             if *ensured {
-                assert!(promise.take().is_available());
+                assert!(outcome.try_recv().unwrap().is_ok());
             } else {
-                assert!(promise.take().is_cancelled());
+                assert!(outcome.try_recv().unwrap().is_err());
             }
         }
 
         context.run_with_conditions(&mut preempter, Duration::from_secs(2));
-        assert!(preempter.take().is_available());
+        assert!(preempter.is_available());
         assert_eq!(*counter.lock().unwrap(), expected_count);
-        assert!(context.no_unhandled_errors());
+        context.assert_no_errors();
     }
 }
