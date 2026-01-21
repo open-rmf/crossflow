@@ -1,6 +1,6 @@
 [package]
 name = "handbook_snippets"
-version = "0.0.5"
+version = "0.0.6"
 edition = "2024"
 description = "Example code used for in the crossflow handbook"
 
@@ -13,7 +13,7 @@ name = "handbook-diagram-snippets"
 path = "src/diagram-snippets.rs"
 
 [dependencies]
-crossflow = { version = "0.0.5", path = "../..", features = ["diagram", "grpc", "zenoh"] }
+crossflow = { version = "0.0.6", path = "../..", features = ["diagram", "grpc", "zenoh"] }
 bevy_app = { workspace = true }
 bevy_ecs = { workspace = true }
 bevy_derive = { workspace = true }

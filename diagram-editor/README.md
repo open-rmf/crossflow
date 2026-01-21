@@ -29,7 +29,7 @@ The embedded frontend can be disabled:
 
 ```toml
 [dependencies]
-crossflow_diagram_editor = { version = "0.0.5", default-features = false, features = ["router"] }
+crossflow_diagram_editor = { version = "*", default-features = false, features = ["router"] }
 ```
 
 This will cause the router to serve only the rest API.
