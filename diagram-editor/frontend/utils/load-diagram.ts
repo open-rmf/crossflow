@@ -15,7 +15,7 @@ import {
 import { loadState } from '../persist-state';
 import type {
   Diagram,
-  DiagramElementRegistry,
+  DiagramElementMetadata,
   DiagramOperation,
   SectionTemplate,
 } from '../types/api';
@@ -150,7 +150,7 @@ function buildGraph(diagram: Diagram, initialGraph?: Graph): Graph {
 const validate = getSchema<Diagram>('Diagram');
 
 export function loadTemplate(template: SectionTemplate): Graph {
-  const stubRegistry: DiagramElementRegistry = {
+  const stubRegistry: DiagramElementMetadata = {
     messages: {},
     nodes: {},
     schemas: {},

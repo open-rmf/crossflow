@@ -9,12 +9,12 @@ import {
 import { timer } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { useApiClient } from './api-client-provider';
-import type { DiagramElementRegistry } from './types/api';
+import type { DiagramElementMetdata } from './types/api';
 
-const RegistryContextComp = createContext<DiagramElementRegistry | null>(null);
+const RegistryContextComp = createContext<DiagramElementMetdata | null>(null);
 
 export const RegistryProvider = ({ children }: PropsWithChildren) => {
-  const [registry, setRegistry] = useState<DiagramElementRegistry | null>(null);
+  const [registry, setRegistry] = useState<DiagramElementMetdata | null>(null);
   const [showLoading, setShowLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const apiClient = useApiClient();

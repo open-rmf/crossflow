@@ -1,11 +1,11 @@
 import { from, type Observable, of } from 'rxjs';
-import type { Diagram, DiagramElementRegistry } from '../types/api';
+import type { Diagram, DiagramElementMetadata } from '../types/api';
 import { getSchema } from '../utils/ajv';
 import type { BaseApiClient } from './base-api-client';
 import * as wasmApi from './wasm-stub/stub.js';
 
-const validateRegistry = getSchema<DiagramElementRegistry>(
-  'DiagramElementRegistry',
+const validateRegistry = getSchema<DiagramElementMetadata>(
+  'DiagramElementMetadata',
 );
 
 export class ApiClient implements BaseApiClient {
@@ -13,7 +13,7 @@ export class ApiClient implements BaseApiClient {
     wasmApi.init_wasm();
   }
 
-  getRegistry(): Observable<DiagramElementRegistry> {
+  getRegistry(): Observable<DiagramElementMetadata> {
     const registry = wasmApi.get_registry();
     if (!validateRegistry(registry)) {
       throw validateRegistry.errors;

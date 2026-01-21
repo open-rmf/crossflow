@@ -1,5 +1,5 @@
 import { HandleId } from '../handles';
-import type { DiagramElementRegistry } from '../types/api';
+import type { DiagramElementMetadata } from '../types/api';
 import { ROOT_NAMESPACE } from '../utils/namespace';
 import { createOperationNode } from './create-node';
 import NodeNode from './node-node';
@@ -71,7 +71,7 @@ describe('NodeNode', () => {
       'test_op_id',
     );
     const nodeProps = createOperationNodeProps(nodeNode);
-    const registry: DiagramElementRegistry = {
+    const registry: DiagramElementMetadata = {
       messages: {},
       nodes: {
         test_builder: {

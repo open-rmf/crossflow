@@ -10,6 +10,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use crossflow::DiagramElementRegistry;
+#[cfg(feature = "json_schema")]
+use crossflow::DiagramElementMetadata;
+
 use mime_guess::mime;
 
 #[derive(Default)]
@@ -33,19 +36,19 @@ impl IntoResponse for RegistryResponse {
 #[cfg(feature = "json_schema")]
 impl schemars::JsonSchema for RegistryResponse {
     fn schema_name() -> std::borrow::Cow<'static, str> {
-        DiagramElementRegistry::schema_name()
+        DiagramElementMetadata::schema_name()
     }
 
     fn schema_id() -> std::borrow::Cow<'static, str> {
-        DiagramElementRegistry::schema_id()
+        DiagramElementMetadata::schema_id()
     }
 
     fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        DiagramElementRegistry::json_schema(generator)
+        DiagramElementMetadata::json_schema(generator)
     }
 
     fn inline_schema() -> bool {
-        DiagramElementRegistry::inline_schema()
+        DiagramElementMetadata::inline_schema()
     }
 }
 

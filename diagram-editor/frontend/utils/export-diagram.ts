@@ -14,7 +14,7 @@ import {
 import type {
   BufferSelection,
   Diagram,
-  DiagramElementRegistry,
+  DiagramElementMetadata,
   DiagramOperation,
   NextOperation,
   SectionTemplate,
@@ -407,7 +407,7 @@ function clearConnections(nodeManager: NodeManager, root: SubOperations) {
  * @param root only used to update the `start` field, does not actually populate the operations.
  */
 function syncEdges(
-  registry: DiagramElementRegistry,
+  registry: DiagramElementMetadata,
   nodeManager: NodeManager,
   root: SubOperations,
   edges: DiagramEditorEdge[],
@@ -450,7 +450,7 @@ function splitNodeNamespace(node: DiagramEditorNode): string[] {
 }
 
 export function exportDiagram(
-  registry: DiagramElementRegistry,
+  registry: DiagramElementMetadata,
   nodeManager: NodeManager,
   edges: DiagramEditorEdge[],
   templates: Record<string, SectionTemplate>,
@@ -491,7 +491,7 @@ export function exportDiagram(
 }
 
 export function exportTemplate(
-  registry: DiagramElementRegistry,
+  registry: DiagramElementMetadata,
   nodeManager: NodeManager,
   edges: DiagramEditorEdge[],
 ): SectionTemplate {

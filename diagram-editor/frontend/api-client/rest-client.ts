@@ -1,15 +1,15 @@
 import { from, type Observable } from 'rxjs';
 import type {
   Diagram,
-  DiagramElementRegistry,
+  DiagramElementMetadata,
   PostRunRequest,
 } from '../types/api';
 import { getSchema } from '../utils/ajv';
 import type { BaseApiClient } from './base-api-client';
 import { DebugSession } from './debug-session';
 
-const validateRegistry = getSchema<DiagramElementRegistry>(
-  'DiagramElementRegistry',
+const validateRegistry = getSchema<DiagramElementMetadata>(
+  'DiagramElementMetadata',
 );
 
 async function getErrorMessage(response: Response) {
@@ -18,7 +18,7 @@ async function getErrorMessage(response: Response) {
 }
 
 export class ApiClient implements BaseApiClient {
-  getRegistry(): Observable<DiagramElementRegistry> {
+  getRegistry(): Observable<DiagramElementMetadata> {
     return from(
       (async () => {
         const response = await fetch('/api/registry');

@@ -8,7 +8,7 @@ import { of } from 'rxjs';
 import { ApiClient } from '../api-client';
 import { ApiClientProvider } from '../api-client-provider';
 import { RegistryProvider } from '../registry-provider';
-import type { DiagramElementRegistry } from '../types/api';
+import type { DiagramElementMetadata } from '../types/api';
 import type { OperationNode, OperationNodeTypes } from '.';
 
 export function createOperationNodeProps<
@@ -34,7 +34,7 @@ export function createOperationNodeProps<
   };
 }
 
-function createTestingProviders(registry: DiagramElementRegistry) {
+function createTestingProviders(registry: DiagramElementMetadata) {
   return ({ children }: PropsWithChildren) => {
     const apiClient = new ApiClient();
     jest.spyOn(apiClient, 'getRegistry').mockReturnValue(of(registry));
@@ -51,7 +51,7 @@ function createTestingProviders(registry: DiagramElementRegistry) {
 
 export function render(
   ui: ReactElement,
-  registry?: DiagramElementRegistry,
+  registry?: DiagramElementMetadata,
   options?: Omit<RenderOptions, 'wrapper'>,
 ) {
   registry = registry || {

@@ -399,15 +399,15 @@ export interface Diagram {
    */
   description?: string;
   /**
-   * Examples of inputs that can be used with this workflow.
-   */
-  input_examples?: ExampleInput[];
-  /**
    * Settings for each extension.
    */
   extensions?: {
     [k: string]: unknown;
   };
+  /**
+   * Examples of inputs that can be used with this workflow.
+   */
+  input_examples?: InputExample[];
   on_implicit_error?: NextOperation | null;
   /**
    * Operations that define the workflow
@@ -427,9 +427,9 @@ export interface Diagram {
 }
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "ExampleInput".
+ * via the `definition` "InputExample".
  */
-export interface ExampleInput {
+export interface InputExample {
   description: string;
   value: unknown;
   [k: string]: unknown;
@@ -796,6 +796,8 @@ export interface ForkCloneSchema {
  *  # "#)?;
  *  # Ok::<_, serde_json::Error>(())
  *  ```
+ *
+ *  [`DiagramOperation::ForkClone`]: super::DiagramOperation::ForkClone
  *
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "UnzipSchema".
@@ -1178,39 +1180,37 @@ export interface SectionTemplate {
 }
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "DiagramElementRegistry".
+ * via the `definition` "DiagramElementMetadata".
  */
-export interface DiagramElementRegistry {
-  messages: {
-    [k: string]: MessageRegistration;
-  };
+export interface DiagramElementMetadata {
+  messages: MessageMetadata[];
   nodes: {
-    [k: string]: NodeRegistration;
+    [k: string]: NodeMetadata;
   };
   schemas: {
     [k: string]: unknown;
   };
   sections: {
-    [k: string]: SectionRegistration;
+    [k: string]: SectionMetadata;
   };
   trace_supported: boolean;
   [k: string]: unknown;
 }
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "MessageRegistration".
+ * via the `definition` "MessageMetadata".
  */
-export interface MessageRegistration {
-  operations: MessageOperation;
+export interface MessageMetadata {
+  operations: MessageOperationMetadata;
   schema?: Schema | null;
   type_name: string;
   [k: string]: unknown;
 }
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "MessageOperation".
+ * via the `definition` "MessageOperationMetadata".
  */
-export interface MessageOperation {
+export interface MessageOperationMetadata {
   deserialize?: {
     [k: string]: unknown;
   } | null;
@@ -1229,14 +1229,15 @@ export interface MessageOperation {
   split?: {
     [k: string]: unknown;
   } | null;
-  unzip?: string[] | null;
+  unzip?: (number | null)[] | null;
   [k: string]: unknown;
 }
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "NodeRegistration".
+ * via the `definition` "NodeMetadata".
  */
-export interface NodeRegistration {
+export interface NodeMetadata {
+  config_examples: ConfigExample[];
   config_schema: Schema;
   /**
    * If the user does not specify a default display text, the node ID will
@@ -1244,24 +1245,11 @@ export interface NodeRegistration {
    */
   default_display_text: string;
   description?: string | null;
-  config_examples: ConfigExample[];
-  request: string;
-  response: string;
+  request: number;
+  response: number;
   streams: {
-    [k: string]: string;
+    [k: string]: number;
   };
-  [k: string]: unknown;
-}
-/**
- * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "SectionRegistration".
- */
-export interface SectionRegistration {
-  config_schema: Schema;
-  default_display_text: string;
-  description?: string | null;
-  config_examples: ConfigExample[];
-  metadata: SectionMetadata;
   [k: string]: unknown;
 }
 /**
@@ -1269,6 +1257,18 @@ export interface SectionRegistration {
  * via the `definition` "SectionMetadata".
  */
 export interface SectionMetadata {
+  config_examples: ConfigExample[];
+  config_schema: Schema;
+  default_display_text: string;
+  description?: string | null;
+  interface: SectionInterface;
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "SectionInterface".
+ */
+export interface SectionInterface {
   buffers: {
     [k: string]: SectionBuffer;
   };
@@ -1285,7 +1285,7 @@ export interface SectionMetadata {
  * via the `definition` "SectionBuffer".
  */
 export interface SectionBuffer {
-  item_type?: string | null;
+  message_type?: number | null;
   [k: string]: unknown;
 }
 /**
@@ -1293,7 +1293,7 @@ export interface SectionBuffer {
  * via the `definition` "SectionInput".
  */
 export interface SectionInput {
-  message_type: string;
+  message_type: number;
   [k: string]: unknown;
 }
 /**
@@ -1301,7 +1301,7 @@ export interface SectionInput {
  * via the `definition` "SectionOutput".
  */
 export interface SectionOutput {
-  message_type: string;
+  message_type: number;
   [k: string]: unknown;
 }
 /**
