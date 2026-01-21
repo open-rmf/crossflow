@@ -66,6 +66,9 @@ impl DiagramElementRegistry {
             .no_deserializing()
             .register_message::<UnboundedSender<JsonMessage>>();
 
+        self.register_message::<JsonMessage>();
+        self.register_message::<String>();
+
         // TODO(@mxgrey): Support dynamic connections whose configurations are
         // decided within the workflow and passed into the node as input.
     }

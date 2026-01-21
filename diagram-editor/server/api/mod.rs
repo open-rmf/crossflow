@@ -51,7 +51,7 @@ impl schemars::JsonSchema for RegistryResponse {
 
 impl RegistryResponse {
     pub fn new(value: &DiagramElementRegistry) -> serde_json::Result<Self> {
-        let serialized = serde_json::to_string(value)?;
+        let serialized = serde_json::to_string(&value.metadata())?;
         Ok(Self(serialized))
     }
 }

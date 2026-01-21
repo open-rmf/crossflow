@@ -1,18 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "DiagramElementRegistry",
+  "title": "DiagramElementMetadata",
   "type": "object",
   "properties": {
     "messages": {
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/$defs/MessageRegistration"
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/MessageMetadata"
       }
     },
     "nodes": {
       "type": "object",
       "additionalProperties": {
-        "$ref": "#/$defs/NodeRegistration"
+        "$ref": "#/$defs/NodeMetadata"
       }
     },
     "schemas": {
@@ -22,7 +22,7 @@
     "sections": {
       "type": "object",
       "additionalProperties": {
-        "$ref": "#/$defs/SectionRegistration"
+        "$ref": "#/$defs/SectionMetadata"
       }
     },
     "trace_supported": {
@@ -32,9 +32,9 @@
   "required": [
     "nodes",
     "sections",
-    "trace_supported",
     "messages",
-    "schemas"
+    "schemas",
+    "trace_supported"
   ],
   "$defs": {
     "ConfigExample": {
@@ -53,7 +53,32 @@
         "config"
       ]
     },
-    "MessageOperation": {
+    "MessageMetadata": {
+      "type": "object",
+      "properties": {
+        "operations": {
+          "$ref": "#/$defs/MessageOperationMetadata"
+        },
+        "schema": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Schema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "type_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type_name",
+        "operations"
+      ]
+    },
+    "MessageOperationMetadata": {
       "type": "object",
       "properties": {
         "deserialize": {
@@ -98,37 +123,17 @@
             "null"
           ],
           "items": {
-            "type": "string"
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint",
+            "minimum": 0
           }
         }
       }
     },
-    "MessageRegistration": {
-      "type": "object",
-      "properties": {
-        "operations": {
-          "$ref": "#/$defs/MessageOperation"
-        },
-        "schema": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Schema"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "type_name": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "type_name",
-        "operations"
-      ]
-    },
-    "NodeRegistration": {
+    "NodeMetadata": {
       "type": "object",
       "properties": {
         "description": {
@@ -151,15 +156,21 @@
           "type": "string"
         },
         "request": {
-          "type": "string"
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
         },
         "response": {
-          "type": "string"
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
         },
         "streams": {
           "type": "object",
           "additionalProperties": {
-            "type": "string"
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
           }
         }
       },
@@ -181,11 +192,13 @@
     "SectionBuffer": {
       "type": "object",
       "properties": {
-        "item_type": {
+        "message_type": {
           "type": [
-            "string",
+            "integer",
             "null"
-          ]
+          ],
+          "format": "uint",
+          "minimum": 0
         }
       }
     },
@@ -193,14 +206,16 @@
       "type": "object",
       "properties": {
         "message_type": {
-          "type": "string"
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
         }
       },
       "required": [
         "message_type"
       ]
     },
-    "SectionMetadata": {
+    "SectionInterface": {
       "type": "object",
       "properties": {
         "buffers": {
@@ -228,18 +243,7 @@
         "buffers"
       ]
     },
-    "SectionOutput": {
-      "type": "object",
-      "properties": {
-        "message_type": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "message_type"
-      ]
-    },
-    "SectionRegistration": {
+    "SectionMetadata": {
       "type": "object",
       "properties": {
         "description": {
@@ -260,15 +264,28 @@
         "default_display_text": {
           "type": "string"
         },
-        "metadata": {
-          "$ref": "#/$defs/SectionMetadata"
+        "interface": {
+          "$ref": "#/$defs/SectionInterface"
         }
       },
       "required": [
         "default_display_text",
-        "metadata",
+        "interface",
         "config_schema",
         "config_examples"
+      ]
+    },
+    "SectionOutput": {
+      "type": "object",
+      "properties": {
+        "message_type": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "message_type"
       ]
     }
   }

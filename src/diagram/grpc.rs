@@ -202,6 +202,8 @@ impl DiagramElementRegistry {
                 Ok(node)
             },
         )
+        .with_common_request()
+        .with_common_response()
         .with_result();
 
         let rt = runtime;
@@ -259,6 +261,7 @@ impl DiagramElementRegistry {
                     Ok(node)
                 },
             )
+            .with_common_response()
             .with_result();
 
         self.register_message::<Option<String>>();

@@ -24,8 +24,6 @@ use std::{
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Serialize, de::DeserializeOwned};
 
-use tokio::sync::oneshot;
-
 use super::{
     DiagramContext, DiagramErrorCode, DynForkResult, DynInputSlot, DynOutput, JsonMessage,
     MessageRegistrations, MessageRegistry, TypeInfo, TypeMismatch, supported::*,

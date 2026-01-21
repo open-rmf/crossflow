@@ -25,7 +25,7 @@ use crate::{AnyBuffer, AnyMessageBox, Buffer, InputSlot, JsonBuffer, JsonMessage
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderId, DiagramContext, DiagramElementRegistry,
     DiagramErrorCode, DynInputSlot, DynOutput, NamespacedOperation, NextOperation, OperationName,
-    OperationRef, Operations, RedirectConnection, TraceInfo, TraceSettings, TypeInfo, MessageRegistrations,
+    OperationRef, Operations, RedirectConnection, TraceInfo, TraceSettings, MessageRegistrations,
 };
 
 pub use crossflow_derive::Section;
@@ -217,8 +217,8 @@ impl SectionInterface {
     }
 }
 
-pub trait SectionMetadataProvider {
-    fn interface_metadata() -> &'static SectionInterface;
+pub trait SectionInterfaceDescription {
+    fn interface_metadata(messages: &mut MessageRegistrations) -> &'static SectionInterface;
 }
 
 pub struct SectionSlots {
@@ -468,7 +468,7 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        SectionBuilderOptions, TypeInfo,
+        SectionBuilderOptions,
         diagram::{DiagramErrorCode, SectionError, testing::*},
         prelude::*,
         testing::*,
@@ -498,16 +498,22 @@ mod tests {
         );
 
         let reg = registry.get_section_registration("test_section").unwrap();
-        assert_eq!(reg.default_display_text.as_ref(), "TestSection");
-        let metadata = &reg.metadata;
-        assert_eq!(metadata.inputs.len(), 1);
-        assert_eq!(metadata.inputs["foo"].message_type, TypeInfo::of::<i64>());
-        assert_eq!(metadata.outputs.len(), 1);
-        assert_eq!(metadata.outputs["bar"].message_type, TypeInfo::of::<f64>());
-        assert_eq!(metadata.buffers.len(), 1);
+        assert_eq!(reg.metadata.default_display_text.as_ref(), "TestSection");
+        let interface = &reg.metadata.interface;
+        assert_eq!(interface.inputs.len(), 1);
         assert_eq!(
-            metadata.buffers["baz"].item_type,
-            Some(TypeInfo::of::<String>())
+            interface.inputs["foo"].message_type,
+            registry.messages.registration.get_index::<i64>().unwrap(),
+        );
+        assert_eq!(interface.outputs.len(), 1);
+        assert_eq!(
+            interface.outputs["bar"].message_type,
+            registry.messages.registration.get_index::<f64>().unwrap(),
+        );
+        assert_eq!(interface.buffers.len(), 1);
+        assert_eq!(
+            interface.buffers["baz"].message_type,
+            Some(registry.messages.registration.get_index::<String>().unwrap()),
         );
     }
 

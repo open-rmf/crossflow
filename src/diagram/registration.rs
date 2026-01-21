@@ -49,7 +49,7 @@ use serde_json::json;
 use super::{
     BuilderId, DeserializeMessage, DiagramErrorCode, DynForkClone, DynForkResult, DynSplit,
     DynType, JsonRegistration, RegisterJson, RegisterSplit, Section, SectionInterface,
-    SectionMetadataProvider, SerializeMessage, SplitSchema, TransformError, TypeInfo,
+    SectionInterfaceDescription, SerializeMessage, SplitSchema, TransformError, TypeInfo,
     buffer_schema::BufferAccessRequest, fork_clone_schema::RegisterClone,
     fork_result_schema::RegisterForkResult, register_json, supported::*,
     unzip_schema::PerformUnzip,
@@ -673,7 +673,7 @@ type CreateSectionFn =
     dyn FnMut(&mut Builder, serde_json::Value) -> Result<Box<dyn Section>, DiagramErrorCode> + Send;
 
 pub struct SectionRegistration {
-    metadata: SectionMetadata,
+    pub(crate) metadata: SectionMetadata,
     create_section_impl: RefCell<Box<CreateSectionFn>>,
 }
 
@@ -698,53 +698,6 @@ impl SectionRegistration {
     }
 }
 
-pub trait IntoSectionRegistration<SectionT, Config>
-where
-    SectionT: Section,
-{
-    fn into_section_registration(
-        self,
-        options: &SectionBuilderOptions,
-        schema_generator: &mut SchemaGenerator,
-    ) -> SectionRegistration;
-}
-
-impl<F, SectionT, Config> IntoSectionRegistration<SectionT, Config> for F
-where
-    F: FnMut(&mut Builder, Config) -> Result<SectionT, Anyhow> + Send + 'static,
-    SectionT: Section + SectionMetadataProvider + 'static,
-    Config: DeserializeOwned + JsonSchema,
-{
-    fn into_section_registration(
-        mut self,
-        options: &SectionBuilderOptions,
-        schema_generator: &mut SchemaGenerator,
-    ) -> SectionRegistration {
-        let builder_id = Arc::clone(&options.id);
-        SectionRegistration {
-            metadata: SectionMetadata {
-                default_display_text: options
-                    .default_display_text
-                    .as_ref()
-                    .unwrap_or(&options.id)
-                    .clone(),
-                interface: SectionT::interface_metadata().clone(),
-                config_schema: schema_generator.subschema_for::<()>(),
-                description: options.description.clone(),
-                config_examples: options.config_examples.clone(),
-            },
-            create_section_impl: RefCell::new(Box::new(move |builder, config| {
-                let section = self(builder, serde_json::from_value::<Config>(config).unwrap())
-                    .map_err(|error| DiagramErrorCode::NodeBuildingError {
-                        builder: Arc::clone(&builder_id),
-                        error,
-                    })?;
-                Ok(Box::new(section))
-            })),
-        }
-    }
-}
-
 pub struct DiagramElementRegistry {
     pub(super) nodes: HashMap<BuilderId, NodeRegistration>,
     pub(super) sections: HashMap<BuilderId, SectionRegistration>,
@@ -752,29 +705,15 @@ pub struct DiagramElementRegistry {
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
-pub struct DiagramElementRegistryMetadata<'a> {
-    nodes: NodeMetadataMap<'a>,
-    sections: SectionMetadataMap<'a>,
-    messages: MessageMetadataMap<'a>,
+pub struct DiagramElementMetadata {
+    nodes: HashMap<BuilderId, NodeMetadata>,
+    sections: HashMap<BuilderId, SectionMetadata>,
+    messages: Vec<MessageMetadata>,
+    schemas: serde_json::Map<String, JsonMessage>,
     trace_supported: bool,
 }
 
-enum NodeMetadataMap<'a> {
-    Native(&'a HashMap<BuilderId, NodeRegistration>),
-    Portable(HashMap<BuilderId, NodeMetadata>),
-}
-
-enum SectionMetadataMap<'a> {
-    Native(&'a HashMap<BuilderId, SectionRegistration>),
-    Portable(HashMap<BuilderId, SectionMetadata>),
-}
-
-enum MessageMetadataMap<'a> {
-    Native(&'a Vec<MessageRegistrations>),
-    Portable(Vec<MessageOperationMetadata>),
-}
-
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
 pub struct NodeMetadata {
     /// If the user does not specify a default display text, the node ID will
     /// be used here.
@@ -920,7 +859,7 @@ impl Serialize for MessageOperation {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 struct MessageMetadata {
     type_name: Cow<'static, str>,
-    schema: Option<Cow<'static, Schema>>,
+    schema: Option<Schema>,
     operations: MessageOperationMetadata,
 }
 
@@ -1433,6 +1372,15 @@ impl MessageRegistrations {
         self.indices.get(target_type).cloned()
     }
 
+    // Used in testing
+    #[allow(unused)]
+    pub(crate) fn get_index<T>(&self) -> Option<usize>
+    where
+        T: 'static + Send + Sync,
+    {
+        self.indices.get(&TypeInfo::of::<T>()).cloned()
+    }
+
     pub(crate) fn get_index_or_insert<T>(&mut self) -> usize
     where
         T: 'static + Send + Sync,
@@ -1446,6 +1394,20 @@ impl MessageRegistrations {
             self.messages.push(MessageRegistration::new::<T>());
             index
         }
+    }
+
+    /// Get the metadata of the registered messages
+    fn metadata(&self) -> Vec<MessageMetadata> {
+        let mut metadata = Vec::new();
+        for message in &self.messages {
+            metadata.push(MessageMetadata {
+                type_name: Cow::Borrowed(message.type_name),
+                schema: message.schema.clone(),
+                operations: MessageOperationMetadata::new(&message.operations, self),
+            });
+        }
+
+        metadata
     }
 }
 
@@ -1483,9 +1445,39 @@ impl DiagramElementRegistry {
         }
     }
 
-    pub fn metadata(&self) -> DiagramElementRegistryMetadata {
-        DiagramElementRegistryMetadata {
-            nodes: (), sections: (), messages: (), trace_supported: () }
+    /// Get the metadata of this registry. The metadata can be serialized and
+    /// deserialized.
+    ///
+    /// This metadata can be sent to remote clients so they know what node and
+    /// section builders are available, as well as what message types are
+    /// registered and what operations can be performed on them.
+    pub fn metadata(&self) -> DiagramElementMetadata {
+        let nodes = self
+            .nodes
+            .iter()
+            .map(|(id, node)|
+                (Arc::clone(id), node.metadata.clone())
+            )
+            .collect();
+
+        let sections = self
+            .sections
+            .iter()
+            .map(|(id, section)|
+                (Arc::clone(id), section.metadata.clone())
+            )
+            .collect();
+
+        let messages = self.messages.registration.metadata();
+        let schemas = self.messages.schema_generator.definitions().clone();
+
+        DiagramElementMetadata {
+            nodes,
+            sections,
+            messages,
+            schemas,
+            trace_supported: crate::trace_supported(),
+        }
     }
 
     /// Register a node builder with all the common operations (deserialize the
@@ -1583,7 +1575,7 @@ impl DiagramElementRegistry {
         options: SectionBuilderOptions,
         mut section_builder: impl FnMut(&mut Builder, Config) -> SectionT + Send + 'static,
     ) where
-        SectionT: Section + SectionMetadataProvider + 'static,
+        SectionT: Section + SectionInterfaceDescription + 'static,
         Config: DeserializeOwned + JsonSchema,
     {
         self.register_section_builder_fallible(options, move |builder, config| {
@@ -1602,7 +1594,7 @@ impl DiagramElementRegistry {
         + Send
         + 'static,
     ) where
-        SectionT: Section + SectionMetadataProvider + 'static,
+        SectionT: Section + SectionInterfaceDescription + 'static,
         Config: DeserializeOwned + JsonSchema,
     {
         let builder_id = Arc::clone(&options.id);
@@ -1613,7 +1605,7 @@ impl DiagramElementRegistry {
                     .as_ref()
                     .unwrap_or(&options.id)
                     .clone(),
-                interface: SectionT::interface_metadata().clone(),
+                interface: SectionT::interface_metadata(&mut self.messages.registration).clone(),
                 config_schema: self.messages.schema_generator.subschema_for::<()>(),
                 description: options.description.clone(),
                 config_examples: options.config_examples.clone(),
@@ -2248,13 +2240,13 @@ mod tests {
         );
 
         // print out a pretty json for manual inspection
-        println!("{}", serde_json::to_string_pretty(&reg).unwrap());
+        println!("{}", serde_json::to_string_pretty(&reg.metadata()).unwrap());
 
         // test that schema refs are pointing to the correct path
-        let value = serde_json::to_value(&reg).unwrap();
+        let value = serde_json::to_value(&reg.metadata()).unwrap();
         let messages = &value["messages"];
         let schemas = &value["schemas"];
-        let bar_schema = &messages[type_name::<Bar>()]["schema"];
+        let bar_schema = &messages[reg.messages.registration.get_index::<Bar>().unwrap()]["schema"];
         assert_eq!(bar_schema["$ref"].as_str().unwrap(), "#/schemas/Bar");
         assert!(schemas.get("Bar").is_some());
         assert!(schemas.get("Foo").is_some());
@@ -2262,17 +2254,19 @@ mod tests {
         let nodes = &value["nodes"];
         let stream_test_schema = &nodes["stream_test"];
         let streams = &stream_test_schema["streams"];
+        dbg!(&stream_test_schema);
+        dbg!(&streams);
         assert_eq!(
-            streams["foo_stream"].as_str().unwrap(),
-            TypeInfo::of::<i64>().type_name
+            streams["foo_stream"].as_u64().unwrap() as usize,
+            reg.messages.registration.get_index::<i64>().unwrap(),
         );
         assert_eq!(
-            streams["bar_stream"].as_str().unwrap(),
-            TypeInfo::of::<f64>().type_name
+            streams["bar_stream"].as_u64().unwrap() as usize,
+            reg.messages.registration.get_index::<f64>().unwrap(),
         );
         assert_eq!(
-            streams["baz_stream"].as_str().unwrap(),
-            TypeInfo::of::<String>().type_name
+            streams["baz_stream"].as_u64().unwrap() as usize,
+            reg.messages.registration.get_index::<String>().unwrap(),
         );
     }
 
