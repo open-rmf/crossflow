@@ -15,6 +15,8 @@
  *
 */
 
+use variadics_please::all_tuples;
+
 use std::{
     any::{Any, type_name},
     borrow::{Borrow, Cow},
@@ -34,7 +36,7 @@ use crate::{
     Builder, DisplayText, IncompatibleLayout, IncrementalScopeBuilder, IncrementalScopeRequest,
     IncrementalScopeRequestResult, IncrementalScopeResponse, IncrementalScopeResponseResult,
     Joined, JsonBuffer, JsonMessage, MessageTypeHintMap, NamedStream, Node, StreamAvailability,
-    StreamOf, StreamPack,
+    StreamOf, StreamPack, StreamEffect,
 };
 
 #[cfg(feature = "trace")]
@@ -46,27 +48,17 @@ use serde_json::json;
 
 use super::{
     BuilderId, DeserializeMessage, DiagramErrorCode, DynForkClone, DynForkResult, DynSplit,
-    DynType, JsonRegistration, RegisterJson, RegisterSplit, Section, SectionMetadata,
+    DynType, JsonRegistration, RegisterJson, RegisterSplit, Section, SectionInterface,
     SectionMetadataProvider, SerializeMessage, SplitSchema, TransformError, TypeInfo,
     buffer_schema::BufferAccessRequest, fork_clone_schema::RegisterClone,
     fork_result_schema::RegisterForkResult, register_json, supported::*,
     unzip_schema::PerformUnzip,
 };
 
-#[derive(Serialize, JsonSchema)]
 pub struct NodeRegistration {
-    /// If the user does not specify a default display text, the node ID will
-    /// be used here.
-    pub(super) default_display_text: DisplayText,
-    pub(super) request: TypeInfo,
-    pub(super) response: TypeInfo,
-    pub(super) streams: HashMap<Cow<'static, str>, TypeInfo>,
-    pub(super) config_schema: Schema,
-    pub(super) description: Option<String>,
-    pub(super) config_examples: Vec<ConfigExample>,
+    metadata: NodeMetadata,
 
     /// Creates an instance of the registered node.
-    #[serde(skip)]
     create_node_impl: CreateNodeFn,
 }
 
@@ -180,6 +172,7 @@ impl<'a, DeserializeImpl, SerializeImpl, Cloneable>
         Cloneable: RegisterClone<Response>,
         JsonRegistration<SerializeImpl, DeserializeImpl>: RegisterJson<Request>,
         JsonRegistration<SerializeImpl, DeserializeImpl>: RegisterJson<Response>,
+        Streams::StreamTypes: RegisterStreams<DeserializeImpl, SerializeImpl, Cloneable>,
     {
         self.register_node_builder_fallible(options, move |builder, config| Ok(f(builder, config)))
     }
@@ -218,25 +211,38 @@ impl<'a, DeserializeImpl, SerializeImpl, Cloneable>
         Cloneable: RegisterClone<Response>,
         JsonRegistration<SerializeImpl, DeserializeImpl>: RegisterJson<Request>,
         JsonRegistration<SerializeImpl, DeserializeImpl>: RegisterJson<Response>,
+        Streams::StreamTypes: RegisterStreams<DeserializeImpl, SerializeImpl, Cloneable>,
     {
-        self.impl_register_message::<Request>();
-        self.impl_register_message::<Response>();
+        let request = self.impl_register_message::<Request>();
+        let response = self.impl_register_message::<Response>();
+        Streams::StreamTypes::register_streams(&mut self);
 
         let node_builder_name = Arc::clone(&options.id);
         let mut availability = StreamAvailability::default();
         Streams::set_stream_availability(&mut availability);
-        let streams = availability.named_streams();
+        let streams = availability
+            .named_streams()
+            .into_iter()
+            .map(|(k, v)|
+                // SAFETY: We register all the streams earlier in this function
+                (k, self.registry.messages.registration.get_index_dyn(&v).unwrap())
+            )
+            .collect();
 
         let registration = NodeRegistration {
-            default_display_text: options.default_display_text.unwrap_or(options.id.clone()),
-            request: TypeInfo::of::<Request>(),
-            response: TypeInfo::of::<Response>(),
-            streams,
-            config_schema: self
-                .registry
-                .messages
-                .schema_generator
-                .subschema_for::<Config>(),
+            metadata: NodeMetadata {
+                default_display_text: options.default_display_text.unwrap_or(options.id.clone()),
+                request,
+                response,
+                streams,
+                config_schema: self
+                    .registry
+                    .messages
+                    .schema_generator
+                    .subschema_for::<Config>(),
+                description: options.description,
+                config_examples: options.config_examples,
+            },
             create_node_impl: RefCell::new(Box::new(move |builder, config| {
                 let config =
                     serde_json::from_value(config).map_err(DiagramErrorCode::ConfigError)?;
@@ -248,8 +254,6 @@ impl<'a, DeserializeImpl, SerializeImpl, Cloneable>
 
                 Ok(node.into())
             })),
-            description: options.description,
-            config_examples: options.config_examples,
         };
         self.registry.nodes.insert(options.id.clone(), registration);
 
@@ -269,7 +273,7 @@ impl<'a, DeserializeImpl, SerializeImpl, Cloneable>
         MessageRegistrationBuilder::<Message>::new(&mut self.registry.messages)
     }
 
-    fn impl_register_message<Message>(&mut self)
+    fn impl_register_message<Message>(&mut self) -> usize
     where
         Message: Send + Sync + 'static,
         DeserializeImpl: DeserializeMessage<Message>,
@@ -277,6 +281,12 @@ impl<'a, DeserializeImpl, SerializeImpl, Cloneable>
         Cloneable: RegisterClone<Message>,
         JsonRegistration<SerializeImpl, DeserializeImpl>: RegisterJson<Message>,
     {
+        let index = self
+            .registry
+            .messages
+            .registration
+            .get_index_or_insert::<Message>();
+
         self.registry
             .messages
             .register_deserialize::<Message, DeserializeImpl>();
@@ -288,6 +298,7 @@ impl<'a, DeserializeImpl, SerializeImpl, Cloneable>
             .register_clone::<Message, Cloneable>();
 
         register_json::<Message, SerializeImpl, DeserializeImpl>();
+        index
     }
 
     /// Opt out of deserializing the input and output messages of the node.
@@ -326,6 +337,14 @@ impl<'a, DeserializeImpl, SerializeImpl, Cloneable>
     /// then use [`DiagramElementRegistry::register_message`] on the message type
     /// directly.
     pub fn no_cloning(self) -> CommonOperations<'a, DeserializeImpl, SerializeImpl, NotSupported> {
+        CommonOperations {
+            registry: self.registry,
+            _ignore: Default::default(),
+        }
+    }
+
+    /// Opt out of all the common operations.
+    pub fn minimal(self) -> CommonOperations<'a, NotSupported, NotSupported, NotSupported> {
         CommonOperations {
             registry: self.registry,
             _ignore: Default::default(),
@@ -653,16 +672,18 @@ pub trait IntoNodeRegistration {
 type CreateSectionFn =
     dyn FnMut(&mut Builder, serde_json::Value) -> Result<Box<dyn Section>, DiagramErrorCode> + Send;
 
-#[derive(Serialize, JsonSchema)]
 pub struct SectionRegistration {
+    metadata: SectionMetadata,
+    create_section_impl: RefCell<Box<CreateSectionFn>>,
+}
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SectionMetadata {
     pub(super) default_display_text: DisplayText,
-    pub(super) metadata: SectionMetadata,
+    pub(super) interface: SectionInterface,
     pub(super) config_schema: Schema,
     pub(super) description: Option<String>,
     pub(super) config_examples: Vec<ConfigExample>,
-
-    #[serde(skip)]
-    create_section_impl: RefCell<Box<CreateSectionFn>>,
 }
 
 impl SectionRegistration {
@@ -701,13 +722,17 @@ where
     ) -> SectionRegistration {
         let builder_id = Arc::clone(&options.id);
         SectionRegistration {
-            default_display_text: options
-                .default_display_text
-                .as_ref()
-                .unwrap_or(&options.id)
-                .clone(),
-            metadata: SectionT::metadata().clone(),
-            config_schema: schema_generator.subschema_for::<()>(),
+            metadata: SectionMetadata {
+                default_display_text: options
+                    .default_display_text
+                    .as_ref()
+                    .unwrap_or(&options.id)
+                    .clone(),
+                interface: SectionT::interface_metadata().clone(),
+                config_schema: schema_generator.subschema_for::<()>(),
+                description: options.description.clone(),
+                config_examples: options.config_examples.clone(),
+            },
             create_section_impl: RefCell::new(Box::new(move |builder, config| {
                 let section = self(builder, serde_json::from_value::<Config>(config).unwrap())
                     .map_err(|error| DiagramErrorCode::NodeBuildingError {
@@ -716,20 +741,50 @@ where
                     })?;
                 Ok(Box::new(section))
             })),
-            description: options.description.clone(),
-            config_examples: options.config_examples.clone(),
         }
     }
 }
 
-#[derive(Serialize, JsonSchema)]
 pub struct DiagramElementRegistry {
     pub(super) nodes: HashMap<BuilderId, NodeRegistration>,
     pub(super) sections: HashMap<BuilderId, SectionRegistration>,
-    pub(super) trace_supported: bool,
-
-    #[serde(flatten)]
     pub(super) messages: MessageRegistry,
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct DiagramElementRegistryMetadata<'a> {
+    nodes: NodeMetadataMap<'a>,
+    sections: SectionMetadataMap<'a>,
+    messages: MessageMetadataMap<'a>,
+    trace_supported: bool,
+}
+
+enum NodeMetadataMap<'a> {
+    Native(&'a HashMap<BuilderId, NodeRegistration>),
+    Portable(HashMap<BuilderId, NodeMetadata>),
+}
+
+enum SectionMetadataMap<'a> {
+    Native(&'a HashMap<BuilderId, SectionRegistration>),
+    Portable(HashMap<BuilderId, SectionMetadata>),
+}
+
+enum MessageMetadataMap<'a> {
+    Native(&'a Vec<MessageRegistrations>),
+    Portable(Vec<MessageOperationMetadata>),
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct NodeMetadata {
+    /// If the user does not specify a default display text, the node ID will
+    /// be used here.
+    pub(super) default_display_text: DisplayText,
+    pub(super) request: usize,
+    pub(super) response: usize,
+    pub(super) streams: HashMap<Cow<'static, str>, usize>,
+    pub(super) config_schema: Schema,
+    pub(super) description: Option<String>,
+    pub(super) config_examples: Vec<ConfigExample>,
 }
 
 pub struct MessageOperation {
@@ -788,7 +843,14 @@ impl MessageOperation {
 /// ```json
 /// { "type": "object" }
 /// ```
+#[derive(Clone)]
 struct JsEmptyObject;
+
+impl std::fmt::Debug for JsEmptyObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("empty").finish()
+    }
+}
 
 impl Serialize for JsEmptyObject {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -855,29 +917,44 @@ impl Serialize for MessageOperation {
     }
 }
 
-#[derive(JsonSchema)]
-#[allow(unused)] // only used to generate schema
-struct MessageOperationSchema {
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+struct MessageMetadata {
+    type_name: Cow<'static, str>,
+    schema: Option<Cow<'static, Schema>>,
+    operations: MessageOperationMetadata,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+struct MessageOperationMetadata {
     deserialize: Option<JsEmptyObject>,
     serialize: Option<JsEmptyObject>,
     fork_clone: Option<JsEmptyObject>,
-    unzip: Option<Vec<TypeInfo>>,
+    unzip: Option<Vec<Option<usize>>>,
     fork_result: Option<JsEmptyObject>,
     split: Option<JsEmptyObject>,
     join: Option<JsEmptyObject>,
 }
 
-impl JsonSchema for MessageOperation {
-    fn schema_name() -> Cow<'static, str> {
-        "MessageOperation".into()
-    }
-
-    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
-        <MessageOperationSchema as JsonSchema>::json_schema(generator)
+impl MessageOperationMetadata {
+    fn new(ops: &MessageOperation, registrations: &MessageRegistrations) -> Self {
+        Self {
+            deserialize: ops.deserialize_impl.is_some().then(|| JsEmptyObject),
+            serialize: ops.serialize_impl.is_some().then(|| JsEmptyObject),
+            fork_clone: ops.fork_clone_impl.is_some().then(|| JsEmptyObject),
+            unzip: ops.unzip_impl.as_ref().map(|unzip|
+                unzip
+                .output_types()
+                .into_iter()
+                .map(|info| registrations.indices.get(&info).copied())
+                .collect()
+            ),
+            fork_result: ops.fork_result_impl.is_some().then(|| JsEmptyObject),
+            split: ops.split_impl.is_some().then(|| JsEmptyObject),
+            join: ops.join_impl.is_some().then(|| JsEmptyObject),
+        }
     }
 }
 
-#[derive(Serialize, JsonSchema)]
 pub struct MessageRegistration {
     pub(super) type_name: &'static str,
     pub(super) schema: Option<Schema>,
@@ -897,12 +974,8 @@ impl MessageRegistration {
     }
 }
 
-#[derive(Serialize, JsonSchema)]
 pub struct MessageRegistry {
-    #[serde(serialize_with = "MessageRegistry::serialize_messages")]
-    pub messages: HashMap<TypeInfo, MessageRegistration>,
-
-    #[serde(rename = "schemas", with = "MessageRegistrySerializeSchemas")]
+    pub registration: MessageRegistrations,
     pub schema_generator: SchemaGenerator,
 }
 
@@ -912,19 +985,13 @@ impl MessageRegistry {
         settings.definitions_path = "#/schemas/".into();
 
         Self {
+            registration: Default::default(),
             schema_generator: SchemaGenerator::new(settings),
-            messages: HashMap::from([(
-                TypeInfo::of::<serde_json::Value>(),
-                MessageRegistration::new::<serde_json::Value>(),
-            )]),
         }
     }
 
-    fn get<T>(&self) -> Option<&MessageRegistration>
-    where
-        T: Any,
-    {
-        self.messages.get(&TypeInfo::of::<T>())
+    pub(crate) fn get_dyn(&self, target_type: &TypeInfo) -> Option<&MessageRegistration> {
+        self.registration.get_dyn(target_type)
     }
 
     pub fn deserialize(
@@ -941,8 +1008,8 @@ impl MessageRegistry {
         target_type: &TypeInfo,
         builder: &mut Builder,
     ) -> Result<Option<DynForkResult>, DiagramErrorCode> {
-        self.messages
-            .get(target_type)
+        self.registration
+            .get_dyn(target_type)
             .and_then(|reg| reg.operations.deserialize_impl.as_ref())
             .map(|deserialize| deserialize(builder))
             .transpose()
@@ -955,7 +1022,7 @@ impl MessageRegistry {
         T: Send + Sync + 'static + Any,
         Deserializer: DeserializeMessage<T>,
     {
-        Deserializer::register_deserialize(&mut self.messages, &mut self.schema_generator);
+        Deserializer::register_deserialize(&mut self.registration, &mut self.schema_generator);
     }
 
     pub fn serialize(
@@ -972,8 +1039,7 @@ impl MessageRegistry {
         incoming_type: &TypeInfo,
         builder: &mut Builder,
     ) -> Result<Option<DynForkResult>, DiagramErrorCode> {
-        self.messages
-            .get(incoming_type)
+        self.get_dyn(incoming_type)
             .and_then(|reg| reg.operations.serialize_impl.as_ref())
             .map(|serialize| serialize(builder))
             .transpose()
@@ -985,8 +1051,7 @@ impl MessageRegistry {
         builder: &mut Builder,
     ) -> Result<Option<DynNode>, DiagramErrorCode> {
         let ops = &self
-            .messages
-            .get(incoming_type)
+            .get_dyn(incoming_type)
             .ok_or_else(|| DiagramErrorCode::UnregisteredType(*incoming_type))?
             .operations;
 
@@ -1000,7 +1065,7 @@ impl MessageRegistry {
         T: Send + Sync + 'static + Any,
         Serializer: SerializeMessage<T>,
     {
-        Serializer::register_serialize(&mut self.messages, &mut self.schema_generator)
+        Serializer::register_serialize(&mut self.registration, &mut self.schema_generator)
     }
 
     pub fn fork_clone(
@@ -1008,8 +1073,7 @@ impl MessageRegistry {
         message_info: &TypeInfo,
         builder: &mut Builder,
     ) -> Result<DynForkClone, DiagramErrorCode> {
-        self.messages
-            .get(message_info)
+        self.get_dyn(message_info)
             .and_then(|reg| reg.operations.fork_clone_impl.as_ref())
             .ok_or(DiagramErrorCode::NotCloneable(*message_info))
             .and_then(|f| f(builder))
@@ -1023,9 +1087,8 @@ impl MessageRegistry {
         F: RegisterClone<T>,
     {
         let ops = &mut self
-            .messages
-            .entry(TypeInfo::of::<T>())
-            .or_insert(MessageRegistration::new::<T>())
+            .registration
+            .get_or_insert::<T>()
             .operations;
         if !F::CLONEABLE || ops.fork_clone_impl.is_some() {
             return false;
@@ -1040,8 +1103,7 @@ impl MessageRegistry {
         &'a self,
         message_info: &TypeInfo,
     ) -> Result<&'a dyn PerformUnzip, DiagramErrorCode> {
-        self.messages
-            .get(message_info)
+        self.get_dyn(message_info)
             .and_then(|reg| reg.operations.unzip_impl.as_ref())
             .map(|unzip| -> &'a dyn PerformUnzip { unzip.as_ref() })
             .ok_or(DiagramErrorCode::NotUnzippable(*message_info))
@@ -1060,9 +1122,8 @@ impl MessageRegistry {
         unzip_impl.on_register(self);
 
         let ops = &mut self
-            .messages
-            .entry(TypeInfo::of::<T>())
-            .or_insert(MessageRegistration::new::<T>())
+            .registration
+            .get_or_insert::<T>()
             .operations;
         if ops.unzip_impl.is_some() {
             return false;
@@ -1077,8 +1138,7 @@ impl MessageRegistry {
         message_info: &TypeInfo,
         builder: &mut Builder,
     ) -> Result<DynForkResult, DiagramErrorCode> {
-        self.messages
-            .get(message_info)
+        self.get_dyn(message_info)
             .and_then(|reg| reg.operations.fork_result_impl.as_ref())
             .ok_or(DiagramErrorCode::CannotForkResult(*message_info))
             .and_then(|f| f(builder))
@@ -1099,8 +1159,7 @@ impl MessageRegistry {
         split_op: &SplitSchema,
         builder: &mut Builder,
     ) -> Result<DynSplit, DiagramErrorCode> {
-        self.messages
-            .get(message_info)
+        self.get_dyn(message_info)
             .and_then(|reg| reg.operations.split_impl.as_ref())
             .ok_or(DiagramErrorCode::NotSplittable(*message_info))
             .and_then(|f| f(split_op, builder))
@@ -1122,8 +1181,7 @@ impl MessageRegistry {
         builder: &mut Builder,
     ) -> Result<AnyBuffer, DiagramErrorCode> {
         let f = self
-            .messages
-            .get(message_info)
+            .get_dyn(message_info)
             .ok_or_else(|| DiagramErrorCode::UnregisteredType(*message_info))?
             .operations
             .create_buffer_impl;
@@ -1138,8 +1196,7 @@ impl MessageRegistry {
         commands: &mut Commands,
     ) -> Result<IncrementalScopeRequest, DiagramErrorCode> {
         let f = self
-            .messages
-            .get(message_info)
+            .get_dyn(message_info)
             .ok_or_else(|| DiagramErrorCode::UnregisteredType(*message_info))?
             .operations
             .build_scope
@@ -1155,8 +1212,7 @@ impl MessageRegistry {
         commands: &mut Commands,
     ) -> Result<IncrementalScopeResponse, DiagramErrorCode> {
         let f = self
-            .messages
-            .get(message_info)
+            .get_dyn(message_info)
             .ok_or_else(|| DiagramErrorCode::UnregisteredType(*message_info))?
             .operations
             .build_scope
@@ -1173,8 +1229,7 @@ impl MessageRegistry {
         commands: &mut Commands,
     ) -> Result<(DynInputSlot, DynOutput), DiagramErrorCode> {
         let f = self
-            .messages
-            .get(message_info)
+            .get_dyn(message_info)
             .ok_or_else(|| DiagramErrorCode::UnregisteredType(*message_info))?
             .operations
             .build_scope
@@ -1188,8 +1243,7 @@ impl MessageRegistry {
         message_info: &TypeInfo,
         builder: &mut Builder,
     ) -> Result<DynNode, DiagramErrorCode> {
-        self.messages
-            .get(message_info)
+        self.get_dyn(message_info)
             .map(|reg| (reg.operations.create_trigger_impl)(builder))
             .ok_or_else(|| DiagramErrorCode::UnregisteredType(*message_info))
     }
@@ -1200,8 +1254,7 @@ impl MessageRegistry {
         buffers: &BufferMap,
         builder: &mut Builder,
     ) -> Result<DynOutput, DiagramErrorCode> {
-        self.messages
-            .get(joinable)
+        self.get_dyn(joinable)
             .and_then(|reg| reg.operations.join_impl.as_ref())
             .ok_or_else(|| DiagramErrorCode::NotJoinable(*joinable))
             .and_then(|f| f(buffers, builder))
@@ -1214,9 +1267,8 @@ impl MessageRegistry {
         T: Send + Sync + 'static + Any + Joined,
     {
         let ops = &mut self
-            .messages
-            .entry(TypeInfo::of::<T>())
-            .or_insert(MessageRegistration::new::<T>())
+            .registration
+            .get_or_insert::<T>()
             .operations;
         if ops.join_impl.is_some() {
             return false;
@@ -1234,8 +1286,7 @@ impl MessageRegistry {
         buffers: &BufferMap,
         builder: &mut Builder,
     ) -> Result<DynNode, DiagramErrorCode> {
-        self.messages
-            .get(target_type)
+        self.get_dyn(target_type)
             .and_then(|reg| reg.operations.buffer_access_impl.as_ref())
             .ok_or(DiagramErrorCode::CannotAccessBuffers(*target_type))
             .and_then(|f| f(buffers, builder))
@@ -1246,8 +1297,7 @@ impl MessageRegistry {
         message_info: &TypeInfo,
         identifiers: HashSet<BufferIdentifier<'static>>,
     ) -> Result<MessageTypeHintMap, DiagramErrorCode> {
-        self.messages
-            .get(message_info)
+        self.get_dyn(message_info)
             .and_then(|reg| reg.operations.accessor_hints)
             .ok_or_else(|| DiagramErrorCode::CannotAccessBuffers(*message_info))
             .and_then(|f| (f)(identifiers).map_err(Into::into))
@@ -1258,9 +1308,8 @@ impl MessageRegistry {
         T: Send + Sync + 'static + BufferAccessRequest,
     {
         let ops = &mut self
-            .messages
-            .entry(TypeInfo::of::<T>())
-            .or_insert(MessageRegistration::new::<T>())
+            .registration
+            .get_or_insert::<T>()
             .operations;
         if ops.buffer_access_impl.is_some() {
             return false;
@@ -1283,8 +1332,7 @@ impl MessageRegistry {
         buffers: &BufferMap,
         builder: &mut Builder,
     ) -> Result<DynOutput, DiagramErrorCode> {
-        self.messages
-            .get(target_type)
+        self.get_dyn(target_type)
             .and_then(|reg| reg.operations.listen_impl.as_ref())
             .ok_or_else(|| DiagramErrorCode::CannotListen(*target_type))
             .and_then(|f| f(buffers, builder))
@@ -1295,8 +1343,7 @@ impl MessageRegistry {
         message_info: &TypeInfo,
         identifiers: HashSet<BufferIdentifier<'static>>,
     ) -> Result<MessageTypeHintMap, DiagramErrorCode> {
-        self.messages
-            .get(message_info)
+        self.get_dyn(message_info)
             .and_then(|reg| reg.operations.listen_hints)
             .ok_or_else(|| DiagramErrorCode::CannotListen(*message_info))
             .and_then(|f| (f)(identifiers).map_err(Into::into))
@@ -1307,9 +1354,8 @@ impl MessageRegistry {
         T: Send + Sync + 'static + Any + Accessor,
     {
         let ops = &mut self
-            .messages
-            .entry(TypeInfo::of::<T>())
-            .or_insert(MessageRegistration::new::<T>())
+            .registration
+            .get_or_insert::<T>()
             .operations;
         if ops.listen_impl.is_some() {
             return false;
@@ -1328,58 +1374,78 @@ impl MessageRegistry {
         T: 'static + Send + Sync + ToString,
     {
         let ops = &mut self
-            .messages
-            .entry(TypeInfo::of::<T>())
-            .or_insert(MessageRegistration::new::<T>())
+            .registration
+            .get_or_insert::<T>()
             .operations;
 
         ops.to_string_impl =
             Some(|builder| builder.create_map_block(|msg: T| msg.to_string()).into());
     }
+}
 
-    fn serialize_messages<S>(
-        v: &HashMap<TypeInfo, MessageRegistration>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
+#[derive(Default)]
+pub struct MessageRegistrations {
+    messages: Vec<MessageRegistration>,
+
+    /// Convert from type info to the index of a message wihtin the registry
+    indices: HashMap<TypeInfo, usize>,
+}
+
+impl MessageRegistrations {
+    fn get<T>(&self) -> Option<&MessageRegistration>
     where
-        S: serde::Serializer,
+        T: Any,
     {
-        let mut s = serializer.serialize_map(Some(v.len()))?;
-        for (type_id, reg) in v {
-            // hide builtin registrations
-            if type_id == &TypeInfo::of::<serde_json::Value>() {
-                continue;
-            }
-
-            // should we use short name? It makes the serialized json more readable at the cost
-            // of greatly increased chance of key conflicts.
-            // let short_name = {
-            //     if let Some(start) = reg.type_name.rfind(":") {
-            //         &reg.type_name[start + 1..]
-            //     } else {
-            //         reg.type_name
-            //     }
-            // };
-            s.serialize_entry(reg.type_name, reg)?;
-        }
-        s.end()
+        self.get_dyn(&TypeInfo::of::<T>())
     }
-}
 
-#[derive(JsonSchema)]
-#[schemars(rename = "MessageRegistry", inline)]
-struct MessageRegistrySerializeSchemas {
-    #[allow(unused)] // This is only used to generate schema
-    #[schemars(flatten)]
-    schemas: serde_json::Map<String, serde_json::Value>,
-}
+    pub(crate) fn get_dyn(&self, target_type: &TypeInfo) -> Option<&MessageRegistration> {
+        self
+        .indices
+        .get(target_type)
+        .map(|index| self.messages.get(*index))
+        .flatten()
+    }
 
-impl MessageRegistrySerializeSchemas {
-    fn serialize<S>(v: &SchemaGenerator, serializer: S) -> Result<S::Ok, S::Error>
+    pub(crate) fn get_or_insert<T>(&mut self) -> &mut MessageRegistration
     where
-        S: serde::Serializer,
+        T: 'static + Send + Sync,
     {
-        v.definitions().serialize(serializer)
+        let target_type = TypeInfo::of::<T>();
+        if let Some(index) = self.indices.get(&target_type) {
+            // SAFETY: self.message_indices and self.messages are kept in sync
+            // by the implementation of MessageRegistry. If we find an entry in
+            // self.message_indices then there must be a matching entry in
+            // self.messages.
+            self.messages.get_mut(*index).unwrap()
+        } else {
+            let index = self.messages.len();
+            self.indices.insert(target_type, index);
+            self.messages.push(MessageRegistration::new::<T>());
+
+            // SAFETY: We just pushed an entry in the previous line, and now we
+            // just want to retrieve a mutable borrow of it.
+            self.messages.last_mut().unwrap()
+        }
+    }
+
+    pub(crate) fn get_index_dyn(&self, target_type: &TypeInfo) -> Option<usize> {
+        self.indices.get(target_type).cloned()
+    }
+
+    pub(crate) fn get_index_or_insert<T>(&mut self) -> usize
+    where
+        T: 'static + Send + Sync,
+    {
+        let target_type = TypeInfo::of::<T>();
+        if let Some(index) = self.indices.get(&target_type) {
+            *index
+        } else {
+            let index = self.messages.len();
+            self.indices.insert(target_type, index);
+            self.messages.push(MessageRegistration::new::<T>());
+            index
+        }
     }
 }
 
@@ -1393,7 +1459,6 @@ impl Default for DiagramElementRegistry {
             nodes: Default::default(),
             sections: Default::default(),
             messages: MessageRegistry::new(),
-            trace_supported: crate::trace_supported(),
         };
 
         registry.register_builtin_messages();
@@ -1415,8 +1480,12 @@ impl DiagramElementRegistry {
             nodes: Default::default(),
             sections: Default::default(),
             messages: MessageRegistry::new(),
-            trace_supported: crate::trace_supported(),
         }
+    }
+
+    pub fn metadata(&self) -> DiagramElementRegistryMetadata {
+        DiagramElementRegistryMetadata {
+            nodes: (), sections: (), messages: (), trace_supported: () }
     }
 
     /// Register a node builder with all the common operations (deserialize the
@@ -1455,6 +1524,8 @@ impl DiagramElementRegistry {
         Config: JsonSchema + DeserializeOwned,
         Request: Send + Sync + 'static + DynType + Serialize + DeserializeOwned + Clone,
         Response: Send + Sync + 'static + DynType + Serialize + DeserializeOwned + Clone,
+        Streams::StreamTypes: RegisterStreams<Supported, Supported, Supported>,
+
     {
         self.opt_out().register_node_builder(options, builder)
     }
@@ -1474,6 +1545,7 @@ impl DiagramElementRegistry {
         Config: JsonSchema + DeserializeOwned,
         Request: Send + Sync + 'static + DynType + Serialize + DeserializeOwned + Clone,
         Response: Send + Sync + 'static + DynType + Serialize + DeserializeOwned + Clone,
+        Streams::StreamTypes: RegisterStreams<Supported, Supported, Supported>,
     {
         self.opt_out()
             .register_node_builder_fallible(options, builder)
@@ -1535,13 +1607,17 @@ impl DiagramElementRegistry {
     {
         let builder_id = Arc::clone(&options.id);
         let registration = SectionRegistration {
-            default_display_text: options
-                .default_display_text
-                .as_ref()
-                .unwrap_or(&options.id)
-                .clone(),
-            metadata: SectionT::metadata().clone(),
-            config_schema: self.messages.schema_generator.subschema_for::<()>(),
+            metadata: SectionMetadata {
+                default_display_text: options
+                    .default_display_text
+                    .as_ref()
+                    .unwrap_or(&options.id)
+                    .clone(),
+                interface: SectionT::interface_metadata().clone(),
+                config_schema: self.messages.schema_generator.subschema_for::<()>(),
+                description: options.description.clone(),
+                config_examples: options.config_examples.clone(),
+            },
             create_section_impl: RefCell::new(Box::new(move |builder, config| {
                 let section =
                     section_builder(builder, serde_json::from_value::<Config>(config).unwrap())
@@ -1551,8 +1627,6 @@ impl DiagramElementRegistry {
                         })?;
                 Ok(Box::new(section))
             })),
-            description: options.description.clone(),
-            config_examples: options.config_examples.clone(),
         };
 
         self.sections.insert(options.id, registration);
@@ -1638,7 +1712,7 @@ impl DiagramElementRegistry {
     where
         T: Any,
     {
-        self.messages.get::<T>()
+        self.messages.registration.get::<T>()
     }
 
     /// Register useful messages that are known to the crossflow library.
@@ -1690,7 +1764,7 @@ pub struct NodeBuilderOptions {
     pub config_examples: Vec<ConfigExample>,
 }
 
-#[derive(Clone, Serialize, JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ConfigExample {
     /// A description of what this config is for
     pub description: String,
@@ -1789,6 +1863,45 @@ impl SectionBuilderOptions {
     }
 }
 
+pub trait RegisterStreams<DeserializeImpl, SerializeImpl, Cloneable> {
+    fn register_streams<'a>(
+        registry: &mut CommonOperations<'a, DeserializeImpl, SerializeImpl, Cloneable>,
+    );
+}
+
+impl<D, S, C> RegisterStreams<D, S, C> for () {
+    fn register_streams(
+        _: &mut CommonOperations<D, S, C>,
+    ) {
+        // Do nothing
+    }
+}
+
+macro_rules! impl_register_streams_for_tuple {
+    ($($T:ident),*) => {
+        #[allow(non_snake_case)]
+        impl<D, S, C, $($T),*> RegisterStreams<D, S, C> for ($($T,)*)
+        where
+            $($T: StreamEffect,)*
+            D: $(DeserializeMessage<$T::Input> + DeserializeMessage<$T::Output> + )*,
+            S: $(SerializeMessage<$T::Input> + SerializeMessage<$T::Output> + )*,
+            C: $(RegisterClone<$T::Input> + RegisterClone<$T::Output> + )*,
+            JsonRegistration<S, D>: $(RegisterJson<$T::Input> + RegisterJson<$T::Output> + )*,
+        {
+            fn register_streams(
+                registry: &mut CommonOperations<D, S, C>,
+            ) {
+                $(
+                    registry.impl_register_message::<$T::Input>();
+                    registry.impl_register_message::<$T::Output>();
+                )*
+            }
+        }
+    }
+}
+
+all_tuples!(impl_register_streams_for_tuple, 1, 12, T);
+
 #[cfg(test)]
 mod tests {
     use schemars::JsonSchema;
@@ -1847,8 +1960,8 @@ mod tests {
             NodeBuilderOptions::new("multiply3").with_default_display_text("Test Name"),
             |builder, _config: ()| builder.create_map_block(multiply3),
         );
-        let req_ops = &registry.messages.get::<i64>().unwrap().operations;
-        let resp_ops = &registry.messages.get::<i64>().unwrap().operations;
+        let req_ops = &registry.messages.registration.get::<i64>().unwrap().operations;
+        let resp_ops = &registry.messages.registration.get::<i64>().unwrap().operations;
         assert!(req_ops.deserializable());
         assert!(resp_ops.serializable());
         assert!(resp_ops.cloneable());
@@ -1865,8 +1978,8 @@ mod tests {
             NodeBuilderOptions::new("multiply3").with_default_display_text("Test Name"),
             |builder, _config: ()| builder.create_map_block(multiply3),
         );
-        let req_ops = &registry.messages.get::<i64>().unwrap().operations;
-        let resp_ops = &registry.messages.get::<i64>().unwrap().operations;
+        let req_ops = &registry.messages.registration.get::<i64>().unwrap().operations;
+        let resp_ops = &registry.messages.registration.get::<i64>().unwrap().operations;
         assert!(req_ops.deserializable());
         assert!(resp_ops.serializable());
         assert!(resp_ops.cloneable());
@@ -1885,8 +1998,8 @@ mod tests {
                 move |builder: &mut Builder, _config: ()| builder.create_map_block(tuple_resp),
             )
             .with_unzip();
-        let req_ops = &registry.messages.get::<()>().unwrap().operations;
-        let resp_ops = &registry.messages.get::<(i64,)>().unwrap().operations;
+        let req_ops = &registry.messages.registration.get::<()>().unwrap().operations;
+        let resp_ops = &registry.messages.registration.get::<(i64,)>().unwrap().operations;
         assert!(req_ops.deserializable());
         assert!(resp_ops.serializable());
         assert!(resp_ops.unzippable());
@@ -1906,6 +2019,7 @@ mod tests {
         assert!(
             registry
                 .messages
+                .registration
                 .get::<Vec<i64>>()
                 .unwrap()
                 .operations
@@ -1922,6 +2036,7 @@ mod tests {
         assert!(
             registry
                 .messages
+                .registration
                 .get::<HashMap<String, i64>>()
                 .unwrap()
                 .operations
@@ -1937,6 +2052,7 @@ mod tests {
         assert!(
             registry
                 .messages
+                .registration
                 .get::<HashMap<String, i64>>()
                 .unwrap()
                 .operations
@@ -1983,10 +2099,11 @@ mod tests {
         assert!(registry.get_node_registration("opaque_request_map").is_ok());
         let req_ops = &registry
             .messages
+            .registration
             .get::<NonSerializableRequest>()
             .unwrap()
             .operations;
-        let resp_ops = &registry.messages.get::<()>().unwrap().operations;
+        let resp_ops = &registry.messages.registration.get::<()>().unwrap().operations;
         assert!(!req_ops.deserializable());
         assert!(resp_ops.serializable());
 
@@ -2009,9 +2126,10 @@ mod tests {
                 .get_node_registration("opaque_response_map")
                 .is_ok()
         );
-        let req_ops = &registry.messages.get::<()>().unwrap().operations;
+        let req_ops = &registry.messages.registration.get::<()>().unwrap().operations;
         let resp_ops = &registry
             .messages
+            .registration
             .get::<NonSerializableRequest>()
             .unwrap()
             .operations;
@@ -2038,11 +2156,13 @@ mod tests {
         );
         let req_ops = &registry
             .messages
+            .registration
             .get::<NonSerializableRequest>()
             .unwrap()
             .operations;
         let resp_ops = &registry
             .messages
+            .registration
             .get::<NonSerializableRequest>()
             .unwrap()
             .operations;
@@ -2107,6 +2227,13 @@ mod tests {
                 })
             })
             .with_unzip();
+
+        reg.register_node_builder(NodeBuilderOptions::new("result_test"), |builder, _: ()| {
+                builder.create_map_block(|value: f32| {
+                    Ok::<f32, f32>(value)
+                })
+            })
+            .with_result();
 
         reg.register_node_builder(
             NodeBuilderOptions::new("stream_test"),

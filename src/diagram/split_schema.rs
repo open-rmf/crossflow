@@ -28,8 +28,8 @@ use crate::{
 
 use super::{
     BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode, DynInputSlot, DynOutput,
-    MessageRegistration, MessageRegistry, NextOperation, OperationName, RegisterClone,
-    SerializeMessage, TraceInfo, TraceSettings, TypeInfo, supported::*,
+    MessageRegistry, NextOperation, OperationName, RegisterClone,
+    SerializeMessage, TraceInfo, TraceSettings, supported::*,
 };
 
 /// If the input message is a list-like or map-like object, split it into
@@ -268,7 +268,7 @@ pub trait RegisterSplit {
         builder: &mut Builder,
     ) -> Result<DynSplit, DiagramErrorCode>;
 
-    fn on_register(registry: &mut MessageRegistry);
+    fn on_register(messages: &mut MessageRegistry);
 }
 
 impl<T, Serializer, Cloneable> RegisterSplit for Supported<(T, Serializer, Cloneable)>
@@ -312,19 +312,18 @@ where
         })
     }
 
-    fn on_register(registry: &mut MessageRegistry) {
-        let ops = &mut registry
-            .messages
-            .entry(TypeInfo::of::<T>())
-            .or_insert(MessageRegistration::new::<T>())
+    fn on_register(messages: &mut MessageRegistry) {
+        let ops = &mut messages
+            .registration
+            .get_or_insert::<T>()
             .operations;
 
         ops.split_impl = Some(Self::perform_split);
 
-        registry.register_serialize::<T::Item, Serializer>();
-        registry.register_clone::<T::Item, Cloneable>();
-        registry.register_serialize::<Vec<T::Item>, Serializer>();
-        registry.register_clone::<Vec<T::Item>, Cloneable>();
+        messages.register_serialize::<T::Item, Serializer>();
+        messages.register_clone::<T::Item, Cloneable>();
+        messages.register_serialize::<Vec<T::Item>, Serializer>();
+        messages.register_clone::<Vec<T::Item>, Cloneable>();
     }
 }
 

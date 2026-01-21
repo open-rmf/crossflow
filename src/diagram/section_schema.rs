@@ -25,7 +25,7 @@ use crate::{AnyBuffer, AnyMessageBox, Buffer, InputSlot, JsonBuffer, JsonMessage
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderId, DiagramContext, DiagramElementRegistry,
     DiagramErrorCode, DynInputSlot, DynOutput, NamespacedOperation, NextOperation, OperationName,
-    OperationRef, Operations, RedirectConnection, TraceInfo, TraceSettings, TypeInfo,
+    OperationRef, Operations, RedirectConnection, TraceInfo, TraceSettings, TypeInfo, MessageRegistrations,
 };
 
 pub use crossflow_derive::Section;
@@ -200,14 +200,14 @@ impl BuildDiagramOperation for SectionSchema {
     }
 }
 
-#[derive(Serialize, Clone, JsonSchema)]
-pub struct SectionMetadata {
+#[derive(Serialize, Deserialize, Clone, JsonSchema)]
+pub struct SectionInterface {
     pub(super) inputs: HashMap<OperationName, SectionInput>,
     pub(super) outputs: HashMap<OperationName, SectionOutput>,
     pub(super) buffers: HashMap<OperationName, SectionBuffer>,
 }
 
-impl SectionMetadata {
+impl SectionInterface {
     pub fn new() -> Self {
         Self {
             inputs: HashMap::new(),
@@ -218,7 +218,7 @@ impl SectionMetadata {
 }
 
 pub trait SectionMetadataProvider {
-    fn metadata() -> &'static SectionMetadata;
+    fn interface_metadata() -> &'static SectionInterface;
 }
 
 pub struct SectionSlots {
@@ -245,26 +245,33 @@ pub trait Section {
         Self: Sized;
 }
 
-pub trait SectionItem {
+pub trait SectionInterfaceItem {
     type MessageType;
 
-    fn build_metadata(metadata: &mut SectionMetadata, key: &str);
+    fn add_metadata(
+        messages: &mut MessageRegistrations,
+        interface: &mut SectionInterface,
+        key: &str
+    );
 
     fn insert_into_slots(self, key: &str, slots: &mut SectionSlots);
 }
 
-impl<T> SectionItem for InputSlot<T>
+impl<T> SectionInterfaceItem for InputSlot<T>
 where
     T: Send + Sync + 'static,
 {
     type MessageType = T;
 
-    fn build_metadata(metadata: &mut SectionMetadata, key: &str) {
-        metadata.inputs.insert(
+    fn add_metadata(
+        messages: &mut MessageRegistrations,
+        interface: &mut SectionInterface,
+        key: &str,
+    ) {
+        let message_type = messages.get_index_or_insert::<T>();
+        interface.inputs.insert(
             key.into(),
-            SectionInput {
-                message_type: TypeInfo::of::<T>(),
-            },
+            SectionInput { message_type },
         );
     }
 
@@ -273,18 +280,21 @@ where
     }
 }
 
-impl<T> SectionItem for Output<T>
+impl<T> SectionInterfaceItem for Output<T>
 where
     T: Send + Sync + 'static,
 {
     type MessageType = T;
 
-    fn build_metadata(metadata: &mut SectionMetadata, key: &str) {
-        metadata.outputs.insert(
+    fn add_metadata(
+        messages: &mut MessageRegistrations,
+        interface: &mut SectionInterface,
+        key: &str,
+    ) {
+        let message_type = messages.get_index_or_insert::<T>();
+        interface.outputs.insert(
             key.into(),
-            SectionOutput {
-                message_type: TypeInfo::of::<T>(),
-            },
+            SectionOutput { message_type },
         );
     }
 
@@ -293,18 +303,21 @@ where
     }
 }
 
-impl<T> SectionItem for Buffer<T>
+impl<T> SectionInterfaceItem for Buffer<T>
 where
     T: Send + Sync + 'static,
 {
     type MessageType = T;
 
-    fn build_metadata(metadata: &mut SectionMetadata, key: &str) {
-        metadata.buffers.insert(
+    fn add_metadata(
+        messages: &mut MessageRegistrations,
+        interface: &mut SectionInterface,
+        key: &str,
+    ) {
+        let message_type = Some(messages.get_index_or_insert::<T>());
+        interface.buffers.insert(
             key.into(),
-            SectionBuffer {
-                item_type: Some(TypeInfo::of::<T>()),
-            },
+            SectionBuffer { message_type },
         );
     }
 
@@ -313,13 +326,17 @@ where
     }
 }
 
-impl SectionItem for AnyBuffer {
+impl SectionInterfaceItem for AnyBuffer {
     type MessageType = AnyMessageBox;
 
-    fn build_metadata(metadata: &mut SectionMetadata, key: &str) {
-        metadata
+    fn add_metadata(
+        _: &mut MessageRegistrations,
+        interface: &mut SectionInterface,
+        key: &str,
+    ) {
+        interface
             .buffers
-            .insert(key.into(), SectionBuffer { item_type: None });
+            .insert(key.into(), SectionBuffer { message_type: None });
     }
 
     fn insert_into_slots(self, key: &str, slots: &mut SectionSlots) {
@@ -327,13 +344,17 @@ impl SectionItem for AnyBuffer {
     }
 }
 
-impl SectionItem for JsonBuffer {
+impl SectionInterfaceItem for JsonBuffer {
     type MessageType = JsonMessage;
 
-    fn build_metadata(metadata: &mut SectionMetadata, key: &str) {
-        metadata
+    fn add_metadata(
+        _: &mut MessageRegistrations,
+        interface: &mut SectionInterface,
+        key: &str,
+    ) {
+        interface
             .buffers
-            .insert(key.into(), SectionBuffer { item_type: None });
+            .insert(key.into(), SectionBuffer { message_type: None });
     }
 
     fn insert_into_slots(self, key: &str, slots: &mut SectionSlots) {
@@ -341,19 +362,19 @@ impl SectionItem for JsonBuffer {
     }
 }
 
-#[derive(Serialize, Clone, JsonSchema)]
+#[derive( Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SectionInput {
-    pub(super) message_type: TypeInfo,
+    pub(super) message_type: usize,
 }
 
-#[derive(Serialize, Clone, JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SectionOutput {
-    pub(super) message_type: TypeInfo,
+    pub(super) message_type: usize,
 }
 
-#[derive(Serialize, Clone, JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SectionBuffer {
-    pub(super) item_type: Option<TypeInfo>,
+    pub(super) message_type: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]

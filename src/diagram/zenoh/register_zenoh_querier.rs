@@ -187,7 +187,11 @@ impl DiagramElementRegistry {
         };
         let create_querier = create_querier.into_async_callback();
 
-        self.register_node_builder_fallible(
+        self
+            .opt_out()
+            .no_serializing()
+            .no_deserializing()
+            .register_node_builder_fallible(
             NodeBuilderOptions::new("zenoh_querier").with_default_display_text("Zenoh Querier"),
             move |builder, mut config: ZenohQuerierConfig| {
                 builder.commands().queue(ensure_session.clone());

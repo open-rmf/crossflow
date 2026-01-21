@@ -20,8 +20,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode, DynInputSlot, DynOutput,
-    MessageRegistration, MessageRegistry, NextOperation, OperationName, RegisterClone,
-    SerializeMessage, TraceInfo, TraceSettings, TypeInfo, supported::*,
+    MessageRegistry, NextOperation, OperationName, RegisterClone,
+    SerializeMessage, TraceInfo, TraceSettings, supported::*,
 };
 
 pub struct DynForkResult {
@@ -105,11 +105,10 @@ where
     S: SerializeMessage<T> + SerializeMessage<E>,
     C: RegisterClone<T> + RegisterClone<E>,
 {
-    fn on_register(registry: &mut MessageRegistry) -> bool {
-        let ops = &mut registry
-            .messages
-            .entry(TypeInfo::of::<Result<T, E>>())
-            .or_insert(MessageRegistration::new::<T>())
+    fn on_register(messages: &mut MessageRegistry) -> bool {
+        let ops = &mut messages
+            .registration
+            .get_or_insert::<Result<T, E>>()
             .operations;
         if ops.fork_result_impl.is_some() {
             return false;
@@ -124,11 +123,11 @@ where
             })
         });
 
-        registry.register_serialize::<T, S>();
-        registry.register_clone::<T, C>();
+        messages.register_serialize::<T, S>();
+        messages.register_clone::<T, C>();
 
-        registry.register_serialize::<E, S>();
-        registry.register_clone::<E, C>();
+        messages.register_serialize::<E, S>();
+        messages.register_clone::<E, C>();
 
         true
     }

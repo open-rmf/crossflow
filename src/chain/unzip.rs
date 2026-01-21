@@ -31,9 +31,6 @@ pub trait Unzippable: Sized {
     fn unzip_output(output: Output<Self>, builder: &mut Builder) -> Self::Unzipped;
 
     fn distribute_values(request: OperationRequest) -> OperationResult;
-
-    type Prepended<T>;
-    fn prepend<T>(self, value: T) -> Self::Prepended<T>;
 }
 
 macro_rules! impl_unzippable_for_tuple {
@@ -84,12 +81,6 @@ macro_rules! impl_unzippable_for_tuple {
                     }
                 )*
                 Ok(())
-            }
-
-            type Prepended<T> = (T, $($T,)*);
-            fn prepend<T>(self, value: T) -> Self::Prepended<T> {
-                let ($($T,)*) = self;
-                (value, $($T,)*)
             }
         }
     }

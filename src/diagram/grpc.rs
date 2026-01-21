@@ -149,7 +149,11 @@ impl DiagramElementRegistry {
     /// ```
     pub fn enable_grpc(&mut self, runtime: Arc<Runtime>) {
         let rt = Arc::clone(&runtime);
-        self.register_node_builder_fallible(
+        self
+            .opt_out()
+            .no_serializing()
+            .no_deserializing()
+            .register_node_builder_fallible(
             NodeBuilderOptions::new("grpc_request").with_default_display_text("gRPC Request"),
             move |builder, config: GrpcConfig| {
                 let GrpcDescriptions {
@@ -256,6 +260,8 @@ impl DiagramElementRegistry {
                 },
             )
             .with_result();
+
+        self.register_message::<Option<String>>();
 
         // TODO(@mxgrey): Support dynamic gRPC requests whose configurations are
         // decided within the workflow and passed into the node as input.
@@ -682,13 +688,13 @@ mod tests {
 
         fixture
             .registry
+            .opt_out()
+            .minimal()
             .register_node_builder(NodeBuilderOptions::new("guide"), create_guide_to_goal);
         fixture
             .registry
             .opt_out()
-            .no_serializing()
-            .no_deserializing()
-            .no_cloning()
+            .minimal()
             .register_message::<GoalTracker>();
 
         let reached_listener = fixture

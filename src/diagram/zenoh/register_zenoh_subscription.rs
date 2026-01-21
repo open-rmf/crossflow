@@ -115,7 +115,10 @@ pub enum ZenohSubscriptionError {
 
 impl DiagramElementRegistry {
     pub(super) fn register_zenoh_subscription(&mut self, ensure_session: EnsureZenohSession) {
-        self.register_node_builder_fallible(
+        self.opt_out()
+            .no_serializing()
+            .no_deserializing()
+            .register_node_builder_fallible(
             NodeBuilderOptions::new("zenoh_subscription")
                 .with_default_display_text("Zenoh Subscription"),
             move |builder, config: ZenohSubscriptionConfig| {

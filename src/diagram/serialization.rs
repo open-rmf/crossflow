@@ -24,9 +24,11 @@ use std::{
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Serialize, de::DeserializeOwned};
 
+use tokio::sync::oneshot;
+
 use super::{
     DiagramContext, DiagramErrorCode, DynForkResult, DynInputSlot, DynOutput, JsonMessage,
-    MessageRegistration, MessageRegistry, TypeInfo, TypeMismatch, supported::*,
+    MessageRegistrations, MessageRegistry, TypeInfo, TypeMismatch, supported::*,
 };
 use crate::JsonBuffer;
 
@@ -55,7 +57,7 @@ where
 
 pub trait SerializeMessage<T> {
     fn register_serialize(
-        messages: &mut HashMap<TypeInfo, MessageRegistration>,
+        messages: &mut MessageRegistrations,
         schema_generator: &mut SchemaGenerator,
     );
 }
@@ -65,12 +67,10 @@ where
     T: Serialize + DynType + Send + Sync + 'static,
 {
     fn register_serialize(
-        messages: &mut HashMap<TypeInfo, MessageRegistration>,
+        messages: &mut MessageRegistrations,
         schema_generator: &mut SchemaGenerator,
     ) {
-        let reg = &mut messages
-            .entry(TypeInfo::of::<T>())
-            .or_insert(MessageRegistration::new::<T>());
+        let reg = messages.get_or_insert::<T>();
 
         reg.operations.serialize_impl = Some(|builder| {
             let serialize = builder.create_map_block(|message: T| {
@@ -104,7 +104,7 @@ where
 
 pub trait DeserializeMessage<T> {
     fn register_deserialize(
-        messages: &mut HashMap<TypeInfo, MessageRegistration>,
+        messages: &mut MessageRegistrations,
         schema_generator: &mut SchemaGenerator,
     );
 }
@@ -114,12 +114,10 @@ where
     T: 'static + Send + Sync + DeserializeOwned + DynType,
 {
     fn register_deserialize(
-        messages: &mut HashMap<TypeInfo, MessageRegistration>,
+        messages: &mut MessageRegistrations,
         schema_generator: &mut SchemaGenerator,
     ) {
-        let reg = &mut messages
-            .entry(TypeInfo::of::<T>())
-            .or_insert(MessageRegistration::new::<T>());
+        let reg = messages.get_or_insert::<T>();
 
         reg.operations.deserialize_impl = Some(|builder| {
             let deserialize = builder.create_map_block(|message: JsonMessage| {
@@ -146,14 +144,14 @@ where
 }
 
 impl<T> SerializeMessage<T> for NotSupported {
-    fn register_serialize(_: &mut HashMap<TypeInfo, MessageRegistration>, _: &mut SchemaGenerator) {
+    fn register_serialize(_: &mut MessageRegistrations, _: &mut SchemaGenerator) {
         // Do nothing
     }
 }
 
 impl<T> DeserializeMessage<T> for NotSupported {
     fn register_deserialize(
-        _: &mut HashMap<TypeInfo, MessageRegistration>,
+        _: &mut MessageRegistrations,
         _: &mut SchemaGenerator,
     ) {
         // Do nothing
@@ -296,8 +294,7 @@ impl ImplicitDeserialization {
         registration: &MessageRegistry,
     ) -> Result<Option<Self>, DiagramErrorCode> {
         if registration
-            .messages
-            .get(&deserialized_input.message_info())
+            .get_dyn(deserialized_input.message_info())
             .and_then(|reg| reg.operations.deserialize_impl.as_ref())
             .is_some()
         {

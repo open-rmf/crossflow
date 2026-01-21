@@ -47,6 +47,7 @@ pub(crate) fn impl_stream_pack(pack_struct: &ItemStruct) -> Result<TokenStream, 
     let generics = &pack_struct.generics;
     let vis = &pack_struct.vis;
 
+
     let input_streams: Vec<Ident> = field_idents
         .iter()
         .map(|ident| Ident::new(&format!("input_{ident}"), ident.span()))
@@ -125,6 +126,7 @@ pub(crate) fn impl_stream_pack(pack_struct: &ItemStruct) -> Result<TokenStream, 
             type StreamReceivers = #receivers #ty_generics;
             type StreamChannels = #channels #ty_generics;
             type StreamBuffers = #buffers #ty_generics;
+            type StreamTypes = (#(#stream_effects,)*);
 
             fn spawn_scope_streams(
                 in_scope: ::crossflow::re_exports::Entity,
