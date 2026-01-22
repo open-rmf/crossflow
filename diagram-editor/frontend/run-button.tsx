@@ -45,6 +45,10 @@ export function RunButton({ requestJsonString }: RunButtonProps) {
   const [running, setRunning] = useState(false);
   const [diagramProperties, _] = useDiagramProperties();
 
+  useEffect(() => {
+    setRequestJson(requestJsonString);
+  }, [requestJsonString]);
+
   const requestError = useMemo(() => {
     try {
       JSON.parse(requestJson);
