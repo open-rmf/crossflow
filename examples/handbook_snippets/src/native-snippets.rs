@@ -1438,7 +1438,7 @@ fn navigate(
     In(input): AsyncServiceInput<NavigationRequest, NavigationStreams>,
     nav_graph: Res<NavigationGraph>,
 ) -> impl Future<Output = Result<(), NavigationError>> + use<> {
-    // Clone the nevigation graph resource so we can move the clone into the
+    // Clone the navigation graph resource so we can move the clone into the
     // async block.
     let nav_graph = (*nav_graph).clone();
 
@@ -1900,7 +1900,7 @@ let outcome = commands.request(10, fibonacci_map_example.as_map()).outcome();
 async fn navigate(
     input: AsyncMap<NavigationRequest, NavigationStreams>,
 ) -> Result<(), NavigationError> {
-    // Clone the nevigation graph resource so we can move the clone into the
+    // Clone the navigation graph resource so we can move the clone into the
     // async block.
     let nav_graph = input
         .channel
