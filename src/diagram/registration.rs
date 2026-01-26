@@ -605,8 +605,7 @@ where
     /// message type `V` into this message type.
     pub fn with_try_from<V>(&mut self) -> &mut Self
     where
-        V: 'static + Send + Sync,
-        V: TryInto<Message>,
+        V: 'static + Send + Sync + TryInto<Message>,
         <V as TryInto<Message>>::Error: 'static + Send + Sync + ToString,
     {
         self.with_mapping_try_from(V::try_into);
@@ -820,6 +819,124 @@ where
         Response: ToString,
     {
         self.registry.messages.register_to_string::<Response>();
+        self
+    }
+
+    /// Register the [`Into`] implementation that maps the request type of this
+    /// node into some other message type `U`.
+    pub fn with_into<U>(&mut self) -> &mut Self
+    where
+        U: 'static + Send + Sync,
+        Response: Into<U>,
+    {
+        MessageRegistrationBuilder::<Response>::new(&mut self.registry.messages)
+            .with_into::<U>();
+        self
+    }
+
+    /// Register a mapping from the request type of this node into some other
+    /// message type. This allows you to register a custom mapping.
+    ///
+    /// Registering this multiple times for the same message pair will override
+    /// the previously registered mapping.
+    pub fn with_mapping_into<U>(
+        &mut self,
+        f: impl Fn(Response) -> U + 'static + Send + Sync,
+    ) -> &mut Self
+    where
+        U: 'static + Send + Sync,
+    {
+        MessageRegistrationBuilder::<Response>::new(&mut self.registry.messages)
+            .with_mapping_into(f);
+        self
+    }
+
+    /// Register the [`From`] implementation that maps from some other message
+    /// type `V` into the request type of this node.
+    pub fn with_from<V>(&mut self) -> &mut Self
+    where
+        V: 'static + Send + Sync + Into<Request>,
+    {
+        MessageRegistrationBuilder::<Request>::new(&mut self.registry.messages)
+            .with_from::<V>();
+        self
+    }
+
+    /// Register a mapping from some other message type `V` into the request
+    /// type of this node. This allows you to register a custom mapping.
+    ///
+    /// Calling this multiple times for the same message pair will override any
+    /// previously registered mapping for that pair.
+    pub fn with_mapping_from<V>(
+        &mut self,
+        f: impl Fn(V) -> Request + 'static + Send + Sync,
+    ) -> &mut Self
+    where
+        V: 'static + Send + Sync,
+    {
+        MessageRegistrationBuilder::<Request>::new(&mut self.registry.messages)
+            .with_mapping_from(f);
+        self
+    }
+
+    /// Register the [`TryInto`] implementation that maps the response type of
+    /// this node into some other message type `U`.
+    pub fn with_try_into<U>(&mut self) -> &mut Self
+    where
+        U: 'static + Send + Sync,
+        Response: TryInto<U>,
+        Response::Error: 'static + Send + Sync + ToString,
+    {
+        MessageRegistrationBuilder::<Response>::new(&mut self.registry.messages)
+            .with_try_into::<U>();
+        self
+    }
+
+    /// Register a fallible mapping from the response type of this node into
+    /// some other message type. This allows you to register a custom mapping.
+    ///
+    /// Registering this multiple times for the same message pair will override
+    /// the previously registered mapping.
+    pub fn with_mapping_try_into<U, E>(
+        &mut self,
+        f: impl Fn(Response) -> Result<U, E> + 'static + Send + Sync,
+    ) -> &mut Self
+    where
+        U: 'static + Send + Sync,
+        E: 'static + Send + Sync + ToString,
+    {
+        MessageRegistrationBuilder::<Response>::new(&mut self.registry.messages)
+            .with_mapping_try_into(f);
+        self
+    }
+
+    /// Register the [`TryFrom`] implementation that maps from some other
+    /// message type `V` into the request type of this node.
+    pub fn with_try_from<V>(&mut self) -> &mut Self
+    where
+        V: 'static + Send + Sync + TryInto<Request>,
+        <V as TryInto<Request>>::Error: 'static + Send + Sync + ToString,
+    {
+        MessageRegistrationBuilder::<Request>::new(&mut self.registry.messages)
+            .with_try_from::<V>();
+        self
+    }
+
+    /// Register a fallible mapping from some other message type `V` into the
+    /// request type of this node. This allows you to register a custom mapping.
+    ///
+    /// Calling this multiple times for the same message pair will override any
+    /// previous registered mapping for that pair.
+    pub fn with_mapping_try_from<V, E>(
+        &mut self,
+        f: impl Fn(V) -> Result<Request, E> + 'static + Send + Sync,
+    ) -> &mut Self
+    where
+        V: 'static + Send + Sync,
+        E: 'static + Send + Sync + ToString,
+    {
+        MessageRegistrationBuilder::<Request>::new(&mut self.registry.messages)
+            .with_mapping_try_from(f);
         self
     }
 }
@@ -2553,7 +2670,6 @@ mod tests {
 
     #[test]
     fn test_conversion_registration() {
-
         let mut registry = DiagramElementRegistry::new();
         registry
             .register_message::<TestFooBar>()
