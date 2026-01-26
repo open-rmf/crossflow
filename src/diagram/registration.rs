@@ -1161,6 +1161,10 @@ struct MessageOperationMetadata {
     fork_result: Option<JsEmptyObject>,
     split: Option<JsEmptyObject>,
     join: Option<JsEmptyObject>,
+    into: HashSet<usize>,
+    try_into: HashSet<usize>,
+    from: HashSet<usize>,
+    try_from: HashSet<usize>,
 }
 
 impl MessageOperationMetadata {
@@ -1179,6 +1183,10 @@ impl MessageOperationMetadata {
             fork_result: ops.fork_result_impl.is_some().then(|| JsEmptyObject),
             split: ops.split_impl.is_some().then(|| JsEmptyObject),
             join: ops.join_impl.is_some().then(|| JsEmptyObject),
+            into: ops.into_impls.keys().copied().collect(),
+            try_into: ops.try_into_impls.keys().copied().collect(),
+            from: ops.from_impls.keys().copied().collect(),
+            try_from: ops.try_from_impls.keys().copied().collect(),
         }
     }
 }
@@ -2586,6 +2594,7 @@ mod tests {
     struct TestFooBar {
         foo: f32,
         bar: String,
+        baz: Option<u32>,
     }
 
     impl From<TestFooBarBaz> for TestFooBar {
@@ -2593,6 +2602,44 @@ mod tests {
             TestFooBar {
                 foo: value.foo,
                 bar: value.bar,
+                baz: Some(value.baz),
+            }
+        }
+    }
+
+    #[derive(Clone, Serialize, Deserialize, JsonSchema)]
+    struct TestBarBaz {
+        foo: Option<f32>,
+        bar: String,
+        baz: u32,
+    }
+
+    impl TryFrom<TestBarBaz> for TestFooBar {
+        type Error = &'static str;
+        fn try_from(value: TestBarBaz) -> Result<Self, Self::Error> {
+            if let Some(foo) = value.foo {
+                Ok(Self {
+                    foo,
+                    bar: value.bar,
+                    baz: Some(value.baz),
+                })
+            } else {
+                Err("missing foo")
+            }
+        }
+    }
+
+    impl TryFrom<TestFooBar> for TestBarBaz {
+        type Error = &'static str;
+        fn try_from(value: TestFooBar) -> Result<Self, Self::Error> {
+            if let Some(baz) = value.baz {
+                Ok(Self {
+                    foo: Some(value.foo),
+                    bar: value.bar,
+                    baz,
+                })
+            } else {
+                Err("missing baz")
             }
         }
     }
@@ -2616,7 +2663,7 @@ mod tests {
         type Error = &'static str;
         fn try_from(value: TestMaybeFooBar) -> Result<Self, Self::Error> {
             if let (Some(foo), Some(bar)) = (value.foo, value.bar) {
-                Ok(TestFooBar { foo, bar })
+                Ok(TestFooBar { foo, bar, baz: None })
             } else {
                 Err("missing a field")
             }
@@ -2675,6 +2722,8 @@ mod tests {
             .register_message::<TestFooBar>()
             .with_from::<TestFooBarBaz>()
             .with_try_from::<TestMaybeFooBar>()
+            .with_try_from::<TestBarBaz>()
+            .with_try_into::<TestBarBaz>()
             .with_into::<TestMaybeFooBar>()
             .with_into::<TestFoo>()
             .with_into::<TestBar>();
@@ -2683,6 +2732,10 @@ mod tests {
             .messages
             .registration
             .get_index_or_insert::<TestFooBar>();
+        let index_bar_baz = registry
+            .messages
+            .registration
+            .get_index_or_insert::<TestBarBaz>();
         let index_foo_bar_baz = registry
             .messages
             .registration
@@ -2703,9 +2756,12 @@ mod tests {
         let ops = &registry.messages.registration.get_or_insert::<TestFooBar>().operations;
         assert!(ops.from_impls.contains_key(&index_foo_bar_baz));
         assert!(ops.try_from_impls.contains_key(&index_maybe_foo_bar));
+        assert!(ops.try_from_impls.contains_key(&index_bar_baz));
+        assert!(ops.try_into_impls.contains_key(&index_bar_baz));
         assert!(ops.into_impls.contains_key(&index_maybe_foo_bar));
         assert!(ops.into_impls.contains_key(&index_foo));
         assert!(ops.into_impls.contains_key(&index_bar));
+        assert_eq!(ops.into_impls.len(), 3);
 
         assert!(
             registry
@@ -2723,6 +2779,24 @@ mod tests {
             .get_or_insert::<TestMaybeFooBar>()
             .operations
             .try_into_impls
+            .contains_key(&index_foo_bar)
+        );
+        assert!(
+            registry
+            .messages
+            .registration
+            .get_or_insert::<TestBarBaz>()
+            .operations
+            .try_into_impls
+            .contains_key(&index_foo_bar)
+        );
+        assert!(
+            registry
+            .messages
+            .registration
+            .get_or_insert::<TestBarBaz>()
+            .operations
+            .try_from_impls
             .contains_key(&index_foo_bar)
         );
         assert!(
@@ -2751,6 +2825,81 @@ mod tests {
             .operations
             .from_impls
             .contains_key(&index_foo_bar)
+        );
+
+        let metadata = registry.metadata();
+        let ops = &metadata.messages.get(index_foo_bar).unwrap().operations;
+        assert!(ops.from.contains(&index_foo_bar_baz));
+        assert!(ops.try_from.contains(&index_maybe_foo_bar));
+        assert!(ops.try_from.contains(&index_bar_baz));
+        assert!(ops.try_into.contains(&index_bar_baz));
+        assert!(ops.into.contains(&index_maybe_foo_bar));
+        assert!(ops.into.contains(&index_foo));
+        assert!(ops.into.contains(&index_bar));
+        assert_eq!(ops.into.len(), 3);
+
+        assert!(
+            metadata
+            .messages
+            .get(index_foo_bar_baz)
+            .unwrap()
+            .operations
+            .into
+            .contains(&index_foo_bar)
+        );
+        assert!(
+            metadata
+            .messages
+            .get(index_maybe_foo_bar)
+            .unwrap()
+            .operations
+            .try_into
+            .contains(&index_foo_bar)
+        );
+        assert!(
+            metadata
+            .messages
+            .get(index_bar_baz)
+            .unwrap()
+            .operations
+            .try_into
+            .contains(&index_foo_bar)
+        );
+        assert!(
+            metadata
+            .messages
+            .get(index_bar_baz)
+            .unwrap()
+            .operations
+            .try_from
+            .contains(&index_foo_bar)
+        );
+        assert!(
+            metadata
+            .messages
+            .get(index_maybe_foo_bar)
+            .unwrap()
+            .operations
+            .from
+            .contains(&index_foo_bar)
+        );
+        assert!(
+            metadata
+            .messages
+            .get(index_foo)
+            .unwrap()
+            .operations
+            .from
+            .contains(&index_foo_bar)
+        );
+        assert!(
+            metadata
+            .messages
+            .get(index_bar)
+            .unwrap()
+            .operations
+            .from
+            .contains(&index_foo_bar)
         );
     }
 }
