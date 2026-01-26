@@ -88,6 +88,8 @@ type BufferLayoutTypeHintFn =
     fn(HashSet<BufferIdentifier<'static>>) -> Result<MessageTypeHintMap, IncompatibleLayout>;
 type CreateBufferFn = fn(BufferSettings, &mut Builder) -> AnyBuffer;
 type CreateTriggerFn = fn(&mut Builder) -> DynNode;
+type CreateIntoFn = Arc<dyn Fn(&mut Builder) -> (DynInputSlot, DynOutput)>;
+type CreateTryIntoFn = Arc<dyn Fn(&mut Builder) -> DynForkResult>;
 type ToStringFn = fn(&mut Builder) -> DynNode;
 
 #[cfg(feature = "trace")]
@@ -468,6 +470,168 @@ where
         self.data.register_to_string::<Message>();
         self
     }
+
+    /// Register the [`Into`] implementation that maps this message into some
+    /// other message type `U`.
+    pub fn with_into<U>(&mut self) -> &mut Self
+    where
+        U: 'static + Send + Sync,
+        Message: Into<U>,
+    {
+        self.with_mapping_into(Into::into)
+    }
+
+    /// Register a mapping from the message type into some other message type.
+    /// This allows you to register a custom mapping.
+    ///
+    /// Registering this multiple times for the same message pair will override
+    /// the previously registered mapping.
+    pub fn with_mapping_into<U>(
+        &mut self,
+        f: impl Fn(Message) -> U + 'static + Send + Sync,
+    ) -> &mut Self
+    where
+        U: 'static + Send + Sync,
+    {
+        let f = Arc::new(f);
+        let mapping = move |builder: &mut Builder| -> (DynInputSlot, DynOutput) {
+            let f = Arc::clone(&f);
+            let node = builder.create_map_block(move |request| f(request));
+            (node.input.into(), node.output.into())
+        };
+
+        let mapping = Arc::new(mapping) as CreateIntoFn;
+        let u_index = self.data.registration.get_index_or_insert::<U>();
+        self.data.registration.get_or_insert::<Message>()
+            .operations
+            .into_impls
+            .insert(u_index, Arc::clone(&mapping));
+
+        let message_index = self.data.registration.get_index_or_insert::<Message>();
+        self.data.registration.get_or_insert::<U>()
+            .operations
+            .from_impls
+            .insert(message_index, mapping);
+
+        self
+    }
+
+    /// Register the [`From`] implementation that maps from some other message
+    /// type `V` into this message type.
+    pub fn with_from<V>(&mut self) -> &mut Self
+    where
+        V: 'static + Send + Sync + Into<Message>,
+    {
+        self.with_mapping_from::<V>(Into::into)
+    }
+
+    /// Register a mapping from some other message type `V` into this message.
+    /// This allows you to register a custom mapping.
+    ///
+    /// Calling this multiple times for the same message pair will override any
+    /// previously registered mapping for that pair.
+    ///
+    /// This is the same as `self.with_mapping_into<V>(f)` except `Message` and
+    /// `V` are flipped.
+    pub fn with_mapping_from<V>(
+        &mut self,
+        f: impl Fn(V) -> Message + 'static + Send + Sync,
+    ) -> &mut Self
+    where
+        V: 'static + Send + Sync,
+    {
+        MessageRegistrationBuilder::<V>::new(self.data).with_mapping_into(f);
+        self
+    }
+
+    /// Register the [`TryInto`] implementation that maps this message into some
+    /// other message type `U`.
+    pub fn with_try_into<U>(&mut self) -> &mut Self
+    where
+        U: 'static + Send + Sync,
+        Message: TryInto<U>,
+        Message::Error: 'static + Send + Sync + ToString,
+    {
+        self.with_mapping_try_into(TryInto::<U>::try_into)
+    }
+
+    /// Register a fallible mapping from the message type into some other
+    /// message type. This allows you to register a custom mapping.
+    ///
+    /// Registering this multiple times for the same message pair will override
+    /// the previously registered mapping.
+    pub fn with_mapping_try_into<U, E>(
+        &mut self,
+        f: impl Fn(Message) -> Result<U, E> + 'static + Send + Sync,
+    ) -> &mut Self
+    where
+        U: 'static + Send + Sync,
+        E: 'static + Send + Sync + ToString,
+    {
+        let f = Arc::new(f);
+        let mapping = move |builder: &mut Builder| -> DynForkResult {
+            let f = Arc::clone(&f);
+            let node = builder.create_map_block(move |request| {
+                f(request)
+                .map_err(|err| err.to_string())
+            });
+            let (fork_input, fork_result) = builder.create_fork_result();
+            builder.connect(node.output, fork_input);
+
+            DynForkResult {
+                input: node.input.into(),
+                ok: fork_result.ok.into(),
+                err: fork_result.err.into(),
+            }
+        };
+
+        let mapping = Arc::new(mapping) as CreateTryIntoFn;
+        let u_index = self.data.registration.get_index_or_insert::<U>();
+        self.data.registration.get_or_insert::<Message>()
+            .operations
+            .try_into_impls
+            .insert(u_index, Arc::clone(&mapping));
+
+        let message_index = self.data.registration.get_index_or_insert::<Message>();
+        self.data.registration.get_or_insert::<U>()
+            .operations
+            .try_from_impls
+            .insert(message_index, mapping);
+
+        self
+    }
+
+    /// Register the [`TryFrom`] implementation that maps from some other
+    /// message type `V` into this message type.
+    pub fn with_try_from<V>(&mut self) -> &mut Self
+    where
+        V: 'static + Send + Sync,
+        V: TryInto<Message>,
+        <V as TryInto<Message>>::Error: 'static + Send + Sync + ToString,
+    {
+        self.with_mapping_try_from(V::try_into);
+        self
+    }
+
+    /// Register a fallible mapping from some other message type `V` into this
+    /// message. This allows you to register a custom mapping.
+    ///
+    /// Calling this multiple times for the same message pair will override any
+    /// previous registered mapping for that pair.
+    ///
+    /// This is the same as `self.with_mapping_try_into<V>(f)` except `Message`
+    /// and `V` are flipped.
+    pub fn with_mapping_try_from<V, E>(
+        &mut self,
+        f: impl Fn(V) -> Result<Message, E> + 'static + Send + Sync,
+    ) -> &mut Self
+    where
+        V: 'static + Send + Sync,
+        E: 'static + Send + Sync + ToString,
+    {
+        MessageRegistrationBuilder::<V>::new(self.data).with_mapping_try_into(f);
+        self
+    }
 }
 
 pub struct NodeRegistrationBuilder<'a, Request, Response, Streams> {
@@ -741,6 +905,10 @@ pub struct MessageOperation {
     pub(super) to_string_impl: Option<ToStringFn>,
     pub(super) create_buffer_impl: CreateBufferFn,
     pub(super) create_trigger_impl: CreateTriggerFn,
+    pub(super) into_impls: HashMap<usize, CreateIntoFn>,
+    pub(super) from_impls: HashMap<usize, CreateIntoFn>,
+    pub(super) try_into_impls: HashMap<usize, CreateTryIntoFn>,
+    pub(super) try_from_impls: HashMap<usize, CreateTryIntoFn>,
     build_scope: BuildScope,
 
     #[cfg(feature = "trace")]
@@ -770,6 +938,10 @@ impl MessageOperation {
             },
             create_trigger_impl: |builder| builder.create_map_block(|_: T| ()).into(),
             build_scope: BuildScope::new::<T>(),
+            into_impls: Default::default(),
+            try_into_impls: Default::default(),
+            from_impls: Default::default(),
+            try_from_impls: Default::default(),
 
             #[cfg(feature = "trace")]
             enable_trace_serialization: None,
@@ -2284,5 +2456,110 @@ mod tests {
         assert!(serde_json::from_str::<JsEmptyObject>("123").is_err());
         assert!(serde_json::from_str::<JsEmptyObject>("true").is_err());
         assert!(serde_json::from_str::<JsEmptyObject>("null").is_err());
+    }
+
+    #[derive(Clone, Serialize, Deserialize, JsonSchema)]
+    struct TestFooBarBaz {
+        foo: f32,
+        bar: String,
+        baz: u32,
+    }
+
+    #[derive(Clone, Serialize, Deserialize, JsonSchema)]
+    struct TestFooBar {
+        foo: f32,
+        bar: String,
+    }
+
+    impl From<TestFooBarBaz> for TestFooBar {
+        fn from(value: TestFooBarBaz) -> Self {
+            TestFooBar {
+                foo: value.foo,
+                bar: value.bar,
+            }
+        }
+    }
+
+    #[derive(Clone, Serialize, Deserialize, JsonSchema)]
+    struct TestMaybeFooBar {
+        foo: Option<f32>,
+        bar: Option<String>,
+    }
+
+    impl From<TestFooBar> for TestMaybeFooBar {
+        fn from(value: TestFooBar) -> Self {
+            TestMaybeFooBar {
+                foo: Some(value.foo),
+                bar: Some(value.bar),
+            }
+        }
+    }
+
+    impl TryFrom<TestMaybeFooBar> for TestFooBar {
+        type Error = &'static str;
+        fn try_from(value: TestMaybeFooBar) -> Result<Self, Self::Error> {
+            if let (Some(foo), Some(bar)) = (value.foo, value.bar) {
+                Ok(TestFooBar { foo, bar })
+            } else {
+                Err("missing a field")
+            }
+        }
+    }
+
+    #[derive(Clone, Serialize, Deserialize, JsonSchema)]
+    struct TestFoo {
+        foo: f32,
+    }
+
+    impl From<TestFooBar> for TestFoo {
+        fn from(value: TestFooBar) -> Self {
+            TestFoo { foo: value.foo }
+        }
+    }
+
+    impl TryFrom<TestMaybeFooBar> for TestFoo {
+        type Error = &'static str;
+        fn try_from(value: TestMaybeFooBar) -> Result<Self, Self::Error> {
+            if let Some(foo) = value.foo {
+                Ok(TestFoo { foo })
+            } else {
+                Err("missing foo")
+            }
+        }
+    }
+
+    #[derive(Clone, Serialize, Deserialize, JsonSchema)]
+    struct TestBar {
+        bar: String,
+    }
+
+    impl From<TestFooBar> for TestBar {
+        fn from(value: TestFooBar) -> Self {
+            TestBar { bar: value.bar }
+        }
+    }
+
+    impl TryFrom<TestMaybeFooBar> for TestBar {
+        type Error = &'static str;
+
+        fn try_from(value: TestMaybeFooBar) -> Result<Self, Self::Error> {
+            if let Some(bar) = value.bar {
+                Ok(TestBar { bar })
+            } else {
+                Err("missing bar")
+            }
+        }
+    }
+
+    #[test]
+    fn test_conversions() {
+
+        let mut registry = DiagramElementRegistry::new();
+        registry
+            .register_message::<TestFooBar>()
+            .with_from::<TestFooBarBaz>()
+            .with_try_from::<TestMaybeFooBar>()
+            .with_into::<TestFoo>()
+            .with_into::<TestBar>();
     }
 }
