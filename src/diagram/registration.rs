@@ -2552,14 +2552,89 @@ mod tests {
     }
 
     #[test]
-    fn test_conversions() {
+    fn test_conversion_registration() {
 
         let mut registry = DiagramElementRegistry::new();
         registry
             .register_message::<TestFooBar>()
             .with_from::<TestFooBarBaz>()
             .with_try_from::<TestMaybeFooBar>()
+            .with_into::<TestMaybeFooBar>()
             .with_into::<TestFoo>()
             .with_into::<TestBar>();
+
+        let index_foo_bar = registry
+            .messages
+            .registration
+            .get_index_or_insert::<TestFooBar>();
+        let index_foo_bar_baz = registry
+            .messages
+            .registration
+            .get_index_or_insert::<TestFooBarBaz>();
+        let index_maybe_foo_bar = registry
+            .messages
+            .registration
+            .get_index_or_insert::<TestMaybeFooBar>();
+        let index_foo = registry
+            .messages
+            .registration
+            .get_index_or_insert::<TestFoo>();
+        let index_bar = registry
+            .messages
+            .registration
+            .get_index_or_insert::<TestBar>();
+
+        let ops = &registry.messages.registration.get_or_insert::<TestFooBar>().operations;
+        assert!(ops.from_impls.contains_key(&index_foo_bar_baz));
+        assert!(ops.try_from_impls.contains_key(&index_maybe_foo_bar));
+        assert!(ops.into_impls.contains_key(&index_maybe_foo_bar));
+        assert!(ops.into_impls.contains_key(&index_foo));
+        assert!(ops.into_impls.contains_key(&index_bar));
+
+        assert!(
+            registry
+            .messages
+            .registration
+            .get_or_insert::<TestFooBarBaz>()
+            .operations
+            .into_impls
+            .contains_key(&index_foo_bar)
+        );
+        assert!(
+            registry
+            .messages
+            .registration
+            .get_or_insert::<TestMaybeFooBar>()
+            .operations
+            .try_into_impls
+            .contains_key(&index_foo_bar)
+        );
+        assert!(
+            registry
+            .messages
+            .registration
+            .get_or_insert::<TestMaybeFooBar>()
+            .operations
+            .from_impls
+            .contains_key(&index_foo_bar)
+        );
+        assert!(
+            registry
+            .messages
+            .registration
+            .get_or_insert::<TestFoo>()
+            .operations
+            .from_impls
+            .contains_key(&index_foo_bar)
+        );
+        assert!(
+            registry
+            .messages
+            .registration
+            .get_or_insert::<TestBar>()
+            .operations
+            .from_impls
+            .contains_key(&index_foo_bar)
+        );
     }
 }
