@@ -18,9 +18,11 @@
 mod buffer_schema;
 mod fork_clone_schema;
 mod fork_result_schema;
+mod inference;
 mod join_schema;
 mod node_schema;
 mod operation_ref;
+mod output_ref;
 mod registration;
 mod scope_schema;
 mod section_schema;
@@ -43,9 +45,11 @@ use bevy_ecs::system::Commands;
 pub use buffer_schema::{BufferAccessSchema, BufferSchema, ListenSchema};
 pub use fork_clone_schema::{DynForkClone, ForkCloneSchema, RegisterClone};
 pub use fork_result_schema::{DynForkResult, ForkResultSchema};
+pub use inference::*;
 pub use join_schema::JoinSchema;
 pub use node_schema::NodeSchema;
 pub use operation_ref::*;
+pub use output_ref::*;
 pub use registration::*;
 pub use scope_schema::*;
 pub use section_schema::*;
@@ -323,6 +327,28 @@ impl BuildDiagramOperation for DiagramOperation {
             Self::StreamOut(op) => op.build_diagram_operation(id, ctx),
             Self::Transform(op) => op.build_diagram_operation(id, ctx),
             Self::Unzip(op) => op.build_diagram_operation(id, ctx),
+        }
+    }
+
+    fn evaluate_message_types(
+        &self,
+        id: &OperationName,
+        ctx: &DiagramContext,
+    ) -> Result<HashMap<TypeRef, MessageTypeConstraints>, DiagramErrorCode> {
+        match self {
+            Self::Buffer(op) => op.evaluate_message_types(id, ctx),
+            Self::BufferAccess(op) => op.evaluate_message_types(id, ctx),
+            Self::ForkClone(op) => op.evaluate_message_types(id, ctx),
+            Self::ForkResult(op) => op.evaluate_message_types(id, ctx),
+            Self::Join(op) => op.evaluate_message_types(id, ctx),
+            Self::Listen(op) => op.evaluate_message_types(id, ctx),
+            Self::Node(op) => op.evaluate_message_types(id, ctx),
+            Self::Scope(op) => op.evaluate_message_types(id, ctx),
+            Self::Section(op) => op.evaluate_message_types(id, ctx),
+            Self::Split(op) => op.evaluate_message_types(id, ctx),
+            Self::StreamOut(op) => op.evaluate_message_types(id, ctx),
+            Self::Transform(op) => op.evaluate_message_types(id, ctx),
+            Self::Unzip(op) => op.evaluate_message_types(id, ctx),
         }
     }
 }
@@ -1029,6 +1055,13 @@ impl std::fmt::Display for FinishingErrors {
 
         Ok(())
     }
+}
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum NameOrIndex {
+    Name(Arc<str>),
+    Index(usize),
 }
 
 #[cfg(test)]

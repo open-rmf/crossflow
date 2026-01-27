@@ -79,13 +79,6 @@ pub struct GrpcStreams {
     canceller: UnboundedSender<Option<String>>,
 }
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum NameOrIndex {
-    Name(Arc<str>),
-    Index(usize),
-}
-
 /// A wrapper struct that will have a tokio task get aborted when dropped.
 #[derive(Debug, Deref, DerefMut)]
 pub struct AbortOnDrop<T>(pub JoinHandle<T>);

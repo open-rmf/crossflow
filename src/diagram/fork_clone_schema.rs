@@ -111,6 +111,14 @@ impl BuildDiagramOperation for ForkCloneSchema {
 
         Ok(BuildStatus::Finished)
     }
+
+    fn evaluate_message_types(
+        &self,
+        id: &OperationName,
+        ctx: &DiagramContext,
+    ) -> Result<super::MessageTypeConstraints, DiagramErrorCode> {
+        ctx.into_operation_ref(id)
+    }
 }
 
 pub trait RegisterClone<T> {

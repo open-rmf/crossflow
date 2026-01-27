@@ -19,10 +19,17 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode, DynInputSlot, DynOutput,
+    BuildDiagramOperation, Builder, BuildStatus, DiagramContext, DiagramErrorCode, DynInputSlot, DynOutput,
     MessageRegistry, NextOperation, OperationName, RegisterClone,
     SerializeMessage, TraceInfo, TraceSettings, supported::*,
 };
+
+type ForkResultFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
+
+pub(crate) struct ForkResultRegistration {
+    pub(crate) create: ForkResultFn,
+    pub(crate) output_types: [usize; 2],
+}
 
 pub struct DynForkResult {
     pub input: DynInputSlot,
@@ -110,24 +117,39 @@ where
             .registration
             .get_or_insert::<Result<T, E>>()
             .operations;
-        if ops.fork_result_impl.is_some() {
+        if ops.fork_result.is_some() {
             return false;
         }
 
-        ops.fork_result_impl = Some(|builder| {
+        let create = |builder: &mut Builder| {
             let (input, outputs) = builder.create_fork_result::<T, E>();
             Ok(DynForkResult {
                 input: input.into(),
                 ok: outputs.ok.into(),
                 err: outputs.err.into(),
             })
-        });
+        };
 
         messages.register_serialize::<T, S>();
         messages.register_clone::<T, C>();
 
         messages.register_serialize::<E, S>();
         messages.register_clone::<E, C>();
+
+        let output_types = [
+            messages.registration.get_index_or_insert::<T>(),
+            messages.registration.get_index_or_insert::<E>(),
+        ];
+
+        messages
+            .registration
+            .get_or_insert::<Result<T, E>>()
+            .operations
+            .fork_result = Some(ForkResultRegistration { create, output_types });
+
+        let result_type = messages.registration.get_index_or_insert::<Result<T, E>>();
+
+        messages.registration.lookup.result.insert(output_types, result_type);
 
         true
     }

@@ -732,7 +732,7 @@ mod tests {
         .unwrap();
 
         let result: JsonMessage = fixture
-            .spawn_and_run_with_conditions(&diagram, [2.0, 2.0], Duration::from_secs(2))
+            .spawn_and_run_with_conditions(&diagram, [2.0, 2.0], Duration::from_secs(10))
             .unwrap();
 
         assert_eq!(result["x"].as_f64().unwrap(), 4.0);

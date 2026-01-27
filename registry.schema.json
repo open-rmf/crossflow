@@ -95,9 +95,34 @@
         },
         "fork_result": {
           "type": [
-            "object",
+            "array",
             "null"
-          ]
+          ],
+          "items": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "from": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "uniqueItems": true
+        },
+        "into": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "uniqueItems": true
         },
         "join": {
           "type": [
@@ -117,6 +142,24 @@
             "null"
           ]
         },
+        "try_from": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "uniqueItems": true
+        },
+        "try_into": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "uniqueItems": true
+        },
         "unzip": {
           "type": [
             "array",
@@ -131,7 +174,13 @@
             "minimum": 0
           }
         }
-      }
+      },
+      "required": [
+        "into",
+        "try_into",
+        "from",
+        "try_from"
+      ]
     },
     "NodeMetadata": {
       "type": "object",

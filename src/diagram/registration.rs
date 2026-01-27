@@ -51,7 +51,8 @@ use super::{
     DynType, JsonRegistration, RegisterJson, RegisterSplit, Section, SectionInterface,
     SectionInterfaceDescription, SerializeMessage, SplitSchema, TransformError, TypeInfo,
     buffer_schema::BufferAccessRequest, fork_clone_schema::RegisterClone,
-    fork_result_schema::RegisterForkResult, register_json, supported::*,
+    fork_result_schema::{RegisterForkResult, ForkResultRegistration}, register_json,
+    supported::*,
     unzip_schema::PerformUnzip,
 };
 
@@ -79,7 +80,6 @@ type CreateNodeFn =
 type DeserializeFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
 type SerializeFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
 type ForkCloneFn = fn(&mut Builder) -> Result<DynForkClone, DiagramErrorCode>;
-type ForkResultFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
 type SplitFn = fn(&SplitSchema, &mut Builder) -> Result<DynSplit, DiagramErrorCode>;
 type JoinFn = fn(&BufferMap, &mut Builder) -> Result<DynOutput, DiagramErrorCode>;
 type BufferAccessFn = fn(&BufferMap, &mut Builder) -> Result<DynNode, DiagramErrorCode>;
@@ -88,8 +88,8 @@ type BufferLayoutTypeHintFn =
     fn(HashSet<BufferIdentifier<'static>>) -> Result<MessageTypeHintMap, IncompatibleLayout>;
 type CreateBufferFn = fn(BufferSettings, &mut Builder) -> AnyBuffer;
 type CreateTriggerFn = fn(&mut Builder) -> DynNode;
-type CreateIntoFn = Arc<dyn Fn(&mut Builder) -> (DynInputSlot, DynOutput)>;
-type CreateTryIntoFn = Arc<dyn Fn(&mut Builder) -> DynForkResult>;
+type CreateIntoFn = Arc<dyn Fn(&mut Builder) -> (DynInputSlot, DynOutput) + 'static + Send + Sync>;
+type CreateTryIntoFn = Arc<dyn Fn(&mut Builder) -> DynForkResult + 'static + Send + Sync>;
 type ToStringFn = fn(&mut Builder) -> DynNode;
 
 #[cfg(feature = "trace")]
@@ -1012,7 +1012,7 @@ pub struct MessageOperation {
     pub(super) serialize_impl: Option<SerializeFn>,
     pub(super) fork_clone_impl: Option<ForkCloneFn>,
     pub(super) unzip_impl: Option<Box<dyn PerformUnzip + Send>>,
-    pub(super) fork_result_impl: Option<ForkResultFn>,
+    pub(super) fork_result: Option<ForkResultRegistration>,
     pub(super) split_impl: Option<SplitFn>,
     pub(super) join_impl: Option<JoinFn>,
     pub(super) buffer_access_impl: Option<BufferAccessFn>,
@@ -1042,7 +1042,7 @@ impl MessageOperation {
             serialize_impl: None,
             fork_clone_impl: None,
             unzip_impl: None,
-            fork_result_impl: None,
+            fork_result: None,
             split_impl: None,
             join_impl: None,
             buffer_access_impl: None,
@@ -1132,7 +1132,7 @@ impl Serialize for MessageOperation {
         if let Some(unzip_impl) = &self.unzip_impl {
             s.serialize_entry("unzip", &json!({"output_types": unzip_impl.output_types()}))?;
         }
-        if self.fork_result_impl.is_some() {
+        if self.fork_result.is_some() {
             s.serialize_entry("fork_result", &empty_object)?;
         }
         if self.split_impl.is_some() {
@@ -1150,6 +1150,7 @@ struct MessageMetadata {
     type_name: Cow<'static, str>,
     schema: Option<Schema>,
     operations: MessageOperationMetadata,
+    lookup: MessageLookup,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -1158,7 +1159,7 @@ struct MessageOperationMetadata {
     serialize: Option<JsEmptyObject>,
     fork_clone: Option<JsEmptyObject>,
     unzip: Option<Vec<Option<usize>>>,
-    fork_result: Option<JsEmptyObject>,
+    fork_result: Option<[usize; 2]>,
     split: Option<JsEmptyObject>,
     join: Option<JsEmptyObject>,
     into: HashSet<usize>,
@@ -1180,7 +1181,7 @@ impl MessageOperationMetadata {
                 .map(|info| registrations.indices.get(&info).copied())
                 .collect()
             ),
-            fork_result: ops.fork_result_impl.is_some().then(|| JsEmptyObject),
+            fork_result: ops.fork_result.as_ref().map(|r| r.output_types),
             split: ops.split_impl.is_some().then(|| JsEmptyObject),
             join: ops.join_impl.is_some().then(|| JsEmptyObject),
             into: ops.into_impls.keys().copied().collect(),
@@ -1375,9 +1376,9 @@ impl MessageRegistry {
         builder: &mut Builder,
     ) -> Result<DynForkResult, DiagramErrorCode> {
         self.get_dyn(message_info)
-            .and_then(|reg| reg.operations.fork_result_impl.as_ref())
+            .and_then(|reg| reg.operations.fork_result.as_ref())
             .ok_or(DiagramErrorCode::CannotForkResult(*message_info))
-            .and_then(|f| f(builder))
+            .and_then(|r| (r.create)(builder))
     }
 
     /// Register a fork_result function if not already registered, returns true if the new
@@ -1625,6 +1626,16 @@ pub struct MessageRegistrations {
 
     /// Convert from type info to the index of a message wihtin the registry
     indices: HashMap<TypeInfo, usize>,
+
+    /// Lookup message types that satisfy some constraint. This is used by
+    /// message type inference.
+    pub(crate) lookup: MessageLookup,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct MessageLookup {
+    /// Map from [T, E] output registrations to Result<T, E> registration.
+    pub(crate) result: HashMap<[usize; 2], usize>,
 }
 
 impl MessageRegistrations {
@@ -1701,6 +1712,7 @@ impl MessageRegistrations {
                 type_name: Cow::Borrowed(message.type_name),
                 schema: message.schema.clone(),
                 operations: MessageOperationMetadata::new(&message.operations, self),
+                lookup: self.lookup.clone(),
             });
         }
 
@@ -2230,7 +2242,7 @@ mod tests {
         }
 
         fn can_fork_result(&self) -> bool {
-            self.fork_result_impl.is_some()
+            self.fork_result.is_some()
         }
 
         fn splittable(&self) -> bool {

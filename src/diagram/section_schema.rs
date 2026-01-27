@@ -564,7 +564,7 @@ mod tests {
         let reg = registry
             .get_message_registration::<Result<i64, String>>()
             .unwrap();
-        assert!(reg.operations.fork_result_impl.is_some());
+        assert!(reg.operations.fork_result.is_some());
     }
 
     #[derive(Section)]
