@@ -1655,6 +1655,14 @@ impl MessageRegistrations {
         .flatten()
     }
 
+    pub(crate) fn get_by_index(&self, index: usize) -> Option<&MessageRegistration> {
+        self.messages.get(index)
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.messages.len()
+    }
+
     pub(crate) fn get_or_insert<T>(&mut self) -> &mut MessageRegistration
     where
         T: 'static + Send + Sync,

@@ -337,7 +337,7 @@ impl BuildDiagramOperation for DiagramOperation {
         &self,
         id: &OperationName,
         ctx: &BuilderContext,
-    ) -> Result<HashMap<TypeRef, MessageTypeConstraints>, DiagramErrorCode> {
+    ) -> Result<HashMap<PortRef, MessageTypeConstraints>, DiagramErrorCode> {
         match self {
             Self::Buffer(op) => op.evaluate_message_types(id, ctx),
             Self::BufferAccess(op) => op.evaluate_message_types(id, ctx),
@@ -911,16 +911,20 @@ pub enum DiagramErrorCode {
         available: Vec<BufferIdentifier<'static>>,
     },
 
-    #[error(
-        "Target type cannot be determined from [next] and [target_node] is not provided or cannot be inferred from."
-    )]
-    UnknownTarget,
-
     #[error("There was an attempt to connect to an unknown operation: [{0}]")]
     UnknownOperation(OperationRef),
 
     #[error("There was an attempt to use an unknown section template: [{0}]")]
     UnknownTemplate(OperationName),
+
+    #[error("Could not find port in inference graph: [{0}]")]
+    UnknownPort(PortRef),
+
+    #[error("Unknown message type index: {index}. Limit: {limit}")]
+    UnknownMessageTypeIndex {
+        index: usize,
+        limit: usize,
+    },
 
     #[error("There was an attempt to use an operation in an invalid way: [{0}]")]
     InvalidOperation(OperationRef),

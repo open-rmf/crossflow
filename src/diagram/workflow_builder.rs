@@ -25,7 +25,7 @@ use std::{
 use crate::{
     AnyBuffer, BufferIdentifier, BufferMap, Builder, BuilderScopeContext, JsonMessage,
     MessageTypeHint, MessageTypeHintMap, Scope, StreamPack, dyn_node::DynStreamInputPack,
-    MessageTypeEvaluation, TypeRef,
+    MessageTypeEvaluation, PortRef,
 };
 
 #[cfg(feature = "trace")]
@@ -674,7 +674,7 @@ pub trait BuildDiagramOperation {
         &self,
         id: &OperationName,
         ctx: &BuilderContext,
-    ) -> Result<HashMap<TypeRef, MessageTypeEvaluation>, DiagramErrorCode>;
+    ) -> Result<HashMap<PortRef, MessageTypeEvaluation>, DiagramErrorCode>;
 }
 
 /// This trait is used to connect outputs to their target operations. This trait
