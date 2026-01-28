@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Builder, CloneFromBuffer, ForkCloneOutput};
 
 use super::{
-    BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode, DynInputSlot, DynOutput,
+    BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
     MessageOperation, NextOperation, OperationName, TraceInfo, TraceSettings, TypeInfo,
     supported::*,
 };
@@ -79,7 +79,7 @@ impl BuildDiagramOperation for ForkCloneSchema {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         let inferred_type = 'inferred: {
             match ctx.infer_input_type_into_target(id)? {
@@ -115,7 +115,7 @@ impl BuildDiagramOperation for ForkCloneSchema {
     fn evaluate_message_types(
         &self,
         id: &OperationName,
-        ctx: &DiagramContext,
+        ctx: &BuilderContext,
     ) -> Result<super::MessageTypeConstraints, DiagramErrorCode> {
         ctx.into_operation_ref(id)
     }

@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::{AnyBuffer, AnyMessageBox, Buffer, InputSlot, JsonBuffer, JsonMessage, Output};
 
 use super::{
-    BuildDiagramOperation, BuildStatus, BuilderId, DiagramContext, DiagramElementRegistry,
+    BuildDiagramOperation, BuildStatus, BuilderId, BuilderContext, DiagramElementRegistry,
     DiagramErrorCode, DynInputSlot, DynOutput, NamespacedOperation, NextOperation, OperationName,
     OperationRef, Operations, RedirectConnection, TraceInfo, TraceSettings, MessageRegistrations,
 };
@@ -108,7 +108,7 @@ impl BuildDiagramOperation for SectionSchema {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         match &self.provider {
             SectionProvider::Builder(section_builder) => {

@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Accessor, BufferSettings, JsonMessage};
 
 use super::{
-    BufferSelection, BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode,
+    BufferSelection, BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode,
     NextOperation, OperationName, TraceInfo, TraceSettings, TypeInfo,
 };
 
@@ -110,7 +110,7 @@ impl BuildDiagramOperation for BufferSchema {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         let message_info = if self.serialize.is_some_and(|v| v) {
             TypeInfo::of::<JsonMessage>()
@@ -209,7 +209,7 @@ impl BuildDiagramOperation for BufferAccessSchema {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         let Some(target_type) = ctx.infer_input_type_into_target(&self.next)? else {
             return Ok(BuildStatus::defer(
@@ -296,7 +296,7 @@ impl BuildDiagramOperation for ListenSchema {
     fn build_diagram_operation(
         &self,
         _: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         // TODO(@mxgrey): Figure out how to enable tracing for listen operations
 

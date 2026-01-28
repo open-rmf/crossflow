@@ -22,7 +22,7 @@ use variadics_please::all_tuples_with_size;
 use crate::Builder;
 
 use super::{
-    BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode, DynInputSlot, DynOutput,
+    BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
     MessageRegistry, NextOperation, OperationName, RegisterClone, SerializeMessage, TraceInfo,
     TraceSettings, TypeInfo, supported::*,
 };
@@ -96,7 +96,7 @@ impl BuildDiagramOperation for UnzipSchema {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         let Some(inferred_type) = ctx.infer_input_type_into_target(id)? else {
             // There are no outputs ready for this target, so we can't do

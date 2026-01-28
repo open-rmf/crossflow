@@ -25,7 +25,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Serialize, de::DeserializeOwned};
 
 use super::{
-    DiagramContext, DiagramErrorCode, DynForkResult, DynInputSlot, DynOutput, JsonMessage,
+    BuilderContext, DiagramErrorCode, DynForkResult, DynInputSlot, DynOutput, JsonMessage,
     MessageRegistrations, MessageRegistry, TypeInfo, TypeMismatch, supported::*,
 };
 use crate::JsonBuffer;
@@ -227,7 +227,7 @@ impl ImplicitSerialization {
     pub fn try_implicit_serialize(
         &mut self,
         incoming: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<Result<(), DynOutput>, DiagramErrorCode> {
         if incoming.message_info() == &TypeInfo::of::<JsonMessage>() {
             incoming.connect_to(&self.serialized_input, ctx.builder)?;
@@ -267,7 +267,7 @@ impl ImplicitSerialization {
     pub fn implicit_serialize(
         &mut self,
         incoming: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         self.try_implicit_serialize(incoming, ctx)?
             .map_err(|incoming| DiagramErrorCode::NotSerializable(*incoming.message_info()))
@@ -308,7 +308,7 @@ impl ImplicitDeserialization {
     pub fn implicit_deserialize(
         &mut self,
         incoming: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         if incoming.message_info() == self.deserialized_input.message_info() {
             // Connect them directly because they match
@@ -380,7 +380,7 @@ impl ImplicitStringify {
     pub fn try_implicit_stringify(
         &mut self,
         incoming: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<Result<(), DynOutput>, DiagramErrorCode> {
         if incoming.message_info() == &TypeInfo::of::<String>() {
             incoming.connect_to(&self.string_input, ctx.builder)?;

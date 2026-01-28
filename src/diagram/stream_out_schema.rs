@@ -22,7 +22,7 @@ use std::sync::Arc;
 use crate::TraceSettings;
 
 use super::{
-    BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode, OperationName,
+    BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, OperationName,
     RedirectConnection, StreamOutRef,
 };
 
@@ -80,7 +80,7 @@ impl BuildDiagramOperation for StreamOutSchema {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         let redirect_to =
             ctx.into_operation_ref(StreamOutRef::new_for_root(Arc::clone(&self.name)));

@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
 
 use super::{
-    BuildDiagramOperation, BuildStatus, BuilderId, DiagramContext, DiagramErrorCode, JsonMessage,
+    BuildDiagramOperation, BuildStatus, BuilderId, BuilderContext, DiagramErrorCode, JsonMessage,
     MissingStream, NextOperation, OperationName, TraceInfo, TraceSettings, is_default,
 };
 
@@ -83,7 +83,7 @@ impl BuildDiagramOperation for NodeSchema {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         let node_registration = ctx.registry.get_node_registration(&self.builder)?;
         let mut node = node_registration.create_node(ctx.builder, (*self.config).clone())?;

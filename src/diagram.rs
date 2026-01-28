@@ -16,6 +16,7 @@
 */
 
 mod buffer_schema;
+mod diagram_context;
 mod fork_clone_schema;
 mod fork_result_schema;
 mod inference;
@@ -43,6 +44,7 @@ pub mod zenoh;
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::system::Commands;
 pub use buffer_schema::{BufferAccessSchema, BufferSchema, ListenSchema};
+pub use diagram_context::*;
 pub use fork_clone_schema::{DynForkClone, ForkCloneSchema, RegisterClone};
 pub use fork_result_schema::{DynForkResult, ForkResultSchema};
 pub use inference::*;
@@ -94,6 +96,7 @@ const RESERVED_OPERATION_NAMES: [&'static str; 2] = ["", "builtin"];
 
 pub type BuilderId = Arc<str>;
 pub type OperationName = Arc<str>;
+pub type
 pub type DisplayText = Arc<str>;
 
 #[derive(
@@ -311,7 +314,7 @@ impl BuildDiagramOperation for DiagramOperation {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         match self {
             Self::Buffer(op) => op.build_diagram_operation(id, ctx),
@@ -333,7 +336,7 @@ impl BuildDiagramOperation for DiagramOperation {
     fn evaluate_message_types(
         &self,
         id: &OperationName,
-        ctx: &DiagramContext,
+        ctx: &BuilderContext,
     ) -> Result<HashMap<TypeRef, MessageTypeConstraints>, DiagramErrorCode> {
         match self {
             Self::Buffer(op) => op.evaluate_message_types(id, ctx),
@@ -1057,11 +1060,23 @@ impl std::fmt::Display for FinishingErrors {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum NameOrIndex {
     Name(Arc<str>),
     Index(usize),
+}
+
+impl<T: ToString> From<T> for NameOrIndex {
+    fn from(value: T) -> Self {
+        NameOrIndex::Name(value.into())
+    }
+}
+
+impl From<usize> for NameOrIndex {
+    fn from(value: usize) -> Self {
+        NameOrIndex::Index(value)
+    }
 }
 
 #[cfg(test)]

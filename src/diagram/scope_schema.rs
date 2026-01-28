@@ -26,7 +26,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BuildDiagramOperation, BuildStatus, ConnectIntoTarget, DiagramContext, DiagramErrorCode,
+    BuildDiagramOperation, BuildStatus, ConnectIntoTarget, BuilderContext, DiagramErrorCode,
     DynOutput, IncrementalScopeBuilder, IncrementalScopeRequest, IncrementalScopeResponse,
     InferMessageType, NamespaceList, NextOperation, OperationName, OperationRef, Operations,
     ScopeSettings, StreamOutRef, TraceSettings, standard_input_connection,
@@ -134,7 +134,7 @@ impl BuildDiagramOperation for ScopeSchema {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         let scope = IncrementalScopeBuilder::begin(self.settings.clone(), ctx.builder);
 
@@ -192,7 +192,7 @@ impl ConnectIntoTarget for ConnectScopeRequest {
     fn connect_into_target(
         &mut self,
         output: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         if let Some(connection) = &mut self.connection {
             return connection.connect_into_target(output, ctx);
@@ -220,7 +220,7 @@ impl ConnectIntoTarget for ConnectScopeRequest {
 
     fn infer_input_type(
         &self,
-        ctx: &DiagramContext,
+        ctx: &BuilderContext,
         visited: &mut HashSet<OperationRef>,
     ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
         if let Some(connection) = &self.connection {
@@ -245,7 +245,7 @@ impl ConnectIntoTarget for ConnectScopeResponse {
     fn connect_into_target(
         &mut self,
         output: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         if let Some(connection) = &mut self.connection {
             return connection.connect_into_target(output, ctx);
@@ -273,7 +273,7 @@ impl ConnectIntoTarget for ConnectScopeResponse {
 
     fn infer_input_type(
         &self,
-        ctx: &DiagramContext,
+        ctx: &BuilderContext,
         visited: &mut HashSet<OperationRef>,
     ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
         if let Some(connection) = &self.connection {
@@ -299,7 +299,7 @@ impl ConnectIntoTarget for ConnectScopeStream {
     fn connect_into_target(
         &mut self,
         output: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         if let Some(connection) = &mut self.connection {
             return connection.connect_into_target(output, ctx);
@@ -322,7 +322,7 @@ impl ConnectIntoTarget for ConnectScopeStream {
 
     fn infer_input_type(
         &self,
-        ctx: &DiagramContext,
+        ctx: &BuilderContext,
         visited: &mut HashSet<OperationRef>,
     ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
         if let Some(connection) = &self.connection {

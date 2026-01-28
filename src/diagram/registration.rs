@@ -1636,6 +1636,7 @@ pub struct MessageRegistrations {
 pub struct MessageLookup {
     /// Map from [T, E] output registrations to Result<T, E> registration.
     pub(crate) result: HashMap<[usize; 2], usize>,
+    pub(crate) unzip: HashMap<Vec<usize>, usize>,
 }
 
 impl MessageRegistrations {

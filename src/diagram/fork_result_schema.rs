@@ -19,7 +19,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    BuildDiagramOperation, Builder, BuildStatus, DiagramContext, DiagramErrorCode, DynInputSlot, DynOutput,
+    BuildDiagramOperation, Builder, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
     MessageRegistry, NextOperation, OperationName, RegisterClone,
     SerializeMessage, TraceInfo, TraceSettings, supported::*,
 };
@@ -75,7 +75,7 @@ impl BuildDiagramOperation for ForkResultSchema {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         let Some(inferred_type) = ctx.infer_input_type_into_target(id)? else {
             // TODO(@mxgrey): For each result type we can register a tuple of

@@ -19,7 +19,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    BufferSelection, BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode,
+    BufferSelection, BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode,
     JsonMessage, NextOperation, OperationName,
 };
 use crate::{BufferIdentifier, TraceSettings, default_as_false, is_default, is_false};
@@ -104,7 +104,7 @@ impl BuildDiagramOperation for JoinSchema {
     fn build_diagram_operation(
         &self,
         _: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         if self.buffers.is_empty() {
             return Err(DiagramErrorCode::EmptyJoin);

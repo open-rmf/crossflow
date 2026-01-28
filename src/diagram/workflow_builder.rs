@@ -19,6 +19,7 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet, hash_map::Entry},
     sync::Arc,
+    ops::Deref,
 };
 
 use crate::{
@@ -31,10 +32,10 @@ use crate::{
 use crate::{OperationInfo, Trace};
 
 use super::{
-    BufferSelection, Diagram, DiagramElementRegistry, DiagramError, DiagramErrorCode, DynInputSlot,
+    BufferSelection, Diagram, DiagramContext, DiagramElementRegistry, DiagramError, DiagramErrorCode, DynInputSlot,
     DynOutput, FinishingErrors, ImplicitDeserialization, ImplicitSerialization, ImplicitStringify,
     MessageRegistry, NamedOperationRef, NamespaceList, NextOperation, OperationName, OperationRef,
-    Operations, StreamOutRef, Templates, TraceToggle, TypeInfo,
+    Operations, StreamOutRef, TraceToggle, TypeInfo,
 };
 
 use bevy_ecs::prelude::Entity;
@@ -86,19 +87,14 @@ impl DiagramConstruction {
     }
 }
 
-pub struct DiagramContext<'a, 'c, 'w, 's, 'b> {
+pub struct BuilderContext<'a, 'c, 'w, 's, 'b> {
+    pub registry: &'a DiagramElementRegistry,
     construction: &'c mut DiagramConstruction,
     pub builder: &'c mut Builder<'w, 's, 'b>,
-    pub registry: &'a DiagramElementRegistry,
-    pub operations: Operations,
-    pub templates: &'a Templates,
-    pub on_implicit_error: &'a OperationRef,
-    #[allow(unused)]
-    default_trace: TraceToggle,
-    namespaces: NamespaceList,
+    diagram_context: DiagramContext<'a>,
 }
 
-impl<'a, 'c, 'w, 's, 'b> DiagramContext<'a, 'c, 'w, 's, 'b> {
+impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
     /// Infer the [`TypeInfo`] for the input messages into the specified operation.
     ///
     /// If this returns [`None`] then not enough of the diagram has been built
@@ -444,26 +440,6 @@ impl<'a, 'c, 'w, 's, 'b> DiagramContext<'a, 'c, 'w, 's, 'b> {
         Ok(())
     }
 
-    pub fn get_implicit_error_target(&self) -> OperationRef {
-        self.on_implicit_error.clone()
-    }
-
-    pub fn into_operation_ref(&self, id: impl Into<OperationRef>) -> OperationRef {
-        let id: OperationRef = id.into();
-        id.in_namespaces(&self.namespaces)
-    }
-
-    pub fn into_child_operation_ref(
-        &self,
-        id: &OperationName,
-        child_id: impl Into<OperationRef>,
-    ) -> OperationRef {
-        let child_id: OperationRef = child_id.into();
-        child_id
-            .in_namespaces(&[id.clone()])
-            .in_namespaces(&self.namespaces)
-    }
-
     /// Add an operation which exists as a child inside another operation.
     ///
     /// For example this is used by section templates to add their inner
@@ -605,6 +581,13 @@ impl<'a, 'c, 'w, 's, 'b> DiagramContext<'a, 'c, 'w, 's, 'b> {
     }
 }
 
+impl<'a, 'c, 'w, 's, 'b> Deref for BuilderContext<'a, 'c, 'w, 's, 'b> {
+    type Target = DiagramContext<'a>;
+    fn deref(&self) -> &Self::Target {
+        &self.diagram_context
+    }
+}
+
 /// Indicate whether the operation has finished building.
 #[derive(Debug, Clone)]
 pub enum BuildStatus {
@@ -684,13 +667,13 @@ pub trait BuildDiagramOperation {
     fn build_diagram_operation<'a, 'c>(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode>;
 
     fn evaluate_message_types(
         &self,
         id: &OperationName,
-        ctx: &DiagramContext,
+        ctx: &BuilderContext,
     ) -> Result<HashMap<TypeRef, MessageTypeEvaluation>, DiagramErrorCode>;
 }
 
@@ -703,12 +686,12 @@ pub trait ConnectIntoTarget {
     fn connect_into_target(
         &mut self,
         output: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode>;
 
     fn infer_input_type(
         &self,
-        ctx: &DiagramContext,
+        ctx: &BuilderContext,
         visited: &mut HashSet<OperationRef>,
     ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode>;
 
@@ -758,15 +741,17 @@ where
     initialize_builtin_operations(
         diagram.start.clone(),
         scope,
-        &mut DiagramContext {
+        &mut BuilderContext {
             construction: &mut construction,
             builder,
             registry,
-            operations: diagram.ops.clone(),
-            templates: &diagram.templates,
-            default_trace: diagram.default_trace,
-            on_implicit_error,
-            namespaces: NamespaceList::default(),
+            diagram_context: DiagramContext {
+                operations: diagram.ops.clone(),
+                templates: &diagram.templates,
+                default_trace: diagram.default_trace,
+                on_implicit_error,
+                namespaces: NamespaceList::default(),
+            },
         },
     )?;
 
@@ -800,15 +785,17 @@ where
                 commands: builder.commands,
             };
 
-            let mut ctx = DiagramContext {
+            let mut ctx = BuilderContext {
                 construction: &mut construction,
                 builder: &mut builder,
                 registry,
-                operations: unfinished.sibling_ops.clone(),
-                templates: &diagram.templates,
-                default_trace: diagram.default_trace,
-                on_implicit_error,
-                namespaces: unfinished.namespaces.clone(),
+                diagram_context: DiagramContext {
+                    operations: unfinished.sibling_ops.clone(),
+                    templates: &diagram.templates,
+                    default_trace: diagram.default_trace,
+                    on_implicit_error,
+                    namespaces: unfinished.namespaces.clone(),
+                },
             };
 
             // Attempt to build this operation
@@ -852,26 +839,28 @@ where
                     commands: builder.commands,
                 };
 
-                let mut ctx = DiagramContext {
+                let mut ctx = BuilderContext {
                     construction: &mut connector_construction,
                     builder: &mut builder,
                     registry,
-                    operations: diagram.ops.clone(),
-                    templates: &diagram.templates,
-                    default_trace: diagram.default_trace,
-                    on_implicit_error,
-                    // TODO(@mxgrey): The namespace while connecting into targets
-                    // is always empty since the ConnectIntoTargets implementation
-                    // is expected to provide targets that are already fully
-                    // resolved. This inconsistency is questionable and will
-                    // probably lead to bugs in the future, so we should
-                    // reconisder our approach to this.
-                    //
-                    // Perhaps we can introduce a specific trait IntoOperationRef
-                    // that takes in parent namespace information and behaves
-                    // differently between NextOperation vs OperationRef. Then
-                    // we also store namespace information per Target.
-                    namespaces: Default::default(),
+                    diagram_context: DiagramContext {
+                        operations: diagram.ops.clone(),
+                        templates: &diagram.templates,
+                        default_trace: diagram.default_trace,
+                        on_implicit_error,
+                        // TODO(@mxgrey): The namespace while connecting into targets
+                        // is always empty since the ConnectIntoTargets implementation
+                        // is expected to provide targets that are already fully
+                        // resolved. This inconsistency is questionable and will
+                        // probably lead to bugs in the future, so we should
+                        // reconisder our approach to this.
+                        //
+                        // Perhaps we can introduce a specific trait IntoOperationRef
+                        // that takes in parent namespace information and behaves
+                        // differently between NextOperation vs OperationRef. Then
+                        // we also store namespace information per Target.
+                        namespaces: Default::default(),
+                    },
                 };
 
                 for output in outputs {
@@ -998,7 +987,7 @@ impl UnfinishedOperation {
 fn initialize_builtin_operations<Request, Response, Streams>(
     start: NextOperation,
     scope: Scope<Request, Response, Streams>,
-    ctx: &mut DiagramContext,
+    ctx: &mut BuilderContext,
 ) -> Result<(), DiagramError>
 where
     Request: 'static + Send + Sync,
@@ -1046,14 +1035,14 @@ impl ConnectIntoTarget for ConnectToDispose {
     fn connect_into_target(
         &mut self,
         _output: DynOutput,
-        _ctx: &mut DiagramContext,
+        _ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         Ok(())
     }
 
     fn infer_input_type(
         &self,
-        _ctx: &DiagramContext,
+        _ctx: &BuilderContext,
         _visited: &mut HashSet<OperationRef>,
     ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
         Ok(Some(Arc::new(ConnectToDispose)))
@@ -1093,14 +1082,14 @@ impl ConnectIntoTarget for ImplicitSerialization {
     fn connect_into_target(
         &mut self,
         output: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         self.implicit_serialize(output, ctx)
     }
 
     fn infer_input_type(
         &self,
-        _ctx: &DiagramContext,
+        _ctx: &BuilderContext,
         _visited: &mut HashSet<OperationRef>,
     ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
         let infer = Arc::clone(self.serialized_input_slot());
@@ -1112,14 +1101,14 @@ impl ConnectIntoTarget for ImplicitDeserialization {
     fn connect_into_target(
         &mut self,
         output: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         self.implicit_deserialize(output, ctx)
     }
 
     fn infer_input_type(
         &self,
-        _ctx: &DiagramContext,
+        _ctx: &BuilderContext,
         _visited: &mut HashSet<OperationRef>,
     ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
         let infer = Arc::clone(self.deserialized_input_slot());
@@ -1135,7 +1124,7 @@ impl ConnectIntoTarget for BasicConnect {
     fn connect_into_target(
         &mut self,
         output: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         output
             .connect_to(&self.input_slot, ctx.builder)
@@ -1144,7 +1133,7 @@ impl ConnectIntoTarget for BasicConnect {
 
     fn infer_input_type(
         &self,
-        _ctx: &DiagramContext,
+        _ctx: &BuilderContext,
         _visited: &mut HashSet<OperationRef>,
     ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
         let infer = Arc::clone(&self.input_slot);
@@ -1176,7 +1165,7 @@ impl ConnectIntoTarget for ConnectToCancel {
     fn connect_into_target(
         &mut self,
         output: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         let Err(output) = self
             .implicit_stringify
@@ -1219,7 +1208,7 @@ impl ConnectIntoTarget for ConnectToCancel {
 
     fn infer_input_type(
         &self,
-        ctx: &DiagramContext,
+        ctx: &BuilderContext,
         visited: &mut HashSet<OperationRef>,
     ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
         self.implicit_serialization.infer_input_type(ctx, visited)
@@ -1253,7 +1242,7 @@ impl ConnectIntoTarget for RedirectConnection {
     fn connect_into_target(
         &mut self,
         output: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         if self.redirected.insert(output.id()) {
             // This DynOutput has not been redirected by this connector yet, so
@@ -1272,14 +1261,14 @@ impl ConnectIntoTarget for RedirectConnection {
 
     fn infer_input_type(
         &self,
-        ctx: &DiagramContext,
+        ctx: &BuilderContext,
         visited: &mut HashSet<OperationRef>,
     ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
         ctx.redirect_infer_input_type(&self.redirect_to, visited)
     }
 }
 
-impl<'a, 'c, 'w, 's, 'b> std::fmt::Debug for DiagramContext<'a, 'c, 'w, 's, 'b> {
+impl<'a, 'c, 'w, 's, 'b> std::fmt::Debug for BuilderContext<'a, 'c, 'w, 's, 'b> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DiagramContext")
             .field("construction", &DebugDiagramConstruction(self))
@@ -1287,7 +1276,7 @@ impl<'a, 'c, 'w, 's, 'b> std::fmt::Debug for DiagramContext<'a, 'c, 'w, 's, 'b> 
     }
 }
 
-struct DebugDiagramConstruction<'a, 'c, 'w, 's, 'b, 'd>(&'d DiagramContext<'a, 'c, 'w, 's, 'b>);
+struct DebugDiagramConstruction<'a, 'c, 'w, 's, 'b, 'd>(&'d BuilderContext<'a, 'c, 'w, 's, 'b>);
 
 impl<'a, 'c, 'w, 's, 'b, 'd> std::fmt::Debug for DebugDiagramConstruction<'a, 'c, 'w, 's, 'b, 'd> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1306,7 +1295,7 @@ impl<'a, 'c, 'w, 's, 'b, 'd> std::fmt::Debug for DebugDiagramConstruction<'a, 'c
     }
 }
 
-struct DebugConnections<'a, 'c, 'w, 's, 'b, 'd>(&'d DiagramContext<'a, 'c, 'w, 's, 'b>);
+struct DebugConnections<'a, 'c, 'w, 's, 'b, 'd>(&'d BuilderContext<'a, 'c, 'w, 's, 'b>);
 
 impl<'a, 'c, 'w, 's, 'b, 'd> std::fmt::Debug for DebugConnections<'a, 'c, 'w, 's, 'b, 'd> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1327,7 +1316,7 @@ impl<'a, 'c, 'w, 's, 'b, 'd> std::fmt::Debug for DebugConnections<'a, 'c, 'w, 's
 
 struct DebugConnection<'a, 'c, 'w, 's, 'b, 'd> {
     connect: &'d Box<dyn ConnectIntoTarget>,
-    context: &'d DiagramContext<'a, 'c, 'w, 's, 'b>,
+    context: &'d BuilderContext<'a, 'c, 'w, 's, 'b>,
 }
 
 impl<'a, 'c, 'w, 's, 'b, 'd> std::fmt::Debug for DebugConnection<'a, 'c, 'w, 's, 'b, 'd> {

@@ -25,7 +25,7 @@ use thiserror::Error;
 use crate::{ForkResultOutput, JsonMessage};
 
 use super::{
-    BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode, NextOperation,
+    BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, NextOperation,
     OperationName, TraceInfo, TraceSettings,
 };
 
@@ -105,7 +105,7 @@ impl BuildDiagramOperation for TransformSchema {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         let program = Program::compile(&self.cel).map_err(TransformError::Parse)?;
         let node = ctx.builder.create_map_block(

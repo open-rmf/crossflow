@@ -17,34 +17,46 @@
 
 use smallvec::{smallvec, SmallVec};
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    ops::Deref,
+};
 use serde::{Serialize, Deserialize};
 use schemars::JsonSchema;
 
-use crate::{OperationRef, OutputRef, DiagramElementRegistry, Diagram, DiagramError};
+use crate::{OperationRef, OutputRef, DiagramElementRegistry, Diagram, DiagramError, DiagramContext};
 
-#[derive(Debug, Default, Clone)]
-pub struct MessageTypeConstraints {
-    pub into: SmallVec<[OperationRef; 8]>,
-    pub try_into: Option<OperationRef>,
-    pub from: SmallVec<[OutputRef; 8]>,
-    pub try_from: SmallVec<[OutputRef; 8]>,
-    pub result: Option<[OperationRef; 2]>,
+pub struct InferenceContext<'a, 'b> {
+    inference: &'b mut Inference,
+    diagram_context: DiagramContext<'a>,
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct MessageTypeEvaluation {
-    pub one_of: Option<SmallVec<[usize; 8]>>,
-    pub constraints: MessageTypeConstraints,
+impl<'a, 'b> InferenceContext<'a, 'b> {
+
 }
 
-impl MessageTypeEvaluation {
-    pub fn exact(exact: usize) -> Self {
-        Self {
-            one_of: Some(smallvec![exact]),
-            constraints: Default::default(),
-        }
+impl<'a, 'b> Deref for InferenceContext<'a, 'b> {
+    type Target = DiagramContext<'a>;
+    fn deref(&self) -> &Self::Target {
+        &self.diagram_context
     }
+}
+
+#[derive(Debug, Default, Clone)]
+struct MessageTypeConstraints {
+    exact: SmallVec<[TypeRef; 8]>,
+    into: SmallVec<[OperationRef; 8]>,
+    try_into: Option<OperationRef>,
+    from: SmallVec<[OutputRef; 8]>,
+    try_from: SmallVec<[OutputRef; 8]>,
+    result_into: Option<[OperationRef; 2]>,
+    unzip_into: Option<SmallVec<[OperationRef; 8]>>,
+}
+
+#[derive(Debug, Default, Clone)]
+struct MessageTypeEvaluation {
+    one_of: Option<SmallVec<[usize; 8]>>,
+    constraints: MessageTypeConstraints,
 }
 
 #[derive(
