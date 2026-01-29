@@ -96,7 +96,6 @@ const RESERVED_OPERATION_NAMES: [&'static str; 2] = ["", "builtin"];
 
 pub type BuilderId = Arc<str>;
 pub type OperationName = Arc<str>;
-pub type
 pub type DisplayText = Arc<str>;
 
 #[derive(
@@ -919,6 +918,9 @@ pub enum DiagramErrorCode {
 
     #[error("Could not find port in inference graph: [{0}]")]
     UnknownPort(PortRef),
+
+    #[error("There is no valid message type for port [{0}]")]
+    CannotInferType(PortRef),
 
     #[error("Unknown message type index: {index}. Limit: {limit}")]
     UnknownMessageTypeIndex {

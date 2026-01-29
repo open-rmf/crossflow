@@ -16,8 +16,8 @@
 */
 
 use crate::{
-    Operations, Templates, OperationRef, TraceToggle, NamespaceList, OperationName,
-}
+    Operations, Templates, OperationRef, TraceToggle, NamespaceList, OperationName, OutputRef, PortRef,
+};
 
 pub struct DiagramContext<'a> {
     pub operations: Operations,
@@ -38,6 +38,11 @@ impl<'a> DiagramContext<'a> {
         id.in_namespaces(&self.namespaces)
     }
 
+    pub fn into_port_ref(&self, id: impl Into<PortRef>) -> PortRef {
+        let id: PortRef = id.into();
+        id.in_namespaces(&self.namespaces)
+    }
+
     pub fn into_child_operation_ref(
         &self,
         id: &OperationName,
@@ -48,5 +53,4 @@ impl<'a> DiagramContext<'a> {
             .in_namespaces(&[id.clone()])
             .in_namespaces(&self.namespaces)
     }
-
 }

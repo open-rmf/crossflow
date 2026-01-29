@@ -20,11 +20,12 @@ use smallvec::{smallvec, SmallVec};
 use std::{
     collections::{HashMap, BTreeMap},
     ops::Deref,
+    sync::Arc,
 };
 use serde::{Serialize, Deserialize};
 use schemars::JsonSchema;
 
-use crate::{OperationRef, OutputRef, DiagramElementRegistry, Diagram, DiagramErrorCode, DiagramContext, MessageOperation};
+use crate::{OperationRef, OutputRef, DiagramElementRegistry, DiagramErrorCode, DiagramContext, MessageOperation};
 
 pub struct InferenceContext<'a, 'b> {
     inference: &'b mut Inference,
@@ -39,18 +40,18 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         port_0: impl Into<PortRef>,
         port_1: impl Into<PortRef>,
     ) {
-        let port_0 = port_0.into();
-        let port_1 = port_1.into();
+        let port_0 = self.into_port_ref(port_0);
+        let port_1 = self.into_port_ref(port_1);
 
         self
             .inference
             .constraint_level_mut(port_0.clone(), 0)
-            .push(Box::new(ExactMatch(port_1.clone())));
+            .push(Arc::new(ExactMatch(port_1.clone())));
 
         self
             .inference
             .constraint_level_mut(port_1, 0)
-            .push(Box::new(ExactMatch(port_0)));
+            .push(Arc::new(ExactMatch(port_0)));
     }
 
     /// Specify that an output connects into an input.
@@ -59,15 +60,18 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         output: OutputRef,
         input: OperationRef,
     ) {
+        let output = output.in_namespaces(&self.namespaces);
+        let input = input.in_namespaces(&self.namespaces);
+
         self
             .inference
             .constraint_level_mut(output.clone(), 1)
-            .push(Box::new(ConnectInto(input.clone())));
+            .push(Arc::new(ConnectInto(input.clone())));
 
         self
             .inference
             .constraint_level_mut(input, 1)
-            .push(Box::new(ConnectFrom(output)));
+            .push(Arc::new(ConnectFrom(output)));
     }
 
     pub fn try_convert_into(
@@ -75,23 +79,49 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         input: OperationRef,
         output: OutputRef,
     ) {
+        let input = input.in_namespaces(&self.namespaces);
+        let output = output.in_namespaces(&self.namespaces);
+
         self
             .inference
             .constraint_level_mut(input.clone(), 1)
-            .push(Box::new(ConvertInto(output.clone())));
+            .push(Arc::new(ConvertInto(output.clone())));
 
         self
             .inference
             .constraint_level_mut(output, 1)
-            .push(Box::new(ConvertFrom(input)));
+            .push(Arc::new(ConvertFrom(input)));
     }
 
     pub fn result(
-        from: OperationRef,
+        &mut self,
+        result: OperationRef,
         ok: OutputRef,
         err: OutputRef,
-    ) ->
-    TODO: Namespaces need to be inserted by these methods that build constraints
+    ) {
+        let result = result.in_namespaces(&self.namespaces);
+        let ok = ok.in_namespaces(&self.namespaces);
+        let err = err.in_namespaces(&self.namespaces);
+
+        self
+            .inference
+            // This constraint complexity is 0 because we can directly map from
+            // the Result type to its Ok type
+            .constraint_level_mut(ok.clone(), 0)
+            .push(Arc::new(OkFrom(result.clone())));
+
+        self
+            .inference
+            .constraint_level_mut(err.clone(), 0)
+            .push(Arc::new(ErrFrom(result.clone())));
+
+        self
+            .inference
+            // This constraint complexity is 2 because it needs to evaluate
+            // (ok, err) combinatorially to identify the Result type
+            .constraint_level_mut(result, 2)
+            .push(Arc::new(ResultInto{ ok, err }));
+    }
 
     pub fn get_inference_of(
         &self,
@@ -117,7 +147,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let mut result = SmallVec::new();
         for message_type_index in inference {
             let from = self
-                .operations_of(*message_type_index)
+                .operations_of(*message_type_index)?
                 // Note: switching "into" to "from" is intentional because we
                 // are backtracking
                 .from_impls
@@ -211,11 +241,11 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         ok: &OutputRef,
         err: &OutputRef,
     ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
-        let Some(ok_inference) = self.get_inference_of(port.clone())? else {
+        let Some(ok_inference) = self.get_inference_of(ok.clone())? else {
             return Ok(None);
         };
 
-        let Some(err_inference) = self.get_inference_of(port.clone())? else {
+        let Some(err_inference) = self.get_inference_of(err.clone())? else {
             return Ok(None);
         };
 
@@ -278,6 +308,68 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         Ok(Some(result))
     }
 
+    pub fn might_unzip_into(
+        &self,
+        outputs: &[OutputRef],
+    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+        let mut inferences = Vec::new();
+        let mut indexes = Vec::new();
+        for output in outputs {
+            let Some(inference) = self.get_inference_of(output.clone())? else {
+                return Ok(None);
+            };
+
+            if inference.is_empty() {
+                return Err(DiagramErrorCode::CannotInferType(output.clone().into()));
+            }
+            inferences.push(inference);
+            indexes.push(0usize);
+        }
+
+        let mut result = SmallVec::new();
+        loop {
+            let mut key = Vec::new();
+            for (index, element) in indexes.iter().zip(&inferences) {
+                key.push(element[*index]);
+            }
+
+            if let Some(unzip) = self.registry.messages.registration.lookup.unzip.get(&key) {
+                result.push(*unzip);
+            }
+
+            // Increment the next index that needs to be adjusted.
+            for (index, element) in indexes.iter_mut().zip(&inferences) {
+                if *index + 1 < element.len() {
+                    // The first index that has not reached its limit should be
+                    // incremented.
+                    *index += 1;
+                    break;
+                }
+
+                // The current index has reached the highest value that it can.
+                // We should reset it to zero and continue the for-loop to
+                // increment the next index.
+                *index = 0;
+            }
+
+            if indexes.iter().all(|index| *index == 0) {
+                // This means we have circled all the way back to all zeroes,
+                // so we should break out of the loop.
+                break;
+            }
+        }
+
+        Ok(Some(result))
+    }
+
+    pub fn might_unzip_from(
+        &self,
+        input: &OperationRef,
+        element: usize,
+    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+
+    }
+
     pub fn operations_of(
         &self,
         message_type_index: usize,
@@ -304,7 +396,7 @@ impl<'a, 'b> Deref for InferenceContext<'a, 'b> {
     }
 }
 
-pub trait MessageTypeConstraint {
+pub trait MessageTypeConstraint: std::fmt::Debug {
     fn evaluate(
         &self,
         context: &InferenceContext,
@@ -336,7 +428,7 @@ struct MessageTypeInference {
     /// So constraints in index 0 should evaluate with O(1) complexity. Constraints
     /// in index 1 should evaluate with O(N) complexity. Index 2 should be for
     /// O(N^2) complexity, etc.
-    constraints: BTreeMap<usize, Vec<Box<dyn MessageTypeConstraint>>>,
+    constraints: BTreeMap<usize, Vec<Arc<dyn MessageTypeConstraint>>>,
 }
 
 /// An input or output port of an operation.
@@ -346,6 +438,15 @@ struct MessageTypeInference {
 pub enum PortRef {
     Input(OperationRef),
     Output(OutputRef),
+}
+
+impl PortRef {
+    pub fn in_namespaces(self, parent_namespaces: &[Arc<str>]) -> Self {
+        match self {
+            Self::Input(input) => Self::Input(input.in_namespaces(parent_namespaces)),
+            Self::Output(output) => Self::Output(output.in_namespaces(parent_namespaces)),
+        }
+    }
 }
 
 impl std::fmt::Display for PortRef {
@@ -358,6 +459,18 @@ impl std::fmt::Display for PortRef {
                 write!(f, "(output) {output}")
             }
         }
+    }
+}
+
+impl From<OperationRef> for PortRef {
+    fn from(value: OperationRef) -> Self {
+        Self::Input(value)
+    }
+}
+
+impl From<OutputRef> for PortRef {
+    fn from(value: OutputRef) -> Self {
+        Self::Output(value)
     }
 }
 
@@ -375,11 +488,12 @@ impl Inference {
         &mut self,
         key: impl Into<PortRef>,
         level: usize,
-    ) -> &mut Vec<Box<dyn MessageTypeConstraint>> {
+    ) -> &mut Vec<Arc<dyn MessageTypeConstraint>> {
         self.evaluation(key).constraints.entry(level).or_default()
     }
 }
 
+#[derive(Debug)]
 struct ExactMatch(PortRef);
 
 impl MessageTypeConstraint for ExactMatch {
@@ -391,10 +505,11 @@ impl MessageTypeConstraint for ExactMatch {
         &self,
         context: &InferenceContext,
     ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
-        context.get_inference_of(&self.0).cloned()
+        context.get_inference_of(self.0.clone()).cloned()
     }
 }
 
+#[derive(Debug)]
 struct ConnectInto(OperationRef);
 
 impl MessageTypeConstraint for ConnectInto {
@@ -410,6 +525,7 @@ impl MessageTypeConstraint for ConnectInto {
     }
 }
 
+#[derive(Debug)]
 struct ConnectFrom(OutputRef);
 
 impl MessageTypeConstraint for ConnectFrom {
@@ -425,21 +541,23 @@ impl MessageTypeConstraint for ConnectFrom {
     }
 }
 
+#[derive(Debug)]
 struct ConvertInto(OutputRef);
 
 impl MessageTypeConstraint for ConvertInto {
     fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
-        smallvec![self.0.clone.into()]
+        smallvec![self.0.clone().into()]
     }
 
     fn evaluate(
         &self,
         context: &InferenceContext,
     ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
-        context.might_convert_into(port)
+        context.might_convert_into(&self.0)
     }
 }
 
+#[derive(Debug)]
 struct ConvertFrom(OperationRef);
 
 impl MessageTypeConstraint for ConvertFrom {
@@ -451,16 +569,17 @@ impl MessageTypeConstraint for ConvertFrom {
         &self,
         context: &InferenceContext,
     ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
-        context.might_convert_from(port)
+        context.might_convert_from(&self.0)
     }
 }
 
-struct ResultOf {
+#[derive(Debug)]
+struct ResultInto {
     ok: OutputRef,
     err: OutputRef,
 }
 
-impl MessageTypeConstraint for ResultOf {
+impl MessageTypeConstraint for ResultInto {
     fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
         smallvec![self.ok.clone().into(), self.err.clone().into()]
     }
@@ -473,6 +592,7 @@ impl MessageTypeConstraint for ResultOf {
     }
 }
 
+#[derive(Debug)]
 struct OkFrom(OperationRef);
 
 impl MessageTypeConstraint for OkFrom {
@@ -488,6 +608,7 @@ impl MessageTypeConstraint for OkFrom {
     }
 }
 
+#[derive(Debug)]
 struct ErrFrom(OperationRef);
 
 impl MessageTypeConstraint for ErrFrom {
@@ -500,5 +621,40 @@ impl MessageTypeConstraint for ErrFrom {
         context: &InferenceContext,
     ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
         context.might_err_from(&self.0)
+    }
+}
+
+#[derive(Debug)]
+struct UnzipInto(SmallVec<[OutputRef; 8]>);
+
+impl MessageTypeConstraint for UnzipInto {
+    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
+        self.0.clone().into_iter().map(|output| output.into()).collect()
+    }
+
+    fn evaluate(
+        &self,
+        context: &InferenceContext,
+    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+        context.might_unzip_into(&self.0)
+    }
+}
+
+#[derive(Debug)]
+struct UnzipFrom {
+    op: OperationRef,
+    element: usize,
+}
+
+impl MessageTypeConstraint for UnzipFrom {
+    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
+        smallvec![self.op.clone().into()]
+    }
+
+    fn evaluate(
+        &self,
+        context: &InferenceContext,
+    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+
     }
 }

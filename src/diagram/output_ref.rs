@@ -17,8 +17,8 @@
 
 use std::{
     borrow::Cow,
-    sync::Arc,
     ops::Deref,
+    sync::Arc,
 };
 use smallvec::{smallvec, SmallVec};
 
@@ -35,6 +35,28 @@ pub enum OutputRef {
     Start(NamespaceList),
 }
 
+impl OutputRef {
+    pub fn in_namespaces(self, parent_namespaces: &[Arc<str>]) -> Self {
+        match self {
+            Self::Named(named) => Self::Named(named.in_namespaces(parent_namespaces)),
+            Self::Start(namespaces) => Self::Start(namespaces.with_parent_namespaces(parent_namespaces)),
+        }
+    }
+}
+
+impl std::fmt::Display for OutputRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OutputRef::Named(named) => {
+                named.fmt(f)
+            }
+            OutputRef::Start(namespaces) => {
+                write!(f, "{namespaces}(start)")
+            }
+        }
+    }
+}
+
 pub fn output_ref(operation: OperationName) -> NamedOutputBuilder {
     NamedOutputBuilder { operation }
 }
@@ -45,7 +67,7 @@ pub struct NamedOutputBuilder {
 
 impl NamedOutputBuilder {
     pub fn next(self) -> NamedOutputRef {
-        self.key("next")
+        self.key(["next"])
     }
 
     pub fn stream_out(self, stream: impl ToString) -> NamedOutputRef {
@@ -53,11 +75,11 @@ impl NamedOutputBuilder {
     }
 
     pub fn ok(self) -> NamedOutputRef {
-        self.key("ok")
+        self.key(["ok"])
     }
 
     pub fn err(self) -> NamedOutputRef {
-        self.key("err")
+        self.key(["err"])
     }
 
     pub fn next_index(self, index: usize) -> NamedOutputRef {
@@ -85,6 +107,13 @@ pub struct NamedOutputRef {
     pub key: OutputKey,
 }
 
+impl NamedOutputRef {
+    pub fn in_namespaces(mut self, parent_namespaces: &[Arc<str>]) -> Self {
+        self.namespaces.apply_parent_namespaces(parent_namespaces);
+        self
+    }
+}
+
 /// A key that uniquely identifies a specific output belonging to an operation.
 /// For example nodes may have OutputKeys such as
 /// - ["next"]
@@ -99,6 +128,9 @@ pub struct NamedOutputRef {
 /// or fork_result:
 /// - ["ok"]
 /// - ["err"]
+#[derive(
+    Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize,
+)]
 pub struct OutputKey(pub SmallVec<[NameOrIndex; 4]>);
 
 impl Deref for OutputKey {
@@ -108,13 +140,7 @@ impl Deref for OutputKey {
     }
 }
 
-impl<T: Into<NameOrIndex>> From<T> for OutputKey {
-    fn from(value: T) -> Self {
-        OutputKey(smallvec![value.into()])
-    }
-}
-
-impl<I: Iterator> From<I> for OutputKey
+impl<I: IntoIterator> From<I> for OutputKey
 where
     I::Item: Into<NameOrIndex>,
 {
@@ -141,6 +167,17 @@ impl std::fmt::Display for &'_ OutputKey {
             }
         }
 
+        Ok(())
+    }
+}
+
+impl std::fmt::Display for &'_ NamedOutputRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for namespace in &self.namespaces {
+            write!(f, "{namespace}:")?;
+        }
+
+        write!(f, "{}.{}", &self.operation, &self.key)?;
         Ok(())
     }
 }
