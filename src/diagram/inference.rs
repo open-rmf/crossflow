@@ -25,7 +25,10 @@ use std::{
 use serde::{Serialize, Deserialize};
 use schemars::JsonSchema;
 
-use crate::{OperationRef, OutputRef, DiagramElementRegistry, DiagramErrorCode, DiagramContext, MessageOperation};
+use crate::{
+    OperationRef, OutputRef, DiagramElementRegistry, DiagramErrorCode, DiagramContext, MessageOperations,
+    JsonMessage,
+};
 
 pub struct InferenceContext<'a, 'b> {
     inference: &'b mut Inference,
@@ -82,14 +85,16 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let input = input.in_namespaces(&self.namespaces);
         let output = output.in_namespaces(&self.namespaces);
 
+        // We set conversions to a complexity level of 2 because this constraint
+        // can blow up since any serializable/deserializable types must be considered.
         self
             .inference
-            .constraint_level_mut(input.clone(), 1)
+            .constraint_level_mut(input.clone(), 2)
             .push(Arc::new(ConvertInto(output.clone())));
 
         self
             .inference
-            .constraint_level_mut(output, 1)
+            .constraint_level_mut(output, 2)
             .push(Arc::new(ConvertFrom(input)));
     }
 
@@ -123,6 +128,32 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
             .push(Arc::new(ResultInto{ ok, err }));
     }
 
+    pub fn unzip(
+        &mut self,
+        unzippable: OperationRef,
+        elements: Vec<OutputRef>,
+    ) {
+        let unzippable = unzippable.in_namespaces(&self.namespaces);
+        let elements: Vec<OutputRef> = elements.into_iter().map(|e| e.in_namespaces(&self.namespaces)).collect();
+
+        for (i, element) in elements.iter().enumerate() {
+            self
+                .inference
+                // The complexity is O(1) because we can directly infer the
+                // element type based on the upstream unzippable.
+                .constraint_level_mut(element.clone(), 0)
+                .push(Arc::new(UnzipFrom { op: unzippable.clone(), element: i }));
+        }
+
+        // The complexity of this constraint is O(N^m) where m is the number
+        // of elements in the tuple.
+        let complexity = elements.len();
+        self
+            .inference
+            .constraint_level_mut(unzippable, complexity)
+            .push(Arc::new(UnzipInto(elements.into())));
+    }
+
     pub fn get_inference_of(
         &self,
         port: impl Into<PortRef>,
@@ -146,19 +177,40 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
         let mut result = SmallVec::new();
         for message_type_index in inference {
-            let from = self
-                .operations_of(*message_type_index)?
-                // Note: switching "into" to "from" is intentional because we
-                // are backtracking
-                .from_impls
-                .keys();
-
-            for msg in from {
-                result.push(*msg);
-            }
+            self.might_connect_into_impl(*message_type_index, &mut result)?;
         }
 
         Ok(Some(result))
+    }
+
+    /// This function gets reused across both might_connect_into and
+    /// might_convert_into so we use a shared implementation for both.
+    fn might_connect_into_impl(
+        &self,
+        message_type_index: usize,
+        result: &mut SmallVec<[usize; 8]>,
+    ) -> Result<&MessageOperations, DiagramErrorCode> {
+        // Simply matching the message type is an option
+        result.push(message_type_index);
+
+        let ops = self.operations_of(message_type_index)?;
+
+        // Consider any message types that this target type can be cast
+        // from. Note: switching "into" to "from" is intentional because we
+        // are backtracking
+        for msg in ops.from_impls.keys() {
+            result.push(*msg);
+        }
+
+        if ops.deserialize_impl.is_some() {
+            // If the target type is deserializable then it can be created
+            // from a JsonSchema.
+            if let Some(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() {
+                result.push(json_index);
+            }
+        }
+
+        Ok(ops)
     }
 
     pub fn might_connect_from(
@@ -171,19 +223,40 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
         let mut result = SmallVec::new();
         for message_type_index in inference {
-            let into = self
-                .operations_of(*message_type_index)?
-                // Note: switching "from" to "into" is intentional because we
-                // are backtracking
-                .into_impls
-                .keys();
-
-            for msg in into {
-                result.push(*msg);
-            }
+            self.might_connect_from_impl(*message_type_index, &mut result)?;
         }
 
         Ok(Some(result))
+    }
+
+    /// This function gets reused across both might_connect_from and
+    /// might_convert_from so we use a shared implementation for both.
+    fn might_connect_from_impl(
+        &self,
+        message_type_index: usize,
+        result: &mut SmallVec<[usize; 8]>,
+    ) -> Result<&MessageOperations, DiagramErrorCode> {
+        // Simply matching the message type is an option
+        result.push(message_type_index);
+
+        let ops = self.operations_of(message_type_index)?;
+
+        // Consider any message types that this source type can be cast
+        // into. Note: switching "from" to "into" is intentional because we
+        // are backtracking.
+        for msg in ops.into_impls.keys() {
+            result.push(*msg);
+        }
+
+        if ops.serialize_impl.is_some() {
+            // If the target type is serializable then it can be serialized
+            // into a JsonMessage.
+            if let Some(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() {
+                result.push(json_index);
+            }
+        }
+
+        Ok(ops)
     }
 
     pub fn might_convert_into(
@@ -196,15 +269,25 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
         let mut result = SmallVec::new();
         for message_type_index in inference {
-            let from = self
-                .operations_of(*message_type_index)?
-                // Note: switching "into" to "from" is intentional because we
-                // are backtracking
-                .try_from_impls
-                .keys();
+            // Consider any message types that this can normally connect into.
+            let ops = self.might_connect_into_impl(*message_type_index, &mut result)?;
 
-            for msg in from {
+            // Consider any message types that this source type can attempt to
+            // convert into. Note: switching "into" to "from" is intentional
+            // because we are backtracking.
+            for msg in ops.try_from_impls.keys() {
                 result.push(*msg);
+            }
+
+            if ops.deserialize_impl.is_some() {
+                // If the target is deserializable then we should consider any
+                // serializable type since we can attempt to convert any
+                // serializable type into any deserializable type.
+                for (i, msg) in self.registry.messages.registration.iter().enumerate() {
+                    if msg.operations.serialize_impl.is_some() {
+                        result.push(i);
+                    }
+                }
             }
         }
 
@@ -221,15 +304,25 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
         let mut result = SmallVec::new();
         for message_type_index in inference {
-            let into = self
-                .operations_of(*message_type_index)?
-                // Note: switching "from" to "into" is intentional because we
-                // are backtracking
-                .try_into_impls
-                .keys();
+            // Consider any message types that this can normally connect from.
+            let ops = self.might_connect_from_impl(*message_type_index, &mut result)?;
 
-            for msg in into {
+            // Consider any message types that this source type can attempt to
+            // convert into. Note: switching "from" to "into" is intentional
+            // because we are backtracking.
+            for msg in ops.try_into_impls.keys() {
                 result.push(*msg);
+            }
+
+            if ops.serialize_impl.is_some() {
+                // If the source is serializable then we should consider any
+                // deserializable type since we can attempt to convert any
+                // serializable type into any deserializable type.
+                for (i, msg) in self.registry.messages.registration.iter().enumerate() {
+                    if msg.operations.deserialize_impl.is_some() {
+                        result.push(i);
+                    }
+                }
             }
         }
 
@@ -367,22 +460,29 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         input: &OperationRef,
         element: usize,
     ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+        let Some(unzip_inference) = self.get_inference_of(input.clone())? else {
+            return Ok(None);
+        };
 
+        let mut result = SmallVec::new();
+        for unzip in unzip_inference {
+            if let Some(unzip) = &self.operations_of(*unzip)?.unzip_impl {
+                result.push(unzip.output_types[element]);
+            }
+        }
+
+        Ok(Some(result))
     }
 
     pub fn operations_of(
         &self,
         message_type_index: usize,
-    ) -> Result<&MessageOperation, DiagramErrorCode> {
+    ) -> Result<&MessageOperations, DiagramErrorCode> {
         let operations = &self
             .registry
             .messages
             .registration
-            .get_by_index(message_type_index)
-            .ok_or_else(|| DiagramErrorCode::UnknownMessageTypeIndex {
-                index: message_type_index,
-                limit: self.registry.messages.registration.len(),
-            })?
+            .get_by_index(message_type_index)?
             .operations;
 
         Ok(operations)
@@ -655,6 +755,6 @@ impl MessageTypeConstraint for UnzipFrom {
         &self,
         context: &InferenceContext,
     ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
-
+        context.might_unzip_from(&self.op, self.element)
     }
 }

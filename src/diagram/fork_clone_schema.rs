@@ -22,7 +22,7 @@ use crate::{Builder, CloneFromBuffer, ForkCloneOutput};
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
-    MessageOperation, NextOperation, OperationName, TraceInfo, TraceSettings, TypeInfo,
+    MessageOperations, NextOperation, OperationName, TraceInfo, TraceSettings, TypeInfo,
     supported::*,
 };
 
@@ -124,13 +124,13 @@ impl BuildDiagramOperation for ForkCloneSchema {
 pub trait RegisterClone<T> {
     const CLONEABLE: bool;
 
-    fn register_clone(ops: &mut MessageOperation);
+    fn register_clone(ops: &mut MessageOperations);
 }
 
 impl<T: 'static> RegisterClone<T> for NotSupported {
     const CLONEABLE: bool = false;
 
-    fn register_clone(ops: &mut MessageOperation) {
+    fn register_clone(ops: &mut MessageOperations) {
         ops.fork_clone_impl = Some(|_| Err(DiagramErrorCode::NotCloneable(TypeInfo::of::<T>())));
     }
 }
@@ -141,7 +141,7 @@ where
 {
     const CLONEABLE: bool = true;
 
-    fn register_clone(ops: &mut MessageOperation) {
+    fn register_clone(ops: &mut MessageOperations) {
         CloneFromBuffer::<T>::register_clone_for_join();
         ops.fork_clone_impl = Some(|builder| {
             let (input, outputs) = builder.create_fork_clone::<T>();

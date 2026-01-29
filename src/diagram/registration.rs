@@ -53,7 +53,7 @@ use super::{
     buffer_schema::BufferAccessRequest, fork_clone_schema::RegisterClone,
     fork_result_schema::{RegisterForkResult, ForkResultRegistration}, register_json,
     supported::*,
-    unzip_schema::PerformUnzip,
+    unzip_schema::{RegisterUnzip, UnzipRegistration},
 };
 
 pub struct NodeRegistration {
@@ -377,7 +377,7 @@ where
     /// to be able to be connected to a "Unzip" operation.
     pub fn with_unzip(&mut self) -> &mut Self
     where
-        Supported<(Message, Supported, Supported)>: PerformUnzip,
+        Supported<(Message, Supported, Supported)>: RegisterUnzip,
     {
         self.data.register_unzip::<Message, Supported, Supported>();
         self
@@ -386,7 +386,7 @@ where
     /// Mark the message as having an unzippable response whose elements are not serializable.
     pub fn with_unzip_minimal(&mut self) -> &mut Self
     where
-        Supported<(Message, NotSupported, NotSupported)>: PerformUnzip,
+        Supported<(Message, NotSupported, NotSupported)>: RegisterUnzip,
     {
         self.data
             .register_unzip::<Message, NotSupported, NotSupported>();
@@ -724,7 +724,7 @@ where
     /// to be able to be connected to a "Unzip" operation.
     pub fn with_unzip(&mut self) -> &mut Self
     where
-        Supported<(Response, Supported, Supported)>: PerformUnzip,
+        Supported<(Response, Supported, Supported)>: RegisterUnzip,
     {
         MessageRegistrationBuilder::new(&mut self.registry.messages).with_unzip();
         self
@@ -733,7 +733,7 @@ where
     /// Mark the node as having an unzippable response whose elements are not serializable.
     pub fn with_unzip_unserializable(&mut self) -> &mut Self
     where
-        Supported<(Response, NotSupported, NotSupported)>: PerformUnzip,
+        Supported<(Response, NotSupported, NotSupported)>: RegisterUnzip,
     {
         MessageRegistrationBuilder::new(&mut self.registry.messages).with_unzip_minimal();
         self
@@ -1007,11 +1007,11 @@ pub struct NodeMetadata {
     pub(super) config_examples: Vec<ConfigExample>,
 }
 
-pub struct MessageOperation {
+pub struct MessageOperations {
     pub(super) deserialize_impl: Option<DeserializeFn>,
     pub(super) serialize_impl: Option<SerializeFn>,
     pub(super) fork_clone_impl: Option<ForkCloneFn>,
-    pub(super) unzip_impl: Option<Box<dyn PerformUnzip + Send>>,
+    pub(super) unzip_impl: Option<UnzipRegistration>,
     pub(super) fork_result: Option<ForkResultRegistration>,
     pub(super) split_impl: Option<SplitFn>,
     pub(super) join_impl: Option<JoinFn>,
@@ -1032,7 +1032,7 @@ pub struct MessageOperation {
     pub(super) enable_trace_serialization: Option<EnableTraceSerializeFn>,
 }
 
-impl MessageOperation {
+impl MessageOperations {
     fn new<T>() -> Self
     where
         T: Send + Sync + 'static + Any,
@@ -1113,38 +1113,6 @@ impl JsonSchema for JsEmptyObject {
     }
 }
 
-impl Serialize for MessageOperation {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut s = serializer.serialize_map(None)?;
-        let empty_object = JsEmptyObject {};
-        if self.deserialize_impl.is_some() {
-            s.serialize_entry("deserialize", &empty_object)?;
-        }
-        if self.serialize_impl.is_some() {
-            s.serialize_entry("serialize", &empty_object)?;
-        }
-        if self.fork_clone_impl.is_some() {
-            s.serialize_entry("fork_clone", &empty_object)?;
-        }
-        if let Some(unzip_impl) = &self.unzip_impl {
-            s.serialize_entry("unzip", &json!({"output_types": unzip_impl.output_types()}))?;
-        }
-        if self.fork_result.is_some() {
-            s.serialize_entry("fork_result", &empty_object)?;
-        }
-        if self.split_impl.is_some() {
-            s.serialize_entry("split", &empty_object)?;
-        }
-        if self.join_impl.is_some() {
-            s.serialize_entry("join", &empty_object)?;
-        }
-        s.end()
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 struct MessageMetadata {
     type_name: Cow<'static, str>,
@@ -1158,7 +1126,7 @@ struct MessageOperationMetadata {
     deserialize: Option<JsEmptyObject>,
     serialize: Option<JsEmptyObject>,
     fork_clone: Option<JsEmptyObject>,
-    unzip: Option<Vec<Option<usize>>>,
+    unzip: Option<Vec<usize>>,
     fork_result: Option<[usize; 2]>,
     split: Option<JsEmptyObject>,
     join: Option<JsEmptyObject>,
@@ -1169,18 +1137,12 @@ struct MessageOperationMetadata {
 }
 
 impl MessageOperationMetadata {
-    fn new(ops: &MessageOperation, registrations: &MessageRegistrations) -> Self {
+    fn new(ops: &MessageOperations, _registrations: &MessageRegistrations) -> Self {
         Self {
             deserialize: ops.deserialize_impl.is_some().then(|| JsEmptyObject),
             serialize: ops.serialize_impl.is_some().then(|| JsEmptyObject),
             fork_clone: ops.fork_clone_impl.is_some().then(|| JsEmptyObject),
-            unzip: ops.unzip_impl.as_ref().map(|unzip|
-                unzip
-                .output_types()
-                .into_iter()
-                .map(|info| registrations.indices.get(&info).copied())
-                .collect()
-            ),
+            unzip: ops.unzip_impl.as_ref().map(|unzip| unzip.output_types.clone()),
             fork_result: ops.fork_result.as_ref().map(|r| r.output_types),
             split: ops.split_impl.is_some().then(|| JsEmptyObject),
             join: ops.join_impl.is_some().then(|| JsEmptyObject),
@@ -1193,9 +1155,9 @@ impl MessageOperationMetadata {
 }
 
 pub struct MessageRegistration {
-    pub(super) type_name: &'static str,
+    pub(super) type_info: TypeInfo,
     pub(super) schema: Option<Schema>,
-    pub(super) operations: MessageOperation,
+    pub(super) operations: MessageOperations,
 }
 
 impl MessageRegistration {
@@ -1204,9 +1166,9 @@ impl MessageRegistration {
         T: Send + Sync + 'static + Any,
     {
         Self {
-            type_name: type_name::<T>(),
+            type_info: TypeInfo::of::<T>(),
             schema: None,
-            operations: MessageOperation::new::<T>(),
+            operations: MessageOperations::new::<T>(),
         }
     }
 }
@@ -1339,10 +1301,9 @@ impl MessageRegistry {
     pub fn unzip<'a>(
         &'a self,
         message_info: &TypeInfo,
-    ) -> Result<&'a dyn PerformUnzip, DiagramErrorCode> {
+    ) -> Result<&'a UnzipRegistration, DiagramErrorCode> {
         self.get_dyn(message_info)
             .and_then(|reg| reg.operations.unzip_impl.as_ref())
-            .map(|unzip| -> &'a dyn PerformUnzip { unzip.as_ref() })
             .ok_or(DiagramErrorCode::NotUnzippable(*message_info))
     }
 
@@ -1353,10 +1314,10 @@ impl MessageRegistry {
         T: Send + Sync + 'static + Any,
         Serializer: 'static,
         Cloneable: 'static,
-        Supported<(T, Serializer, Cloneable)>: PerformUnzip,
+        Supported<(T, Serializer, Cloneable)>: RegisterUnzip,
     {
         let unzip_impl = Supported::<(T, Serializer, Cloneable)>::new();
-        unzip_impl.on_register(self);
+        unzip_impl.register_unzip(self);
 
         let ops = &mut self
             .registration
@@ -1640,6 +1601,10 @@ pub struct MessageLookup {
 }
 
 impl MessageRegistrations {
+    pub fn iter(&self) -> std::slice::Iter<MessageRegistration> {
+        self.messages.iter()
+    }
+
     fn get<T>(&self) -> Option<&MessageRegistration>
     where
         T: Any,
@@ -1655,8 +1620,15 @@ impl MessageRegistrations {
         .flatten()
     }
 
-    pub(crate) fn get_by_index(&self, index: usize) -> Option<&MessageRegistration> {
-        self.messages.get(index)
+    pub(crate) fn get_by_index(
+        &self,
+        index: usize,
+    ) -> Result<&MessageRegistration, DiagramErrorCode> {
+        self.messages.get(index).ok_or_else(||
+            DiagramErrorCode::UnknownMessageTypeIndex {
+                index,
+                limit: self.len(),
+            })
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -1718,7 +1690,7 @@ impl MessageRegistrations {
         let mut metadata = Vec::new();
         for message in &self.messages {
             metadata.push(MessageMetadata {
-                type_name: Cow::Borrowed(message.type_name),
+                type_name: Cow::Borrowed(message.type_info.type_name),
                 schema: message.schema.clone(),
                 operations: MessageOperationMetadata::new(&message.operations, self),
                 lookup: self.lookup.clone(),
@@ -1726,6 +1698,14 @@ impl MessageRegistrations {
         }
 
         metadata
+    }
+}
+
+impl<'a> IntoIterator for &'a MessageRegistrations {
+    type IntoIter = std::slice::Iter<'a, MessageRegistration>;
+    type Item = &'a MessageRegistration;
+    fn into_iter(self) -> Self::IntoIter {
+        self.messages.iter()
     }
 }
 
@@ -2233,7 +2213,7 @@ mod tests {
 
     /// Some extra impl only used in tests (for now).
     /// If these impls are needed outside tests, then move them to the main impl.
-    impl MessageOperation {
+    impl MessageOperations {
         fn deserializable(&self) -> bool {
             self.deserialize_impl.is_some()
         }

@@ -24,7 +24,7 @@ use crate::Builder;
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
     MessageRegistry, NextOperation, OperationName, RegisterClone, SerializeMessage, TraceInfo,
-    TraceSettings, TypeInfo, supported::*,
+    TraceSettings, supported::*,
 };
 
 /// If the input message is a tuple of (T1, T2, T3, ...), unzip it into
@@ -105,16 +105,22 @@ impl BuildDiagramOperation for UnzipSchema {
         };
 
         let unzip = ctx.registry.messages.unzip(&inferred_type)?;
-        let actual_output = unzip.output_types();
+        let mut actual_output = Vec::new();
+        for t in &unzip.output_types {
+            actual_output.push(
+                ctx.registry.messages.registration.get_by_index(*t)?.type_info
+            );
+        }
+
         if actual_output.len() != self.next.len() {
             return Err(DiagramErrorCode::UnzipMismatch {
                 expected: self.next.len(),
-                actual: unzip.output_types().len(),
+                actual: unzip.output_types.len(),
                 elements: actual_output,
             });
         }
 
-        let unzip = unzip.perform_unzip(ctx.builder)?;
+        let unzip = (unzip.create)(ctx.builder)?;
 
         let trace = TraceInfo::new(self, self.trace_settings.trace)?;
         ctx.set_input_for_target(id, unzip.input, trace)?;
@@ -130,55 +136,54 @@ pub struct DynUnzip {
     outputs: Vec<DynOutput>,
 }
 
-pub trait PerformUnzip {
-    /// Returns a list of type names that this message unzips to.
-    fn output_types(&self) -> Vec<TypeInfo>;
+pub type UnzipFn = fn(&mut Builder) -> Result<DynUnzip, DiagramErrorCode>;
 
-    fn perform_unzip(&self, builder: &mut Builder) -> Result<DynUnzip, DiagramErrorCode>;
+pub struct UnzipRegistration {
+    pub create: UnzipFn,
+    pub output_types: Vec<usize>,
+}
 
-    /// Called when a node is registered.
-    fn on_register(&self, registry: &mut MessageRegistry);
+pub trait RegisterUnzip {
+    /// Called when an unzip operation is registered.
+    fn register_unzip(registry: &mut MessageRegistry) -> UnzipRegistration;
 }
 
 macro_rules! dyn_unzip_impl {
     ($len:literal, $(($P:ident, $o:ident)),*) => {
-        impl<$($P),*, Serializer, Cloneable> PerformUnzip for Supported<(($($P,)*), Serializer, Cloneable)>
+        impl<$($P),*, Serializer, Cloneable> RegisterUnzip for Supported<(($($P,)*), Serializer, Cloneable)>
         where
             $($P: Send + Sync + 'static),*,
             Serializer: $(SerializeMessage<$P> +)* $(SerializeMessage<Vec<$P>> +)*,
             Cloneable: $(RegisterClone<$P> +)* $(RegisterClone<Vec<$P>> +)*,
         {
-            fn output_types(&self) -> Vec<TypeInfo> {
-                vec![$(
-                    TypeInfo::of::<$P>(),
-                )*]
-            }
+            fn register_unzip(registry: &mut MessageRegistry) -> UnzipRegistration {
+                let create = |builder: &mut Builder| {
+                    let (input, ($($o,)*)) = builder.create_unzip::<($($P,)*)>();
 
-            fn perform_unzip(
-                &self,
-                builder: &mut Builder,
-            ) -> Result<DynUnzip, DiagramErrorCode> {
-                let (input, ($($o,)*)) = builder.create_unzip::<($($P,)*)>();
+                    let mut outputs: Vec<DynOutput> = Vec::with_capacity($len);
+                    $({
+                        outputs.push($o.into());
+                    })*
 
-                let mut outputs: Vec<DynOutput> = Vec::with_capacity($len);
-                $({
-                    outputs.push($o.into());
-                })*
+                    Ok(DynUnzip {
+                        input: input.into(),
+                        outputs,
+                    })
+                };
 
-                Ok(DynUnzip {
-                    input: input.into(),
-                    outputs,
-                })
-            }
-
-            fn on_register(&self, registry: &mut MessageRegistry)
-            {
+                let mut output_types = Vec::new();
                 // Register serialize functions for all items in the tuple.
                 // For a tuple of (T1, T2, T3), registers serialize for T1, T2 and T3.
                 $(
                     registry.register_serialize::<$P, Serializer>();
                     registry.register_clone::<$P, Cloneable>();
+                    output_types.push(registry.registration.get_index_or_insert::<$P>());
                 )*
+
+                let unzip_index = registry.registration.get_index_or_insert::<($($P,)*)>();
+                registry.registration.lookup.unzip.insert(output_types.clone(), unzip_index);
+
+                UnzipRegistration { create, output_types }
             }
         }
     };
