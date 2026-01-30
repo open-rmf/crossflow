@@ -70,6 +70,22 @@ impl<'a> BufferIdentifier<'a> {
     pub fn is_index(&self) -> bool {
         matches!(self, Self::Index(_))
     }
+
+    pub fn to_owned(&self) -> BufferIdentifier<'static> {
+        match self {
+            Self::Index(index) => BufferIdentifier::Index(*index),
+            Self::Name(name) => {
+                match name {
+                    Cow::Borrowed(name) => {
+                        BufferIdentifier::Name(Cow::Owned((*name).into()))
+                    }
+                    Cow::Owned(name) => {
+                        BufferIdentifier::Name(Cow::Owned(name.clone()))
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl<'a> std::fmt::Display for BufferIdentifier<'a> {
@@ -494,6 +510,15 @@ impl DynamicBufferMapLayoutHints<TypeInfo> {
             indices: self.indices,
             names: self.names,
             constraint: self.constraint.export(messages),
+        }
+    }
+}
+
+impl<TypeRepr> DynamicBufferMapLayoutHints<TypeRepr> {
+    pub fn is_compatible(&self, id: &BufferIdentifier) -> bool {
+        match id {
+            BufferIdentifier::Index(_) => self.indices,
+            BufferIdentifier::Name(_) => self.names,
         }
     }
 }

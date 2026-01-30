@@ -224,16 +224,56 @@ impl JsonSchema for NamespacedOperation {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", untagged)]
-pub enum BufferSelection {
-    Dict(HashMap<String, NextOperation>),
-    Array(Vec<NextOperation>),
+pub enum BufferSelection<Identifier=NextOperation> {
+    Dict(HashMap<String, Identifier>),
+    Array(Vec<Identifier>),
 }
 
-impl BufferSelection {
+impl<Identifier> BufferSelection<Identifier> {
     pub fn is_empty(&self) -> bool {
         match self {
             Self::Dict(d) => d.is_empty(),
             Self::Array(a) => a.is_empty(),
+        }
+    }
+
+    pub fn iter(&self) -> BufferSelectionIter<Identifier> {
+        match self {
+            Self::Dict(dict) => {
+                BufferSelectionIter::Dict(dict.iter())
+            }
+            Self::Array(array) => {
+                BufferSelectionIter::Array(array.iter().enumerate())
+            }
+        }
+    }
+}
+
+pub enum BufferSelectionIter<'a, Identifier> {
+    Dict(std::collections::hash_map::Iter<'a, String, Identifier>),
+    Array(std::iter::Enumerate<std::slice::Iter<'a, Identifier>>),
+}
+
+impl<'a, Identifier> Iterator for BufferSelectionIter<'a, Identifier> {
+    type Item = (BufferIdentifier<'a>, &'a Identifier);
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Dict(dict) => {
+                dict.next().map(|(name, id)|
+                    (
+                        BufferIdentifier::Name(Cow::Borrowed(name.as_str())),
+                        id,
+                    )
+                )
+            }
+            Self::Array(array) => {
+                array.next().map(|(index, id)|
+                    (
+                        BufferIdentifier::Index(index),
+                        id,
+                    )
+                )
+            }
         }
     }
 }

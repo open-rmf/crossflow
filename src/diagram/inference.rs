@@ -27,7 +27,8 @@ use schemars::JsonSchema;
 
 use crate::{
     OperationRef, OutputRef, DiagramElementRegistry, DiagramErrorCode, DiagramContext, MessageOperations,
-    JsonMessage,
+    JsonMessage, BufferIdentifier, BufferMapLayoutHints, BufferMapLayoutConstraint, AnyMessageBox,
+    MessageTypeHint, BufferSelection, NextOperation,
 };
 
 pub struct InferenceContext<'a, 'b> {
@@ -154,6 +155,30 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
             .push(Arc::new(UnzipInto(elements.into())));
     }
 
+    pub fn join(
+        &mut self,
+        joined: PortRef,
+        selection: &BufferSelection,
+    ) {
+        for (identifier, op) in selection.iter() {
+            let port = self.into_port_ref(op);
+            self
+                .inference
+                .constraint_level_mut(port, 2)
+                .push(Arc::new(JoinInto {
+                    identifier: identifier.to_owned(),
+                    joined: joined.clone(),
+                }))
+        }
+
+        // TODO(@mxgrey): Consider applying a reverse constraint: inferring the
+        // Joined type based on its constituent parts. Unfortunately the Joined
+        // type is ambiguous when basing it only on the parts that are being
+        // joined into it, even accounting for the layout. That makes the
+        // reverse inference both weak and expensive to calculate, so we skip it
+        // for now.
+    }
+
     pub fn get_inference_of(
         &self,
         port: impl Into<PortRef>,
@@ -170,7 +195,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     pub fn might_connect_into(
         &self,
         port: &OperationRef,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         let Some(inference) = self.get_inference_of(port.clone())? else {
             return Ok(None);
         };
@@ -184,14 +209,18 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     }
 
     /// This function gets reused across both might_connect_into and
+    ///
     /// might_convert_into so we use a shared implementation for both.
     fn might_connect_into_impl(
         &self,
         message_type_index: usize,
-        result: &mut SmallVec<[usize; 8]>,
+        result: &mut SmallVec<[MessageTypeChoice; 8]>,
     ) -> Result<&MessageOperations, DiagramErrorCode> {
         // Simply matching the message type is an option
-        result.push(message_type_index);
+        result.push(MessageTypeChoice {
+            id: message_type_index,
+            cost: 0,
+        });
 
         let ops = self.operations_of(message_type_index)?;
 
@@ -199,14 +228,20 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         // from. Note: switching "into" to "from" is intentional because we
         // are backtracking
         for msg in ops.from_impls.keys() {
-            result.push(*msg);
+            result.push(MessageTypeChoice {
+                id: *msg,
+                cost: 1,
+            });
         }
 
         if ops.deserialize_impl.is_some() {
             // If the target type is deserializable then it can be created
             // from a JsonSchema.
             if let Some(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() {
-                result.push(json_index);
+                result.push(MessageTypeChoice {
+                    id: json_index,
+                    cost: 2,
+                });
             }
         }
 
@@ -216,7 +251,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     pub fn might_connect_from(
         &self,
         port: &OutputRef,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         let Some(inference) = self.get_inference_of(port.clone())? else {
             return Ok(None);
         };
@@ -234,10 +269,13 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     fn might_connect_from_impl(
         &self,
         message_type_index: usize,
-        result: &mut SmallVec<[usize; 8]>,
+        result: &mut SmallVec<[MessageTypeChoice; 8]>,
     ) -> Result<&MessageOperations, DiagramErrorCode> {
         // Simply matching the message type is an option
-        result.push(message_type_index);
+        result.push(MessageTypeChoice {
+            id: message_type_index,
+            cost: 0,
+        });
 
         let ops = self.operations_of(message_type_index)?;
 
@@ -245,14 +283,20 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         // into. Note: switching "from" to "into" is intentional because we
         // are backtracking.
         for msg in ops.into_impls.keys() {
-            result.push(*msg);
+            result.push(MessageTypeChoice {
+                id: *msg,
+                cost: 1,
+            });
         }
 
         if ops.serialize_impl.is_some() {
             // If the target type is serializable then it can be serialized
             // into a JsonMessage.
             if let Some(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() {
-                result.push(json_index);
+                result.push(MessageTypeChoice {
+                    id: json_index,
+                    cost: 2,
+                });
             }
         }
 
@@ -262,7 +306,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     pub fn might_convert_into(
         &self,
         port: &OutputRef,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         let Some(inference) = self.get_inference_of(port.clone())? else {
             return Ok(None);
         };
@@ -276,16 +320,22 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
             // convert into. Note: switching "into" to "from" is intentional
             // because we are backtracking.
             for msg in ops.try_from_impls.keys() {
-                result.push(*msg);
+                result.push(MessageTypeChoice {
+                    id: *msg,
+                    cost: 3,
+                });
             }
 
             if ops.deserialize_impl.is_some() {
                 // If the target is deserializable then we should consider any
                 // serializable type since we can attempt to convert any
                 // serializable type into any deserializable type.
-                for (i, msg) in self.registry.messages.registration.iter().enumerate() {
+                for (id, msg) in self.registry.messages.registration.iter().enumerate() {
                     if msg.get_operations()?.serialize_impl.is_some() {
-                        result.push(i);
+                        result.push(MessageTypeChoice {
+                            id,
+                            cost: 4,
+                        });
                     }
                 }
             }
@@ -297,7 +347,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     pub fn might_convert_from(
         &self,
         port: &OperationRef,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         let Some(inference) = self.get_inference_of(port.clone())? else {
             return Ok(None);
         };
@@ -311,16 +361,22 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
             // convert into. Note: switching "from" to "into" is intentional
             // because we are backtracking.
             for msg in ops.try_into_impls.keys() {
-                result.push(*msg);
+                result.push(MessageTypeChoice {
+                    id: *msg,
+                    cost: 3,
+                });
             }
 
             if ops.serialize_impl.is_some() {
                 // If the source is serializable then we should consider any
                 // deserializable type since we can attempt to convert any
                 // serializable type into any deserializable type.
-                for (i, msg) in self.registry.messages.registration.iter().enumerate() {
+                for (id, msg) in self.registry.messages.registration.iter().enumerate() {
                     if msg.get_operations()?.deserialize_impl.is_some() {
-                        result.push(i);
+                        result.push(MessageTypeChoice {
+                            id,
+                            cost: 4,
+                        });
                     }
                 }
             }
@@ -333,7 +389,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         &self,
         ok: &OutputRef,
         err: &OutputRef,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         let Some(ok_inference) = self.get_inference_of(ok.clone())? else {
             return Ok(None);
         };
@@ -347,7 +403,10 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
             for err_index in err_inference {
                 let key = [*ok_index, *err_index];
                 if let Some(r) = self.registry.messages.registration.lookup.result.get(&key) {
-                    result.push(*r);
+                    result.push(MessageTypeChoice {
+                        id: *r,
+                        cost: 0,
+                    });
                 }
             }
         }
@@ -358,7 +417,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     pub fn might_ok_from(
         &self,
         from_result: &OperationRef,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         let Some(result_inference) = self.get_inference_of(from_result.clone())? else {
             return Ok(None);
         };
@@ -371,7 +430,10 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
             if let Some(r) = r {
                 let [ok, _] = r.output_types;
-                result.push(ok);
+                result.push(MessageTypeChoice {
+                    id: ok,
+                    cost: 0,
+                });
             }
         }
 
@@ -381,7 +443,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     pub fn might_err_from(
         &self,
         from_result: &OperationRef,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         let Some(result_inference) = self.get_inference_of(from_result.clone())? else {
             return Ok(None);
         };
@@ -394,7 +456,10 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
             if let Some(r) = r {
                 let [_, err] = r.output_types;
-                result.push(err);
+                result.push(MessageTypeChoice {
+                    id: err,
+                    cost: 0,
+                });
             }
         }
 
@@ -404,7 +469,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     pub fn might_unzip_into(
         &self,
         outputs: &[OutputRef],
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         let mut inferences = Vec::new();
         let mut indexes = Vec::new();
         for output in outputs {
@@ -427,7 +492,10 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
             }
 
             if let Some(unzip) = self.registry.messages.registration.lookup.unzip.get(&key) {
-                result.push(*unzip);
+                result.push(MessageTypeChoice {
+                    id: *unzip,
+                    cost: 0,
+                });
             }
 
             // Increment the next index that needs to be adjusted.
@@ -459,7 +527,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         &self,
         input: &OperationRef,
         element: usize,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         let Some(unzip_inference) = self.get_inference_of(input.clone())? else {
             return Ok(None);
         };
@@ -467,7 +535,72 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let mut result = SmallVec::new();
         for unzip in unzip_inference {
             if let Some(unzip) = &self.operations_of(*unzip)?.unzip_impl {
-                result.push(unzip.output_types[element]);
+                result.push(MessageTypeChoice {
+                    id: unzip.output_types[element],
+                    cost: 0,
+                });
+            }
+        }
+
+        Ok(Some(result))
+    }
+
+    pub fn might_join_into(
+        &self,
+        joined: &PortRef,
+        identifier: &BufferIdentifier,
+    ) -> MessageTypeConstraintEvaluation {
+        let Some(joined_inference) = self.get_inference_of(joined.clone())? else {
+            return Ok(None);
+        };
+
+        let eval_hint = |hint: &MessageTypeHint<usize>| {
+            match hint {
+                MessageTypeHint::Exact(id) => {
+                    MessageTypeChoice {
+                        id: *id,
+                        cost: 1,
+                    }
+                }
+                MessageTypeHint::Fallback(id) => {
+                    MessageTypeChoice {
+                        id: *id,
+                        cost: 3,
+                    }
+                }
+            }
+        };
+
+        let mut result = SmallVec::new();
+        for joined in joined_inference {
+            if let Some(join) = &self.operations_of(*joined)?.join_impl {
+                match &join.layout {
+                    BufferMapLayoutHints::Dynamic(dynamic) => {
+                        if dynamic.is_compatible(identifier) {
+                            match &dynamic.constraint {
+                                BufferMapLayoutConstraint::Any => {
+                                    let any_index = self.registry.messages.registration.get_index::<AnyMessageBox>();
+                                    if let Some(any_index) = any_index {
+                                        result.push(MessageTypeChoice {
+                                            id: any_index,
+                                            cost: 4,
+                                        });
+                                    }
+                                }
+                                BufferMapLayoutConstraint::AnyOf(hints) | BufferMapLayoutConstraint::OneOf(hints) => {
+                                    for hint in hints {
+                                        result.push(eval_hint(hint));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    BufferMapLayoutHints::Static(hints) => {
+                        if let Some(hint) = hints.get(identifier) {
+                            result.push(eval_hint(hint));
+                        }
+                    }
+                }
             }
         }
 
@@ -487,6 +620,12 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct MessageTypeChoice {
+    pub id: usize,
+    pub cost: u32,
+}
+
 impl<'a, 'b> Deref for InferenceContext<'a, 'b> {
     type Target = DiagramContext<'a>;
     fn deref(&self) -> &Self::Target {
@@ -494,24 +633,15 @@ impl<'a, 'b> Deref for InferenceContext<'a, 'b> {
     }
 }
 
+pub type MessageTypeConstraintEvaluation = Result<Option<SmallVec<[MessageTypeChoice; 8]>>, DiagramErrorCode>;
+
 pub trait MessageTypeConstraint: std::fmt::Debug {
     fn evaluate(
         &self,
         context: &InferenceContext,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode>;
+    ) -> MessageTypeConstraintEvaluation;
 
     fn dependencies(&self) -> SmallVec<[PortRef; 8]>;
-}
-
-#[derive(Debug, Default, Clone)]
-struct MessageTypeConstraints {
-    exact: SmallVec<[PortRef; 8]>,
-    into: SmallVec<[OperationRef; 8]>,
-    try_into: Option<OperationRef>,
-    from: SmallVec<[OutputRef; 8]>,
-    try_from: SmallVec<[OutputRef; 8]>,
-    result_into: Option<[OperationRef; 2]>,
-    unzip_into: Option<SmallVec<[OperationRef; 8]>>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -572,6 +702,12 @@ impl From<OutputRef> for PortRef {
     }
 }
 
+impl<'a> From<&'a NextOperation> for PortRef {
+    fn from(value: &'a NextOperation) -> Self {
+        Self::Input(value.into())
+    }
+}
+
 struct Inference {
     evaluations: HashMap<PortRef, MessageTypeInference>,
 }
@@ -602,8 +738,18 @@ impl MessageTypeConstraint for ExactMatch {
     fn evaluate(
         &self,
         context: &InferenceContext,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
-        context.get_inference_of(self.0.clone()).cloned()
+    ) -> MessageTypeConstraintEvaluation {
+        context
+        .get_inference_of(self.0.clone())
+        .map(|r| r.as_ref().map(|inferences|
+            inferences
+            .iter()
+            .map(|id| MessageTypeChoice {
+                id: *id,
+                cost: 0,
+            })
+            .collect()
+        ))
     }
 }
 
@@ -618,7 +764,7 @@ impl MessageTypeConstraint for ConnectInto {
     fn evaluate(
         &self,
         context: &InferenceContext,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         context.might_connect_into(&self.0)
     }
 }
@@ -634,7 +780,7 @@ impl MessageTypeConstraint for ConnectFrom {
     fn evaluate(
         &self,
         context: &InferenceContext,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         context.might_connect_from(&self.0)
     }
 }
@@ -650,7 +796,7 @@ impl MessageTypeConstraint for ConvertInto {
     fn evaluate(
         &self,
         context: &InferenceContext,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         context.might_convert_into(&self.0)
     }
 }
@@ -666,7 +812,7 @@ impl MessageTypeConstraint for ConvertFrom {
     fn evaluate(
         &self,
         context: &InferenceContext,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         context.might_convert_from(&self.0)
     }
 }
@@ -685,7 +831,7 @@ impl MessageTypeConstraint for ResultInto {
     fn evaluate(
         &self,
         context: &InferenceContext,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         context.might_result_into(&self.ok, &self.err)
     }
 }
@@ -701,7 +847,7 @@ impl MessageTypeConstraint for OkFrom {
     fn evaluate(
         &self,
         context: &InferenceContext,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         context.might_ok_from(&self.0)
     }
 }
@@ -717,7 +863,7 @@ impl MessageTypeConstraint for ErrFrom {
     fn evaluate(
         &self,
         context: &InferenceContext,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         context.might_err_from(&self.0)
     }
 }
@@ -733,7 +879,7 @@ impl MessageTypeConstraint for UnzipInto {
     fn evaluate(
         &self,
         context: &InferenceContext,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         context.might_unzip_into(&self.0)
     }
 }
@@ -752,7 +898,26 @@ impl MessageTypeConstraint for UnzipFrom {
     fn evaluate(
         &self,
         context: &InferenceContext,
-    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> MessageTypeConstraintEvaluation {
         context.might_unzip_from(&self.op, self.element)
+    }
+}
+
+#[derive(Debug)]
+struct JoinInto {
+    joined: PortRef,
+    identifier: BufferIdentifier<'static>,
+}
+
+impl MessageTypeConstraint for JoinInto {
+    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
+        smallvec![self.joined.clone()]
+    }
+
+    fn evaluate(
+        &self,
+        context: &InferenceContext,
+    ) -> MessageTypeConstraintEvaluation {
+        context.might_join_into(&self.joined, &self.identifier)
     }
 }

@@ -1471,23 +1471,16 @@ impl MessageRegistry {
 
     /// Register a join function if not already registered, returns true if the
     /// new function is registered.
-    pub(super) fn register_join<T>(&mut self) -> bool
+    pub(super) fn register_join<T>(&mut self)
     where
         T: Send + Sync + 'static + Any + Joined,
     {
+        let join = JoinRegistration::new::<T>(self);
 
-
-        let ops = &mut self
+        self
             .registration
-            .get_or_insert_operations::<T>();
-
-        if ops.join_impl.is_some() {
-            return false;
-        }
-
-        ops.join_impl = Some(JoinRegistration::new::<T>());
-
-        true
+            .get_or_insert_operations::<T>()
+            .join_impl = Some(join);
     }
 
     pub fn with_buffer_access(
@@ -1601,13 +1594,6 @@ impl MessageRegistry {
             .map(|r| r.operations.as_ref())
             .flatten()
             .ok_or_else(|| DiagramErrorCode::UnregisteredTypes(vec![*message_info]))
-    }
-
-    fn remap_buffer_layout_hints(
-        &mut self,
-        hints: &BufferMapLayoutHints,
-    ) -> BufferMapLayoutHints<usize> {
-
     }
 }
 
