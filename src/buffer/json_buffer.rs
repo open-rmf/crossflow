@@ -43,6 +43,7 @@ use crate::{
     Gate, GateState, IncompatibleLayout, InspectBuffer, JoinBehavior, Joined, Joining,
     ManageBuffer, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
     NotifyBufferUpdate, OperationError, OperationResult, OrBroken, add_listener_to_source,
+    BufferMapLayoutHints, BufferMapLayoutConstraint, DynamicBufferMapLayoutHints, TypeInfo,
 };
 
 /// A [`Buffer`] whose message type has been anonymized, but which is known to
@@ -1205,6 +1206,18 @@ impl BufferMapLayout for JsonBuffer {
         evaluation.fallback::<JsonMessage>(0);
         evaluation.evaluate()
     }
+
+    fn get_layout_hints() -> BufferMapLayoutHints {
+        BufferMapLayoutHints::Static(
+            [
+                (
+                    BufferIdentifier::Index(0),
+                    MessageTypeHint::Fallback(TypeInfo::of::<JsonMessage>()),
+                )
+            ]
+            .into()
+        )
+    }
 }
 
 impl Joined for serde_json::Map<String, JsonMessage> {
@@ -1244,6 +1257,18 @@ impl BufferMapLayout for HashMap<String, JsonBuffer> {
             evaluation.fallback::<JsonMessage>(identifier);
         }
         evaluation.evaluate()
+    }
+
+    fn get_layout_hints() -> BufferMapLayoutHints {
+        BufferMapLayoutHints::Dynamic(
+            DynamicBufferMapLayoutHints {
+                indices: false,
+                names: true,
+                constraint: BufferMapLayoutConstraint::AnyOf(
+                    vec![MessageTypeHint::Fallback(TypeInfo::of::<JsonMessage>())]
+                )
+            }
+        )
     }
 }
 
@@ -1298,6 +1323,18 @@ impl BufferMapLayout for HashMap<BufferIdentifier<'static>, JsonBuffer> {
             evaluation.fallback::<JsonMessage>(identifier);
         }
         evaluation.evaluate()
+    }
+
+    fn get_layout_hints() -> BufferMapLayoutHints {
+        BufferMapLayoutHints::Dynamic(
+            DynamicBufferMapLayoutHints {
+                indices: true,
+                names: true,
+                constraint: BufferMapLayoutConstraint::AnyOf(vec![
+                    MessageTypeHint::Fallback(TypeInfo::of::<JsonMessage>())
+                ])
+            }
+        )
     }
 }
 

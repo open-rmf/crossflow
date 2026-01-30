@@ -136,10 +136,10 @@ pub struct DynUnzip {
     outputs: Vec<DynOutput>,
 }
 
-pub type UnzipFn = fn(&mut Builder) -> Result<DynUnzip, DiagramErrorCode>;
+pub type CreateUnzipFn = fn(&mut Builder) -> Result<DynUnzip, DiagramErrorCode>;
 
 pub struct UnzipRegistration {
-    pub create: UnzipFn,
+    pub create: CreateUnzipFn,
     pub output_types: Vec<usize>,
 }
 

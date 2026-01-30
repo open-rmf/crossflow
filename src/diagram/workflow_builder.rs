@@ -246,7 +246,7 @@ impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
                 .registry
                 .messages
                 .get_dyn(input.message_info())
-                .ok_or_else(|| DiagramErrorCode::UnregisteredType(*input.message_info()))?
+                .ok_or_else(|| DiagramErrorCode::UnregisteredTypes(*input.message_info()))?
                 .operations
                 .enable_trace_serialization;
 

@@ -284,7 +284,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                 // serializable type since we can attempt to convert any
                 // serializable type into any deserializable type.
                 for (i, msg) in self.registry.messages.registration.iter().enumerate() {
-                    if msg.operations.serialize_impl.is_some() {
+                    if msg.get_operations()?.serialize_impl.is_some() {
                         result.push(i);
                     }
                 }
@@ -319,7 +319,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                 // deserializable type since we can attempt to convert any
                 // serializable type into any deserializable type.
                 for (i, msg) in self.registry.messages.registration.iter().enumerate() {
-                    if msg.operations.deserialize_impl.is_some() {
+                    if msg.get_operations()?.deserialize_impl.is_some() {
                         result.push(i);
                     }
                 }
@@ -478,14 +478,12 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         &self,
         message_type_index: usize,
     ) -> Result<&MessageOperations, DiagramErrorCode> {
-        let operations = &self
+        self
             .registry
             .messages
             .registration
             .get_by_index(message_type_index)?
-            .operations;
-
-        Ok(operations)
+            .get_operations()
     }
 }
 

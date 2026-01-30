@@ -48,7 +48,7 @@ pub use diagram_context::*;
 pub use fork_clone_schema::{DynForkClone, ForkCloneSchema, RegisterClone};
 pub use fork_result_schema::{DynForkResult, ForkResultSchema};
 pub use inference::*;
-pub use join_schema::JoinSchema;
+pub use join_schema::{JoinSchema, JoinRegistration};
 pub use node_schema::NodeSchema;
 pub use operation_ref::*;
 pub use output_ref::*;
@@ -969,8 +969,8 @@ pub enum DiagramErrorCode {
     #[error(transparent)]
     ConnectionError(#[from] SplitConnectionError),
 
-    #[error("a type being used in the diagram was not registered {0}")]
-    UnregisteredType(TypeInfo),
+    #[error("a type being used in the diagram was not registered: {}", format_list(&.0))]
+    UnregisteredTypes(Vec<TypeInfo>),
 
     #[error("The build of the workflow came to a halt, reasons:\n{reasons:?}")]
     BuildHalted {
@@ -1071,18 +1071,6 @@ impl std::fmt::Display for FinishingErrors {
 pub enum NameOrIndex {
     Name(Arc<str>),
     Index(usize),
-}
-
-impl<T: ToString> From<T> for NameOrIndex {
-    fn from(value: T) -> Self {
-        NameOrIndex::Name(value.into())
-    }
-}
-
-impl From<usize> for NameOrIndex {
-    fn from(value: usize) -> Self {
-        NameOrIndex::Index(value)
-    }
 }
 
 #[cfg(test)]

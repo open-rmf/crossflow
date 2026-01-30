@@ -40,6 +40,7 @@ use crate::{
     FetchFromBuffer, Gate, GateState, IncompatibleLayout, InspectBuffer, Joining, ManageBuffer,
     MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate,
     OperationError, OperationResult, OperationRoster, OrBroken, TypeInfo, add_listener_to_source,
+    BufferMapLayoutHints,
 };
 
 /// A [`Buffer`] whose message type has been anonymized. Joining with this buffer
@@ -343,6 +344,18 @@ impl BufferMapLayout for AnyBuffer {
         let mut evaluation = MessageTypeHintEvaluation::new(identifiers);
         evaluation.fallback::<AnyMessageBox>(0);
         evaluation.evaluate()
+    }
+
+    fn get_layout_hints() -> BufferMapLayoutHints {
+        BufferMapLayoutHints::Static(
+            [
+                (
+                    BufferIdentifier::Index(0),
+                    MessageTypeHint::Fallback(TypeInfo::of::<AnyMessageBox>()),
+                )
+            ]
+            .into()
+        )
     }
 }
 

@@ -409,6 +409,15 @@ fn impl_buffer_map_layout(
 
                 evaluation.evaluate()
             }
+
+            fn get_layout_hints() -> ::crossflow::BufferMapLayoutHints {
+                let mut hints = ::crossflow::MessageTypeHintMap::new();
+                #(
+                    hints.insert(#map_key .into(), <#buffer as ::crossflow::AsAnyBuffer>::message_type_hint());
+                )*
+
+                ::crossflow::BufferMapLayoutHints::Static(hints)
+            }
         }
 
         impl #impl_generics ::crossflow::BufferMapStruct for #struct_ident #ty_generics #where_clause {

@@ -68,9 +68,9 @@ where
         messages: &mut MessageRegistrations,
         schema_generator: &mut SchemaGenerator,
     ) {
-        let reg = messages.get_or_insert::<T>();
+        let ops = messages.get_or_insert_operations::<T>();
 
-        reg.operations.serialize_impl = Some(|builder| {
+        ops.serialize_impl = Some(|builder| {
             let serialize = builder.create_map_block(|message: T| {
                 serde_json::to_value(message).map_err(|err| err.to_string())
             });
@@ -88,12 +88,13 @@ where
 
         #[cfg(feature = "trace")]
         {
-            reg.operations.enable_trace_serialization =
+            ops.enable_trace_serialization =
                 Some(Trace::enable_value_serialization::<T>);
         }
 
         // Serialize and deserialize both generate the schema, so check before
         // generating it.
+        let reg = messages.get_or_insert::<T>();
         if reg.schema.is_none() {
             reg.schema = Some(T::json_schema(schema_generator));
         }
@@ -115,9 +116,8 @@ where
         messages: &mut MessageRegistrations,
         schema_generator: &mut SchemaGenerator,
     ) {
-        let reg = messages.get_or_insert::<T>();
-
-        reg.operations.deserialize_impl = Some(|builder| {
+        let ops = messages.get_or_insert_operations::<T>();
+        ops.deserialize_impl = Some(|builder| {
             let deserialize = builder.create_map_block(|message: JsonMessage| {
                 serde_json::from_value::<T>(message).map_err(|err| err.to_string())
             });
@@ -135,6 +135,7 @@ where
 
         // Serialize and deserialize both generate the schema, so check before
         // generating it.
+        let reg = messages.get_or_insert::<T>();
         if reg.schema.is_none() {
             reg.schema = Some(T::json_schema(schema_generator));
         }
@@ -291,11 +292,12 @@ impl ImplicitDeserialization {
         deserialized_input: DynInputSlot,
         registration: &MessageRegistry,
     ) -> Result<Option<Self>, DiagramErrorCode> {
-        if registration
-            .get_dyn(deserialized_input.message_info())
-            .and_then(|reg| reg.operations.deserialize_impl.as_ref())
-            .is_some()
-        {
+        let can_deserialize = registration
+            .get_operations(deserialized_input.message_info())?
+            .deserialize_impl
+            .is_some();
+
+        if can_deserialize {
             return Ok(Some(Self {
                 deserialized_input: Arc::new(deserialized_input),
                 serialized_input: None,
