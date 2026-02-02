@@ -1355,7 +1355,7 @@ impl MessageRegistry {
 
     /// Register a fork_result function if not already registered, returns true if the new
     /// function is registered.
-    pub(super) fn register_result<R>(&mut self) -> bool
+    pub(super) fn register_result<R>(&mut self)
     where
         R: RegisterForkResult,
     {

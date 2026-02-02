@@ -58,8 +58,18 @@ impl OperationRef {
         }
     }
 
-    pub fn terminate_for(namespace: Arc<str>) -> Self {
-        Self::Terminate(NamespaceList::for_child_of(namespace))
+    pub fn scope_stream_out(
+        scope_name: &OperationName,
+        stream_name: &OperationName,
+    ) -> Self {
+        Self::StreamOut(StreamOutRef {
+            namespaces: NamespaceList::for_child_of(Arc::clone(scope_name)),
+            name: Arc::clone(stream_name),
+        })
+    }
+
+    pub fn terminate_for(namespace: &OperationName) -> Self {
+        Self::Terminate(NamespaceList::for_child_of(Arc::clone(namespace)))
     }
 }
 
@@ -224,15 +234,6 @@ impl StreamOutRef {
         }
     }
 
-    pub fn new_for_scope(
-        scope_name: impl Into<Arc<str>>,
-        stream_name: impl Into<Arc<str>>,
-    ) -> Self {
-        Self {
-            namespaces: NamespaceList::for_child_of(scope_name.into()),
-            name: stream_name.into(),
-        }
-    }
 
     fn in_namespaces(mut self, parent_namespaces: &[Arc<str>]) -> Self {
         self.namespaces.apply_parent_namespaces(parent_namespaces);

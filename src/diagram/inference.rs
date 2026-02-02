@@ -28,13 +28,15 @@ use schemars::JsonSchema;
 use crate::{
     OperationRef, OutputRef, DiagramElementRegistry, DiagramErrorCode, DiagramContext, MessageOperations,
     JsonMessage, BufferIdentifier, BufferMapLayoutHints, BufferMapLayoutConstraint, AnyMessageBox,
-    MessageTypeHint, BufferSelection, NamedOutputRef,
+    MessageTypeHint, BufferSelection, NamedOutputRef, BuildDiagramOperation,
+    Operations, OperationName, NamespaceList,
 };
 
 pub struct InferenceContext<'a, 'b> {
     inference: &'b mut Inference,
     diagram_context: DiagramContext<'a>,
     pub registry: &'a DiagramElementRegistry,
+    generated_operations: Vec<UnfinishedOperation>,
 }
 
 impl<'a, 'b> InferenceContext<'a, 'b> {
@@ -243,6 +245,26 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                     member: identifier.to_owned(),
                 }));
         }
+    }
+
+    /// Add an operation that exists as a child inside another operation.
+    pub fn add_child_operation<T: BuildDiagramOperation + 'static>(
+        &mut self,
+        id: &OperationName,
+        child_id: &OperationName,
+        op: &Arc<T>,
+        sibling_ops: Operations,
+    ) {
+        let mut namespaces = self.namespaces.clone();
+        namespaces.push(Arc::clone(id));
+
+        self.generated_operations
+            .push(UnfinishedOperation {
+                id: Arc::clone(child_id),
+                namespaces,
+                op: op.clone() as Arc<dyn BuildDiagramOperation>,
+                sibling_ops,
+            })
     }
 
     pub fn get_inference_of(
@@ -779,6 +801,17 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
             .get_by_index(message_type_index)?
             .get_operations()
     }
+}
+
+struct UnfinishedOperation {
+    /// Name of the operation within its scope
+    id: OperationName,
+    /// The namespaces that this operation takes place inside
+    namespaces: NamespaceList,
+    /// Description of the operation
+    op: Arc<dyn BuildDiagramOperation>,
+    /// The sibling operations of the one that is being built
+    sibling_ops: Operations,
 }
 
 #[derive(Debug, Clone, Copy)]

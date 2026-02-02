@@ -319,14 +319,13 @@ impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
     ) {
         let mut namespaces = self.namespaces.clone();
         namespaces.push(Arc::clone(id));
-        let op = as_build_diagram_operation(op);
 
         self.construction
             .generated_operations
             .push(UnfinishedOperation {
                 id: Arc::clone(child_id),
                 namespaces,
-                op: op.into(),
+                op: op.clone() as Arc<dyn BuildDiagramOperation>,
                 sibling_ops: sibling_ops.clone(),
                 scope: scope.unwrap_or(self.builder.context),
             });
@@ -511,12 +510,6 @@ impl BuildStatus {
     }
 }
 
-pub fn as_build_diagram_operation<T: BuildDiagramOperation + 'static>(
-    op: &Arc<T>,
-) -> Arc<dyn BuildDiagramOperation> {
-    op.clone()
-}
-
 /// This trait is used to instantiate operations in the workflow. This trait
 /// will be called on each operation in the diagram until it finishes building.
 /// Each operation should use this to provide a [`ConnectIntoTarget`] handle for
@@ -546,12 +539,6 @@ pub trait ConnectIntoTarget {
         output: DynOutput,
         ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode>;
-
-    fn infer_input_type(
-        &self,
-        ctx: &BuilderContext,
-        visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode>;
 
     fn is_finished(&self) -> Result<(), DiagramErrorCode> {
         Ok(())
