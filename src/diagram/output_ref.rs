@@ -42,6 +42,16 @@ impl OutputRef {
             Self::Start(namespaces) => Self::Start(namespaces.with_parent_namespaces(parent_namespaces)),
         }
     }
+
+    pub fn start() -> Self {
+        Self::Start(Default::default())
+    }
+}
+
+impl From<NamedOutputRef> for OutputRef {
+    fn from(value: NamedOutputRef) -> Self {
+        Self::Named(value)
+    }
 }
 
 impl std::fmt::Display for OutputRef {
@@ -57,8 +67,8 @@ impl std::fmt::Display for OutputRef {
     }
 }
 
-pub fn output_ref(operation: OperationName) -> NamedOutputBuilder {
-    NamedOutputBuilder { operation }
+pub fn output_ref(operation: &OperationName) -> NamedOutputBuilder {
+    NamedOutputBuilder { operation: Arc::clone(operation) }
 }
 
 pub struct NamedOutputBuilder {
@@ -70,8 +80,8 @@ impl NamedOutputBuilder {
         self.key(["next"])
     }
 
-    pub fn stream_out(self, stream: impl std::borrow::Borrow<str>) -> NamedOutputRef {
-        self.key(OutputKey(smallvec!["stream_out".into(), stream.into()]))
+    pub fn stream_out(self, stream: &dyn std::borrow::Borrow<str>) -> NamedOutputRef {
+        self.key(OutputKey(smallvec!["stream_out".into(), stream.borrow().into()]))
     }
 
     pub fn ok(self) -> NamedOutputRef {

@@ -25,7 +25,7 @@ use super::{
 use crate::{
     BufferIdentifier, TraceSettings, default_as_false, is_default, is_false,
     BufferMap, Builder, DynOutput, Joined, BufferMapLayout, BufferMapLayoutHints,
-    MessageRegistry,
+    MessageRegistry, InferenceContext,
 };
 
 /// Wait for exactly one item to be available in each buffer listed in
@@ -136,11 +136,7 @@ impl BuildDiagramOperation for JoinSchema {
             let output = ctx.builder.try_join::<JsonMessage>(&buffer_map)?.output();
             ctx.add_output_into_target(&self.next, output.into());
         } else {
-            let Some(target_type) = ctx.infer_input_type_into_target(&self.next)? else {
-                return Ok(BuildStatus::defer(
-                    "waiting to find out target message type",
-                ));
-            };
+            let target_type = ctx.inferred_message_type(&self.next)?;
 
             let output = ctx
                 .registry
@@ -149,6 +145,16 @@ impl BuildDiagramOperation for JoinSchema {
             ctx.add_output_into_target(&self.next, output);
         }
         Ok(BuildStatus::Finished)
+    }
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        ctx.join(id, &self.buffers);
+        ctx.exact_match(id, &self.next);
+        Ok(())
     }
 }
 

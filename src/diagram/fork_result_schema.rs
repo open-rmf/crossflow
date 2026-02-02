@@ -20,8 +20,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     BuildDiagramOperation, Builder, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
-    MessageRegistry, NextOperation, OperationName, RegisterClone,
-    SerializeMessage, TraceInfo, TraceSettings, supported::*,
+    MessageRegistry, NextOperation, OperationName, RegisterClone, InferenceContext,
+    SerializeMessage, TraceInfo, TraceSettings, supported::*, output_ref,
 };
 
 type ForkResultFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
@@ -77,15 +77,7 @@ impl BuildDiagramOperation for ForkResultSchema {
         id: &OperationName,
         ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
-        let Some(inferred_type) = ctx.infer_input_type_into_target(id)? else {
-            // TODO(@mxgrey): For each result type we can register a tuple of
-            // (T, E) for the Ok and Err types as a key so we could infer the
-            // operation type using the expected types for ok and err.
-
-            // There are no outputs ready for this target, so we can't do
-            // anything yet. The builder should try again later.
-            return Ok(BuildStatus::defer("waiting for an input"));
-        };
+        let inferred_type = ctx.inferred_message_type(id)?;
 
         let fork = ctx
             .registry
@@ -99,10 +91,19 @@ impl BuildDiagramOperation for ForkResultSchema {
         ctx.add_output_into_target(&self.err, fork.err);
         Ok(BuildStatus::Finished)
     }
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        ctx.result(id, output_ref(id).ok(), output_ref(id).err());
+        Ok(())
+    }
 }
 
 pub trait RegisterForkResult {
-    fn on_register(registry: &mut MessageRegistry) -> bool;
+    fn register_fork_result(registry: &mut MessageRegistry);
 }
 
 impl<T, E, S, C> RegisterForkResult for Supported<(Result<T, E>, S, C)>
@@ -112,15 +113,7 @@ where
     S: SerializeMessage<T> + SerializeMessage<E>,
     C: RegisterClone<T> + RegisterClone<E>,
 {
-    fn on_register(messages: &mut MessageRegistry) -> bool {
-        let ops = &mut messages
-            .registration
-            .get_or_insert::<Result<T, E>>()
-            .operations;
-        if ops.fork_result.is_some() {
-            return false;
-        }
-
+    fn register_fork_result(messages: &mut MessageRegistry) {
         let create = |builder: &mut Builder| {
             let (input, outputs) = builder.create_fork_result::<T, E>();
             Ok(DynForkResult {
@@ -143,15 +136,12 @@ where
 
         messages
             .registration
-            .get_or_insert::<Result<T, E>>()
-            .operations
+            .get_or_insert_operations::<Result<T, E>>()
             .fork_result = Some(ForkResultRegistration { create, output_types });
 
         let result_type = messages.registration.get_index_or_insert::<Result<T, E>>();
 
         messages.registration.lookup.result.insert(output_types, result_type);
-
-        true
     }
 }
 

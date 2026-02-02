@@ -28,7 +28,7 @@ use schemars::JsonSchema;
 use crate::{
     OperationRef, OutputRef, DiagramElementRegistry, DiagramErrorCode, DiagramContext, MessageOperations,
     JsonMessage, BufferIdentifier, BufferMapLayoutHints, BufferMapLayoutConstraint, AnyMessageBox,
-    MessageTypeHint, BufferSelection, NextOperation,
+    MessageTypeHint, BufferSelection, NamedOutputRef,
 };
 
 pub struct InferenceContext<'a, 'b> {
@@ -38,6 +38,28 @@ pub struct InferenceContext<'a, 'b> {
 }
 
 impl<'a, 'b> InferenceContext<'a, 'b> {
+    /// Specify exactly what message types a port may have, irrespective of
+    /// any connections to other operations.
+    pub fn one_of(
+        &mut self,
+        port: impl Into<PortRef>,
+        one_of: &[usize],
+    ) {
+        let port = self.into_port_ref(port);
+        let one_of = one_of
+            .iter()
+            .copied()
+            .map(|id| MessageTypeChoice { id, cost: 0 })
+            .collect();
+
+        self
+            .inference
+            .evaluations
+            .entry(port)
+            .or_default()
+            .one_of = Some(one_of);
+    }
+
     /// Specify that two ports have the exact same type with no conversion.
     pub fn exact_match(
         &mut self,
@@ -62,7 +84,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     pub fn connect_into(
         &mut self,
         output: impl Into<OutputRef>,
-        input: OperationRef,
+        input: impl Into<OperationRef>,
     ) {
         let output = self.into_output_ref(output);
         let input = self.into_operation_ref(input);
@@ -101,13 +123,13 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
     pub fn result(
         &mut self,
-        result: OperationRef,
-        ok: OutputRef,
-        err: OutputRef,
+        result: impl Into<OperationRef>,
+        ok: impl Into<OutputRef>,
+        err: impl Into<OutputRef>,
     ) {
-        let result = result.in_namespaces(&self.namespaces);
-        let ok = ok.in_namespaces(&self.namespaces);
-        let err = err.in_namespaces(&self.namespaces);
+        let result = self.into_operation_ref(result);
+        let ok = self.into_output_ref(ok);
+        let err = self.into_output_ref(err);
 
         self
             .inference
@@ -226,14 +248,20 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     pub fn get_inference_of(
         &self,
         port: impl Into<PortRef>,
-    ) -> Result<&Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
+    ) -> Result<Option<SmallVec<[usize; 8]>>, DiagramErrorCode> {
         let port = port.into();
-        self
+        let one_of = &self
             .inference
             .evaluations
             .get(&port)
-            .ok_or_else(move || DiagramErrorCode::UnknownPort(port))
-            .map(|e| &e.one_of)
+            .ok_or_else(move || DiagramErrorCode::UnknownPort(port))?
+            .one_of;
+
+        let Some(one_of) = one_of else {
+            return Ok(None);
+        };
+
+        Ok(Some(one_of.iter().map(|c| c.id).collect()))
     }
 
     pub fn evaluate_connect_into(
@@ -246,7 +274,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
         let mut result = SmallVec::new();
         for message_type_index in inference {
-            self.evaluate_connect_into_impl(*message_type_index, &mut result)?;
+            self.evaluate_connect_into_impl(message_type_index, &mut result)?;
         }
 
         Ok(Some(result))
@@ -302,7 +330,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
         let mut result = SmallVec::new();
         for message_type_index in inference {
-            self.evaluate_connect_from_impl(*message_type_index, &mut result)?;
+            self.evaluate_connect_from_impl(message_type_index, &mut result)?;
         }
 
         Ok(Some(result))
@@ -358,7 +386,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let mut result = SmallVec::new();
         for message_type_index in inference {
             // Consider any message types that this can normally connect into.
-            let ops = self.evaluate_connect_into_impl(*message_type_index, &mut result)?;
+            let ops = self.evaluate_connect_into_impl(message_type_index, &mut result)?;
 
             // Consider any message types that this source type can attempt to
             // convert into. Note: switching "into" to "from" is intentional
@@ -399,7 +427,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let mut result = SmallVec::new();
         for message_type_index in inference {
             // Consider any message types that this can normally connect from.
-            let ops = self.evaluate_connect_from_impl(*message_type_index, &mut result)?;
+            let ops = self.evaluate_connect_from_impl(message_type_index, &mut result)?;
 
             // Consider any message types that this source type can attempt to
             // convert into. Note: switching "from" to "into" is intentional
@@ -444,8 +472,8 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
         let mut result = SmallVec::new();
         for ok_index in ok_inference {
-            for err_index in err_inference {
-                let key = [*ok_index, *err_index];
+            for err_index in err_inference.iter().copied() {
+                let key = [ok_index, err_index];
                 if let Some(r) = self.registry.messages.registration.lookup.result.get(&key) {
                     result.push(MessageTypeChoice {
                         id: *r,
@@ -469,7 +497,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let mut result = SmallVec::new();
         for message_type_index in result_inference {
             let r = &self
-                .operations_of(*message_type_index)?
+                .operations_of(message_type_index)?
                 .fork_result;
 
             if let Some(r) = r {
@@ -495,7 +523,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let mut result = SmallVec::new();
         for message_type_index in result_inference {
             let r = &self
-                .operations_of(*message_type_index)?
+                .operations_of(message_type_index)?
                 .fork_result;
 
             if let Some(r) = r {
@@ -578,19 +606,19 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
         let mut result = SmallVec::new();
         let mut error = None;
-        for unzip in unzip_inference {
-            if let Some(unzip_impl) = &self.operations_of(*unzip)?.unzip {
+        for unzip in unzip_inference.iter().copied() {
+            if let Some(unzip_impl) = &self.operations_of(unzip)?.unzip {
                 if let Some(id) = unzip_impl.output_types.get(element).copied() {
                     result.push(MessageTypeChoice { id, cost: 0 });
                 } else if unzip_inference.len() == 1 {
-                    let message = self.registry.messages.get_type_info_for(*unzip)?;
+                    let message = self.registry.messages.get_type_info_for(unzip)?;
                     error = Some(DiagramErrorCode::InvalidUnzip { message, element });
                 }
             } else if unzip_inference.len() == 1 {
                 // There is only one possible message left, and it cannot be
                 // unzipped. This means there is an error in the diagram.
                 return Err(DiagramErrorCode::NotUnzippable(
-                    self.registry.messages.get_type_info_for(*unzip)?
+                    self.registry.messages.get_type_info_for(unzip)?
                 ))
             }
         }
@@ -633,7 +661,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let mut error = None;
         for target_msg_index in target_inference {
             // if let Some(join) = &self.operations_of(*target_msg_index)?.join_impl {
-            match get_layout(self, *target_msg_index) {
+            match get_layout(self, target_msg_index) {
                 Ok(layout) => {
                     match layout {
                         BufferMapLayoutHints::Dynamic(dynamic) => {
@@ -686,7 +714,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let mut result = SmallVec::new();
         let mut error = None;
         for maybe_accessor in accessor_inference {
-            if let Some(buffer_access) = &self.operations_of(*maybe_accessor)?.buffer_access {
+            if let Some(buffer_access) = &self.operations_of(maybe_accessor)?.buffer_access {
                 result.push(MessageTypeChoice {
                     id: buffer_access.request_message,
                     cost: 0,
@@ -696,7 +724,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                     self
                     .registry
                     .messages
-                    .get_type_info_for(*maybe_accessor)?
+                    .get_type_info_for(maybe_accessor)?
                 ));
             }
         }
@@ -718,7 +746,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let mut result = SmallVec::new();
         let mut error = None;
         for maybe_splittable in split_inference {
-            if let Some(split) = &self.operations_of(*maybe_splittable)?.split {
+            if let Some(split) = &self.operations_of(maybe_splittable)?.split {
                 result.push(MessageTypeChoice {
                     id: split.output_type,
                     cost: 0,
@@ -728,7 +756,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                     self
                     .registry
                     .messages
-                    .get_type_info_for(*maybe_splittable)?
+                    .get_type_info_for(maybe_splittable)?
                 ));
             }
         }
@@ -779,7 +807,7 @@ pub trait MessageTypeConstraint: std::fmt::Debug {
 
 #[derive(Debug, Default, Clone)]
 struct MessageTypeInference {
-    one_of: Option<SmallVec<[usize; 8]>>,
+    one_of: Option<SmallVec<[MessageTypeChoice; 8]>>,
     /// A ranked set of constraints that apply to this inference.
     ///
     /// Constraints are ranked by the computational complexity of their evaluation.
@@ -823,9 +851,10 @@ impl std::fmt::Display for PortRef {
     }
 }
 
-impl From<OperationRef> for PortRef {
-    fn from(value: OperationRef) -> Self {
-        Self::Input(value)
+impl<T: Into<OperationRef>> From<T> for PortRef {
+    fn from(value: T) -> Self {
+        let op: OperationRef = value.into();
+        Self::Input(op.into())
     }
 }
 
@@ -835,9 +864,9 @@ impl From<OutputRef> for PortRef {
     }
 }
 
-impl<'a> From<&'a NextOperation> for PortRef {
-    fn from(value: &'a NextOperation) -> Self {
-        Self::Input(value.into())
+impl From<NamedOutputRef> for PortRef {
+    fn from(value: NamedOutputRef) -> Self {
+        Self::Output(value.into())
     }
 }
 

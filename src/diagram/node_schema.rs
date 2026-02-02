@@ -22,6 +22,7 @@ use std::{collections::HashMap, sync::Arc};
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderId, BuilderContext, DiagramErrorCode, JsonMessage,
     MissingStream, NextOperation, OperationName, TraceInfo, TraceSettings, is_default,
+    InferenceContext, output_ref,
 };
 
 /// Create an operation that that takes an input message and produces an
@@ -110,6 +111,34 @@ impl BuildDiagramOperation for NodeSchema {
         }
 
         Ok(BuildStatus::Finished)
+    }
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        let node = ctx.registry.get_node_registration(&self.builder)?.metadata();
+
+        // Set the exact message type of the input port
+        ctx.one_of(id, &[node.request]);
+
+        // Set the exact message type of the output port, and connect it to the
+        // next operation.
+        ctx.one_of(&self.next, &[node.response]);
+        ctx.connect_into(output_ref(id).next(), &self.next);
+
+        // Set the exact message type of each stream output.
+        for (stream_id, stream_type) in &node.streams {
+            ctx.one_of(output_ref(id).stream_out(stream_id), &[*stream_type]);
+        }
+
+        // Connect each stream output to its target operation.
+        for (stream_id, next) in &self.stream_out {
+            ctx.connect_into(output_ref(id).stream_out(stream_id), next);
+        }
+
+        Ok(())
     }
 }
 

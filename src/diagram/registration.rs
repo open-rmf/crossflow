@@ -73,6 +73,10 @@ impl NodeRegistration {
         let n = create_node_impl(builder, config)?;
         Ok(n)
     }
+
+    pub fn metadata(&self) -> &NodeMetadata {
+        &self.metadata
+    }
 }
 
 type CreateNodeFn =
@@ -1355,7 +1359,7 @@ impl MessageRegistry {
     where
         R: RegisterForkResult,
     {
-        R::on_register(self)
+        R::register_fork_result(self)
     }
 
     pub fn split(

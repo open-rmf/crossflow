@@ -23,7 +23,7 @@ use crate::{Builder, CloneFromBuffer, ForkCloneOutput};
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
     MessageOperations, NextOperation, OperationName, TraceInfo, TraceSettings, TypeInfo,
-    supported::*,
+    supported::*, InferenceContext,
 };
 
 /// If the request is cloneable, clone it into multiple responses that can
@@ -81,22 +81,7 @@ impl BuildDiagramOperation for ForkCloneSchema {
         id: &OperationName,
         ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
-        let inferred_type = 'inferred: {
-            match ctx.infer_input_type_into_target(id)? {
-                Some(inferred_type) => break 'inferred inferred_type,
-                None => {
-                    for target in &self.next {
-                        if let Some(inferred_type) = ctx.infer_input_type_into_target(target)? {
-                            break 'inferred inferred_type;
-                        }
-                    }
-
-                    // There are no outputs or input slots ready for this target,
-                    // so we can't do anything yet. The builder should try again later.
-                    return Ok(BuildStatus::defer("waiting for an input"));
-                }
-            }
-        };
+        let inferred_type = ctx.inferred_message_type(id)?;
 
         let fork = ctx
             .registry
@@ -112,12 +97,16 @@ impl BuildDiagramOperation for ForkCloneSchema {
         Ok(BuildStatus::Finished)
     }
 
-    fn evaluate_message_types(
+    fn apply_message_type_constraints(
         &self,
         id: &OperationName,
-        ctx: &BuilderContext,
-    ) -> Result<super::MessageTypeConstraints, DiagramErrorCode> {
-        ctx.into_operation_ref(id)
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        for next in &self.next {
+            ctx.exact_match(id, next);
+        }
+
+        Ok(())
     }
 }
 

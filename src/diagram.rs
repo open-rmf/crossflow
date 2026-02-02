@@ -372,25 +372,25 @@ impl BuildDiagramOperation for DiagramOperation {
         }
     }
 
-    fn evaluate_message_types(
+    fn apply_message_type_constraints(
         &self,
         id: &OperationName,
         ctx: &BuilderContext,
     ) -> Result<HashMap<PortRef, MessageTypeConstraints>, DiagramErrorCode> {
         match self {
-            Self::Buffer(op) => op.evaluate_message_types(id, ctx),
-            Self::BufferAccess(op) => op.evaluate_message_types(id, ctx),
-            Self::ForkClone(op) => op.evaluate_message_types(id, ctx),
-            Self::ForkResult(op) => op.evaluate_message_types(id, ctx),
-            Self::Join(op) => op.evaluate_message_types(id, ctx),
-            Self::Listen(op) => op.evaluate_message_types(id, ctx),
-            Self::Node(op) => op.evaluate_message_types(id, ctx),
-            Self::Scope(op) => op.evaluate_message_types(id, ctx),
-            Self::Section(op) => op.evaluate_message_types(id, ctx),
-            Self::Split(op) => op.evaluate_message_types(id, ctx),
-            Self::StreamOut(op) => op.evaluate_message_types(id, ctx),
-            Self::Transform(op) => op.evaluate_message_types(id, ctx),
-            Self::Unzip(op) => op.evaluate_message_types(id, ctx),
+            Self::Buffer(op) => op.apply_message_type_constraints(id, ctx),
+            Self::BufferAccess(op) => op.apply_message_type_constraints(id, ctx),
+            Self::ForkClone(op) => op.apply_message_type_constraints(id, ctx),
+            Self::ForkResult(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Join(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Listen(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Node(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Scope(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Section(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Split(op) => op.apply_message_type_constraints(id, ctx),
+            Self::StreamOut(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Transform(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Unzip(op) => op.apply_message_type_constraints(id, ctx),
         }
     }
 }
@@ -966,6 +966,9 @@ pub enum DiagramErrorCode {
         index: usize,
         limit: usize,
     },
+
+    #[error("The message type for port [{0}] was never inferred. This suggests an implementation error in an operation.")]
+    MessageTypeNotInferred(PortRef),
 
     #[error("There was an attempt to use an operation in an invalid way: [{0}]")]
     InvalidOperation(OperationRef),
