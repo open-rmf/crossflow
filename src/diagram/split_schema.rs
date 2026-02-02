@@ -256,6 +256,14 @@ impl FromSpecific for ListSplitKey {
     }
 }
 
+pub type SplitFn = fn(&SplitSchema, &mut Builder) -> Result<DynSplit, DiagramErrorCode>;
+
+#[derive(Debug, Clone, Copy)]
+pub struct SplitRegistration {
+    pub create: SplitFn,
+    pub output_type: usize,
+}
+
 #[derive(Debug)]
 pub struct DynSplit {
     pub(super) input: DynInputSlot,
@@ -263,12 +271,12 @@ pub struct DynSplit {
 }
 
 pub trait RegisterSplit {
-    fn perform_split(
+    fn create_split(
         split_op: &SplitSchema,
         builder: &mut Builder,
     ) -> Result<DynSplit, DiagramErrorCode>;
 
-    fn on_register(messages: &mut MessageRegistry);
+    fn register_split(messages: &mut MessageRegistry);
 }
 
 impl<T, Serializer, Cloneable> RegisterSplit for Supported<(T, Serializer, Cloneable)>
@@ -278,7 +286,7 @@ where
     Serializer: SerializeMessage<T::Item> + SerializeMessage<Vec<T::Item>>,
     Cloneable: RegisterClone<T::Item> + RegisterClone<Vec<T::Item>>,
 {
-    fn perform_split(
+    fn create_split(
         split_op: &SplitSchema,
         builder: &mut Builder,
     ) -> Result<DynSplit, DiagramErrorCode> {
@@ -312,13 +320,15 @@ where
         })
     }
 
-    fn on_register(messages: &mut MessageRegistry) {
+    fn register_split(messages: &mut MessageRegistry) {
+        let output_type = messages.registration.get_index_or_insert::<T::Item>();
+
         let ops = &mut messages
             .registration
-            .get_or_insert::<T>()
-            .operations;
+            .get_or_insert_operations::<T>();
 
-        ops.split_impl = Some(Self::perform_split);
+        let create = Self::create_split;
+        ops.split = Some(SplitRegistration { create, output_type });
 
         messages.register_serialize::<T::Item, Serializer>();
         messages.register_clone::<T::Item, Cloneable>();

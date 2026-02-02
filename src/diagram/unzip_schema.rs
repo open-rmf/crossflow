@@ -113,7 +113,7 @@ impl BuildDiagramOperation for UnzipSchema {
         }
 
         if actual_output.len() != self.next.len() {
-            return Err(DiagramErrorCode::UnzipMismatch {
+            return Err(DiagramErrorCode::InvalidUnzip {
                 expected: self.next.len(),
                 actual: unzip.output_types.len(),
                 elements: actual_output,
@@ -266,7 +266,7 @@ mod tests {
         let err = fixture.spawn_json_io_workflow(&diagram).unwrap_err();
         assert!(matches!(
             err.code,
-            DiagramErrorCode::UnzipMismatch {
+            DiagramErrorCode::InvalidUnzip {
                 expected: 3,
                 actual: 2,
                 ..

@@ -43,7 +43,7 @@ pub mod zenoh;
 
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::system::Commands;
-pub use buffer_schema::{BufferAccessSchema, BufferSchema, ListenSchema};
+pub use buffer_schema::*;
 pub use diagram_context::*;
 pub use fork_clone_schema::{DynForkClone, ForkCloneSchema, RegisterClone};
 pub use fork_result_schema::{DynForkResult, ForkResultSchema};
@@ -918,12 +918,11 @@ pub enum DiagramErrorCode {
     NotUnzippable(TypeInfo),
 
     #[error(
-        "The number of elements in the unzip expected by the diagram [{expected}] is different from the real number [{actual}]"
+        "The unzipped message [{message}] does not have the requested element [{element}]"
     )]
-    UnzipMismatch {
-        expected: usize,
-        actual: usize,
-        elements: Vec<TypeInfo>,
+    InvalidUnzip {
+        message: TypeInfo,
+        element: usize,
     },
 
     #[error(
@@ -1111,6 +1110,12 @@ impl std::fmt::Display for FinishingErrors {
 pub enum NameOrIndex {
     Name(Arc<str>),
     Index(usize),
+}
+
+impl<T: std::borrow::Borrow<str>> From<T> for NameOrIndex {
+    fn from(value: T) -> Self {
+        NameOrIndex::Name(value.borrow().into())
+    }
 }
 
 #[cfg(test)]

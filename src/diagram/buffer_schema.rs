@@ -18,11 +18,14 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{Accessor, BufferSettings, JsonMessage};
+use crate::{
+    Accessor, BufferSettings, JsonMessage, BufferMapLayoutHints, BufferMap, Builder, DynNode, BufferMapLayout,
+    DynOutput,
+};
 
 use super::{
     BufferSelection, BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode,
-    NextOperation, OperationName, TraceInfo, TraceSettings, TypeInfo,
+    NextOperation, OperationName, TraceInfo, TraceSettings, TypeInfo, MessageRegistry,
 };
 
 /// Create a [`Buffer`][1] which can be used to store and pull data within
@@ -250,6 +253,30 @@ where
     type BufferKeys = B;
 }
 
+pub type BufferAccessFn = fn(&BufferMap, &mut Builder) -> Result<DynNode, DiagramErrorCode>;
+
+pub struct BufferAccessRegistration {
+    pub create: BufferAccessFn,
+    /// The underlying request message type, excluding the buffer access
+    pub request_message: usize,
+    pub layout: BufferMapLayoutHints<usize>,
+}
+
+impl BufferAccessRegistration {
+    pub fn new<T: BufferAccessRequest>(messages: &mut MessageRegistry) -> Self {
+        let create = |buffers: &BufferMap, builder: &mut Builder| {
+            let buffer_access =
+                builder.try_create_buffer_access::<T::Message, T::BufferKeys>(buffers)?;
+            Ok(buffer_access.into())
+        };
+        let request_message = messages.registration.get_index_or_insert::<T::Message>();
+        let layout = <<T::BufferKeys as Accessor>::Buffers as BufferMapLayout>::get_layout_hints()
+            .export(messages);
+
+        Self { create, request_message, layout }
+    }
+}
+
 /// Listen on a buffer.
 ///
 /// # Examples
@@ -319,6 +346,25 @@ impl BuildDiagramOperation for ListenSchema {
             .listen(&target_type, &buffer_map, ctx.builder)?;
         ctx.add_output_into_target(&self.next, output);
         Ok(BuildStatus::Finished)
+    }
+}
+
+pub type ListenFn = fn(&BufferMap, &mut Builder) -> Result<DynOutput, DiagramErrorCode>;
+
+pub struct ListenRegistration {
+    pub create: ListenFn,
+    pub layout: BufferMapLayoutHints<usize>,
+}
+
+impl ListenRegistration {
+    pub fn new<T: Accessor>(messages: &mut MessageRegistry) -> Self {
+        let create = |buffers: &BufferMap, builder: &mut Builder| {
+            Ok(builder.try_listen::<T>(buffers)?.output().into())
+        };
+        let layout = <T::Buffers as BufferMapLayout>::get_layout_hints()
+            .export(messages);
+
+        Self { create, layout }
     }
 }
 

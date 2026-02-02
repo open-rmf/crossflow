@@ -36,7 +36,8 @@ use crate::{
     Builder, DisplayText, IncompatibleLayout, IncrementalScopeBuilder, IncrementalScopeRequest,
     IncrementalScopeRequestResult, IncrementalScopeResponse, IncrementalScopeResponseResult,
     Joined, JsonBuffer, JsonMessage, MessageTypeHintMap, NamedStream, Node, StreamAvailability,
-    StreamOf, StreamPack, StreamEffect, JoinRegistration, BufferMapLayoutHints,
+    StreamOf, StreamPack, StreamEffect, JoinRegistration, BufferMapLayoutHints, SplitRegistration,
+    BufferAccessRegistration, ListenRegistration,
 };
 
 #[cfg(feature = "trace")]
@@ -79,9 +80,6 @@ type CreateNodeFn =
 type DeserializeFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
 type SerializeFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
 type ForkCloneFn = fn(&mut Builder) -> Result<DynForkClone, DiagramErrorCode>;
-type SplitFn = fn(&SplitSchema, &mut Builder) -> Result<DynSplit, DiagramErrorCode>;
-type BufferAccessFn = fn(&BufferMap, &mut Builder) -> Result<DynNode, DiagramErrorCode>;
-type ListenFn = fn(&BufferMap, &mut Builder) -> Result<DynOutput, DiagramErrorCode>;
 type BufferLayoutTypeHintFn =
     fn(HashSet<BufferIdentifier<'static>>) -> Result<MessageTypeHintMap, IncompatibleLayout>;
 type CreateBufferFn = fn(BufferSettings, &mut Builder) -> AnyBuffer;
@@ -1002,17 +1000,15 @@ pub struct NodeMetadata {
 }
 
 pub struct MessageOperations {
-    pub(super) deserialize_impl: Option<DeserializeFn>,
-    pub(super) serialize_impl: Option<SerializeFn>,
-    pub(super) fork_clone_impl: Option<ForkCloneFn>,
-    pub(super) unzip_impl: Option<UnzipRegistration>,
+    pub(super) deserialize: Option<DeserializeFn>,
+    pub(super) serialize: Option<SerializeFn>,
+    pub(super) fork_clone: Option<ForkCloneFn>,
+    pub(super) unzip: Option<UnzipRegistration>,
     pub(super) fork_result: Option<ForkResultRegistration>,
-    pub(super) split_impl: Option<SplitFn>,
-    pub(super) join_impl: Option<JoinRegistration>,
-    pub(super) buffer_access_impl: Option<BufferAccessFn>,
-    pub(super) accessor_hints: Option<BufferLayoutTypeHintFn>,
-    pub(super) listen_impl: Option<ListenFn>,
-    pub(super) listen_hints: Option<BufferLayoutTypeHintFn>,
+    pub(super) split: Option<SplitRegistration>,
+    pub(super) join: Option<JoinRegistration>,
+    pub(super) buffer_access: Option<BufferAccessRegistration>,
+    pub(super) listen: Option<ListenRegistration>,
     pub(super) to_string_impl: Option<ToStringFn>,
     pub(super) create_buffer_impl: CreateBufferFn,
     pub(super) create_trigger_impl: CreateTriggerFn,
@@ -1032,17 +1028,15 @@ impl MessageOperations {
         T: Send + Sync + 'static + Any,
     {
         Self {
-            deserialize_impl: None,
-            serialize_impl: None,
-            fork_clone_impl: None,
-            unzip_impl: None,
+            deserialize: None,
+            serialize: None,
+            fork_clone: None,
+            unzip: None,
             fork_result: None,
-            split_impl: None,
-            join_impl: None,
-            buffer_access_impl: None,
-            accessor_hints: None,
-            listen_impl: None,
-            listen_hints: None,
+            split: None,
+            join: None,
+            buffer_access: None,
+            listen: None,
             to_string_impl: None,
             create_buffer_impl: |settings, builder| {
                 builder.create_buffer::<T>(settings).as_any_buffer()
@@ -1136,13 +1130,13 @@ struct MessageOperationsMetadata {
 impl MessageOperationsMetadata {
     fn new(ops: &MessageOperations) -> Self {
         Self {
-            deserialize: ops.deserialize_impl.is_some().then(|| JsEmptyObject),
-            serialize: ops.serialize_impl.is_some().then(|| JsEmptyObject),
-            fork_clone: ops.fork_clone_impl.is_some().then(|| JsEmptyObject),
-            unzip: ops.unzip_impl.as_ref().map(|unzip| unzip.output_types.clone()),
+            deserialize: ops.deserialize.is_some().then(|| JsEmptyObject),
+            serialize: ops.serialize.is_some().then(|| JsEmptyObject),
+            fork_clone: ops.fork_clone.is_some().then(|| JsEmptyObject),
+            unzip: ops.unzip.as_ref().map(|unzip| unzip.output_types.clone()),
             fork_result: ops.fork_result.as_ref().map(|r| r.output_types),
-            split: ops.split_impl.is_some().then(|| JsEmptyObject),
-            join: ops.join_impl.as_ref().map(|op| op.layout.clone()),
+            split: ops.split.is_some().then(|| JsEmptyObject),
+            join: ops.join.as_ref().map(|op| op.layout.clone()),
             into: ops.into_impls.keys().copied().collect(),
             try_into: ops.try_into_impls.keys().copied().collect(),
             from: ops.from_impls.keys().copied().collect(),
@@ -1225,7 +1219,7 @@ impl MessageRegistry {
         builder: &mut Builder,
     ) -> Result<Option<DynForkResult>, DiagramErrorCode> {
         self.get_operations(target_type)?
-            .deserialize_impl
+            .deserialize
             .map(|deserialize| deserialize(builder))
             .transpose()
     }
@@ -1255,7 +1249,7 @@ impl MessageRegistry {
         builder: &mut Builder,
     ) -> Result<Option<DynForkResult>, DiagramErrorCode> {
         let ops = self.get_operations(incoming_type)?;
-        ops.serialize_impl.map(|serialize| serialize(builder)).transpose()
+        ops.serialize.map(|serialize| serialize(builder)).transpose()
     }
 
     pub fn try_to_string(
@@ -1283,7 +1277,7 @@ impl MessageRegistry {
         builder: &mut Builder,
     ) -> Result<DynForkClone, DiagramErrorCode> {
         let create = self.get_operations(message_info)?
-            .fork_clone_impl
+            .fork_clone
             .ok_or(DiagramErrorCode::NotCloneable(*message_info))?;
 
         create(builder)
@@ -1299,7 +1293,7 @@ impl MessageRegistry {
         let ops = &mut self
             .registration
             .get_or_insert_operations::<T>();
-        if !F::CLONEABLE || ops.fork_clone_impl.is_some() {
+        if !F::CLONEABLE || ops.fork_clone.is_some() {
             return false;
         }
 
@@ -1313,7 +1307,7 @@ impl MessageRegistry {
         message_info: &TypeInfo,
     ) -> Result<&'a UnzipRegistration, DiagramErrorCode> {
         self.get_operations(message_info)?
-            .unzip_impl
+            .unzip
             .as_ref()
             .ok_or(DiagramErrorCode::NotUnzippable(*message_info))
     }
@@ -1332,10 +1326,10 @@ impl MessageRegistry {
         let ops = self
             .registration
             .get_or_insert_operations::<T>();
-        if ops.unzip_impl.is_some() {
+        if ops.unzip.is_some() {
             return false;
         }
-        ops.unzip_impl = Some(unzip_impl);
+        ops.unzip = Some(unzip_impl);
 
         true
     }
@@ -1372,8 +1366,9 @@ impl MessageRegistry {
     ) -> Result<DynSplit, DiagramErrorCode> {
         let create = self
             .get_operations(message_info)?
-            .split_impl
-            .ok_or(DiagramErrorCode::NotSplittable(*message_info))?;
+            .split
+            .ok_or(DiagramErrorCode::NotSplittable(*message_info))?
+            .create;
 
         create(split_op, builder)
     }
@@ -1384,7 +1379,7 @@ impl MessageRegistry {
         T: Send + Sync + 'static + Any,
         Supported<(T, S, C)>: RegisterSplit,
     {
-        Supported::<(T, S, C)>::on_register(self);
+        Supported::<(T, S, C)>::register_split(self);
     }
 
     pub fn create_buffer(
@@ -1461,7 +1456,7 @@ impl MessageRegistry {
         builder: &mut Builder,
     ) -> Result<DynOutput, DiagramErrorCode> {
         let create = self.get_operations(joinable)?
-            .join_impl
+            .join
             .as_ref()
             .ok_or_else(|| DiagramErrorCode::NotJoinable(*joinable))?
             .create;
@@ -1480,7 +1475,7 @@ impl MessageRegistry {
         self
             .registration
             .get_or_insert_operations::<T>()
-            .join_impl = Some(join);
+            .join = Some(join);
     }
 
     pub fn with_buffer_access(
@@ -1490,44 +1485,24 @@ impl MessageRegistry {
         builder: &mut Builder,
     ) -> Result<DynNode, DiagramErrorCode> {
         let create = self.get_operations(target_type)?
-            .buffer_access_impl
-            .ok_or(DiagramErrorCode::CannotAccessBuffers(*target_type))?;
+            .buffer_access
+            .as_ref()
+            .ok_or(DiagramErrorCode::CannotAccessBuffers(*target_type))?
+            .create;
 
         create(buffers, builder)
     }
 
-    pub fn accessor_hint(
-        &self,
-        message_info: &TypeInfo,
-        identifiers: HashSet<BufferIdentifier<'static>>,
-    ) -> Result<MessageTypeHintMap, DiagramErrorCode> {
-        let hint = self.get_operations(message_info)?
-            .accessor_hints
-            .ok_or_else(|| DiagramErrorCode::CannotAccessBuffers(*message_info))?;
-
-        hint(identifiers).map_err(Into::into)
-    }
-
-    pub(super) fn register_buffer_access<T>(&mut self) -> bool
+    pub(super) fn register_buffer_access<T>(&mut self)
     where
         T: Send + Sync + 'static + BufferAccessRequest,
     {
-        let ops = &mut self
+        let buffer_access = BufferAccessRegistration::new::<T>(self);
+
+        self
             .registration
-            .get_or_insert_operations::<T>();
-        if ops.buffer_access_impl.is_some() {
-            return false;
-        }
-
-        ops.buffer_access_impl = Some(|buffers, builder| {
-            let buffer_access =
-                builder.try_create_buffer_access::<T::Message, T::BufferKeys>(buffers)?;
-            Ok(buffer_access.into())
-        });
-
-        ops.accessor_hints = Some(<<T::BufferKeys as Accessor>::Buffers as BufferMapLayout>::get_buffer_message_type_hints);
-
-        true
+            .get_or_insert_operations::<T>()
+            .buffer_access = Some(buffer_access);
     }
 
     pub fn listen(
@@ -1537,41 +1512,28 @@ impl MessageRegistry {
         builder: &mut Builder,
     ) -> Result<DynOutput, DiagramErrorCode> {
         let create = self.get_operations(target_type)?
-            .listen_impl
-            .ok_or_else(|| DiagramErrorCode::CannotListen(*target_type))?;
+            .listen
+            .as_ref()
+            .ok_or_else(|| DiagramErrorCode::CannotListen(*target_type))?
+            .create;
 
         create(buffers, builder)
     }
 
-    pub fn listen_hint(
-        &self,
-        message_info: &TypeInfo,
-        identifiers: HashSet<BufferIdentifier<'static>>,
-    ) -> Result<MessageTypeHintMap, DiagramErrorCode> {
-        let hints = self.get_operations(message_info)?
-            .listen_hints
-            .ok_or_else(|| DiagramErrorCode::CannotListen(*message_info))?;
-
-        hints(identifiers).map_err(Into::into)
+    pub fn get_type_info_for(&self, index: usize) -> Result<TypeInfo, DiagramErrorCode> {
+        Ok(self.registration.get_by_index(index)?.type_info)
     }
 
-    pub(super) fn register_listen<T>(&mut self) -> bool
+    pub(super) fn register_listen<T>(&mut self)
     where
         T: Send + Sync + 'static + Any + Accessor,
     {
-        let ops = &mut self
+        let listen = ListenRegistration::new::<T>(self);
+
+        self
             .registration
-            .get_or_insert_operations::<T>();
-        if ops.listen_impl.is_some() {
-            return false;
-        }
-
-        ops.listen_impl =
-            Some(|buffers, builder| Ok(builder.try_listen::<T>(buffers)?.output().into()));
-
-        ops.listen_hints = Some(<T::Buffers as BufferMapLayout>::get_buffer_message_type_hints);
-
-        true
+            .get_or_insert_operations::<T>()
+            .listen = Some(listen);
     }
 
     pub(super) fn register_to_string<T>(&mut self)
@@ -2263,19 +2225,19 @@ mod tests {
     /// If these impls are needed outside tests, then move them to the main impl.
     impl MessageOperations {
         fn deserializable(&self) -> bool {
-            self.deserialize_impl.is_some()
+            self.deserialize.is_some()
         }
 
         fn serializable(&self) -> bool {
-            self.serialize_impl.is_some()
+            self.serialize.is_some()
         }
 
         fn cloneable(&self) -> bool {
-            self.fork_clone_impl.is_some()
+            self.fork_clone.is_some()
         }
 
         fn unzippable(&self) -> bool {
-            self.unzip_impl.is_some()
+            self.unzip.is_some()
         }
 
         fn can_fork_result(&self) -> bool {
@@ -2283,11 +2245,11 @@ mod tests {
         }
 
         fn splittable(&self) -> bool {
-            self.split_impl.is_some()
+            self.split.is_some()
         }
 
         fn joinable(&self) -> bool {
-            self.join_impl.is_some()
+            self.join.is_some()
         }
     }
 

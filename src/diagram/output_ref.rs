@@ -70,7 +70,7 @@ impl NamedOutputBuilder {
         self.key(["next"])
     }
 
-    pub fn stream_out(self, stream: impl ToString) -> NamedOutputRef {
+    pub fn stream_out(self, stream: impl std::borrow::Borrow<str>) -> NamedOutputRef {
         self.key(OutputKey(smallvec!["stream_out".into(), stream.into()]))
     }
 
@@ -83,7 +83,7 @@ impl NamedOutputBuilder {
     }
 
     pub fn next_index(self, index: usize) -> NamedOutputRef {
-        self.key(OutputKey(smallvec!["next".into(), index.into()]))
+        self.key(OutputKey(smallvec!["next".into(), NameOrIndex::Index(index)]))
     }
 
     pub fn key(self, key: impl Into<OutputKey>) -> NamedOutputRef {

@@ -70,7 +70,7 @@ where
     ) {
         let ops = messages.get_or_insert_operations::<T>();
 
-        ops.serialize_impl = Some(|builder| {
+        ops.serialize = Some(|builder| {
             let serialize = builder.create_map_block(|message: T| {
                 serde_json::to_value(message).map_err(|err| err.to_string())
             });
@@ -117,7 +117,7 @@ where
         schema_generator: &mut SchemaGenerator,
     ) {
         let ops = messages.get_or_insert_operations::<T>();
-        ops.deserialize_impl = Some(|builder| {
+        ops.deserialize = Some(|builder| {
             let deserialize = builder.create_map_block(|message: JsonMessage| {
                 serde_json::from_value::<T>(message).map_err(|err| err.to_string())
             });
@@ -294,7 +294,7 @@ impl ImplicitDeserialization {
     ) -> Result<Option<Self>, DiagramErrorCode> {
         let can_deserialize = registration
             .get_operations(deserialized_input.message_info())?
-            .deserialize_impl
+            .deserialize
             .is_some();
 
         if can_deserialize {

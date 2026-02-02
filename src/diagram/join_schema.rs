@@ -167,7 +167,7 @@ impl JoinRegistration {
         let layout = <T::Buffers as BufferMapLayout>::get_layout_hints()
             .export(messages);
 
-        JoinRegistration { create, layout }
+        Self { create, layout }
     }
 }
 

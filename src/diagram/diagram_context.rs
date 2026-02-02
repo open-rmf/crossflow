@@ -38,6 +38,11 @@ impl<'a> DiagramContext<'a> {
         id.in_namespaces(&self.namespaces)
     }
 
+    pub fn into_output_ref(&self, id: impl Into<OutputRef>) -> OutputRef {
+        let id: OutputRef = id.into();
+        id.in_namespaces(&self.namespaces)
+    }
+
     pub fn into_port_ref(&self, id: impl Into<PortRef>) -> PortRef {
         let id: PortRef = id.into();
         id.in_namespaces(&self.namespaces)

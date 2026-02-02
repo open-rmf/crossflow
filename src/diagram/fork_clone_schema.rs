@@ -131,7 +131,7 @@ impl<T: 'static> RegisterClone<T> for NotSupported {
     const CLONEABLE: bool = false;
 
     fn register_clone(ops: &mut MessageOperations) {
-        ops.fork_clone_impl = Some(|_| Err(DiagramErrorCode::NotCloneable(TypeInfo::of::<T>())));
+        ops.fork_clone = Some(|_| Err(DiagramErrorCode::NotCloneable(TypeInfo::of::<T>())));
     }
 }
 
@@ -143,7 +143,7 @@ where
 
     fn register_clone(ops: &mut MessageOperations) {
         CloneFromBuffer::<T>::register_clone_for_join();
-        ops.fork_clone_impl = Some(|builder| {
+        ops.fork_clone = Some(|builder| {
             let (input, outputs) = builder.create_fork_clone::<T>();
 
             Ok(DynForkClone {
