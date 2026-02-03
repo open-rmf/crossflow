@@ -247,11 +247,11 @@ impl<'a, DeserializeImpl, SerializeImpl, Cloneable>
             },
             create_node_impl: RefCell::new(Box::new(move |builder, config| {
                 let config =
-                    serde_json::from_value(config).map_err(DiagramErrorCode::ConfigError)?;
+                    serde_json::from_value(config).map_err(|err| DiagramErrorCode::ConfigError(Arc::new(err)))?;
                 let node =
                     f(builder, config).map_err(|error| DiagramErrorCode::NodeBuildingError {
                         builder: Arc::clone(&node_builder_name),
-                        error,
+                        error: Arc::new(error),
                     })?;
 
                 Ok(node.into())
@@ -1930,7 +1930,7 @@ impl DiagramElementRegistry {
                     section_builder(builder, serde_json::from_value::<Config>(config).unwrap())
                         .map_err(|error| DiagramErrorCode::NodeBuildingError {
                             builder: Arc::clone(&builder_id),
-                            error,
+                            error: Arc::new(error),
                         })?;
                 Ok(Box::new(section))
             })),

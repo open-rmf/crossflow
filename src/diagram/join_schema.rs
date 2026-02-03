@@ -116,8 +116,8 @@ impl BuildDiagramOperation for JoinSchema {
 
         let mut buffer_map = match ctx.create_buffer_map(&self.buffers) {
             Ok(buffer_map) => buffer_map,
-            Err(reason) => return Ok(BuildStatus::defer(reason)),
-        };
+            Err(err) => return Ok(BuildStatus::defer()
+        }
 
         for to_clone in &self.clone {
             let Some(buffer) = buffer_map.get_mut(to_clone) else {

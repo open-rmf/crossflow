@@ -15,30 +15,39 @@
  *
 */
 
-use std::error::Error;
+use std::sync::Arc;
 
-use cel_interpreter::{Context, ExecutionError, ParseError, Program};
+use cel_interpreter::{Context, ExecutionError, ParseError, Program, SerializationError};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
+use thiserror::Error as ThisError;
 
-use crate::{ForkResultOutput, JsonMessage, InferenceContext, TypeInfo, output_ref};
+use crate::{ForkResultOutput, JsonMessage, InferenceContext, output_ref};
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, NextOperation,
     OperationName, TraceInfo, TraceSettings,
 };
 
-#[derive(Error, Debug)]
+#[derive(Clone, ThisError, Debug)]
 pub enum TransformError {
     #[error(transparent)]
-    Parse(#[from] ParseError),
+    Parse(Arc<ParseError>),
 
     #[error(transparent)]
     Execution(#[from] ExecutionError),
 
     #[error(transparent)]
-    Other(#[from] Box<dyn Error + Send + Sync + 'static>),
+    Serialization(#[from] SerializationError),
+
+    #[error("Failed to convert the CEL program response to JSON: {0}")]
+    ConvertToJson(String),
+}
+
+impl From<ParseError> for DiagramErrorCode {
+    fn from(value: ParseError) -> Self {
+        TransformError::Parse(Arc::new(value)).into()
+    }
 }
 
 /// If the request is serializable, transform it by running it through a [CEL](https://cel.dev/) program.
@@ -107,19 +116,17 @@ impl BuildDiagramOperation for TransformSchema {
         id: &OperationName,
         ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
-        let program = Program::compile(&self.cel).map_err(TransformError::Parse)?;
+        let program = Program::compile(&self.cel)?;
         let node = ctx.builder.create_map_block(
             move |req: JsonMessage| -> Result<JsonMessage, TransformError> {
                 let mut context = Context::default();
-                context
-                    .add_variable("request", req)
-                    // cannot keep the original error because it is not Send + Sync
-                    .map_err(|err| TransformError::Other(err.to_string().into()))?;
-                program
+                context.add_variable("request", req)?;
+                Ok(
+                    program
                     .execute(&context)?
                     .json()
-                    // cel_interpreter::json is private so we have to type erase ConvertToJsonError
-                    .map_err(|err| TransformError::Other(err.to_string().into()))
+                    .map_err(|err| TransformError::ConvertToJson(err.to_string()))?
+                )
             },
         );
 

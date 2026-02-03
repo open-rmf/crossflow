@@ -161,7 +161,7 @@ impl BuildDiagramOperation for SectionSchema {
                 let section = ctx.templates.get_template(section_template)?;
 
                 for (child_id, op) in section.ops.iter() {
-                    ctx.add_child_operation(id, child_id, op, section.ops.clone(), None);
+                    ctx.add_child_operation(id, child_id, op, section.ops.clone(), None, None);
                 }
 
                 section
@@ -246,7 +246,7 @@ impl BuildDiagramOperation for SectionSchema {
                 let section = ctx.templates.get_template(section_template)?;
 
                 for (child_id, op) in section.ops.iter() {
-                    ctx.add_child_operation(id, child_id, op, section.ops.clone());
+                    ctx.add_child_operation(id, child_id, op, section.ops.clone(), None);
                 }
 
                 section.inputs.redirect(|op, next| {
@@ -538,7 +538,7 @@ impl InputRemapping {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(Clone, thiserror::Error, Debug)]
 pub enum SectionError {
     #[error("operation has extra output [{0}] that is not in the section")]
     UnknownOutput(OperationName),

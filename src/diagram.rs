@@ -380,8 +380,8 @@ impl BuildDiagramOperation for DiagramOperation {
     fn apply_message_type_constraints(
         &self,
         id: &OperationName,
-        ctx: &BuilderContext,
-    ) -> Result<HashMap<PortRef, MessageTypeConstraints>, DiagramErrorCode> {
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
         match self {
             Self::Buffer(op) => op.apply_message_type_constraints(id, ctx),
             Self::BufferAccess(op) => op.apply_message_type_constraints(id, ctx),
@@ -714,6 +714,13 @@ impl Diagram {
 
         Ok(())
     }
+
+    /// Get how implicit errors will be handled in the root scope of this diagram.
+    pub fn on_implicit_error(&self) -> NextOperation {
+        self.on_implicit_error.clone().unwrap_or(
+            NextOperation::Builtin { builtin: BuiltinTarget::Cancel }
+        )
+    }
 }
 
 #[derive(Debug, Clone, Default, JsonSchema, Serialize, Deserialize, Deref, DerefMut)]
@@ -876,16 +883,16 @@ impl Display for DiagramErrorContext {
     }
 }
 
-#[derive(ThisError, Debug)]
+#[derive(Clone, ThisError, Debug)]
 pub enum DiagramErrorCode {
     #[error("node builder [{0}] is not registered")]
     BuilderNotFound(BuilderId),
 
     #[error("node builder [{builder}] encountered an error: {error}")]
-    NodeBuildingError { builder: BuilderId, error: Anyhow },
+    NodeBuildingError { builder: BuilderId, error: Arc<Anyhow> },
 
     #[error("section builder [{builder}] encountered an error: {error}")]
-    SectionBuildingError { builder: BuilderId, error: Anyhow },
+    SectionBuildingError { builder: BuilderId, error: Arc<Anyhow> },
 
     #[error("operation [{0}] not found")]
     OperationNotFound(NextOperation),
@@ -1008,10 +1015,10 @@ pub enum DiagramErrorCode {
     IncompleteDiagram,
 
     #[error("the config of the operation has an error: {0}")]
-    ConfigError(serde_json::Error),
+    ConfigError(Arc<serde_json::Error>),
 
     #[error("failed to create trace info for the operation: {0}")]
-    TraceInfoError(serde_json::Error),
+    TraceInfoError(Arc<serde_json::Error>),
 
     #[error(transparent)]
     ConnectionError(#[from] SplitConnectionError),
@@ -1022,7 +1029,7 @@ pub enum DiagramErrorCode {
     #[error("The build of the workflow came to a halt, reasons:\n{reasons:?}")]
     BuildHalted {
         /// Reasons that operations were unable to make progress building
-        reasons: HashMap<OperationRef, Cow<'static, str>>,
+        reasons: HashMap<OperationRef, DiagramErrorCode>,
     },
 
     #[error(
@@ -1035,7 +1042,7 @@ pub enum DiagramErrorCode {
     InvalidUseOfReservedName(&'static str),
 
     #[error("an error happened while building a nested diagram: {0}")]
-    NestedError(Box<DiagramError>),
+    NestedError(Arc<DiagramError>),
 
     #[error("A circular redirection exists between operations: {}", format_list(&.0))]
     CircularRedirect(Vec<OperationRef>),
@@ -1081,14 +1088,14 @@ impl DiagramErrorCode {
 /// An error that occurs when a diagram description expects a node to provide a
 /// named output stream, but the node does not provide any output stream that
 /// matches the expected name.
-#[derive(ThisError, Debug)]
+#[derive(Clone, ThisError, Debug)]
 #[error("An expected stream is not provided by this node: {missing_name}. Available stream names: {}", format_list(&available_names))]
 pub struct MissingStream {
     pub missing_name: OperationName,
     pub available_names: Vec<OperationName>,
 }
 
-#[derive(ThisError, Debug, Default)]
+#[derive(Clone, ThisError, Debug, Default)]
 pub struct FinishingErrors {
     pub errors: HashMap<OperationRef, DiagramErrorCode>,
 }

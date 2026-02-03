@@ -700,7 +700,7 @@ pub(crate) struct IncrementalScopeBuilder {
 }
 
 #[cfg(feature = "diagram")]
-#[derive(ThisError, Debug)]
+#[derive(Clone, ThisError, Debug)]
 #[error("An error happened while building a dynamic scope")]
 pub enum IncrementalScopeError {
     #[error("This request type for this scope has already been set to a different message type")]

@@ -29,14 +29,66 @@ use crate::{
     OperationRef, OutputRef, DiagramElementRegistry, DiagramErrorCode, DiagramContext, MessageOperations,
     JsonMessage, BufferIdentifier, BufferMapLayoutHints, BufferMapLayoutConstraint, AnyMessageBox,
     MessageTypeHint, BufferSelection, NamedOutputRef, BuildDiagramOperation,
-    Operations, OperationName, NamespaceList, NextOperation, output_ref,
+    Operations, OperationName, NamespaceList, NextOperation, output_ref, Diagram,
 };
+
+impl Diagram {
+    pub fn infer_message_types(
+        &self,
+        registry: &DiagramElementRegistry,
+    ) -> Result<HashMap<PortRef, usize>, DiagramErrorCode> {
+        self.validate_operation_names()?;
+        self.validate_template_usage()?;
+
+        let root_on_implicit_error: OperationRef = (&self.on_implicit_error()).into();
+
+        let mut inferences = Inference::default();
+
+        let mut unfinished_operations: Vec<UnfinishedOperation> = self
+            .ops
+            .iter()
+            .map(|(id, op)| {
+                UnfinishedOperation::new(
+                    id,
+                    op.clone() as Arc<dyn BuildDiagramOperation>,
+                    &self.ops,
+                    root_on_implicit_error.clone(),
+                )
+            })
+            .collect();
+        let mut generated_operations = Vec::new();
+
+        while !unfinished_operations.is_empty() {
+            for unfinished in unfinished_operations.drain(..) {
+                let mut ctx = InferenceContext {
+                    inference: &mut inferences,
+                    diagram_context: DiagramContext {
+                        operations: unfinished.sibling_ops.clone(),
+                        templates: &self.templates,
+                        on_implicit_error: &unfinished.on_implicit_error,
+                        default_trace: self.default_trace,
+                        namespaces: unfinished.namespaces,
+                    },
+                    registry,
+                    generated_operations: &mut generated_operations,
+                };
+
+                unfinished.op.apply_message_type_constraints(&unfinished.id, &mut ctx)?;
+            }
+
+            unfinished_operations.extend(generated_operations.drain(..));
+        }
+
+        let mut final_inferences = HashMap::new();
+        Ok(final_inferences)
+    }
+}
 
 pub struct InferenceContext<'a, 'b> {
     inference: &'b mut Inference,
     diagram_context: DiagramContext<'a>,
     pub registry: &'a DiagramElementRegistry,
-    generated_operations: Vec<UnfinishedOperation>,
+    generated_operations: &'b mut Vec<UnfinishedOperation>,
 }
 
 impl<'a, 'b> InferenceContext<'a, 'b> {
@@ -280,9 +332,20 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         child_id: &OperationName,
         op: &Arc<T>,
         sibling_ops: Operations,
+        on_implicit_error: Option<NextOperation>,
     ) {
         let mut namespaces = self.namespaces.clone();
         namespaces.push(Arc::clone(id));
+
+        let on_implicit_error = match on_implicit_error {
+            Some(op) => {
+                let op: OperationRef = (&op).into();
+                op.in_namespaces(&namespaces)
+            }
+            None => {
+                self.on_implicit_error.clone()
+            }
+        };
 
         self.generated_operations
             .push(UnfinishedOperation {
@@ -290,6 +353,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                 namespaces,
                 op: op.clone() as Arc<dyn BuildDiagramOperation>,
                 sibling_ops,
+                on_implicit_error,
             })
     }
 
@@ -828,6 +892,8 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     }
 }
 
+
+
 struct UnfinishedOperation {
     /// Name of the operation within its scope
     id: OperationName,
@@ -837,6 +903,25 @@ struct UnfinishedOperation {
     op: Arc<dyn BuildDiagramOperation>,
     /// The sibling operations of the one that is being built
     sibling_ops: Operations,
+    /// Where implicit errors should be connected if not overridden
+    on_implicit_error: OperationRef,
+}
+
+impl UnfinishedOperation {
+    fn new(
+        id: &OperationName,
+        op: Arc<dyn BuildDiagramOperation>,
+        sibling_ops: &Operations,
+        on_implicit_error: OperationRef,
+    ) -> Self {
+        Self {
+            id: Arc::clone(id),
+            op,
+            sibling_ops: sibling_ops.clone(),
+            on_implicit_error,
+            namespaces: Default::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -928,6 +1013,7 @@ impl From<NamedOutputRef> for PortRef {
     }
 }
 
+#[derive(Default)]
 struct Inference {
     evaluations: HashMap<PortRef, MessageTypeInference>,
 }

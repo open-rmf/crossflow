@@ -16,7 +16,6 @@
 */
 
 use std::{
-    borrow::Cow,
     collections::{HashMap, HashSet, hash_map::Entry},
     sync::Arc,
     ops::Deref,
@@ -24,8 +23,7 @@ use std::{
 
 use crate::{
     AnyBuffer, BufferIdentifier, BufferMap, Builder, BuilderScopeContext, JsonMessage,
-    MessageTypeHint, Scope, StreamPack, dyn_node::DynStreamInputPack,
-    PortRef,
+    Scope, StreamPack, dyn_node::DynStreamInputPack, PortRef,
 };
 
 #[cfg(feature = "trace")]
@@ -34,8 +32,8 @@ use crate::{OperationInfo, Trace};
 use super::{
     BufferSelection, Diagram, DiagramContext, DiagramElementRegistry, DiagramError, DiagramErrorCode, DynInputSlot,
     DynOutput, FinishingErrors, ImplicitDeserialization, ImplicitSerialization, ImplicitStringify,
-    MessageRegistry, NamedOperationRef, NamespaceList, NextOperation, OperationName, OperationRef,
-    Operations, StreamOutRef, TraceToggle, TypeInfo, InferenceContext,
+    NamedOperationRef, NamespaceList, NextOperation, OperationName, OperationRef,
+    Operations, TraceToggle, TypeInfo, InferenceContext,
 };
 
 use bevy_ecs::prelude::Entity;
@@ -50,8 +48,6 @@ struct DiagramConstruction {
     outputs_into_target: HashMap<OperationRef, Vec<DynOutput>>,
     /// A map of what buffers exist in the diagram
     buffers: HashMap<OperationRef, BufferRef>,
-    /// A map of type hints for each buffer, provided by listeners and accessors
-    buffer_hints: HashMap<OperationRef, HashSet<MessageTypeHint>>,
     /// Operations that were spawned by another operation.
     generated_operations: Vec<UnfinishedOperation>,
 }
@@ -255,20 +251,20 @@ impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
     /// Create a buffer map based on the buffer inputs provided. If one or more
     /// of the buffers in BufferInputs is not available, get an error including
     /// the name of the missing buffer.
-    pub fn create_buffer_map(&self, inputs: &BufferSelection) -> Result<BufferMap, String> {
-        let attempt_get_buffer = |buffer: &NextOperation| -> Result<AnyBuffer, String> {
+    pub fn create_buffer_map(&self, inputs: &BufferSelection) -> Result<BufferMap, DiagramErrorCode> {
+        let attempt_get_buffer = |buffer: &NextOperation| -> Result<AnyBuffer, DiagramErrorCode> {
             let mut buffer_ref: OperationRef = self.into_operation_ref(buffer);
             let mut visited = HashSet::new();
             loop {
                 if !visited.insert(buffer_ref.clone()) {
-                    return Err(format!("circular reference for buffer [{buffer}]"));
+                    return Err(DiagramErrorCode::CircularRedirect(visited.into_iter().collect()));
                 }
 
                 let next = self
                     .construction
                     .buffers
                     .get(&buffer_ref)
-                    .ok_or_else(|| format!("cannot find buffer named [{buffer}]"))?;
+                    .ok_or_else(|| DiagramErrorCode::UnknownOperation(buffer_ref))?;
 
                 buffer_ref = match next {
                     BufferRef::Value(value) => return Ok(*value),
@@ -315,10 +311,21 @@ impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
         child_id: &OperationName,
         op: &Arc<T>,
         sibling_ops: Operations,
+        on_implicit_error: Option<NextOperation>,
         scope: Option<BuilderScopeContext>,
     ) {
         let mut namespaces = self.namespaces.clone();
         namespaces.push(Arc::clone(id));
+
+        let on_implicit_error = match on_implicit_error {
+            Some(op) => {
+                let op: OperationRef = (&op).into();
+                op.in_namespaces(&namespaces)
+            }
+            None => {
+                self.on_implicit_error.clone()
+            }
+        };
 
         self.construction
             .generated_operations
@@ -327,6 +334,7 @@ impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
                 namespaces,
                 op: op.clone() as Arc<dyn BuildDiagramOperation>,
                 sibling_ops: sibling_ops.clone(),
+                on_implicit_error,
                 scope: scope.unwrap_or(self.builder.context),
             });
     }
@@ -459,13 +467,13 @@ pub enum BuildStatus {
         /// iteration of the workflow build then we assume it is impossible to
         /// build the diagram.
         progress: bool,
-        reason: Cow<'static, str>,
+        reason: DiagramErrorCode,
     },
 }
 
 impl BuildStatus {
     /// Indicate that the build of the operation needs to be deferred.
-    pub fn defer(reason: impl Into<Cow<'static, str>>) -> Self {
+    pub fn defer(reason: impl Into<DiagramErrorCode>) -> Self {
         Self::Defer {
             progress: false,
             reason: reason.into(),
@@ -497,7 +505,7 @@ impl BuildStatus {
 
     /// Change this build status into its reason for deferral, if it is a
     /// deferral.
-    pub fn into_deferral_reason(self) -> Option<Cow<'static, str>> {
+    pub fn into_deferral_reason(self) -> Option<DiagramErrorCode> {
         match self {
             Self::Defer { reason, .. } => Some(reason),
             Self::Finished => None,
@@ -556,18 +564,13 @@ where
     Response: 'static + Send + Sync,
     Streams: StreamPack,
 {
-    diagram.validate_operation_names()?;
-    diagram.validate_template_usage()?;
+    let inference = diagram.infer_message_types(registry)?;
+    // This borrow is a trick to make it cleaner to create BuilderContext.
+    let message_type_inference = &inference;
 
     let mut construction = DiagramConstruction::default();
 
-    let default_on_implicit_error = OperationRef::Cancel(NamespaceList::default());
-    let opt_on_implicit_error: Option<OperationRef> =
-        diagram.on_implicit_error.as_ref().map(Into::into);
-
-    let on_implicit_error = opt_on_implicit_error
-        .as_ref()
-        .unwrap_or(&default_on_implicit_error);
+    let root_on_implicit_error: OperationRef = (&diagram.on_implicit_error()).into();
 
     initialize_builtin_operations(
         diagram.start.clone(),
@@ -575,12 +578,13 @@ where
         &mut BuilderContext {
             construction: &mut construction,
             builder,
+            message_type_inference,
             registry,
             diagram_context: DiagramContext {
                 operations: diagram.ops.clone(),
                 templates: &diagram.templates,
                 default_trace: diagram.default_trace,
-                on_implicit_error,
+                on_implicit_error: &root_on_implicit_error,
                 namespaces: NamespaceList::default(),
             },
         },
@@ -591,9 +595,10 @@ where
         .iter()
         .map(|(id, op)| {
             UnfinishedOperation::new(
-                Arc::clone(id),
+                id,
                 op.clone() as Arc<dyn BuildDiagramOperation>,
                 &diagram.ops,
+                root_on_implicit_error.clone(),
                 builder.context,
             )
         })
@@ -619,12 +624,13 @@ where
             let mut ctx = BuilderContext {
                 construction: &mut construction,
                 builder: &mut builder,
+                message_type_inference,
                 registry,
                 diagram_context: DiagramContext {
                     operations: unfinished.sibling_ops.clone(),
                     templates: &diagram.templates,
                     default_trace: diagram.default_trace,
-                    on_implicit_error,
+                    on_implicit_error: &unfinished.on_implicit_error,
                     namespaces: unfinished.namespaces.clone(),
                 },
             };
@@ -673,12 +679,13 @@ where
                 let mut ctx = BuilderContext {
                     construction: &mut connector_construction,
                     builder: &mut builder,
+                    message_type_inference,
                     registry,
                     diagram_context: DiagramContext {
                         operations: diagram.ops.clone(),
                         templates: &diagram.templates,
                         default_trace: diagram.default_trace,
-                        on_implicit_error,
+                        on_implicit_error: &root_on_implicit_error,
                         // TODO(@mxgrey): The namespace while connecting into targets
                         // is always empty since the ConnectIntoTargets implementation
                         // is expected to provide targets that are already fully
@@ -770,6 +777,8 @@ struct UnfinishedOperation {
     op: Arc<dyn BuildDiagramOperation>,
     /// The sibling operations of the one that is being built
     sibling_ops: Operations,
+    /// How this operation should handle implicit errors, if needed
+    on_implicit_error: OperationRef,
     /// The scope of this operation. This is used to create the correct Builder
     /// for the operation.
     scope: BuilderScopeContext,
@@ -791,15 +800,17 @@ impl std::fmt::Debug for UnfinishedOperation {
 
 impl UnfinishedOperation {
     pub fn new(
-        id: OperationName,
+        id: &OperationName,
         op: Arc<dyn BuildDiagramOperation>,
         sibling_ops: &Operations,
+        on_implicit_error: OperationRef,
         scope: BuilderScopeContext,
     ) -> Self {
         Self {
-            id,
+            id: Arc::clone(id),
             op,
             sibling_ops: sibling_ops.clone(),
+            on_implicit_error,
             namespaces: Default::default(),
             scope,
         }
@@ -1078,7 +1089,9 @@ impl TraceInfo {
         trace: Option<TraceToggle>,
     ) -> Result<Self, DiagramErrorCode> {
         let construction = Some(Arc::new(
-            serde_json::to_value(construction).map_err(DiagramErrorCode::TraceInfoError)?,
+            serde_json::to_value(construction).map_err(|err|
+                DiagramErrorCode::TraceInfoError(Arc::new(err))
+            )?,
         ));
 
         Ok(Self {

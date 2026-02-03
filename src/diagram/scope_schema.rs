@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode,
     IncrementalScopeBuilder, NextOperation, OperationName, OperationRef, Operations,
-    ScopeSettings, TraceSettings, InferenceContext, TraceInfo,
+    ScopeSettings, TraceSettings, InferenceContext, TraceInfo, BuiltinTarget,
 };
 
 /// Create a scope which will function like its own encapsulated workflow
@@ -190,6 +190,7 @@ impl BuildDiagramOperation for ScopeSchema {
                 child_id,
                 op,
                 self.ops.clone(),
+                Some(self.on_implicit_error()),
                 Some(scope.builder_scope_context()),
             );
         }
@@ -223,10 +224,18 @@ impl BuildDiagramOperation for ScopeSchema {
         );
 
         for (child_id, op) in self.ops.iter() {
-            ctx.add_child_operation(id, child_id, op, self.ops.clone());
+            ctx.add_child_operation(id, child_id, op, self.ops.clone(), Some(self.on_implicit_error()));
         }
 
         Ok(())
+    }
+}
+
+impl ScopeSchema {
+    pub fn on_implicit_error(&self) -> NextOperation {
+        self.on_implicit_error.clone().unwrap_or(
+            NextOperation::Builtin { builtin: BuiltinTarget::Cancel }
+        )
     }
 }
 

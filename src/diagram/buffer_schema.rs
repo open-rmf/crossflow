@@ -216,10 +216,7 @@ impl BuildDiagramOperation for BufferAccessSchema {
         ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         let target_type = ctx.inferred_message_type(&self.next)?;
-        let buffer_map = match ctx.create_buffer_map(&self.buffers) {
-            Ok(buffer_map) => buffer_map,
-            Err(reason) => return Ok(BuildStatus::defer(reason)),
-        };
+        let buffer_map = ctx.create_buffer_map(&self.buffers)?;
 
         let node =
             ctx.registry
