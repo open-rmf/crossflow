@@ -148,11 +148,9 @@ impl BuildDiagramOperation for TransformSchema {
         id: &OperationName,
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
-        let Some(json_message_index) = ctx.registry.messages.registration.get_index::<JsonMessage>() else {
-            return Err(DiagramErrorCode::UnregisteredTypes(vec![TypeInfo::of::<JsonMessage>()]));
-        };
-        ctx.one_of(id, &[json_message_index]);
+        let json_message_index = ctx.registry.messages.registration.get_index::<JsonMessage>()?;
 
+        ctx.one_of(id, &[json_message_index]);
         ctx.one_of(output_ref(id).next(), &[json_message_index]);
         ctx.connect_into(output_ref(id).next(), &self.next);
 

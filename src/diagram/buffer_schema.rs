@@ -142,8 +142,7 @@ impl BuildDiagramOperation for BufferSchema {
                 .registry
                 .messages
                 .registration
-                .get_index::<JsonMessage>()
-                .ok_or_else(|| DiagramErrorCode::UnregisteredTypes(vec![TypeInfo::of::<JsonMessage>()]))?;
+                .get_index::<JsonMessage>()?;
 
             ctx.one_of(id, &[json_message_index]);
         }
@@ -351,7 +350,7 @@ impl BuildDiagramOperation for ListenSchema {
         _id: &OperationName,
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
-        ctx.listen(&self.next, &self.buffers);
+        ctx.listen(&self.buffers, &self.next);
         Ok(())
     }
 }

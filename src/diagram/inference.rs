@@ -189,8 +189,8 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
     pub fn join(
         &mut self,
-        joined: impl Into<PortRef>,
         selection: &BufferSelection,
+        joined: impl Into<PortRef>,
     ) {
         let joined = self.into_port_ref(joined);
         for (identifier, op) in selection.iter() {
@@ -216,10 +216,10 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         &mut self,
         request: impl Into<PortRef>,
         selection: &BufferSelection,
-        output: impl Into<PortRef>,
+        next: impl Into<PortRef>,
     ) {
         let request = self.into_port_ref(request);
-        let accessor = self.into_port_ref(output);
+        let accessor = self.into_port_ref(next);
 
         for (identifier, op) in selection.iter() {
             let port = self.into_port_ref(op);
@@ -240,8 +240,8 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
     pub fn listen(
         &mut self,
-        listener: impl Into<PortRef>,
         selection: &BufferSelection,
+        listener: impl Into<PortRef>,
     ) {
         let listener = self.into_port_ref(listener);
         for (identifier, op) in selection.iter() {
@@ -357,7 +357,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         if ops.deserialize.is_some() {
             // If the target type is deserializable then it can be created
             // from a JsonSchema.
-            if let Some(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() {
+            if let Ok(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() {
                 result.push(MessageTypeChoice {
                     id: json_index,
                     cost: 2,
@@ -412,7 +412,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         if ops.serialize.is_some() {
             // If the target type is serializable then it can be serialized
             // into a JsonMessage.
-            if let Some(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() {
+            if let Ok(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() {
                 result.push(MessageTypeChoice {
                     id: json_index,
                     cost: 2,
@@ -708,7 +708,6 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let mut result = SmallVec::new();
         let mut error = None;
         for target_msg_index in target_inference {
-            // if let Some(join) = &self.operations_of(*target_msg_index)?.join_impl {
             match get_layout(self, target_msg_index) {
                 Ok(layout) => {
                     match layout {
@@ -717,7 +716,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                                 match &dynamic.constraint {
                                     BufferMapLayoutConstraint::Any => {
                                         let any_index = self.registry.messages.registration.get_index::<AnyMessageBox>();
-                                        if let Some(any_index) = any_index {
+                                        if let Ok(any_index) = any_index {
                                             result.push(MessageTypeChoice {
                                                 id: any_index,
                                                 cost: 4,

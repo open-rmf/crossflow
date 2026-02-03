@@ -210,9 +210,9 @@ impl BuildDiagramOperation for ScopeSchema {
             .in_namespaces(&scope_namespace);
         ctx.exact_match(id, start);
 
-        for (stream_name, next) in &self.stream_out {
+        for (stream_name, stream_target) in &self.stream_out {
             let stream_op = OperationRef::scope_stream_out(id, stream_name);
-            ctx.exact_match(stream_op, next);
+            ctx.exact_match(stream_op, stream_target);
         }
 
         // The terminating message type of this scope must exactly match the

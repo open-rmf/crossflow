@@ -25,7 +25,7 @@ use super::{
 use crate::{
     BufferIdentifier, TraceSettings, default_as_false, is_default, is_false,
     BufferMap, Builder, DynOutput, Joined, BufferMapLayout, BufferMapLayoutHints,
-    MessageRegistry, InferenceContext,
+    MessageRegistry, InferenceContext, output_ref,
 };
 
 /// Wait for exactly one item to be available in each buffer listed in
@@ -107,7 +107,7 @@ pub struct JoinSchema {
 impl BuildDiagramOperation for JoinSchema {
     fn build_diagram_operation(
         &self,
-        _: &OperationName,
+        id: &OperationName,
         ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         if self.buffers.is_empty() {
@@ -136,7 +136,7 @@ impl BuildDiagramOperation for JoinSchema {
             let output = ctx.builder.try_join::<JsonMessage>(&buffer_map)?.output();
             ctx.add_output_into_target(&self.next, output.into());
         } else {
-            let target_type = ctx.inferred_message_type(&self.next)?;
+            let target_type = ctx.inferred_message_type(output_ref(id).next())?;
 
             let output = ctx
                 .registry
@@ -152,8 +152,14 @@ impl BuildDiagramOperation for JoinSchema {
         id: &OperationName,
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
-        ctx.join(id, &self.buffers);
-        ctx.exact_match(id, &self.next);
+        if self.serialize {
+            let json_message_index = ctx.registry.messages.registration.get_index::<JsonMessage>()?;
+            ctx.one_of(output_ref(id).next(), &[json_message_index]);
+            ctx.connect_into(output_ref(id).next(), &self.next);
+        } else {
+            ctx.join(&self.buffers, output_ref(id).next());
+            ctx.exact_match(output_ref(id).next(), &self.next);
+        }
         Ok(())
     }
 }

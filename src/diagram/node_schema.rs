@@ -134,8 +134,8 @@ impl BuildDiagramOperation for NodeSchema {
         }
 
         // Connect each stream output to its target operation.
-        for (stream_id, next) in &self.stream_out {
-            ctx.connect_into(output_ref(id).stream_out(stream_id), next);
+        for (stream_id, stream_target) in &self.stream_out {
+            ctx.connect_into(output_ref(id).stream_out(stream_id), stream_target);
         }
 
         Ok(())

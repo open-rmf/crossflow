@@ -23,7 +23,7 @@ use crate::{Builder, CloneFromBuffer, ForkCloneOutput};
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
     MessageOperations, NextOperation, OperationName, TraceInfo, TraceSettings, TypeInfo,
-    supported::*, InferenceContext,
+    supported::*, InferenceContext, output_ref,
 };
 
 /// If the request is cloneable, clone it into multiple responses that can
@@ -102,8 +102,9 @@ impl BuildDiagramOperation for ForkCloneSchema {
         id: &OperationName,
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
-        for next in &self.next {
-            ctx.exact_match(id, next);
+        for (i, next) in self.next.iter().enumerate() {
+            ctx.exact_match(id, output_ref(id).next_index(i));
+            ctx.connect_into(output_ref(id).next_index(i), next);
         }
 
         Ok(())

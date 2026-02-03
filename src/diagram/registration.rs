@@ -1654,11 +1654,14 @@ impl MessageRegistrations {
 
     // Used in testing
     #[allow(unused)]
-    pub(crate) fn get_index<T>(&self) -> Option<usize>
+    pub(crate) fn get_index<T>(&self) -> Result<usize, DiagramErrorCode>
     where
         T: 'static + Send + Sync,
     {
-        self.indices.get(&TypeInfo::of::<T>()).cloned()
+        let type_info = TypeInfo::of::<T>();
+        self.indices.get(&type_info).cloned().ok_or_else(
+            || DiagramErrorCode::UnregisteredTypes(vec![type_info])
+        )
     }
 
     pub(crate) fn get_index_or_insert<T>(&mut self) -> usize
