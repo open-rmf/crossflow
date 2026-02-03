@@ -23,7 +23,7 @@ use serde_json::Value;
 
 use crate::{
     Builder, ForRemaining, FromSequential, FromSpecific, ListSplitKey, MapSplitKey,
-    OperationResult, SplitDispatcher, Splittable, is_default,
+    OperationResult, SplitDispatcher, Splittable, is_default, InferenceContext,
 };
 
 use super::{
@@ -121,22 +121,34 @@ impl BuildDiagramOperation for SplitSchema {
         id: &OperationName,
         ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
-        let Some(sample_input) = ctx.infer_input_type_into_target(id)? else {
-            // There are no outputs ready for this target, so we can't do
-            // anything yet. The builder should try again later.
-            return Ok(BuildStatus::defer("waiting for an input"));
-        };
+        let input_message_type = ctx.inferred_message_type(id)?;
 
         let split = ctx
             .registry
             .messages
-            .split(&sample_input, self, ctx.builder)?;
+            .split(&input_message_type, self, ctx.builder)?;
         let trace = TraceInfo::new(self, self.trace_settings.trace)?;
         ctx.set_input_for_target(id, split.input, trace)?;
         for (target, output) in split.outputs {
             ctx.add_output_into_target(&target, output);
         }
         Ok(BuildStatus::Finished)
+    }
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        ctx.split(
+            id,
+            self
+            .keyed
+            .values()
+            .chain(self.sequential.iter())
+            .chain(self.remaining.iter())
+        );
+        Ok(())
     }
 }
 

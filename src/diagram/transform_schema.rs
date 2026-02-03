@@ -22,7 +22,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{ForkResultOutput, JsonMessage};
+use crate::{ForkResultOutput, JsonMessage, InferenceContext, TypeInfo, output_ref};
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, NextOperation,
@@ -141,6 +141,22 @@ impl BuildDiagramOperation for TransformSchema {
         ctx.set_input_for_target(id, node.input.into(), trace)?;
         ctx.add_output_into_target(&self.next, ok.into());
         Ok(BuildStatus::Finished)
+    }
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        let Some(json_message_index) = ctx.registry.messages.registration.get_index::<JsonMessage>() else {
+            return Err(DiagramErrorCode::UnregisteredTypes(vec![TypeInfo::of::<JsonMessage>()]));
+        };
+        ctx.one_of(id, &[json_message_index]);
+
+        ctx.one_of(output_ref(id).next(), &[json_message_index]);
+        ctx.connect_into(output_ref(id).next(), &self.next);
+
+        Ok(())
     }
 }
 

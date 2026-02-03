@@ -29,7 +29,7 @@ use crate::{
     OperationRef, OutputRef, DiagramElementRegistry, DiagramErrorCode, DiagramContext, MessageOperations,
     JsonMessage, BufferIdentifier, BufferMapLayoutHints, BufferMapLayoutConstraint, AnyMessageBox,
     MessageTypeHint, BufferSelection, NamedOutputRef, BuildDiagramOperation,
-    Operations, OperationName, NamespaceList,
+    Operations, OperationName, NamespaceList, NextOperation, output_ref,
 };
 
 pub struct InferenceContext<'a, 'b> {
@@ -153,30 +153,38 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
             .push(Arc::new(ResultInto{ ok, err }));
     }
 
-    pub fn unzip(
+    pub fn unzip<U: Into<OperationRef>>(
         &mut self,
-        unzippable: OperationRef,
-        elements: Vec<OutputRef>,
+        unzippable_name: &OperationName,
+        elements: impl Iterator<Item=U>,
     ) {
+        let unzippable: OperationRef = unzippable_name.into();
         let unzippable = unzippable.in_namespaces(&self.namespaces);
-        let elements: Vec<OutputRef> = elements.into_iter().map(|e| e.in_namespaces(&self.namespaces)).collect();
 
-        for (i, element) in elements.iter().enumerate() {
+        let mut element_refs = Vec::new();
+        for (i, next) in elements.enumerate() {
+            let element_ref = output_ref(unzippable_name).next_index(i);
+            let element_ref = self.into_output_ref(element_ref);
+            let next = self.into_operation_ref(next);
+
             self
                 .inference
                 // The complexity is O(1) because we can directly infer the
                 // element type based on the upstream unzippable.
-                .constraint_level_mut(element.clone(), 0)
+                .constraint_level_mut(element_ref.clone(), 0)
                 .push(Arc::new(UnzipFrom { op: unzippable.clone(), element: i }));
+
+            element_refs.push(element_ref.clone());
+            self.connect_into(element_ref, next);
         }
 
         // The complexity of this constraint is O(N^m) where m is the number
         // of elements in the tuple.
-        let complexity = elements.len();
+        let complexity = element_refs.len();
         self
             .inference
             .constraint_level_mut(unzippable, complexity)
-            .push(Arc::new(UnzipInto(elements.into())));
+            .push(Arc::new(UnzipInto(element_refs.into())));
     }
 
     pub fn join(
@@ -206,11 +214,13 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
     pub fn buffer_access(
         &mut self,
-        accessor: impl Into<PortRef>,
-        request: impl Into<OutputRef>,
+        request: impl Into<PortRef>,
         selection: &BufferSelection,
+        output: impl Into<PortRef>,
     ) {
-        let accessor = self.into_port_ref(accessor);
+        let request = self.into_port_ref(request);
+        let accessor = self.into_port_ref(output);
+
         for (identifier, op) in selection.iter() {
             let port = self.into_port_ref(op);
             self
@@ -222,7 +232,6 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                 }));
         }
 
-        let request = self.into_output_ref(request);
         self
             .inference
             .constraint_level_mut(request, 0)
@@ -244,6 +253,23 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                     listener: listener.clone(),
                     member: identifier.to_owned(),
                 }));
+        }
+    }
+
+    pub fn split<'s>(
+        &mut self,
+        split: impl Into<OperationRef>,
+        elements: impl Iterator<Item = &'s NextOperation>,
+    ) {
+        let split = split.into();
+        let split = split.in_namespaces(&self.namespaces);
+
+        for element in elements {
+            let element_port = self.into_port_ref(element);
+            self
+                .inference
+                .constraint_level_mut(element_port, 0)
+                .push(Arc::new(SplitFrom(split.clone())));
         }
     }
 

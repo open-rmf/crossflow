@@ -545,20 +545,6 @@ pub trait ConnectIntoTarget {
     }
 }
 
-/// This trait helps to determine what types of messages can go into an input
-/// slot.
-///
-/// For the first implementation of this, we are only considering the most
-/// preferred message type, but in the future we should add support for
-/// building a constraint graph to support inference in cases where an input
-/// can accept multiple different message types.
-///
-/// NOTE(@mxgrey): We may expand on this trait in the future to enable message
-/// type negotiation for operations that can accept a range of message types.
-pub trait InferMessageType {
-    fn preferred_input_type(&self) -> Option<TypeInfo>;
-}
-
 pub(super) fn create_workflow<Request, Response, Streams>(
     scope: Scope<Request, Response, Streams>,
     builder: &mut Builder,
@@ -606,7 +592,7 @@ where
         .map(|(id, op)| {
             UnfinishedOperation::new(
                 Arc::clone(id),
-                as_build_diagram_operation(op),
+                op.clone() as Arc<dyn BuildDiagramOperation>,
                 &diagram.ops,
                 builder.context,
             )
@@ -854,8 +840,9 @@ where
     for (name, input) in streams.named {
         // TODO(@mxgrey): The trace settings for stream_out are not properly
         // based on whatever the user sets in the StreamOutSchema.
+        let name: Arc<str> = name.as_ref().into();
         ctx.set_input_for_target(
-            StreamOutRef::new_for_root(name),
+            OperationRef::stream_out(&name),
             input,
             TraceInfo::default(),
         )?;
@@ -883,20 +870,6 @@ impl ConnectIntoTarget for ConnectToDispose {
         _ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         Ok(())
-    }
-
-    fn infer_input_type(
-        &self,
-        _ctx: &BuilderContext,
-        _visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
-        Ok(Some(Arc::new(ConnectToDispose)))
-    }
-}
-
-impl InferMessageType for ConnectToDispose {
-    fn preferred_input_type(&self) -> Option<TypeInfo> {
-        None
     }
 }
 
@@ -931,15 +904,6 @@ impl ConnectIntoTarget for ImplicitSerialization {
     ) -> Result<(), DiagramErrorCode> {
         self.implicit_serialize(output, ctx)
     }
-
-    fn infer_input_type(
-        &self,
-        _ctx: &BuilderContext,
-        _visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
-        let infer = Arc::clone(self.serialized_input_slot());
-        Ok(Some(infer))
-    }
 }
 
 impl ConnectIntoTarget for ImplicitDeserialization {
@@ -949,15 +913,6 @@ impl ConnectIntoTarget for ImplicitDeserialization {
         ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         self.implicit_deserialize(output, ctx)
-    }
-
-    fn infer_input_type(
-        &self,
-        _ctx: &BuilderContext,
-        _visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
-        let infer = Arc::clone(self.deserialized_input_slot());
-        Ok(Some(infer))
     }
 }
 
@@ -974,15 +929,6 @@ impl ConnectIntoTarget for BasicConnect {
         output
             .connect_to(&self.input_slot, ctx.builder)
             .map_err(Into::into)
-    }
-
-    fn infer_input_type(
-        &self,
-        _ctx: &BuilderContext,
-        _visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
-        let infer = Arc::clone(&self.input_slot);
-        Ok(Some(infer))
     }
 }
 
@@ -1050,20 +996,6 @@ impl ConnectIntoTarget for ConnectToCancel {
 
         Ok(())
     }
-
-    fn infer_input_type(
-        &self,
-        ctx: &BuilderContext,
-        visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
-        self.implicit_serialization.infer_input_type(ctx, visited)
-    }
-}
-
-impl InferMessageType for DynInputSlot {
-    fn preferred_input_type(&self) -> Option<TypeInfo> {
-        Some(*self.message_info())
-    }
 }
 
 #[derive(Debug)]
@@ -1118,7 +1050,6 @@ struct DebugDiagramConstruction<'a, 'c, 'w, 's, 'b, 'd>(&'d BuilderContext<'a, '
 impl<'a, 'c, 'w, 's, 'b, 'd> std::fmt::Debug for DebugDiagramConstruction<'a, 'c, 'w, 's, 'b, 'd> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DiagramConstruction")
-            .field("connect_into_target", &DebugConnections(self.0))
             .field(
                 "outputs_into_target",
                 &self.0.construction.outputs_into_target,
@@ -1129,48 +1060,6 @@ impl<'a, 'c, 'w, 's, 'b, 'd> std::fmt::Debug for DebugDiagramConstruction<'a, 'c
                 &self.0.construction.generated_operations,
             )
             .finish()
-    }
-}
-
-struct DebugConnections<'a, 'c, 'w, 's, 'b, 'd>(&'d BuilderContext<'a, 'c, 'w, 's, 'b>);
-
-impl<'a, 'c, 'w, 's, 'b, 'd> std::fmt::Debug for DebugConnections<'a, 'c, 'w, 's, 'b, 'd> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut debug = f.debug_map();
-        for (op, target) in &self.0.construction.connect_into_target {
-            debug.entry(
-                op,
-                &DebugConnection {
-                    connect: &target.connector,
-                    context: self.0,
-                },
-            );
-        }
-
-        debug.finish()
-    }
-}
-
-struct DebugConnection<'a, 'c, 'w, 's, 'b, 'd> {
-    connect: &'d Box<dyn ConnectIntoTarget>,
-    context: &'d BuilderContext<'a, 'c, 'w, 's, 'b>,
-}
-
-impl<'a, 'c, 'w, 's, 'b, 'd> std::fmt::Debug for DebugConnection<'a, 'c, 'w, 's, 'b, 'd> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut visited = HashSet::new();
-        let mut debug = f.debug_struct("ConnectIntoTarget");
-        match self.connect.infer_input_type(self.context, &mut visited) {
-            Ok(ok) => {
-                let inferred = ok.map(|infer| infer.preferred_input_type()).flatten();
-                debug.field("inferred type", &inferred);
-            }
-            Err(err) => {
-                debug.field("infered type error", &err);
-            }
-        }
-
-        debug.finish()
     }
 }
 

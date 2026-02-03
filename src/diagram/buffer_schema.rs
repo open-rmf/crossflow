@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Accessor, BufferSettings, JsonMessage, BufferMapLayoutHints, BufferMap, Builder, DynNode, BufferMapLayout,
-    DynOutput,
+    DynOutput, InferenceContext, output_ref,
 };
 
 use super::{
@@ -118,24 +118,7 @@ impl BuildDiagramOperation for BufferSchema {
         let message_info = if self.serialize.is_some_and(|v| v) {
             TypeInfo::of::<JsonMessage>()
         } else {
-            match ctx.infer_input_type_into_target(id)? {
-                Some(inferred_type) => inferred_type,
-                None => {
-                    let Some(inferred_type) = ctx.infer_buffer_message_type_from_hints(id)? else {
-                        // There are no outputs ready for this target, so we can't do
-                        // anything yet. The builder should try again later.
-
-                        // TODO(@mxgrey): We should allow users to explicitly specify the
-                        // message type for the buffer. When they do, we won't need to wait
-                        // for an input.
-                        return Ok(BuildStatus::defer(
-                            "waiting for enough info to infer buffer message type",
-                        ));
-                    };
-
-                    inferred_type
-                }
-            }
+            ctx.inferred_message_type(id)?
         };
 
         let buffer = ctx.registry.messages.create_buffer(
@@ -147,6 +130,25 @@ impl BuildDiagramOperation for BufferSchema {
         let trace = TraceInfo::new(self, self.trace_settings.trace)?;
         ctx.set_buffer_for_operation(id, buffer, trace)?;
         Ok(BuildStatus::Finished)
+    }
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        if self.serialize.is_some_and(|x| x) {
+            let json_message_index = ctx
+                .registry
+                .messages
+                .registration
+                .get_index::<JsonMessage>()
+                .ok_or_else(|| DiagramErrorCode::UnregisteredTypes(vec![TypeInfo::of::<JsonMessage>()]))?;
+
+            ctx.one_of(id, &[json_message_index]);
+        }
+
+        Ok(())
     }
 }
 
@@ -214,14 +216,7 @@ impl BuildDiagramOperation for BufferAccessSchema {
         id: &OperationName,
         ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
-        let Some(target_type) = ctx.infer_input_type_into_target(&self.next)? else {
-            return Ok(BuildStatus::defer(
-                "waiting to find out target message type",
-            ));
-        };
-
-        ctx.set_access_type_hints(&target_type, &self.buffers)?;
-
+        let target_type = ctx.inferred_message_type(&self.next)?;
         let buffer_map = match ctx.create_buffer_map(&self.buffers) {
             Ok(buffer_map) => buffer_map,
             Err(reason) => return Ok(BuildStatus::defer(reason)),
@@ -237,6 +232,16 @@ impl BuildDiagramOperation for BufferAccessSchema {
         ctx.add_output_into_target(&self.next, node.output);
         Ok(BuildStatus::Finished)
     }
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        ctx.buffer_access(id, &self.buffers, &self.next);
+        Ok(())
+    }
+
 }
 
 pub trait BufferAccessRequest {
@@ -326,14 +331,7 @@ impl BuildDiagramOperation for ListenSchema {
         ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         // TODO(@mxgrey): Figure out how to enable tracing for listen operations
-
-        let Some(target_type) = ctx.infer_input_type_into_target(&self.next)? else {
-            return Ok(BuildStatus::defer(
-                "waiting to find out target message type",
-            ));
-        };
-
-        ctx.set_listen_type_hints(&target_type, &self.buffers)?;
+        let target_type = ctx.inferred_message_type(&self.next)?;
 
         let buffer_map = match ctx.create_buffer_map(&self.buffers) {
             Ok(buffer_map) => buffer_map,
@@ -346,6 +344,15 @@ impl BuildDiagramOperation for ListenSchema {
             .listen(&target_type, &buffer_map, ctx.builder)?;
         ctx.add_output_into_target(&self.next, output);
         Ok(BuildStatus::Finished)
+    }
+
+    fn apply_message_type_constraints(
+        &self,
+        _id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        ctx.listen(&self.next, &self.buffers);
+        Ok(())
     }
 }
 

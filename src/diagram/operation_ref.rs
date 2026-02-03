@@ -68,6 +68,15 @@ impl OperationRef {
         })
     }
 
+    pub fn stream_out(
+        stream_name: &OperationName,
+    ) -> Self {
+        Self::StreamOut(StreamOutRef {
+            namespaces: Default::default(),
+            name: Arc::clone(stream_name),
+        })
+    }
+
     pub fn terminate_for(namespace: &OperationName) -> Self {
         Self::Terminate(NamespaceList::for_child_of(Arc::clone(namespace)))
     }
@@ -238,14 +247,6 @@ pub struct StreamOutRef {
 }
 
 impl StreamOutRef {
-    pub fn new_for_root(stream_name: impl Into<Arc<str>>) -> Self {
-        Self {
-            namespaces: NamespaceList::default(),
-            name: stream_name.into(),
-        }
-    }
-
-
     fn in_namespaces(mut self, parent_namespaces: &[Arc<str>]) -> Self {
         self.namespaces.apply_parent_namespaces(parent_namespaces);
         self

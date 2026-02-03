@@ -24,7 +24,7 @@ use crate::Builder;
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
     MessageRegistry, NextOperation, OperationName, RegisterClone, SerializeMessage, TraceInfo,
-    TraceSettings, supported::*,
+    TraceSettings, supported::*, InferenceContext,
 };
 
 /// If the input message is a tuple of (T1, T2, T3, ...), unzip it into
@@ -98,13 +98,9 @@ impl BuildDiagramOperation for UnzipSchema {
         id: &OperationName,
         ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
-        let Some(inferred_type) = ctx.infer_input_type_into_target(id)? else {
-            // There are no outputs ready for this target, so we can't do
-            // anything yet. The builder should try again later.
-            return Ok(BuildStatus::defer("waiting for an input"));
-        };
-
+        let inferred_type = ctx.inferred_message_type(id)?;
         let unzip = ctx.registry.messages.unzip(&inferred_type)?;
+
         let mut actual_output = Vec::new();
         for t in &unzip.output_types {
             actual_output.push(
@@ -114,9 +110,8 @@ impl BuildDiagramOperation for UnzipSchema {
 
         if actual_output.len() != self.next.len() {
             return Err(DiagramErrorCode::InvalidUnzip {
-                expected: self.next.len(),
-                actual: unzip.output_types.len(),
-                elements: actual_output,
+                message: inferred_type,
+                element: self.next.len(),
             });
         }
 
@@ -128,6 +123,15 @@ impl BuildDiagramOperation for UnzipSchema {
             ctx.add_output_into_target(target, output);
         }
         Ok(BuildStatus::Finished)
+    }
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        ctx.unzip(id, self.next.iter());
+        Ok(())
     }
 }
 
@@ -267,8 +271,7 @@ mod tests {
         assert!(matches!(
             err.code,
             DiagramErrorCode::InvalidUnzip {
-                expected: 3,
-                actual: 2,
+                element: 3,
                 ..
             }
         ));
