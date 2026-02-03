@@ -26,6 +26,7 @@ use super::{
     BuildDiagramOperation, BuildStatus, BuilderId, BuilderContext, DiagramElementRegistry,
     DiagramErrorCode, DynInputSlot, DynOutput, NamespacedOperation, NextOperation, OperationName,
     OperationRef, Operations, RedirectConnection, TraceInfo, TraceSettings, MessageRegistrations,
+    output_ref, InferenceContext,
 };
 
 pub use crossflow_derive::Section;
@@ -192,11 +193,92 @@ impl BuildDiagramOperation for SectionSchema {
         }
 
         ctx.set_connect_into_target(
-            OperationRef::terminate_for(id.clone()),
+            OperationRef::terminate_for(id),
             RedirectConnection::new(ctx.into_operation_ref(&NextOperation::terminate())),
         )?;
 
         Ok(BuildStatus::Finished)
+    }
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        match &self.provider {
+            SectionProvider::Builder(section_builder) => {
+                let metadata = &ctx
+                    .registry
+                    .get_section_registration(section_builder)?
+                    .metadata;
+
+                for (input_name, input_metadata) in &metadata.interface.inputs {
+                    let op = NextOperation::Namespace(NamespacedOperation {
+                        namespace: id.clone(),
+                        operation: input_name.clone()
+                    });
+
+                    ctx.one_of(&op, &[input_metadata.message_type]);
+                }
+
+                for (buffer_name, buffer_metadata) in &metadata.interface.buffers {
+                    let op = NextOperation::Namespace(NamespacedOperation {
+                        namespace: id.clone(),
+                        operation: buffer_name.clone(),
+                    });
+
+                    if let Some(buffer_message_type) = buffer_metadata.message_type {
+                        ctx.one_of(&op, &[buffer_message_type]);
+                    }
+                }
+
+                for (output_name, output_metadata) in &metadata.interface.outputs {
+                    let op = output_ref(id).section_output(output_name);
+                    ctx.one_of(op, &[output_metadata.message_type]);
+                }
+
+                for (output_name, next) in &self.connect {
+                    let op = output_ref(id).section_output(output_name);
+                    ctx.connect_into(op, next);
+                }
+            }
+            SectionProvider::Template(section_template) => {
+                let section = ctx.templates.get_template(section_template)?;
+
+                for (child_id, op) in section.ops.iter() {
+                    ctx.add_child_operation(id, child_id, op, section.ops.clone());
+                }
+
+                section.inputs.redirect(|op, next| {
+                    let op = OperationRef::exposed_input(id, op);
+                    let next = next.in_namespace(id);
+                    ctx.exact_match(op, next);
+                    Ok(())
+                })?;
+
+                section.buffers.redirect(|op, next| {
+                    let op = OperationRef::exposed_input(id, op);
+                    let next = next.in_namespace(id);
+                    ctx.exact_match(op, next);
+                    Ok(())
+                })?;
+
+                for expected_output in self.connect.keys() {
+                    if !section.outputs.contains(expected_output) {
+                        return Err(SectionError::UnknownOutput(Arc::clone(expected_output)).into());
+                    }
+                }
+
+                for output in &section.outputs {
+                    if let Some(target) = self.connect.get(output) {
+                        let output = NextOperation::Name(Arc::clone(output)).in_namespace(id);
+                        ctx.exact_match(output, target);
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -538,7 +620,7 @@ mod tests {
             },
         );
         let reg = registry.get_message_registration::<(i64, i64)>().unwrap();
-        assert!(reg.operations.unzip_impl.is_some());
+        assert!(reg.operations.as_ref().unwrap().unzip.is_some());
     }
 
     #[derive(Section)]
@@ -564,7 +646,7 @@ mod tests {
         let reg = registry
             .get_message_registration::<Result<i64, String>>()
             .unwrap();
-        assert!(reg.operations.fork_result.is_some());
+        assert!(reg.operations.as_ref().unwrap().fork_result.is_some());
     }
 
     #[derive(Section)]
@@ -588,7 +670,7 @@ mod tests {
             },
         );
         let reg = registry.get_message_registration::<Vec<i64>>().unwrap();
-        assert!(reg.operations.split_impl.is_some());
+        assert!(reg.operations.as_ref().unwrap().split.is_some());
     }
 
     #[derive(Section)]
@@ -612,7 +694,7 @@ mod tests {
             },
         );
         let reg = registry.get_message_registration::<Vec<i64>>().unwrap();
-        assert!(reg.operations.join_impl.is_some());
+        assert!(reg.operations.as_ref().unwrap().join.is_some());
     }
 
     #[derive(Section)]
@@ -638,7 +720,7 @@ mod tests {
         let reg = registry
             .get_message_registration::<(i64, Vec<BufferKey<i64>>)>()
             .unwrap();
-        assert!(reg.operations.buffer_access_impl.is_some());
+        assert!(reg.operations.as_ref().unwrap().buffer_access.is_some());
     }
 
     #[derive(Section)]
@@ -664,7 +746,7 @@ mod tests {
         let reg = registry
             .get_message_registration::<Vec<BufferKey<i64>>>()
             .unwrap();
-        assert!(reg.operations.listen_impl.is_some());
+        assert!(reg.operations.as_ref().unwrap().listen.is_some());
     }
 
     #[derive(Section)]

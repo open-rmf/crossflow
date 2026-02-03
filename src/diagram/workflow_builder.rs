@@ -1103,14 +1103,6 @@ impl ConnectIntoTarget for RedirectConnection {
         }
         Ok(())
     }
-
-    fn infer_input_type(
-        &self,
-        ctx: &BuilderContext,
-        visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
-        ctx.redirect_infer_input_type(&self.redirect_to, visited)
-    }
 }
 
 impl<'a, 'c, 'w, 's, 'b> std::fmt::Debug for BuilderContext<'a, 'c, 'w, 's, 'b> {

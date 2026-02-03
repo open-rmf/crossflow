@@ -71,6 +71,17 @@ impl OperationRef {
     pub fn terminate_for(namespace: &OperationName) -> Self {
         Self::Terminate(NamespaceList::for_child_of(Arc::clone(namespace)))
     }
+
+    pub fn exposed_input(
+        section_id: &OperationName,
+        input_id: &OperationName,
+    ) -> Self {
+        Self::Named(NamedOperationRef {
+            namespaces: Default::default(),
+            exposed_namespace: Some(Arc::clone(section_id)),
+            name: Arc::clone(input_id),
+        })
+    }
 }
 
 impl<'a> From<&'a NextOperation> for OperationRef {

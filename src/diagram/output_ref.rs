@@ -16,7 +16,7 @@
 */
 
 use std::{
-    borrow::Cow,
+    borrow::{Borrow, Cow},
     ops::Deref,
     sync::Arc,
 };
@@ -80,7 +80,7 @@ impl NamedOutputBuilder {
         self.key(["next"])
     }
 
-    pub fn stream_out(self, stream: &dyn std::borrow::Borrow<str>) -> NamedOutputRef {
+    pub fn stream_out(self, stream: &dyn Borrow<str>) -> NamedOutputRef {
         self.key(OutputKey(smallvec!["stream_out".into(), stream.borrow().into()]))
     }
 
@@ -94,6 +94,10 @@ impl NamedOutputBuilder {
 
     pub fn next_index(self, index: usize) -> NamedOutputRef {
         self.key(OutputKey(smallvec!["next".into(), NameOrIndex::Index(index)]))
+    }
+
+    pub fn section_output(self, output: &dyn Borrow<str>) -> NamedOutputRef {
+        self.key(OutputKey(smallvec!["connect".into(), output.borrow().into()]))
     }
 
     pub fn key(self, key: impl Into<OutputKey>) -> NamedOutputRef {

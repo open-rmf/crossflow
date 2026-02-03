@@ -124,6 +124,11 @@ impl NextOperation {
             builtin: BuiltinTarget::Terminate,
         }
     }
+
+    pub fn in_namespace(&self, namespace: &OperationName) -> OperationRef {
+        let op: OperationRef = self.into();
+        op.in_namespaces(&[Arc::clone(namespace)])
+    }
 }
 
 impl Display for NextOperation {
