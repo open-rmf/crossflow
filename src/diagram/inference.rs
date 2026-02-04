@@ -18,7 +18,7 @@
 use smallvec::{smallvec, SmallVec};
 
 use std::{
-    collections::{HashMap, BTreeMap},
+    collections::{HashMap, BTreeMap, VecDeque},
     ops::Deref,
     sync::Arc,
 };
@@ -28,15 +28,17 @@ use schemars::JsonSchema;
 use crate::{
     OperationRef, OutputRef, DiagramElementRegistry, DiagramErrorCode, DiagramContext, MessageOperations,
     JsonMessage, BufferIdentifier, BufferMapLayoutHints, BufferMapLayoutConstraint, AnyMessageBox,
-    MessageTypeHint, BufferSelection, NamedOutputRef, BuildDiagramOperation,
+    MessageTypeHint, BufferSelection, NamedOutputRef, BuildDiagramOperation, MessageTypeInferenceFailure,
     Operations, OperationName, NamespaceList, NextOperation, output_ref, Diagram,
 };
+
+pub type InferredMessageTypes = HashMap<PortRef, usize>;
 
 impl Diagram {
     pub fn infer_message_types(
         &self,
         registry: &DiagramElementRegistry,
-    ) -> Result<HashMap<PortRef, usize>, DiagramErrorCode> {
+    ) -> Result<InferredMessageTypes, DiagramErrorCode> {
         self.validate_operation_names()?;
         self.validate_template_usage()?;
 
@@ -79,8 +81,97 @@ impl Diagram {
             unfinished_operations.extend(generated_operations.drain(..));
         }
 
-        let mut final_inferences = HashMap::new();
-        Ok(final_inferences)
+        let dependents = {
+            let mut dependents = HashMap::<_, Vec<PortRef>>::new();
+            for (id, inference) in &inferences.evaluations {
+                for constraint in inference.constraints.values().flatten() {
+                    let dependencies = constraint.dependencies();
+                    for dependency in dependencies {
+                        dependents.entry(dependency).or_default().push(id.clone());
+                    }
+                }
+            }
+
+            dependents
+        };
+
+        let mut queue = VecDeque::new();
+        for port in inferences.evaluations.keys() {
+            queue.push_back(port.clone());
+        }
+
+        loop {
+            let mut progress = false;
+            while let Some(port) = queue.pop_front() {
+                let evaluation = inferences.get_evaluation(&port)?;
+
+                if let Some(reduction) = evaluation.evaluate(&inferences, registry)? {
+                    let evaluation = inferences.evaluation(port.clone());
+                    if evaluation.reduce(reduction) {
+                        progress = true;
+                        // The choices for this port have been reduced. We should
+                        // add its dependents to the queue if they're not in already.
+                        if let Some(deps) = dependents.get(&port) {
+                            for dep in deps {
+                                if !queue.contains(&dep) {
+                                    queue.push_back(dep.clone());
+                                }
+                            }
+                        }
+
+                        // If there was a reduction, place this operation back
+                        // into the queue to re-evaluate it later until there
+                        // are no further reductions.
+                        queue.push_back(port.clone());
+                    }
+                }
+
+                if inferences.no_choices(&port)? {
+                    return Err(DiagramErrorCode::MessageTypeInferenceFailure(
+                        MessageTypeInferenceFailure {
+                            no_valid_choice: vec![port],
+                            ambiguous_choice: Default::default(),
+                            constraints: inferences.into_constraint_map(),
+                        }
+                    ));
+                }
+            }
+
+            if let Some(inferred) = inferences.try_infer_types() {
+                return Ok(inferred);
+            }
+
+            // All constraints are satisfied but there is some ambiguity
+            // remaining in the message type choices. We can try to peel away
+            // the highest cost choices across all the ports. This is not a
+            // completely sound method, but it will at least give consistent
+            // results whenever it does lead to a solution.
+            for evaluations in inferences.evaluations.values_mut() {
+                progress |= evaluations.peel_highest_cost();
+            }
+
+            if !progress {
+                let mut failure = MessageTypeInferenceFailure::default();
+                for (port, evaluation) in &inferences.evaluations {
+                    if evaluation.no_choices() {
+                        failure.no_valid_choice.push(port.clone());
+                    }
+
+                    if let Some(ambiguous_indices) = evaluation.is_ambiguous() {
+                        let mut ambiguity = Vec::new();
+                        for index in ambiguous_indices {
+                            let message_type = registry.messages.registration.get_by_index(index)?.type_info;
+                            ambiguity.push(message_type.type_name.into());
+                        }
+
+                        failure.ambiguous_choice.push((port.clone(), ambiguity));
+                    }
+                }
+
+                failure.constraints = inferences.into_constraint_map();
+                return Err(DiagramErrorCode::MessageTypeInferenceFailure(failure));
+            }
+        }
     }
 }
 
@@ -357,6 +448,14 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
             })
     }
 
+}
+
+pub struct ConstraintContext<'a> {
+    inference: &'a Inference,
+    pub registry: &'a DiagramElementRegistry,
+}
+
+impl<'a> ConstraintContext<'a> {
     pub fn get_inference_of(
         &self,
         port: impl Into<PortRef>,
@@ -398,7 +497,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     fn evaluate_connect_into_impl(
         &self,
         message_type_index: usize,
-        result: &mut SmallVec<[MessageTypeChoice; 8]>,
+        result: &mut MessageTypeChoices,
     ) -> Result<&MessageOperations, DiagramErrorCode> {
         // Simply matching the message type is an option
         result.push(MessageTypeChoice {
@@ -453,7 +552,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     fn evaluate_connect_from_impl(
         &self,
         message_type_index: usize,
-        result: &mut SmallVec<[MessageTypeChoice; 8]>,
+        result: &mut MessageTypeChoices,
     ) -> Result<&MessageOperations, DiagramErrorCode> {
         // Simply matching the message type is an option
         result.push(MessageTypeChoice {
@@ -892,8 +991,6 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     }
 }
 
-
-
 struct UnfinishedOperation {
     /// Name of the operation within its scope
     id: OperationName,
@@ -930,6 +1027,8 @@ pub struct MessageTypeChoice {
     pub cost: u32,
 }
 
+pub type MessageTypeChoices = SmallVec<[MessageTypeChoice; 8]>;
+
 impl<'a, 'b> Deref for InferenceContext<'a, 'b> {
     type Target = DiagramContext<'a>;
     fn deref(&self) -> &Self::Target {
@@ -937,20 +1036,22 @@ impl<'a, 'b> Deref for InferenceContext<'a, 'b> {
     }
 }
 
-pub type MessageTypeConstraintEvaluation = Result<Option<SmallVec<[MessageTypeChoice; 8]>>, DiagramErrorCode>;
+pub type MessageTypeConstraintEvaluation = Result<Option<MessageTypeChoices>, DiagramErrorCode>;
 
 pub trait MessageTypeConstraint: std::fmt::Debug {
     fn evaluate(
         &self,
-        context: &InferenceContext,
+        context: &ConstraintContext,
     ) -> MessageTypeConstraintEvaluation;
 
     fn dependencies(&self) -> SmallVec<[PortRef; 8]>;
 }
 
+pub type ConstraintMap = BTreeMap<usize, Vec<Arc<dyn MessageTypeConstraint>>>;
+
 #[derive(Debug, Default, Clone)]
 struct MessageTypeInference {
-    one_of: Option<SmallVec<[MessageTypeChoice; 8]>>,
+    one_of: Option<MessageTypeChoices>,
     /// A ranked set of constraints that apply to this inference.
     ///
     /// Constraints are ranked by the computational complexity of their evaluation.
@@ -960,7 +1061,121 @@ struct MessageTypeInference {
     /// So constraints in index 0 should evaluate with O(1) complexity. Constraints
     /// in index 1 should evaluate with O(N) complexity. Index 2 should be for
     /// O(N^2) complexity, etc.
-    constraints: BTreeMap<usize, Vec<Arc<dyn MessageTypeConstraint>>>,
+    constraints: ConstraintMap,
+}
+
+impl MessageTypeInference {
+    fn infer(&self) -> Option<usize> {
+        let mut choices = self.choices()?;
+        if choices.len() == 1 {
+            choices.pop()
+        } else {
+            None
+        }
+    }
+
+    fn evaluate(
+        &self,
+        inference: &Inference,
+        registry: &DiagramElementRegistry,
+    ) -> Result<Option<MessageTypeChoices>, DiagramErrorCode> {
+        let mut one_of = self.one_of.clone();
+        for level in self.constraints.values() {
+            let mut changed = false;
+            let ctx = ConstraintContext { inference, registry };
+
+            for constraint in level {
+                if let Some(evaluation) = constraint.evaluate(&ctx)? {
+                    changed |= reduce_choices(&mut one_of, evaluation);
+                }
+            }
+
+            if changed {
+                // Stop at the lowest level where a change has occurred.
+                return Ok(one_of);
+            }
+        }
+
+        Ok(one_of)
+    }
+
+    fn no_choices(&self) -> bool {
+        self.one_of.as_ref().is_some_and(|choices| choices.is_empty())
+    }
+
+    fn is_ambiguous(&self) -> Option<SmallVec<[usize; 8]>> {
+        let choices = self.choices()?;
+        if choices.len() > 1 {
+            return Some(choices);
+        }
+
+        None
+    }
+
+    fn choices(&self) -> Option<SmallVec<[usize; 8]>> {
+        if let Some(one_of) = &self.one_of {
+            return Some(one_of.iter().map(|choice| choice.id).collect());
+        }
+
+        None
+    }
+
+    /// Remove all choices that do not overlap with the choices inside intersect.
+    fn reduce(&mut self, intersect: MessageTypeChoices) -> bool {
+        reduce_choices(&mut self.one_of, intersect)
+    }
+
+    /// Remove the choices that have the highest cost, as long as some choices
+    /// will remain afterward.
+    ///
+    /// Returns true if anything was peeled, otherwise returns false.
+    fn peel_highest_cost(&mut self) -> bool {
+        if let Some(one_of) = &mut self.one_of {
+            one_of.sort_by(|a, b| a.cost.cmp(&b.cost));
+            if let (Some(a), Some(b)) = (one_of.first(), one_of.last()) {
+                if a.cost < b.cost {
+                    let highest_cost = b.cost;
+                    // There are at least two different cost levels. We can
+                    // peel away the higher cost options.
+                    one_of.retain(|choice| choice.cost != highest_cost);
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+}
+
+fn reduce_choices(
+    one_of: &mut Option<MessageTypeChoices>,
+    intersect: MessageTypeChoices,
+) -> bool {
+    let mut changed = false;
+    if let Some(one_of) = one_of.as_mut() {
+        let original = one_of.len();
+        // Reduce the set of options for this message type based
+        // on the constraints.
+        one_of.retain(|choice| {
+            intersect.iter().any(|e| e.id == choice.id)
+        });
+
+        let choices_reduced = original != one_of.len();
+        changed |= choices_reduced;
+
+        for choice in one_of {
+            for e in &intersect {
+                if e.id == choice.id {
+                    choice.cost = u32::min(choice.cost, e.cost);
+                }
+            }
+        }
+    } else {
+        changed = true;
+        *one_of = Some(intersect);
+    }
+
+    changed
 }
 
 /// An input or output port of an operation.
@@ -1024,12 +1239,40 @@ impl Inference {
         self.evaluations.entry(key).or_default()
     }
 
+    fn get_evaluation(&self, key: &PortRef) -> Result<&MessageTypeInference, DiagramErrorCode> {
+        self
+            .evaluations
+            .get(&key)
+            .ok_or_else(|| DiagramErrorCode::UnknownPort(key.clone()))
+    }
+
+    fn no_choices(&self, key: &PortRef) -> Result<bool, DiagramErrorCode> {
+        Ok(self.get_evaluation(key)?.no_choices())
+    }
+
     fn constraint_level_mut(
         &mut self,
         key: impl Into<PortRef>,
         level: usize,
     ) -> &mut Vec<Arc<dyn MessageTypeConstraint>> {
         self.evaluation(key).constraints.entry(level).or_default()
+    }
+
+    fn into_constraint_map(self) -> HashMap<PortRef, ConstraintMap> {
+        let mut map = HashMap::new();
+        for (port, infer) in self.evaluations {
+            map.insert(port, infer.constraints);
+        }
+
+        map
+    }
+
+    fn try_infer_types(&self) -> Option<InferredMessageTypes> {
+        let mut inferred = InferredMessageTypes::new();
+        for (port, evaluation) in &self.evaluations {
+            inferred.insert(port.clone(), evaluation.infer()?);
+        }
+        Some(inferred)
     }
 }
 
@@ -1043,7 +1286,7 @@ impl MessageTypeConstraint for ExactMatch {
 
     fn evaluate(
         &self,
-        context: &InferenceContext,
+        context: &ConstraintContext,
     ) -> MessageTypeConstraintEvaluation {
         context
         .get_inference_of(self.0.clone())
@@ -1069,7 +1312,7 @@ impl MessageTypeConstraint for ConnectInto {
 
     fn evaluate(
         &self,
-        context: &InferenceContext,
+        context: &ConstraintContext,
     ) -> MessageTypeConstraintEvaluation {
         context.evaluate_connect_into(&self.0)
     }
@@ -1085,7 +1328,7 @@ impl MessageTypeConstraint for ConnectFrom {
 
     fn evaluate(
         &self,
-        context: &InferenceContext,
+        context: &ConstraintContext,
     ) -> MessageTypeConstraintEvaluation {
         context.evaluate_connect_from(&self.0)
     }
@@ -1101,7 +1344,7 @@ impl MessageTypeConstraint for ConvertInto {
 
     fn evaluate(
         &self,
-        context: &InferenceContext,
+        context: &ConstraintContext,
     ) -> MessageTypeConstraintEvaluation {
         context.evaluate_convert_into(&self.0)
     }
@@ -1117,7 +1360,7 @@ impl MessageTypeConstraint for ConvertFrom {
 
     fn evaluate(
         &self,
-        context: &InferenceContext,
+        context: &ConstraintContext,
     ) -> MessageTypeConstraintEvaluation {
         context.evaluate_convert_from(&self.0)
     }
@@ -1136,7 +1379,7 @@ impl MessageTypeConstraint for ResultInto {
 
     fn evaluate(
         &self,
-        context: &InferenceContext,
+        context: &ConstraintContext,
     ) -> MessageTypeConstraintEvaluation {
         context.evaluate_result_into(&self.ok, &self.err)
     }
@@ -1152,7 +1395,7 @@ impl MessageTypeConstraint for OkFrom {
 
     fn evaluate(
         &self,
-        context: &InferenceContext,
+        context: &ConstraintContext,
     ) -> MessageTypeConstraintEvaluation {
         context.evaluate_ok_from(&self.0)
     }
@@ -1168,7 +1411,7 @@ impl MessageTypeConstraint for ErrFrom {
 
     fn evaluate(
         &self,
-        context: &InferenceContext,
+        context: &ConstraintContext,
     ) -> MessageTypeConstraintEvaluation {
         context.evaluate_err_from(&self.0)
     }
@@ -1184,7 +1427,7 @@ impl MessageTypeConstraint for UnzipInto {
 
     fn evaluate(
         &self,
-        context: &InferenceContext,
+        context: &ConstraintContext,
     ) -> MessageTypeConstraintEvaluation {
         context.evaluate_unzip_into(&self.0)
     }
@@ -1203,7 +1446,7 @@ impl MessageTypeConstraint for UnzipFrom {
 
     fn evaluate(
         &self,
-        context: &InferenceContext,
+        context: &ConstraintContext,
     ) -> MessageTypeConstraintEvaluation {
         context.evaluate_unzip_from(&self.op, self.element)
     }
@@ -1222,7 +1465,7 @@ impl MessageTypeConstraint for JoinInto {
 
     fn evaluate(
         &self,
-        context: &InferenceContext,
+        context: &ConstraintContext,
     ) -> MessageTypeConstraintEvaluation {
         context.evaluate_buffer_layout_member(
             &self.joined,
@@ -1252,7 +1495,7 @@ impl MessageTypeConstraint for BufferAccessLayoutMember {
 
     fn evaluate(
         &self,
-        context: &InferenceContext,
+        context: &ConstraintContext,
     ) -> MessageTypeConstraintEvaluation {
         context.evaluate_buffer_layout_member(
             &self.accessor,
@@ -1281,7 +1524,7 @@ impl MessageTypeConstraint for BufferAccessRequestMessage {
 
     fn evaluate(
         &self,
-        context: &InferenceContext,
+        context: &ConstraintContext,
     ) -> MessageTypeConstraintEvaluation {
         context.evaluate_buffer_access_request_message(&self.accessor)
     }
@@ -1300,7 +1543,7 @@ impl MessageTypeConstraint for ListenMember {
 
     fn evaluate(
         &self,
-        context: &InferenceContext,
+        context: &ConstraintContext,
     ) -> MessageTypeConstraintEvaluation {
         context.evaluate_buffer_layout_member(
             &self.listener,
@@ -1327,7 +1570,7 @@ impl MessageTypeConstraint for SplitFrom {
 
     fn evaluate(
         &self,
-        context: &InferenceContext,
+        context: &ConstraintContext,
     ) -> MessageTypeConstraintEvaluation {
         context.evaluate_split_from(&self.0)
     }

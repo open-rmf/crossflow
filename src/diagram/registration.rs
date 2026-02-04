@@ -32,10 +32,10 @@ use anyhow::Error as Anyhow;
 
 pub use crate::dyn_node::*;
 use crate::{
-    Accessor, AnyBuffer, AsAnyBuffer, BufferIdentifier, BufferMap, BufferMapLayout, BufferSettings,
-    Builder, DisplayText, IncompatibleLayout, IncrementalScopeBuilder, IncrementalScopeRequest,
+    Accessor, AnyBuffer, AsAnyBuffer, BufferMap, BufferSettings,
+    Builder, DisplayText, IncrementalScopeBuilder, IncrementalScopeRequest,
     IncrementalScopeRequestResult, IncrementalScopeResponse, IncrementalScopeResponseResult,
-    Joined, JsonBuffer, JsonMessage, MessageTypeHintMap, NamedStream, Node, StreamAvailability,
+    Joined, JsonBuffer, JsonMessage, NamedStream, Node, StreamAvailability,
     StreamOf, StreamPack, StreamEffect, JoinRegistration, BufferMapLayoutHints, SplitRegistration,
     BufferAccessRegistration, ListenRegistration,
 };
@@ -84,8 +84,6 @@ type CreateNodeFn =
 type DeserializeFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
 type SerializeFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
 type ForkCloneFn = fn(&mut Builder) -> Result<DynForkClone, DiagramErrorCode>;
-type BufferLayoutTypeHintFn =
-    fn(HashSet<BufferIdentifier<'static>>) -> Result<MessageTypeHintMap, IncompatibleLayout>;
 type CreateBufferFn = fn(BufferSettings, &mut Builder) -> AnyBuffer;
 type CreateTriggerFn = fn(&mut Builder) -> DynNode;
 type CreateIntoFn = Arc<dyn Fn(&mut Builder) -> (DynInputSlot, DynOutput) + 'static + Send + Sync>;
@@ -1117,7 +1115,7 @@ struct MessageMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-struct MessageOperationsMetadata {
+pub struct MessageOperationsMetadata {
     deserialize: Option<JsEmptyObject>,
     serialize: Option<JsEmptyObject>,
     fork_clone: Option<JsEmptyObject>,
@@ -1583,7 +1581,7 @@ pub struct MessageLookup {
 }
 
 impl MessageRegistrations {
-    pub fn iter(&self) -> std::slice::Iter<MessageRegistration> {
+    pub fn iter(&self) -> std::slice::Iter<'_, MessageRegistration> {
         self.messages.iter()
     }
 

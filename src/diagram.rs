@@ -242,7 +242,7 @@ impl<Identifier> BufferSelection<Identifier> {
         }
     }
 
-    pub fn iter(&self) -> BufferSelectionIter<Identifier> {
+    pub fn iter(&self) -> BufferSelectionIter<'_, Identifier> {
         match self {
             Self::Dict(dict) => {
                 BufferSelectionIter::Dict(dict.iter())
@@ -1055,6 +1055,9 @@ pub enum DiagramErrorCode {
 
     #[error("An error occurred while creating a scope: {0}")]
     IncrementalScopeError(#[from] IncrementalScopeError),
+
+    #[error("Unable to infer message types within the diagram: {0}")]
+    MessageTypeInferenceFailure(MessageTypeInferenceFailure)
 }
 
 fn format_list<T: std::fmt::Display>(list: &[T]) -> String {
@@ -1082,6 +1085,36 @@ impl DiagramErrorCode {
 
     pub fn in_operation(self, op_id: OperationRef) -> DiagramError {
         DiagramError::in_operation(op_id, self)
+    }
+}
+
+#[derive(Debug, Clone, ThisError, Default)]
+pub struct MessageTypeInferenceFailure {
+    pub no_valid_choice: Vec<PortRef>,
+    pub ambiguous_choice: Vec<(PortRef, Vec<Arc<str>>)>,
+    pub constraints: HashMap<PortRef, ConstraintMap>,
+}
+
+impl MessageTypeInferenceFailure {
+    pub fn is_failed(&self) -> bool {
+        !self.no_valid_choice.is_empty() || !self.ambiguous_choice.is_empty()
+    }
+}
+
+impl std::fmt::Display for MessageTypeInferenceFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !self.no_valid_choice.is_empty() {
+            write!(f, "No valid message type choices for {}. ", format_list(&self.no_valid_choice))?;
+        }
+
+        if !self.ambiguous_choice.is_empty() {
+            write!(f, "Ambiguous message type choices:")?;
+            for (port, choices) in &self.ambiguous_choice {
+                write!(f, "\n -- {port}: {}", format_list(choices))?;
+            }
+        }
+
+        Ok(())
     }
 }
 

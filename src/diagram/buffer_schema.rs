@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Accessor, BufferSettings, JsonMessage, BufferMapLayoutHints, BufferMap, Builder, DynNode, BufferMapLayout,
-    DynOutput, InferenceContext, output_ref,
+    DynOutput, InferenceContext,
 };
 
 use super::{
@@ -216,7 +216,10 @@ impl BuildDiagramOperation for BufferAccessSchema {
         ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         let target_type = ctx.inferred_message_type(&self.next)?;
-        let buffer_map = ctx.create_buffer_map(&self.buffers)?;
+        let buffer_map = match ctx.create_buffer_map(&self.buffers) {
+            Ok(buffer_map) => buffer_map,
+            Err(reason) => return Ok(BuildStatus::defer(reason)),
+        };
 
         let node =
             ctx.registry

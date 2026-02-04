@@ -878,6 +878,7 @@ impl IncrementalScopeBuilder {
         Ok(response)
     }
 
+    #[allow(unused)]
     pub(crate) fn is_finished(&self) -> Result<(), IncrementalScopeError> {
         let inner = self.inner.lock().unwrap();
         if inner.begin_scope_not_sent || inner.external_output_not_sent {

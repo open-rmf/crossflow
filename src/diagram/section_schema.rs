@@ -20,13 +20,13 @@ use std::{collections::HashMap, sync::Arc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{AnyBuffer, AnyMessageBox, Buffer, InputSlot, JsonBuffer, JsonMessage, Output};
+use crate::{AnyBuffer, AnyMessageBox, Buffer, InputSlot, JsonBuffer, JsonMessage, Output, InferenceContext};
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderId, BuilderContext, DiagramElementRegistry,
     DiagramErrorCode, DynInputSlot, DynOutput, NamespacedOperation, NextOperation, OperationName,
     OperationRef, Operations, RedirectConnection, TraceInfo, TraceSettings, MessageRegistrations,
-    output_ref, InferenceContext,
+    output_ref,
 };
 
 pub use crossflow_derive::Section;
