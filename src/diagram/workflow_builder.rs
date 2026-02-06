@@ -564,7 +564,7 @@ where
     Response: 'static + Send + Sync,
     Streams: StreamPack,
 {
-    let inference = diagram.infer_message_types(registry)?;
+    let inference = diagram.infer_message_types::<Request, Response, Streams>(registry)?;
     // This borrow is a trick to make it cleaner to create BuilderContext.
     let message_type_inference = &inference;
 

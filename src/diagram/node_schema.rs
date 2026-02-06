@@ -125,7 +125,7 @@ impl BuildDiagramOperation for NodeSchema {
 
         // Set the exact message type of the output port, and connect it to the
         // next operation.
-        ctx.one_of(&self.next, &[node.response]);
+        ctx.one_of(output_ref(id).next(), &[node.response]);
         ctx.connect_into(output_ref(id).next(), &self.next);
 
         // Set the exact message type of each stream output.

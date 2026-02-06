@@ -333,6 +333,7 @@ where
     }
 
     fn register_split(messages: &mut MessageRegistry) {
+        let splittable_type = messages.registration.get_index_or_insert::<T>();
         let output_type = messages.registration.get_index_or_insert::<T::Item>();
 
         let ops = &mut messages
@@ -346,6 +347,8 @@ where
         messages.register_clone::<T::Item, Cloneable>();
         messages.register_serialize::<Vec<T::Item>, Serializer>();
         messages.register_clone::<Vec<T::Item>, Cloneable>();
+
+        messages.registration.lookup.split.entry(output_type).or_default().push(splittable_type);
     }
 }
 

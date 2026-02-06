@@ -102,8 +102,9 @@ impl BuildDiagramOperation for ForkCloneSchema {
         id: &OperationName,
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
+        ctx.fork_clone(id, &self.next);
+
         for (i, next) in self.next.iter().enumerate() {
-            ctx.exact_match(id, output_ref(id).next_index(i));
             ctx.connect_into(output_ref(id).next_index(i), next);
         }
 

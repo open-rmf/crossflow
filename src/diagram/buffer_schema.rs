@@ -144,6 +144,7 @@ impl BuildDiagramOperation for BufferSchema {
                 .registration
                 .get_index::<JsonMessage>()?;
 
+            dbg!();
             ctx.one_of(id, &[json_message_index]);
         }
 

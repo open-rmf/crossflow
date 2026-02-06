@@ -1577,7 +1577,11 @@ pub struct MessageRegistrations {
 pub struct MessageLookup {
     /// Map from [T, E] output registrations to Result<T, E> registration.
     pub(crate) result: HashMap<[usize; 2], usize>,
+    /// Map from the unzipped types to the original zipped type.
     pub(crate) unzip: HashMap<Vec<usize>, usize>,
+    /// Map from the message type of the item that comes out of a split to all
+    /// message types that can be split into it.
+    pub(crate) split: HashMap<usize, Vec<usize>>,
 }
 
 impl MessageRegistrations {
@@ -1646,8 +1650,10 @@ impl MessageRegistrations {
             .get_or_insert_with(|| MessageOperations::new::<T>())
     }
 
-    pub(crate) fn get_index_dyn(&self, target_type: &TypeInfo) -> Option<usize> {
-        self.indices.get(target_type).cloned()
+    pub(crate) fn get_index_dyn(&self, target_type: &TypeInfo) -> Result<usize, DiagramErrorCode> {
+        self.indices.get(target_type).cloned().ok_or_else(
+            || DiagramErrorCode::UnregisteredTypes(vec![*target_type])
+        )
     }
 
     // Used in testing
@@ -2585,8 +2591,6 @@ mod tests {
         let nodes = &value["nodes"];
         let stream_test_schema = &nodes["stream_test"];
         let streams = &stream_test_schema["streams"];
-        dbg!(&stream_test_schema);
-        dbg!(&streams);
         assert_eq!(
             streams["foo_stream"].as_u64().unwrap() as usize,
             reg.messages.registration.get_index::<i64>().unwrap(),
