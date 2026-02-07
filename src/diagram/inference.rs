@@ -31,6 +31,7 @@ use crate::{
     JsonMessage, BufferIdentifier, BufferMapLayoutHints, BufferMapLayoutConstraint, AnyMessageBox,
     MessageTypeHint, BufferSelection, NamedOutputRef, BuildDiagramOperation, MessageTypeInferenceFailure,
     Operations, OperationName, NamespaceList, NextOperation, output_ref, Diagram, StreamPack, StreamAvailability,
+    DiagramError,
 };
 
 pub type InferredMessageTypes = HashMap<PortRef, usize>;
@@ -112,8 +113,8 @@ impl Diagram {
         loop {
             // println!("queue: {}", super::format_list(&Vec::from_iter(queue.iter())));
             while let Some(port) = queue.pop_front() {
-                // println!("\n-----\nqueue: {}", super::format_list(&Vec::from_iter(queue.iter())));
-                // println!("evaluating {port}");
+                println!("\n-----\nqueue: {}", super::format_list(&Vec::from_iter(queue.iter())));
+                println!("evaluating {port}");
                 let evaluation = inferences.get_evaluation(&port)?;
 
                 if let Some(reduction) = evaluation.evaluate(&inferences, registry)? {
@@ -123,7 +124,7 @@ impl Diagram {
 
                     if evaluation.reduce(reduction, registry) {
                         let new = as_type_name(&evaluation.one_of, registry)?;
-                        // println!("reduced {port}: {previous:?} -> {new:?}");
+                        println!("reduced {port}: {previous:?} -> {new:?}");
                         // The choices for this port have been reduced. We should
                         // add its dependents to the queue if they're not in already.
                         if let Some(deps) = dependents.get(&port) {
@@ -140,10 +141,11 @@ impl Diagram {
                         queue.push_back(port.clone());
                     }
                 } else {
-                    // println!("no reduction for {port}");
+                    println!("no reduction for {port}");
                 }
 
                 if inferences.no_choices(&port)? {
+                    dbg!(&inferences);
                     return Err(DiagramErrorCode::MessageTypeInferenceFailure(
                         MessageTypeInferenceFailure {
                             no_valid_choice: vec![port],
@@ -155,8 +157,13 @@ impl Diagram {
             }
 
             if let Some(inferred) = inferences.try_infer_types() {
+                println!(" ---------------- DONE INFERRING ----------------------- ");
                 return Ok(inferred);
             }
+
+            println!(" >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ");
+            dbg!(&inferences);
+            println!(" --------------------------------------------- ");
 
             // All constraints are satisfied but there is some ambiguity
             // remaining in the message type choices. We can try to peel away
@@ -164,9 +171,9 @@ impl Diagram {
             // algorithmically complete method, but it will ensure that outcomes
             // (whether success or failure) are always consistent, always yielding
             // the same selection of message types across all ports.
-            let reduced = inferences.peel_highest_cost_level();
+            inferences.peel_highest_cost_level(&mut queue, &dependents);
 
-            if !reduced {
+            if queue.is_empty() {
                 dbg!(&inferences);
                 let mut failure = MessageTypeInferenceFailure::default();
                 for (port, evaluation) in &inferences.evaluations {
@@ -237,10 +244,19 @@ where
     Ok(())
 }
 
-#[derive(Debug)]
 struct DebugMessageTypeChoice {
     name: &'static str,
     cost: u32,
+}
+
+impl std::fmt::Debug for DebugMessageTypeChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f
+            .debug_map()
+            .entry(&"name", &self.name)
+            .entry(&"cost", &self.cost)
+            .finish()
+    }
 }
 
 fn as_type_name(
@@ -358,22 +374,23 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
     pub fn fork_clone(
         &mut self,
-        cloneable: impl Into<OperationRef>,
+        cloneable_id: &OperationName,
         next: &[NextOperation],
     ) {
-        let cloneable = self.into_port_ref(cloneable);
+        let cloneable_port = self.into_port_ref(cloneable_id);
 
         let mut outputs = Vec::new();
-        for n in next {
-            let output = self.into_port_ref(n);
+        for (i, _) in next.iter().enumerate() {
+            let output = self.into_port_ref(output_ref(cloneable_id).next_index(i));
             outputs.push(output.clone());
+
             self.inference
                 .constraint_level_mut(output, 0)
-                .push(Arc::new(CloneFrom(cloneable.clone())));
+                .push(Arc::new(CloneFrom(cloneable_port.clone())));
         }
 
         self.inference
-            .constraint_level_mut(cloneable, 0)
+            .constraint_level_mut(cloneable_port, 0)
             .push(Arc::new(CloneInto(outputs)));
     }
 
@@ -832,6 +849,7 @@ impl<'a> ConstraintContext<'a> {
         &self,
         cloneable: &PortRef,
     ) -> MessageTypeEvaluation {
+        dbg!(cloneable);
         let Some(mut one_of) = self.get_inference_of(cloneable.clone())?.clone() else {
             return Ok(None);
         };
@@ -844,6 +862,7 @@ impl<'a> ConstraintContext<'a> {
             ops.fork_clone.is_some()
         });
 
+        dbg!(&one_of);
         Ok(Some(one_of))
     }
 
@@ -1033,18 +1052,80 @@ impl<'a> ConstraintContext<'a> {
             return Ok(None);
         };
 
-        let eval_hint = |hint: &MessageTypeHint<usize>, base_cost: u32| {
+        let any_index = self.registry.messages.registration.get_index::<AnyMessageBox>();
+        let json_index = self.registry.messages.registration.get_index::<JsonMessage>();
+
+        let eval_hint = |hint: &MessageTypeHint<usize>, base_cost: u32, result: &mut SmallVec<_>| {
             match hint {
                 MessageTypeHint::Exact(id) => {
-                    MessageTypeChoice {
-                        id: *id,
-                        cost: 1 + base_cost,
-                    }
+                    result.push(
+                        MessageTypeChoice {
+                            id: *id,
+                            cost: 1 + base_cost,
+                        }
+                    );
                 }
                 MessageTypeHint::Fallback(id) => {
-                    MessageTypeChoice {
-                        id: *id,
-                        cost: 3 + base_cost,
+                    // TODO(@mxgrey): Consider whether we can have a more efficient
+                    // representation, e.g. pass back a function/trait that validates
+                    // the properties of a message type choice instead of listing all
+                    // known valid options.
+                    if let Ok(json_index) = json_index && *id == json_index {
+                        // This means any serializable and deserializable message
+                        // type can be stored in this buffer.
+                        for (id, msg) in self.registry.messages.registration.iter().enumerate() {
+                            if let Some(ops) = &msg.operations {
+                                if ops.serialize.is_some() && ops.deserialize.is_some() {
+                                    result.push(MessageTypeChoice {
+                                        id,
+                                        // Assign a high cost to the type because
+                                        // the real decision about the type should
+                                        // be made elsewhere.
+                                        cost: 10 + base_cost,
+                                    })
+                                }
+                            }
+                        }
+
+                        // In the event of ambiguity for the other choices, let
+                        // the most general JsonMessage type win.
+                        result.push(
+                            MessageTypeChoice {
+                                id: json_index,
+                                cost: 9 + base_cost,
+                            }
+                        )
+                    } else if let Ok(any_index) = any_index && *id == any_index {
+                        // This means literally any message type can be stored in
+                        // this buffer.
+                        for id in 0..self.registry.messages.registration.len() {
+                            result.push(MessageTypeChoice {
+                                id,
+                                // Assign a very high cost to the type because
+                                // the real decision about the type should be
+                                // made elsewhere.
+                                cost: 15 + base_cost,
+                            })
+                        }
+                    } else {
+                        result.push(
+                            MessageTypeChoice {
+                                id: *id,
+                                cost: 3 + base_cost,
+                            }
+                        );
+                    }
+
+                    if let Ok(any_index) = any_index && *id != any_index {
+                        // Any fallback type can be channeled into an AnyBuffer,
+                        // so we should always include it as an option.
+                        result.push(
+                            MessageTypeChoice {
+                                id: any_index,
+                                // Assign a high cost since this is a last resort
+                                cost: 10 + base_cost,
+                            }
+                        );
                     }
                 }
             }
@@ -1060,7 +1141,6 @@ impl<'a> ConstraintContext<'a> {
                             if dynamic.is_compatible(member) {
                                 match &dynamic.constraint {
                                     BufferMapLayoutConstraint::Any => {
-                                        let any_index = self.registry.messages.registration.get_index::<AnyMessageBox>();
                                         if let Ok(any_index) = any_index {
                                             result.push(MessageTypeChoice {
                                                 id: any_index,
@@ -1070,7 +1150,7 @@ impl<'a> ConstraintContext<'a> {
                                     }
                                     BufferMapLayoutConstraint::AnyOf(hints) | BufferMapLayoutConstraint::OneOf(hints) => {
                                         for hint in hints {
-                                            result.push(eval_hint(hint, target_choice.cost));
+                                            eval_hint(hint, target_choice.cost, &mut result);
                                         }
                                     }
                                 }
@@ -1078,7 +1158,7 @@ impl<'a> ConstraintContext<'a> {
                         }
                         BufferMapLayoutHints::Static(hints) => {
                             if let Some(hint) = hints.get(member) {
-                                result.push(eval_hint(hint, target_choice.cost));
+                                eval_hint(hint, target_choice.cost, &mut result);
                             }
                         }
                     }
@@ -1294,6 +1374,7 @@ impl MessageTypeInference {
         registry: &DiagramElementRegistry,
     ) -> Result<Option<MessageTypeChoices>, DiagramErrorCode> {
         let mut one_of = self.one_of.clone();
+        println!("initial choices: {:?}", as_type_name(&one_of, registry));
         for level in self.constraints.values() {
             let mut changed = false;
             let ctx = ConstraintContext { inference, registry };
@@ -1314,7 +1395,7 @@ impl MessageTypeInference {
                     reduction
                 });
 
-                // println!("reducing from {constraint:?} with {:?}", as_type_name(&reduction, registry));
+                println!("reducing via {constraint:?}: {:?}", as_type_name(&reduction, registry));
                 if let Some(reduction) = reduction {
                     changed |= reduce_choices(&mut one_of, reduction, registry);
                 }
@@ -1393,11 +1474,11 @@ fn reduce_choices(
     if let Some(one_of) = one_of.as_mut() {
         // let one_of_ids: Vec<usize> = one_of.iter().map(|e| e.id).collect();
         // let intersect_ids: Vec<usize> = intersect.iter().map(|e| e.id).collect();
-        // println!(
-        //     "intersecting {:?} n {:?}",
-        //     as_type_name(&Some(one_of.clone()), registry),
-        //     as_type_name(&Some(intersect.clone()), registry),
-        // );
+        println!(
+            "intersecting {:?} n {:?}",
+            as_type_name(&Some(one_of.clone()), registry),
+            as_type_name(&Some(intersect.clone()), registry),
+        );
 
 
         let original = one_of.len();
@@ -1524,7 +1605,11 @@ impl Inferences {
 
     /// Identify the highest cost level that's creating ambiguity and then remove
     /// that level across all ports that have ambiguity.
-    fn peel_highest_cost_level(&mut self) -> bool {
+    fn peel_highest_cost_level(
+        &mut self,
+        queue: &mut VecDeque<PortRef>,
+        dependents: &HashMap<PortRef, Vec<PortRef>>,
+    ) {
         let highest_cost = self
             .evaluations
             .values_mut()
@@ -1533,15 +1618,18 @@ impl Inferences {
             .flatten();
 
         let Some(highest_cost) = highest_cost else {
-            return false;
+            return;
         };
 
-        let mut progress = false;
-        for evaluation in self.evaluations.values_mut() {
-            progress |= evaluation.peel_ambiguous_cost(highest_cost);
+        for (port, evaluation) in &mut self.evaluations {
+            if evaluation.peel_ambiguous_cost(highest_cost) {
+                if let Some(deps) = dependents.get(port) {
+                    for dep in deps {
+                        queue.push_back(dep.clone());
+                    }
+                }
+            }
         }
-
-        progress
     }
 }
 
@@ -1890,7 +1978,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn test_message_type_inference() {
+    fn test_split_type_inference() {
         let mut fixture = DiagramTestFixture::new();
 
         let diagram = Diagram::from_json(json!({
@@ -1947,6 +2035,53 @@ mod tests {
         let inference = diagram.infer_message_types::<JsonMessage, JsonMessage, ()>(&fixture.registry).unwrap();
         // dbg!(inference);
 
+    }
+
+    #[test]
+    fn test_fork_clone_type_inference() {
+        let mut fixture = DiagramTestFixture::new();
+
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "start": "fork_clone",
+            "ops": {
+                "fork_clone": {
+                    "type": "fork_clone",
+                    "next": ["add_one", "add_two"]
+                },
+                "add_one": {
+                    "type": "node",
+                    "builder": "add_to",
+                    "config": 1,
+                    "next": "buffer_one"
+                },
+                "add_two": {
+                    "type": "node",
+                    "builder": "add_to",
+                    "config": 2,
+                    "next": "buffer_two"
+                },
+                "buffer_one": { "type": "buffer" },
+                "buffer_two": { "type": "buffer" },
+                "join": {
+                    "type": "join",
+                    "buffers": [
+                        "buffer_one",
+                        "buffer_two"
+                    ],
+                    "next": "multiply"
+                },
+                "multiply": {
+                    "type": "node",
+                    "builder": "mul",
+                    "next": { "builtin": "terminate" }
+                }
+            }
+        }))
+        .unwrap();
+
+        let inference = diagram.infer_message_types::<JsonMessage, JsonMessage, ()>(&fixture.registry).unwrap();
+        dbg!(inference);
     }
 
 }

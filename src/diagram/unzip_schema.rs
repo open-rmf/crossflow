@@ -268,13 +268,7 @@ mod tests {
         .unwrap();
 
         let err = fixture.spawn_json_io_workflow(&diagram).unwrap_err();
-        assert!(matches!(
-            err.code,
-            DiagramErrorCode::InvalidUnzip {
-                element: 3,
-                ..
-            }
-        ));
+        assert!(matches!(err.code, DiagramErrorCode::MessageTypeInferenceFailure(_)));
     }
 
     #[test]

@@ -37,7 +37,7 @@ use crate::{
     IncrementalScopeRequestResult, IncrementalScopeResponse, IncrementalScopeResponseResult,
     Joined, JsonBuffer, JsonMessage, NamedStream, Node, StreamAvailability,
     StreamOf, StreamPack, StreamEffect, JoinRegistration, BufferMapLayoutHints, SplitRegistration,
-    BufferAccessRegistration, ListenRegistration,
+    BufferAccessRegistration, ListenRegistration, AnyMessageBox,
 };
 
 #[cfg(feature = "trace")]
@@ -2033,6 +2033,12 @@ impl DiagramElementRegistry {
         self.register_message::<JsonMessage>()
             .with_join()
             .with_split();
+
+        self.opt_out()
+            .no_cloning()
+            .no_serializing()
+            .no_deserializing()
+            .register_message::<AnyMessageBox>();
 
         self.opt_out()
             .no_serializing()

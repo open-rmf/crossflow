@@ -1088,11 +1088,22 @@ impl DiagramErrorCode {
     }
 }
 
-#[derive(Debug, Clone, ThisError, Default)]
+// TODO(@mxgrey): Add explainability to this error. E.g. say in plain words why
+// there was no valid choice.
+#[derive(Clone, ThisError, Default)]
 pub struct MessageTypeInferenceFailure {
     pub no_valid_choice: Vec<PortRef>,
     pub ambiguous_choice: Vec<(PortRef, Vec<Arc<str>>)>,
     pub constraints: HashMap<PortRef, ConstraintMap>,
+}
+
+impl std::fmt::Debug for MessageTypeInferenceFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MessageTypeInferenceFailure")
+            .field("no_valid_choice", &self.no_valid_choice)
+            .field("ambiguous_choice", &self.ambiguous_choice)
+            .finish()
+    }
 }
 
 impl MessageTypeInferenceFailure {
