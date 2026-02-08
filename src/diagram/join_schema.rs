@@ -152,14 +152,7 @@ impl BuildDiagramOperation for JoinSchema {
         id: &OperationName,
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
-        if self.serialize {
-            let json_message_index = ctx.registry.messages.registration.get_index::<JsonMessage>()?;
-            ctx.one_of(output_ref(id).next(), &[json_message_index]);
-            ctx.connect_into(output_ref(id).next(), &self.next);
-        } else {
-            ctx.join(&self.buffers, output_ref(id).next());
-            ctx.exact_match(output_ref(id).next(), &self.next);
-        }
+        ctx.join(id, &self.buffers, &self.next, self.serialize)?;
         Ok(())
     }
 }

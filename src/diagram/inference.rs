@@ -18,7 +18,7 @@
 use smallvec::{smallvec, SmallVec};
 
 use std::{
-    collections::{HashMap, BTreeMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     ops::Deref,
     sync::Arc,
     cmp::Ordering,
@@ -27,11 +27,11 @@ use serde::{Serialize, Deserialize};
 use schemars::JsonSchema;
 
 use crate::{
-    OperationRef, OutputRef, DiagramElementRegistry, DiagramErrorCode, DiagramContext, MessageOperations,
+    OutputRef, DiagramElementRegistry, DiagramErrorCode, DiagramContext, MessageOperations,
     JsonMessage, BufferIdentifier, BufferMapLayoutHints, BufferMapLayoutConstraint, AnyMessageBox,
     MessageTypeHint, BufferSelection, NamedOutputRef, BuildDiagramOperation, MessageTypeInferenceFailure,
     Operations, OperationName, NamespaceList, NextOperation, output_ref, Diagram, StreamPack, StreamAvailability,
-    DiagramError,
+    DiagramError, TypeInfo, IncompatibleLayout, BufferIncompatibility, OperationRef,
 };
 
 pub type InferredMessageTypes = HashMap<PortRef, usize>;
@@ -92,8 +92,9 @@ impl Diagram {
         let dependents = {
             let mut dependents = HashMap::<_, Vec<PortRef>>::new();
             for (id, inference) in &inferences.evaluations {
-                for constraint in inference.constraints.values().flatten() {
-                    let dependencies = constraint.dependencies();
+                for constraint in inference.constraint {
+                    let ctx = ConstraintContext { inferences: &inferences, registry };
+                    let dependencies = constraint.dependencies(&ctx);
                     for dependency in dependencies {
                         dependents.entry(dependency).or_default().push(id.clone());
                     }
@@ -119,12 +120,8 @@ impl Diagram {
 
                 if let Some(reduction) = evaluation.evaluate(&inferences, registry)? {
                     let evaluation = inferences.evaluation(port.clone());
-
-                    let previous = as_type_name(&evaluation.one_of, registry)?;
-
                     if evaluation.reduce(reduction, registry) {
-                        let new = as_type_name(&evaluation.one_of, registry)?;
-                        println!("reduced {port}: {previous:?} -> {new:?}");
+                        let new = as_type_name(&evaluation.message_type, registry)?;
                         // The choices for this port have been reduced. We should
                         // add its dependents to the queue if they're not in already.
                         if let Some(deps) = dependents.get(&port) {
@@ -177,18 +174,8 @@ impl Diagram {
                 dbg!(&inferences);
                 let mut failure = MessageTypeInferenceFailure::default();
                 for (port, evaluation) in &inferences.evaluations {
-                    if evaluation.no_choices() {
+                    if evaluation.message_type.is_none() {
                         failure.no_valid_choice.push(port.clone());
-                    }
-
-                    if let Some(ambiguous_indices) = evaluation.is_ambiguous() {
-                        let mut ambiguity = Vec::new();
-                        for index in ambiguous_indices {
-                            let message_type = registry.messages.registration.get_by_index(index)?.type_info;
-                            ambiguity.push(message_type.type_name.into());
-                        }
-
-                        failure.ambiguous_choice.push((port.clone(), ambiguity));
                     }
                 }
 
@@ -226,19 +213,19 @@ where
     };
 
     // Add constraints for the start operation
-    ctx.connect_into(OutputRef::start(), &diagram.start);
+    ctx.connect_into(OutputRef::start(), ctx.into_operation_ref(&diagram.start));
     let request_msg_index = registry.messages.registration.get_index::<Request>()?;
-    ctx.one_of(OutputRef::start(), &[request_msg_index]);
+    ctx.fixed(OutputRef::start(), request_msg_index);
 
     // Add constraints for the terminate operation
     let response_msg_index = registry.messages.registration.get_index::<Response>()?;
-    ctx.one_of(OperationRef::Terminate(Default::default()), &[response_msg_index]);
+    ctx.fixed(OperationRef::Terminate(Default::default()), response_msg_index);
 
     let mut streams = StreamAvailability::default();
     Streams::set_stream_availability(&mut streams);
     for (name, stream_type) in streams.named_streams() {
         let stream_msg_index = registry.messages.registration.get_index_dyn(&stream_type)?;
-        ctx.one_of(OperationRef::stream_out(&Arc::from(name)), &[stream_msg_index]);
+        ctx.fixed(OperationRef::stream_out(&Arc::from(name)), stream_msg_index);
     }
 
     Ok(())
@@ -259,25 +246,6 @@ impl std::fmt::Debug for DebugMessageTypeChoice {
     }
 }
 
-fn as_type_name(
-    one_of: &Option<MessageTypeChoices>,
-    registry: &DiagramElementRegistry,
-) -> Result<Option<SmallVec<[DebugMessageTypeChoice; 8]>>, DiagramErrorCode> {
-    let Some(one_of) = one_of else {
-        return Ok(None);
-    };
-
-    Ok(Some(
-        one_of
-        .iter()
-        .map(|e| Ok::<_, DiagramErrorCode>(DebugMessageTypeChoice {
-            name: registry.messages.registration.get_by_index(e.id)?.type_info.type_name,
-            cost: e.cost,
-        }))
-        .collect::<Result<SmallVec<[DebugMessageTypeChoice; 8]>, _>>()?
-    ))
-}
-
 pub struct InferenceContext<'a, 'b> {
     inference: &'b mut Inferences,
     diagram_context: DiagramContext<'a>,
@@ -288,264 +256,278 @@ pub struct InferenceContext<'a, 'b> {
 impl<'a, 'b> InferenceContext<'a, 'b> {
     /// Specify exactly what message types a port may have, irrespective of
     /// any connections to other operations.
-    pub fn one_of(
+    pub fn fixed(
         &mut self,
         port: impl Into<PortRef>,
-        one_of: &[usize],
+        message_type: usize,
     ) {
         let port = self.into_port_ref(port);
-        let one_of = one_of
-            .iter()
-            .copied()
-            .map(|id| MessageTypeChoice { id, cost: 0 })
-            .collect();
 
         self
             .inference
             .evaluations
-            .entry(port.clone())
+            .entry(port)
             .or_default()
-            .one_of = Some(one_of);
-
-        let one_of = as_type_name(&self.inference.evaluation(port.clone()).one_of, self.registry);
-        // println!("{port} is one of: {:?}", one_of.unwrap());
+            .message_type = Some(message_type);
     }
 
-    /// Specify that two ports have the exact same type with no conversion.
-    pub fn exact_match(
+    /// Specify that the message type of an output should be directly inferred
+    /// from the message type of the input that it connects into.
+    fn infer_from_downstream(
         &mut self,
-        port_0: impl Into<PortRef>,
-        port_1: impl Into<PortRef>,
+        output: OutputRef,
+        input: OperationRef,
     ) {
-        let port_0 = self.into_port_ref(port_0);
-        let port_1 = self.into_port_ref(port_1);
-
-        self
-            .inference
-            .constraint_level_mut(port_0.clone(), 0)
-            .push(Arc::new(ExactMatch(port_1.clone())));
-
-        self
-            .inference
-            .constraint_level_mut(port_1, 0)
-            .push(Arc::new(ExactMatch(port_0)));
+        self.inference.constrain(output.clone(), ExactMatch(input.clone().into()));
+        self.connect_into(output, input);
     }
 
     /// Specify that an output connects into an input.
-    pub fn connect_into(
+    fn connect_into(
         &mut self,
-        output: impl Into<OutputRef>,
-        input: impl Into<OperationRef>,
+        output: OutputRef,
+        input: OperationRef,
     ) {
-        let output = self.into_output_ref(output);
-        let input = self.into_operation_ref(input);
-
-        self
-            .inference
-            .constraint_level_mut(output.clone(), 1)
-            .push(Arc::new(ConnectInto(input.clone())));
-
-        self
-            .inference
-            .constraint_level_mut(input, 1)
-            .push(Arc::new(ConnectFrom(output)));
-    }
-
-    pub fn try_convert_into(
-        &mut self,
-        input: impl Into<OperationRef>,
-        output: impl Into<OutputRef>,
-    ) {
-        let input = self.into_operation_ref(input);
-        let output = self.into_output_ref(output);
-
-        // We set conversions to a complexity level of 2 because this constraint
-        // can blow up since any serializable/deserializable types must be considered.
-        self
-            .inference
-            .constraint_level_mut(input.clone(), 2)
-            .push(Arc::new(ConvertInto(output.clone())));
-
-        self
-            .inference
-            .constraint_level_mut(output, 2)
-            .push(Arc::new(ConvertFrom(input)));
+        self.inference.connection_from.insert(output.clone(), input.clone());
+        self.inference.connections_into.entry(input).or_default().insert(output);
     }
 
     pub fn fork_clone(
         &mut self,
-        cloneable_id: &OperationName,
+        operation_name: &OperationName,
         next: &[NextOperation],
     ) {
-        let cloneable_port = self.into_port_ref(cloneable_id);
+        let operation = self.into_operation_ref(operation_name);
 
-        let mut outputs = Vec::new();
-        for (i, _) in next.iter().enumerate() {
-            let output = self.into_port_ref(output_ref(cloneable_id).next_index(i));
-            outputs.push(output.clone());
+        let mut targets = Vec::new();
+        for (i, target) in next.iter().enumerate() {
+            let target = self.into_operation_ref(target);
+            targets.push(target.clone());
 
-            self.inference
-                .constraint_level_mut(output, 0)
-                .push(Arc::new(CloneFrom(cloneable_port.clone())));
+            let output = self.into_output_ref(output_ref(operation_name).next_index(i));
+            self.connect_into(output.clone(), target);
+            self.inference.constrain(output, ExactMatch(operation.clone().into()));
         }
 
-        self.inference
-            .constraint_level_mut(cloneable_port, 0)
-            .push(Arc::new(CloneInto(outputs)));
+        self.inference.constrain(operation.clone(), CloneInput { operation, targets });
     }
 
     pub fn result(
         &mut self,
-        result: impl Into<OperationRef>,
-        ok: impl Into<OutputRef>,
-        err: impl Into<OutputRef>,
+        operation_name: &OperationName,
+        ok: &NextOperation,
+        err: &NextOperation,
     ) {
-        let result = self.into_operation_ref(result);
-        let ok = self.into_output_ref(ok);
-        let err = self.into_output_ref(err);
+        let operation = self.into_operation_ref(operation_name);
+        let ok_output = self.into_output_ref(output_ref(operation_name).ok());
+        let err_output = self.into_output_ref(output_ref(operation_name).err());
 
-        self
-            .inference
-            // This constraint complexity is 0 because we can directly map from
-            // the Result type to its Ok type
-            .constraint_level_mut(ok.clone(), 0)
-            .push(Arc::new(OkFrom(result.clone())));
+        self.inference.constrain(ok_output.clone(), OkFrom(operation.clone()));
+        self.inference.constrain(err_output.clone(), ErrFrom(operation.clone()));
 
-        self
-            .inference
-            .constraint_level_mut(err.clone(), 0)
-            .push(Arc::new(ErrFrom(result.clone())));
+        let ok_target = self.into_operation_ref(ok);
+        let err_target = self.into_operation_ref(err);
+        self.inference.constrain(
+            operation.clone(),
+            ResultInto{
+                operation,
+                ok: ok_target.clone(),
+                err: err_target.clone(),
+            }
+        );
 
-        self
-            .inference
-            // This constraint complexity is 2 because it needs to evaluate
-            // (ok, err) combinatorially to identify the Result type
-            .constraint_level_mut(result, 2)
-            .push(Arc::new(ResultInto{ ok, err }));
+        self.connect_into(ok_output, ok_target);
+        self.connect_into(err_output, err_target);
     }
 
-    pub fn unzip<U: Into<OperationRef>>(
+    pub fn unzip<'u>(
         &mut self,
         unzippable_name: &OperationName,
-        elements: impl Iterator<Item=U>,
+        targets: impl Iterator<Item=&'u NextOperation>,
     ) {
-        let unzippable: OperationRef = unzippable_name.into();
-        let unzippable = unzippable.in_namespaces(&self.namespaces);
+        let unzippable = self.into_operation_ref(unzippable_name);
+        for (i, target) in targets.enumerate() {
+            let element_output = self.into_output_ref(
+                output_ref(unzippable_name).next_index(i)
+            );
 
-        let mut element_refs = Vec::new();
-        for (i, next) in elements.enumerate() {
-            let element_ref = output_ref(unzippable_name).next_index(i);
-            let element_ref = self.into_output_ref(element_ref);
-            let next = self.into_operation_ref(next);
+            self.inference.constrain(
+                element_output.clone(),
+                UnzipOutput { op: unzippable.clone(), element: i }
+            );
 
-            self
-                .inference
-                // The complexity is O(1) because we can directly infer the
-                // element type based on the upstream unzippable.
-                .constraint_level_mut(element_ref.clone(), 0)
-                .push(Arc::new(UnzipFrom { op: unzippable.clone(), element: i }));
-
-            element_refs.push(element_ref.clone());
-            self.connect_into(element_ref, next);
+            let target = self.into_operation_ref(target);
+            self.connect_into(element_output, target);
         }
 
-        // The complexity of this constraint is O(N^m) where m is the number
-        // of elements in the tuple.
-        let complexity = element_refs.len();
-        self
-            .inference
-            .constraint_level_mut(unzippable, complexity)
-            .push(Arc::new(UnzipInto(element_refs.into())));
+        self.inference.constrain(unzippable.clone(), UnzipInput(unzippable));
+    }
+
+    pub fn buffer(
+        &mut self,
+        operation_name: &OperationName,
+        serialize: bool,
+    ) {
+
     }
 
     pub fn join(
         &mut self,
+        operation_name: &OperationName,
         selection: &BufferSelection,
-        joined: impl Into<PortRef>,
-    ) {
-        let joined = self.into_port_ref(joined);
-        for (identifier, op) in selection.iter() {
-            let port = self.into_port_ref(op);
-            self
-                .inference
-                .constraint_level_mut(port, 2)
-                .push(Arc::new(JoinInto {
-                    member: identifier.to_owned(),
-                    joined: joined.clone(),
-                }));
+        next: &NextOperation,
+        serialize: bool,
+    ) -> Result<(), DiagramErrorCode> {
+        let output = self.into_output_ref(output_ref(operation_name).next());
+        let target = self.into_operation_ref(next);
+        let evaluate = |context: &ConstraintContext, msg: usize, member: &BufferIdentifier| {
+            let Some(join) = &context.operations_of(msg)?.join else {
+                return Err(DiagramErrorCode::NotJoinable(
+                    context.type_info_for(msg)?
+                ));
+            };
+
+            evaluate_buffer_hint(&join.layout, member)
+        };
+
+        for (member, buffer) in selection.iter() {
+            let buffer = self.into_operation_ref(buffer);
+            self.inference.buffer_hints.entry(buffer).or_default().push(
+                BufferInference {
+                    used_by: output.clone().into(),
+                    member: member.to_owned(),
+                    evaluate,
+                }
+            );
         }
 
-        // TODO(@mxgrey): Consider applying a reverse constraint: inferring the
-        // Joined type based on its constituent parts. Unfortunately the Joined
-        // type is ambiguous when basing it only on the parts that are being
-        // joined into it, even accounting for the layout. That makes the
-        // reverse inference both weak and expensive to calculate, so we skip it
-        // for now.
+        if serialize {
+            let json_message_index = self.registry.messages.registration.get_index::<JsonMessage>()?;
+            self.fixed(output.clone(), json_message_index);
+            self.connect_into(output, target);
+        } else {
+            self.infer_from_downstream(output, target);
+
+            // TODO(@mxgrey): Consider applying a reverse constraint: inferring the
+            // Joined type based on its constituent buffers. Unfortunately the Joined
+            // type is ambiguous when basing it only on the parts that are being
+            // joined into it, even accounting for the layout. That makes the
+            // reverse inference both weak and expensive to calculate, so we skip it
+            // for now.
+        }
+        Ok(())
     }
 
     pub fn buffer_access(
         &mut self,
-        request: impl Into<PortRef>,
+        operation_name: &OperationName,
         selection: &BufferSelection,
-        next: impl Into<PortRef>,
+        next: &NextOperation,
     ) {
-        let request = self.into_port_ref(request);
-        let accessor = self.into_port_ref(next);
+        let operation = self.into_operation_ref(operation_name);
+        let output = self.into_output_ref(output_ref(operation_name).next());
+        let target = self.into_operation_ref(next);
+        let evaluate = |context: &ConstraintContext, msg: usize, member: &BufferIdentifier| {
+            let layout = match &context.operations_of(msg)?.buffer_access {
+                Some(access) => &access.layout,
+                None => return Err(DiagramErrorCode::CannotAccessBuffers(
+                    context.type_info_for(msg)?
+                )),
+            };
 
-        for (identifier, op) in selection.iter() {
-            let port = self.into_port_ref(op);
-            self
-                .inference
-                .constraint_level_mut(port, 2)
-                .push(Arc::new(BufferAccessLayoutMember {
-                    accessor: accessor.clone(),
-                    member: identifier.to_owned(),
-                }));
+            evaluate_buffer_hint(layout, member)
+        };
+
+        for (member, buffer) in selection.iter() {
+            let buffer = self.into_operation_ref(buffer);
+            self.inference.buffer_hints.entry(buffer.into()).or_default().push(
+                BufferInference {
+                    used_by: output.clone().into(),
+                    member: member.to_owned(),
+                    evaluate,
+                }
+            );
         }
 
-        self
-            .inference
-            .constraint_level_mut(request, 0)
-            .push(Arc::new(BufferAccessRequestMessage { accessor }));
+        self.infer_from_downstream(output, target.clone());
+        self.inference.constrain(operation, BufferAccessInput { target });
     }
 
     pub fn listen(
         &mut self,
+        operation_name: &OperationName,
         selection: &BufferSelection,
-        listener: impl Into<PortRef>,
+        next: &NextOperation,
     ) {
-        let listener = self.into_port_ref(listener);
-        for (identifier, op) in selection.iter() {
-            let port = self.into_port_ref(op);
-            self
-                .inference
-                .constraint_level_mut(port, 2)
-                .push(Arc::new(ListenMember {
-                    listener: listener.clone(),
-                    member: identifier.to_owned(),
-                }));
+        let output = self.into_output_ref(output_ref(operation_name).next());
+        let target = self.into_operation_ref(next);
+        let evaluate = |context: &ConstraintContext, msg: usize, member: &BufferIdentifier| {
+            let Some(listen) = &context.operations_of(msg)?.listen else {
+                return Err(DiagramErrorCode::CannotListen(
+                    context.type_info_for(msg)?
+                ));
+            };
+
+            evaluate_buffer_hint(&listen.layout, member)
+        };
+
+        for (member, buffer) in selection.iter() {
+            let buffer = self.into_operation_ref(buffer);
+            self.inference.buffer_hints.entry(buffer).or_default().push(
+                BufferInference {
+                    used_by: output.clone().into(),
+                    member: member.to_owned(),
+                    evaluate,
+                }
+            );
         }
+
+        self.infer_from_downstream(output, target);
     }
 
     pub fn split<'s>(
         &mut self,
-        split: impl Into<OperationRef>,
-        elements: impl Iterator<Item = &'s NextOperation>,
+        split_name: &OperationName,
+        sequential: &Vec<NextOperation>,
+        keyed: &HashMap<OperationName, NextOperation>,
+        remaining: &Option<NextOperation>,
     ) {
-        let split = split.into();
-        let split = split.in_namespaces(&self.namespaces);
+        let split = self.into_operation_ref(split_name);
 
-        let mut outputs = Vec::new();
-        for element in elements {
-            let element_port = self.into_port_ref(element);
-            outputs.push(element_port.clone());
-            self
-                .inference
-                .constraint_level_mut(element_port, 0)
-                .push(Arc::new(SplitFrom(split.clone())));
+        for (i, target) in sequential.iter().enumerate() {
+            let output = self.into_output_ref(
+                output_ref(split_name).next_index(i)
+            );
+
+            self.inference.constrain(output.clone(), SplitOutput(split.clone()));
+
+            let target = self.into_operation_ref(target);
+            self.connect_into(output, target);
         }
 
-        self.inference.constraint_level_mut(split, 1).push(Arc::new(SplitInto(outputs)));
+        for (key, target) in keyed {
+            let output = self.into_output_ref(
+                output_ref(split_name).keyed(key)
+            );
+
+            self.inference.constrain(output.clone(), SplitOutput(split.clone()));
+
+            let target = self.into_operation_ref(target);
+            self.connect_into(output, target);
+        }
+
+        if let Some(target) = remaining {
+            let output = self.into_output_ref(
+                output_ref(split_name).remaining()
+            );
+
+            self.inference.constrain(output.clone(), SplitOutput(split.clone()));
+
+            let target = self.into_operation_ref(target);
+            self.connect_into(output, target);
+        }
+
+        self.inference.constrain(split.clone(), SplitInput(split));
     }
 
     /// Add an operation that exists as a child inside another operation.
@@ -582,8 +564,9 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
 }
 
+#[derive(Clone, Copy)]
 pub struct ConstraintContext<'a> {
-    inference: &'a Inferences,
+    inferences: &'a Inferences,
     pub registry: &'a DiagramElementRegistry,
 }
 
@@ -591,423 +574,269 @@ impl<'a> ConstraintContext<'a> {
     pub fn get_inference_of(
         &self,
         port: impl Into<PortRef>,
-    ) -> Result<&Option<MessageTypeChoices>, DiagramErrorCode> {
+    ) -> Result<&Option<usize>, DiagramErrorCode> {
         let port = port.into();
         let one_of = &self
-            .inference
+            .inferences
             .evaluations
             .get(&port)
             .ok_or_else(move || DiagramErrorCode::UnknownPort(port))?
-            .one_of;
+            .message_type;
 
         Ok(one_of)
     }
 
-    pub fn evaluate_connect_into(
-        &self,
-        port: &OperationRef,
-    ) -> MessageTypeEvaluation {
-        let Some(inference) = self.get_inference_of(port.clone())? else {
-            return Ok(None);
+    pub fn connections_into(&self, operation: &OperationRef) -> SmallVec<[OutputRef; 8]> {
+        let Some(connections) = self.inferences.connections_into.get(operation) else {
+            return smallvec![];
         };
 
-        let mut result = SmallVec::new();
-        for choice in inference {
-            self.evaluate_connect_into_impl(choice, &mut result)?;
-        }
-
-        Ok(Some(result))
+        connections.iter().cloned().collect()
     }
 
-    /// This function gets reused across both might_connect_into and
-    ///
-    /// might_convert_into so we use a shared implementation for both.
-    fn evaluate_connect_into_impl(
+    fn get_message_types_into(
         &self,
-        choice: &MessageTypeChoice,
-        result: &mut MessageTypeChoices,
-    ) -> Result<&MessageOperations, DiagramErrorCode> {
-        // Simply matching the message type is an option
-        result.push(MessageTypeChoice {
-            id: choice.id,
-            cost: 1 + choice.cost,
-        });
-
-        let ops = self.operations_of(choice.id)?;
-
-        // Consider any message types that this target type can be cast
-        // from. Note: switching "into" to "from" is intentional because we
-        // are backtracking
-        for msg in ops.from_impls.keys() {
-            result.push(MessageTypeChoice {
-                id: *msg,
-                cost: 2 + choice.cost,
-            });
-        }
-
-        if let Ok(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() {
-            if choice.id == json_index {
-                // If the target type is JsonMessage, then we can support any
-                // type that is serializable.
-                for (id, r) in self.registry.messages.registration.iter().enumerate() {
-                    if r.operations.as_ref().is_some_and(|ops| ops.serialize.is_some()) {
-                        result.push(MessageTypeChoice {
-                            id,
-                            cost: 4 + choice.cost,
-                        });
-                    }
-                }
-            } else if ops.deserialize.is_some() {
-                result.push(MessageTypeChoice {
-                    id: json_index,
-                    cost: 3 + choice.cost,
-                });
-            }
-        }
-
-        Ok(ops)
-    }
-
-    pub fn evaluate_connect_from(
-        &self,
-        port: &OutputRef,
-    ) -> MessageTypeEvaluation {
-        let Some(inference) = self.get_inference_of(port.clone())? else {
-            return Ok(None);
+        input: &OperationRef,
+    ) -> Result<SmallVec<[usize; 8]>, DiagramErrorCode> {
+        let Some(connections) = self.inferences.connections_into.get(input) else {
+            return Err(DiagramErrorCode::NoConnection(input.clone()));
         };
 
-        let mut result = SmallVec::new();
-        for choice in inference {
-            self.evaluate_connect_from_impl(choice, &mut result)?;
+        if connections.is_empty() {
+            return Err(DiagramErrorCode::NoConnection(input.clone()));
         }
 
-        Ok(Some(result))
-    }
-
-    /// This function gets reused across both might_connect_from and
-    /// might_convert_from so we use a shared implementation for both.
-    fn evaluate_connect_from_impl(
-        &self,
-        choice: &MessageTypeChoice,
-        result: &mut MessageTypeChoices,
-    ) -> Result<&MessageOperations, DiagramErrorCode> {
-        // Simply matching the message type is an option
-        result.push(MessageTypeChoice {
-            id: choice.id,
-            cost: 1 + choice.cost,
-        });
-
-        let ops = self.operations_of(choice.id)?;
-
-        // Consider any message types that this source type can be cast
-        // into. Note: switching "from" to "into" is intentional because we
-        // are backtracking.
-        for msg in ops.into_impls.keys() {
-            result.push(MessageTypeChoice {
-                id: *msg,
-                cost: 2 + choice.cost,
-            });
-        }
-
-        if let Ok(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() {
-            if choice.id == json_index {
-                // If the source type is JsonMessage, then we can support type
-                // that is deserializable.
-                for (id, r) in self.registry.messages.registration.iter().enumerate() {
-                    if r.operations.as_ref().is_some_and(|ops| ops.deserialize.is_some()) {
-                        result.push(MessageTypeChoice {
-                            id,
-                            cost: 4 + choice.cost,
-                        });
-                    }
-                }
-            } else if ops.serialize.is_some() {
-                // If the target type is serializable then it can be serialized
-                // into a JsonMessage.
-                result.push(MessageTypeChoice {
-                    id: json_index,
-                    cost: 3 + choice.cost,
-                });
+        let mut message_types = SmallVec::new();
+        for connection in connections {
+            if let Some(message_type) = self.get_inference_of(connection.clone())? {
+                message_types.push(*message_type);
             }
         }
 
-        Ok(ops)
+        message_types.sort();
+        message_types.dedup();
+        Ok(message_types)
     }
 
-    pub fn evaluate_convert_into(
+    pub fn evaluate_clone_input(
         &self,
-        port: &OutputRef,
+        operation: &OperationRef,
+        targets: &[OperationRef],
     ) -> MessageTypeEvaluation {
-        let Some(inference) = self.get_inference_of(port.clone())? else {
-            return Ok(None);
-        };
-
-        let mut result = SmallVec::new();
-        for message_type_index in inference {
-            // Consider any message types that this can normally connect into.
-            let ops = self.evaluate_connect_into_impl(message_type_index, &mut result)?;
-
-            // Consider any message types that this source type can attempt to
-            // convert into. Note: switching "into" to "from" is intentional
-            // because we are backtracking.
-            for msg in ops.try_from_impls.keys() {
-                result.push(MessageTypeChoice {
-                    id: *msg,
-                    cost: 5,
-                });
-            }
-
-            if ops.deserialize.is_some() {
-                // If the target is deserializable then we should consider any
-                // serializable type since we can attempt to convert any
-                // serializable type into any deserializable type.
-                for (id, msg) in self.registry.messages.registration.iter().enumerate() {
-                    if msg.get_operations()?.serialize.is_some() {
-                        result.push(MessageTypeChoice {
-                            id,
-                            cost: 6,
-                        });
-                    }
-                }
-            }
-        }
-
-        Ok(Some(result))
-    }
-
-    pub fn evaluate_convert_from(
-        &self,
-        port: &OperationRef,
-    ) -> MessageTypeEvaluation {
-        let Some(inference) = self.get_inference_of(port.clone())? else {
-            return Ok(None);
-        };
-
-        let mut result = SmallVec::new();
-        for message_type_index in inference {
-            // Consider any message types that this can normally connect from.
-            let ops = self.evaluate_connect_from_impl(message_type_index, &mut result)?;
-
-            // Consider any message types that this source type can attempt to
-            // convert into. Note: switching "from" to "into" is intentional
-            // because we are backtracking.
-            for msg in ops.try_into_impls.keys() {
-                result.push(MessageTypeChoice {
-                    id: *msg,
-                    cost: 5,
-                });
-            }
-
-            if ops.serialize.is_some() {
-                // If the source is serializable then we should consider any
-                // deserializable type since we can attempt to convert any
-                // serializable type into any deserializable type.
-                for (id, msg) in self.registry.messages.registration.iter().enumerate() {
-                    if msg.get_operations()?.deserialize.is_some() {
-                        result.push(MessageTypeChoice {
-                            id,
-                            cost: 6,
-                        });
-                    }
-                }
-            }
-        }
-
-        Ok(Some(result))
-    }
-
-    pub fn evaluate_clone_into(
-        &self,
-        outputs: &[PortRef],
-    ) -> MessageTypeEvaluation {
-        let mut one_of: Option<MessageTypeChoices> = None;
-        for output in outputs {
-            if let Some(inference) = self.get_inference_of(output.clone())?.clone() {
-                reduce_choices(&mut one_of, inference, &self.registry);
-            }
-        }
-
-        if let Some(one_of) = &mut one_of {
-            one_of.retain(|choice| {
-                let Ok(ops) = self.operations_of(choice.id) else {
-                    return false;
-                };
-
-                // We need to consider the "into" type as a constraint, but we
-                // should prioritize cloning the type that gets fed into the
-                // cloning operation, so we bias this far away.
-                choice.cost += 10;
-
-                ops.fork_clone.is_some()
-            })
-        }
-
-        Ok(one_of)
-    }
-
-    pub fn evaluate_clone_from(
-        &self,
-        cloneable: &PortRef,
-    ) -> MessageTypeEvaluation {
-        dbg!(cloneable);
-        let Some(mut one_of) = self.get_inference_of(cloneable.clone())?.clone() else {
-            return Ok(None);
-        };
-
-        one_of.retain(|choice| {
-            let Ok(ops) = self.operations_of(choice.id) else {
-                return false;
+        let incoming_message_types = self.get_message_types_into(operation)?;
+        let selected_input_type = if incoming_message_types.is_empty() {
+            // We don't have any upstream hints for the message type, so we
+            // should attempt to infer something from our target message types.
+            let Some(message_type) = self.same_output_type(targets)? else {
+                return Ok(None);
             };
 
-            ops.fork_clone.is_some()
-        });
+            message_type
+        } else if incoming_message_types.len() == 1 {
+            // There's exactly one incoming message type so we should settle on
+            // that as the message type.
 
-        dbg!(&one_of);
-        Ok(Some(one_of))
+            // SAFETY: We already verified that this has a value
+            *incoming_message_types.first().unwrap()
+        } else {
+            // We need to disambiguate the multiple incoming message types.
+            if let Some(output_message_type) = self.same_output_type(targets)? {
+                // Check if all incoming message types can be converted to the
+                // output message type. If they can, use that type.
+                let mut compatible = true;
+                for incoming in &incoming_message_types {
+                    compatible &= self.operations_of(*incoming)?.into_impls.get(&output_message_type).is_some();
+                }
+
+                if !compatible {
+                    return Err(DiagramErrorCode::AmbiguousMessageType(
+                        self.type_info_for_slice(&incoming_message_types)?
+                    ));
+                }
+
+                output_message_type
+            } else {
+                // There isn't a clear choice for the output message type, so we
+                // should see if we can resolve the incoming types.
+                for incoming in &incoming_message_types {
+                    if self.operations_of(*incoming)?.serialize.is_none() {
+                        return Err(DiagramErrorCode::AmbiguousMessageType(
+                            self.type_info_for_slice(&incoming_message_types)?
+                        ));
+                    }
+                }
+
+                // These are all serializable, so we should choose JsonMessage
+                // if it's an option.
+                let Ok(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() else {
+                    return Err(DiagramErrorCode::AmbiguousMessageType(
+                        self.type_info_for_slice(&incoming_message_types)?
+                    ));
+                };
+
+                // TODO(@mxgrey): We could consider finding a different single
+                // common type that all incoming messages can be converted into,
+                // but there's a significant risk of ambiguity for that.
+
+                json_index
+            }
+        };
+
+        if self.operations_of(selected_input_type)?.fork_clone.is_none() {
+            return Err(DiagramErrorCode::NotCloneable(
+                self.registry.messages.get_type_info_for(selected_input_type)?
+            ));
+        }
+
+        Ok(Some(selected_input_type))
     }
 
-    pub fn evaluate_result_into(
+    /// Find a single output type that is compatible with all the target inputs,
+    /// i.e. either the same message type being sent to all of them, or a single
+    /// message type that can be converted to all of them.
+    pub fn same_output_type(
         &self,
-        ok: &OutputRef,
-        err: &OutputRef,
+        targets: &[OperationRef],
     ) -> MessageTypeEvaluation {
-        let Some(ok_inference) = self.get_inference_of(ok.clone())? else {
-            return Ok(None);
-        };
-
-        let Some(err_inference) = self.get_inference_of(err.clone())? else {
-            return Ok(None);
-        };
-
-        let mut result = SmallVec::new();
-        for ok_choice in ok_inference {
-            for err_choice in err_inference.iter().copied() {
-                let key = [ok_choice.id, err_choice.id];
-                if let Some(r) = self.registry.messages.registration.lookup.result.get(&key) {
-                    result.push(MessageTypeChoice {
-                        id: *r,
-                        cost: 0 + u32::min(ok_choice.cost, err_choice.cost),
-                    });
-                }
+        let mut message_types: SmallVec<[usize; 8]> = Default::default();
+        for target in targets {
+            let port: PortRef = target.clone().into();
+            if let Some(message_type) = self.inferences.get_evaluation(&port)?.message_type {
+                message_types.push(message_type);
             }
         }
 
-        Ok(Some(result))
+        message_types.sort();
+        message_types.dedup();
+        if message_types.len() <= 1 {
+            return Ok(message_types.pop());
+        }
+
+        // There is more than one message type consider. If all of them can be
+        // deserialized then we will use JsonMessage.
+        let Ok(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() else {
+            // This is only meant to be a hint, so no need to call it an error.
+            return Ok(None);
+        };
+
+        for message_type in message_types {
+            if self.operations_of(message_type)?.deserialize.is_none() {
+                // Cannot deserialize all of the target messages, so we can't
+                // choose a clear outgoing message. This is only meant to be a
+                // hint, so we don't treat it as an error.
+                return Ok(None);
+            }
+        }
+
+        // All target types are deserializable, so choose JsonMessage
+        Ok(Some(json_index))
+
+        // TODO(@mxgrey): We could consider finding a different single common
+        // type that all target message types can be converted from, but there's
+        // a signfiicant risk of ambiguity for that.
+    }
+
+    pub fn evaluate_result_input(
+        &self,
+        operation: &OperationRef,
+        ok_target: &OperationRef,
+        err_target: &OperationRef,
+    ) -> MessageTypeEvaluation {
+        let incoming_message_types = self.get_message_types_into(operation)?;
+        let selected_input_type = if incoming_message_types.is_empty() {
+            // We don't have any upstream hints for the message type, so we
+            // should attempt to infer something from our target message types.
+            let Some(ok_inference) = self.get_inference_of(ok_target.clone())? else {
+                return Ok(None);
+            };
+
+            let Some(err_inference) = self.get_inference_of(err_target.clone())? else {
+                return Ok(None);
+            };
+
+            let key = [*ok_inference, *err_inference];
+            let Some(r) = self.registry.messages.registration.lookup.result.get(&key) else {
+                // We can't conclude anything yet.
+                return Ok(None);
+            };
+
+            *r
+        } else if incoming_message_types.len() == 1 {
+            *incoming_message_types.first().unwrap()
+        } else {
+            return Ok(None);
+        };
+
+        if self.operations_of(selected_input_type)?.fork_result.is_none() {
+            return Err(DiagramErrorCode::CannotForkResult(
+                self.type_info_for(selected_input_type)?
+            ));
+        }
+
+        Ok(Some(selected_input_type))
     }
 
     pub fn evaluate_ok_from(
         &self,
         from_result: &OperationRef,
     ) -> MessageTypeEvaluation {
-        let Some(result_inference) = self.get_inference_of(from_result.clone())? else {
-            return Ok(None);
-        };
-
-        let mut result = SmallVec::new();
-        for choice in result_inference {
-            let r = &self
-                .operations_of(choice.id)?
-                .fork_result;
-
-            if let Some(r) = r {
-                let [ok, _] = r.output_types;
-                result.push(MessageTypeChoice {
-                    id: ok,
-                    cost: 0 + choice.cost,
-                });
-            }
-        }
-
-        Ok(Some(result))
+        self.evaluate_result_output(from_result, 0)
     }
 
     pub fn evaluate_err_from(
         &self,
         from_result: &OperationRef,
     ) -> MessageTypeEvaluation {
+        self.evaluate_result_output(from_result, 1)
+    }
+
+    fn evaluate_result_output(
+        &self,
+        from_result: &OperationRef,
+        index: usize,
+    ) -> MessageTypeEvaluation {
         let Some(result_inference) = self.get_inference_of(from_result.clone())? else {
             return Ok(None);
         };
 
-        let mut result = SmallVec::new();
-        for choice in result_inference {
-            let r = &self
-                .operations_of(choice.id)?
-                .fork_result;
+        let Some(r) = &self.operations_of(*result_inference)?.fork_result else {
+            return Err(DiagramErrorCode::CannotForkResult(
+                self.type_info_for(*result_inference)?
+            ));
+        };
 
-            if let Some(r) = r {
-                let [_, err] = r.output_types;
-                result.push(MessageTypeChoice {
-                    id: err,
-                    cost: 0 + choice.cost,
-                });
-            }
-        }
-
-        Ok(Some(result))
+        Ok(Some(r.output_types[index]))
     }
 
-    pub fn evaluate_unzip_into(
+    pub fn evaluate_unzip_input(
         &self,
-        outputs: &[OutputRef],
+        operation: &OperationRef,
     ) -> MessageTypeEvaluation {
-        let mut inferences = Vec::new();
-        let mut indexes = Vec::new();
-        for output in outputs {
-            let Some(inference) = self.get_inference_of(output.clone())? else {
-                return Ok(None);
-            };
-
-            if inference.is_empty() {
-                return Err(DiagramErrorCode::CannotInferType(output.clone().into()));
-            }
-            inferences.push(inference);
-            indexes.push(0usize);
+        let incoming_message_types = self.get_message_types_into(operation)?;
+        if incoming_message_types.len() > 1 {
+            return Err(DiagramErrorCode::AmbiguousMessageType(
+                self.type_info_for_slice(&incoming_message_types)?
+            ));
         }
 
-        let mut result = SmallVec::new();
-        loop {
-            let mut key = Vec::new();
-            let mut cost = u32::MAX;
-            for (index, element) in indexes.iter().zip(&inferences) {
-                let e = element[*index];
-                key.push(e.id);
-                cost = u32::min(cost, e.cost);
-            }
+        let Some(unzip_msg) = incoming_message_types.first() else {
+            return Ok(None);
+        };
 
-            if let Some(unzip) = self.registry.messages.registration.lookup.unzip.get(&key) {
-                result.push(MessageTypeChoice {
-                    id: *unzip,
-                    cost: 0 + cost,
-                });
-            }
-
-            // Increment the next index that needs to be adjusted.
-            for (index, element) in indexes.iter_mut().zip(&inferences) {
-                if *index + 1 < element.len() {
-                    // The first index that has not reached its limit should be
-                    // incremented.
-                    *index += 1;
-                    break;
-                }
-
-                // The current index has reached the highest value that it can.
-                // We should reset it to zero and continue the for-loop to
-                // increment the next index.
-                *index = 0;
-            }
-
-            if indexes.iter().all(|index| *index == 0) {
-                // This means we have circled all the way back to all zeroes,
-                // so we should break out of the loop.
-                break;
-            }
+        if !self.operations_of(*unzip_msg)?.unzip.is_some() {
+            return Err(DiagramErrorCode::NotUnzippable(
+                self.type_info_for(*unzip_msg)?
+            ));
         }
 
-        Ok(Some(result))
+        Ok(Some(*unzip_msg))
+
+        // TODO(@mxgrey): We could consider backing out the unzip type based on
+        // the target unzipped message types, but this seems unnecessary for now.
+        // Unzip is a relatively specialized operation at the moment.
     }
 
-    pub fn evaluate_unzip_from(
+    pub fn evaluate_unzip_output(
         &self,
         input: &OperationRef,
         element: usize,
@@ -1016,260 +845,143 @@ impl<'a> ConstraintContext<'a> {
             return Ok(None);
         };
 
-        let mut result = SmallVec::new();
-        let mut error = None;
-        for unzip in unzip_inference.iter().copied() {
-            if let Some(unzip_impl) = &self.operations_of(unzip.id)?.unzip {
-                if let Some(id) = unzip_impl.output_types.get(element).copied() {
-                    result.push(MessageTypeChoice { id, cost: 0 + unzip.cost });
-                } else if unzip_inference.len() == 1 {
-                    let message = self.registry.messages.get_type_info_for(unzip.id)?;
-                    error = Some(DiagramErrorCode::InvalidUnzip { message, element });
-                }
-            } else if unzip_inference.len() == 1 {
-                // There is only one possible message left, and it cannot be
-                // unzipped. This means there is an error in the diagram.
-                return Err(DiagramErrorCode::NotUnzippable(
-                    self.registry.messages.get_type_info_for(unzip.id)?
-                ))
-            }
-        }
+        let Some(unzip_op) = &self.operations_of(*unzip_inference)?.unzip else {
+            return Err(DiagramErrorCode::NotUnzippable(
+                self.registry.messages.get_type_info_for(*unzip_inference)?
+            ))
+        };
 
-        if result.is_empty() && let Some(error) = error {
-            return Err(error);
-        }
+        let Some(id) = unzip_op.output_types.get(element).copied() else {
+            return Err(DiagramErrorCode::InvalidUnzip {
+                message: self.type_info_for(*unzip_inference)?,
+                element,
+            });
+        };
 
-        Ok(Some(result))
+        Ok(Some(id))
     }
 
-    pub fn evaluate_buffer_layout_member(
+    pub fn evaluate_buffer(
         &self,
-        target: &PortRef,
-        member: &BufferIdentifier,
-        get_layout: fn(&Self, usize) -> Result<&BufferMapLayoutHints<usize>, DiagramErrorCode>,
+        input: &OperationRef,
+    ) -> MessageTypeEvaluation {
+        let incoming_message_types = self.get_message_types_into(input)?;
+        if incoming_message_types.is_empty() {
+            // There might not be any direct inputs to this buffer, so check for
+            // buffer hints from accessors.
+            let Some(hints) = self.inferences.buffer_hints.get(input) else {
+                // Keep waiting for more operations to be inferred.
+                return Ok(None);
+            };
+
+            let mut hint_message_types: SmallVec<[usize; 8]> = SmallVec::new();
+            for hint in hints {
+                if let Some(evaluation) = hint.evaluate(self)? {
+                    hint_message_types.push(evaluation);
+                }
+            }
+
+            hint_message_types.sort();
+            hint_message_types.dedup();
+
+            if hint_message_types.len() <= 1 {
+                return Ok(hint_message_types.first().cloned());
+            } else {
+                return Err(DiagramErrorCode::AmbiguousMessageType(
+                    self.type_info_for_slice(&hint_message_types)?
+                ));
+            }
+        } else if incoming_message_types.len() == 1 {
+            return Ok(incoming_message_types.first().cloned());
+        } else {
+            return Err(DiagramErrorCode::AmbiguousMessageType(
+                self.type_info_for_slice(&incoming_message_types)?
+            ));
+        }
+    }
+
+    pub fn evaluate_buffer_access_input(
+        &self,
+        target: &OperationRef,
     ) -> MessageTypeEvaluation {
         let Some(target_inference) = self.get_inference_of(target.clone())? else {
             return Ok(None);
         };
 
-        let any_index = self.registry.messages.registration.get_index::<AnyMessageBox>();
-        let json_index = self.registry.messages.registration.get_index::<JsonMessage>();
-
-        let eval_hint = |hint: &MessageTypeHint<usize>, base_cost: u32, result: &mut SmallVec<_>| {
-            match hint {
-                MessageTypeHint::Exact(id) => {
-                    result.push(
-                        MessageTypeChoice {
-                            id: *id,
-                            cost: 1 + base_cost,
-                        }
-                    );
-                }
-                MessageTypeHint::Fallback(id) => {
-                    // TODO(@mxgrey): Consider whether we can have a more efficient
-                    // representation, e.g. pass back a function/trait that validates
-                    // the properties of a message type choice instead of listing all
-                    // known valid options.
-                    if let Ok(json_index) = json_index && *id == json_index {
-                        // This means any serializable and deserializable message
-                        // type can be stored in this buffer.
-                        for (id, msg) in self.registry.messages.registration.iter().enumerate() {
-                            if let Some(ops) = &msg.operations {
-                                if ops.serialize.is_some() && ops.deserialize.is_some() {
-                                    result.push(MessageTypeChoice {
-                                        id,
-                                        // Assign a high cost to the type because
-                                        // the real decision about the type should
-                                        // be made elsewhere.
-                                        cost: 10 + base_cost,
-                                    })
-                                }
-                            }
-                        }
-
-                        // In the event of ambiguity for the other choices, let
-                        // the most general JsonMessage type win.
-                        result.push(
-                            MessageTypeChoice {
-                                id: json_index,
-                                cost: 9 + base_cost,
-                            }
-                        )
-                    } else if let Ok(any_index) = any_index && *id == any_index {
-                        // This means literally any message type can be stored in
-                        // this buffer.
-                        for id in 0..self.registry.messages.registration.len() {
-                            result.push(MessageTypeChoice {
-                                id,
-                                // Assign a very high cost to the type because
-                                // the real decision about the type should be
-                                // made elsewhere.
-                                cost: 15 + base_cost,
-                            })
-                        }
-                    } else {
-                        result.push(
-                            MessageTypeChoice {
-                                id: *id,
-                                cost: 3 + base_cost,
-                            }
-                        );
-                    }
-
-                    if let Ok(any_index) = any_index && *id != any_index {
-                        // Any fallback type can be channeled into an AnyBuffer,
-                        // so we should always include it as an option.
-                        result.push(
-                            MessageTypeChoice {
-                                id: any_index,
-                                // Assign a high cost since this is a last resort
-                                cost: 10 + base_cost,
-                            }
-                        );
-                    }
-                }
-            }
-        };
-
-        let mut result = SmallVec::new();
-        let mut error = None;
-        for target_choice in target_inference {
-            match get_layout(self, target_choice.id) {
-                Ok(layout) => {
-                    match layout {
-                        BufferMapLayoutHints::Dynamic(dynamic) => {
-                            if dynamic.is_compatible(member) {
-                                match &dynamic.constraint {
-                                    BufferMapLayoutConstraint::Any => {
-                                        if let Ok(any_index) = any_index {
-                                            result.push(MessageTypeChoice {
-                                                id: any_index,
-                                                cost: 4 + target_choice.cost,
-                                            });
-                                        }
-                                    }
-                                    BufferMapLayoutConstraint::AnyOf(hints) | BufferMapLayoutConstraint::OneOf(hints) => {
-                                        for hint in hints {
-                                            eval_hint(hint, target_choice.cost, &mut result);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        BufferMapLayoutHints::Static(hints) => {
-                            if let Some(hint) = hints.get(member) {
-                                eval_hint(hint, target_choice.cost, &mut result);
-                            }
-                        }
-                    }
-                }
-                Err(err) => {
-                    error = Some(err);
-                }
-            }
+        if let Some(buffer_access) = &self.operations_of(*target_inference)?.buffer_access {
+            return Ok(Some(buffer_access.request_message));
+        } else {
+            return Err(DiagramErrorCode::CannotAccessBuffers(
+                self.type_info_for(*target_inference)?
+            ));
         }
-
-        if result.is_empty() && let Some(error) = error {
-            return Err(error);
-        }
-        Ok(Some(result))
     }
 
-    pub fn evaluate_buffer_access_request_message(
+    pub fn evaluate_split_input(
         &self,
-        accessor: &PortRef,
+        operation: &OperationRef,
     ) -> MessageTypeEvaluation {
-        let Some(accessor_inference) = self.get_inference_of(accessor.clone())? else {
-            return Ok(None);
+        let incoming_message_types = self.get_message_types_into(operation)?;
+        if incoming_message_types.len() <= 1 {
+            if let Some(incoming_message_type) = incoming_message_types.first() {
+                let ops = self.operations_of(*incoming_message_type)?;
+                if ops.split.is_none() && ops.serialize.is_some() {
+                    // The message cannot be split but it can be serialized, so
+                    // we should change it to a JsonMessage.
+                    let Ok(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() else {
+                        return Err(DiagramErrorCode::NotSplittable(
+                            self.type_info_for(*incoming_message_type)?
+                        ));
+                    };
+
+                    return Ok(Some(json_index));
+                } else if ops.split.is_none() {
+                    // The message cannot be split and cannot be serialized, so
+                    // it is not a valid choice for the split operation.
+                    return Err(DiagramErrorCode::NotSplittable(
+                        self.type_info_for(*incoming_message_type)?
+                    ));
+                }
+            }
+
+            return Ok(incoming_message_types.first().copied());
+        }
+
+        let Ok(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() else {
+            return Err(DiagramErrorCode::AmbiguousMessageType(
+                self.type_info_for_slice(&incoming_message_types)?
+            ));
         };
 
-        let mut result = SmallVec::new();
-        let mut error = None;
-        for maybe_accessor in accessor_inference {
-            if let Some(buffer_access) = &self.operations_of(maybe_accessor.id)?.buffer_access {
-                result.push(MessageTypeChoice {
-                    id: buffer_access.request_message,
-                    cost: 0 + maybe_accessor.cost,
-                });
-            } else {
-                error = Some(DiagramErrorCode::CannotAccessBuffers(
-                    self
-                    .registry
-                    .messages
-                    .get_type_info_for(maybe_accessor.id)?
+        // Check if all incoming messages can be serialized. If so, we can funnel
+        // them into a JsonMessage before splitting.
+        for incoming_message_type in &incoming_message_types {
+            if self.operations_of(*incoming_message_type)?.serialize.is_none() {
+                return Err(DiagramErrorCode::AmbiguousMessageType(
+                    self.type_info_for_slice(&incoming_message_types)?
                 ));
             }
         }
 
-        if result.is_empty() && let Some(error) = error {
-            return Err(error);
-        }
-        Ok(Some(result))
+        // All incoming message types can be serialized, so take in a JsonMessage instead.
+        Ok(Some(json_index))
     }
 
-    pub fn evaluate_split_from(
+    pub fn evaluate_split_output(
         &self,
-        split: &OperationRef,
+        operation: &OperationRef,
     ) -> MessageTypeEvaluation {
-        let Some(split_inference) = self.get_inference_of(split.clone())? else {
+        let Some(split_inference) = self.get_inference_of(operation.clone())? else {
             return Ok(None);
         };
 
-        let mut result = SmallVec::new();
-        let mut error = None;
-        for maybe_splittable in split_inference {
-            if let Some(split) = &self.operations_of(maybe_splittable.id)?.split {
-                result.push(MessageTypeChoice {
-                    id: split.output_type,
-                    cost: 0 + maybe_splittable.cost,
-                });
-            } else {
-                error = Some(DiagramErrorCode::NotSplittable(
-                    self
-                    .registry
-                    .messages
-                    .get_type_info_for(maybe_splittable.id)?
-                ));
-            }
-        }
-
-        if result.is_empty() && let Some(error) = error {
-            return Err(error);
-        }
-
-        Ok(Some(result))
-    }
-
-    pub fn evaluate_split_into(
-        &self,
-        items: &[PortRef],
-    ) -> MessageTypeEvaluation {
-        let mut item_one_of: Option<MessageTypeChoices> = None;
-        for output in items {
-            if let Some(inference) = self.get_inference_of(output.clone())?.clone() {
-                reduce_choices(&mut item_one_of, inference, &self.registry);
-            }
-        }
-
-        let Some(item_one_of) = item_one_of else {
-            return Ok(None);
+        let Some(split) = &self.operations_of(*split_inference)?.split else {
+            return Err(DiagramErrorCode::NotSplittable(
+                self.type_info_for(*split_inference)?
+            ));
         };
 
-        let mut result = SmallVec::new();
-        for item in item_one_of {
-            let Some(split_choices) = self.registry.messages.registration.lookup.split.get(&item.id) else {
-                continue;
-            };
-
-            for id in split_choices {
-                result.push(MessageTypeChoice {
-                    id: *id,
-                    cost: 0 + item.cost,
-                });
-            }
-        }
-
-        Ok(Some(result))
+        Ok(Some(split.output_type))
     }
 
     pub fn operations_of(
@@ -1283,6 +995,55 @@ impl<'a> ConstraintContext<'a> {
             .get_by_index(message_type_index)?
             .get_operations()
     }
+
+    pub fn type_info_for(
+        &self,
+        index: usize,
+    ) -> Result<TypeInfo, DiagramErrorCode> {
+        Ok(self.registry.messages.registration.get_by_index(index)?.type_info)
+    }
+
+    pub fn type_info_for_slice(
+        &self,
+        indices: &[usize],
+    ) -> Result<Vec<TypeInfo>, DiagramErrorCode> {
+        let mut info = Vec::new();
+        for index in indices {
+            info.push(self.type_info_for(*index)?);
+        }
+
+        Ok(info)
+    }
+}
+
+fn evaluate_buffer_hint(
+    layout: &BufferMapLayoutHints<usize>,
+    member: &BufferIdentifier,
+) -> MessageTypeEvaluation {
+    match layout {
+        BufferMapLayoutHints::Dynamic(dynamic) => {
+            if dynamic.is_compatible(member) {
+                if let Some(hint) = &dynamic.hint.map(|h| h.as_exact()).flatten() {
+                    return Ok(Some(*hint));
+                }
+
+                return Ok(None);
+            }
+
+            let mut incompatibility = IncompatibleLayout::default();
+            incompatibility.forbidden_buffers.push(member.to_owned());
+            return Err(DiagramErrorCode::IncompatibleBuffers(
+                incompatibility
+            ));
+        }
+        BufferMapLayoutHints::Static(hints) => {
+            if let Some(hint) = hints.get(member) {
+                return Ok(hint.as_exact());
+            }
+        }
+    }
+
+    Ok(None)
 }
 
 struct UnfinishedOperation {
@@ -1315,14 +1076,6 @@ impl UnfinishedOperation {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct MessageTypeChoice {
-    pub id: usize,
-    pub cost: u32,
-}
-
-pub type MessageTypeChoices = SmallVec<[MessageTypeChoice; 8]>;
-
 impl<'a, 'b> Deref for InferenceContext<'a, 'b> {
     type Target = DiagramContext<'a>;
     fn deref(&self) -> &Self::Target {
@@ -1330,7 +1083,7 @@ impl<'a, 'b> Deref for InferenceContext<'a, 'b> {
     }
 }
 
-pub type MessageTypeEvaluation = Result<Option<MessageTypeChoices>, DiagramErrorCode>;
+pub type MessageTypeEvaluation = Result<Option<usize>, DiagramErrorCode>;
 
 pub trait MessageTypeConstraint: std::fmt::Debug + 'static + Send + Sync {
     fn evaluate(
@@ -1338,172 +1091,31 @@ pub trait MessageTypeConstraint: std::fmt::Debug + 'static + Send + Sync {
         context: &ConstraintContext,
     ) -> MessageTypeEvaluation;
 
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]>;
+    fn dependencies(
+        &self,
+        context: &ConstraintContext,
+    ) -> SmallVec<[PortRef; 8]>;
 }
-
-pub type ConstraintMap = BTreeMap<usize, Vec<Arc<dyn MessageTypeConstraint>>>;
 
 #[derive(Debug, Default, Clone)]
 struct MessageTypeInference {
-    one_of: Option<MessageTypeChoices>,
-    /// A ranked set of constraints that apply to this inference.
-    ///
-    /// Constraints are ranked by the computational complexity of their evaluation.
-    /// Lower keys are less complex to evaluate. Roughly speaking constraints
-    /// should be grouped by O(N^i) where i is the index in this map.
-    ///
-    /// So constraints in index 0 should evaluate with O(1) complexity. Constraints
-    /// in index 1 should evaluate with O(N) complexity. Index 2 should be for
-    /// O(N^2) complexity, etc.
-    constraints: ConstraintMap,
+    message_type: Option<usize>,
+    constraint: Option<Arc<dyn MessageTypeConstraint>>,
 }
 
 impl MessageTypeInference {
-    fn infer(&self) -> Option<usize> {
-        let mut choices = self.choices()?;
-        if choices.len() == 1 {
-            choices.pop()
-        } else {
-            None
-        }
-    }
-
     fn evaluate(
         &self,
         inference: &Inferences,
         registry: &DiagramElementRegistry,
-    ) -> Result<Option<MessageTypeChoices>, DiagramErrorCode> {
-        let mut one_of = self.one_of.clone();
-        println!("initial choices: {:?}", as_type_name(&one_of, registry));
-        for level in self.constraints.values() {
-            let mut changed = false;
-            let ctx = ConstraintContext { inference, registry };
+    ) -> MessageTypeEvaluation {
+        let Some(constraint) = &self.constraint else {
+            return Ok(None);
+        };
 
-            for constraint in level {
-                let reduction = constraint.evaluate(&ctx)?.map(|mut reduction| {
-                    // Sort by ID and then by cost for items with the same ID
-                    reduction.sort_by(|a, b| {
-                        match a.id.cmp(&b.id) {
-                            Ordering::Equal => return a.cost.cmp(&b.cost),
-                            x => return x,
-                        }
-                    });
-                    // Remove any duplicates. Since items with the same ID are
-                    // ordered by ascending cost, we should keep the version
-                    // that has the lowest cost.
-                    reduction.dedup_by(|a, b| a.id == b.id);
-                    reduction
-                });
-
-                println!("reducing via {constraint:?}: {:?}", as_type_name(&reduction, registry));
-                if let Some(reduction) = reduction {
-                    changed |= reduce_choices(&mut one_of, reduction, registry);
-                }
-            }
-
-            if changed {
-                // Stop at the lowest level where a change has occurred.
-                return Ok(one_of);
-            }
-        }
-
-        Ok(one_of)
+        let ctx = ConstraintContext { inferences: inference, registry };
+        constraint.evaluate(&ctx)
     }
-
-    fn no_choices(&self) -> bool {
-        self.one_of.as_ref().is_some_and(|choices| choices.is_empty())
-    }
-
-    fn is_ambiguous(&self) -> Option<SmallVec<[usize; 8]>> {
-        let choices = self.choices()?;
-        if choices.len() > 1 {
-            return Some(choices);
-        }
-
-        None
-    }
-
-    fn choices(&self) -> Option<SmallVec<[usize; 8]>> {
-        if let Some(one_of) = &self.one_of {
-            return Some(one_of.iter().map(|choice| choice.id).collect());
-        }
-
-        None
-    }
-
-    /// Remove all choices that do not overlap with the choices inside intersect.
-    fn reduce(&mut self, intersect: MessageTypeChoices, registry: &DiagramElementRegistry) -> bool {
-        reduce_choices(&mut self.one_of, intersect, registry)
-    }
-
-    /// Identify the highest cost level in this inference that leads to ambiguity.
-    /// If there is no ambiguity or if there is only one cost level, then this
-    /// will return None.
-    fn highest_ambiguous_cost(&mut self) -> Option<u32> {
-        if let Some(one_of) = &mut self.one_of {
-            one_of.sort_by(|a, b| a.cost.cmp(&b.cost));
-            if let (Some(lowest), Some(highest)) = (one_of.first(), one_of.last()) {
-                if lowest.cost < highest.cost {
-                    return Some(highest.cost);
-                }
-            }
-        }
-
-        None
-    }
-
-    fn peel_ambiguous_cost(&mut self, cost: u32) -> bool {
-        if let Some(one_of) = &mut self.one_of {
-            // We should only peel off this cost if it will not erase all choices.
-            if one_of.iter().any(|e| e.cost < cost) {
-                one_of.retain(|e| e.cost < cost);
-                return true;
-            }
-        }
-
-        false
-    }
-}
-
-fn reduce_choices(
-    one_of: &mut Option<MessageTypeChoices>,
-    intersect: MessageTypeChoices,
-    registry: &DiagramElementRegistry,
-) -> bool {
-    let mut changed = false;
-    if let Some(one_of) = one_of.as_mut() {
-        // let one_of_ids: Vec<usize> = one_of.iter().map(|e| e.id).collect();
-        // let intersect_ids: Vec<usize> = intersect.iter().map(|e| e.id).collect();
-        println!(
-            "intersecting {:?} n {:?}",
-            as_type_name(&Some(one_of.clone()), registry),
-            as_type_name(&Some(intersect.clone()), registry),
-        );
-
-
-        let original = one_of.len();
-        // Reduce the set of options for this message type based
-        // on the constraints.
-        one_of.retain(|choice| {
-            intersect.iter().any(|e| e.id == choice.id)
-        });
-
-        let choices_reduced = original != one_of.len();
-        changed |= choices_reduced;
-
-        for choice in one_of {
-            for e in &intersect {
-                if e.id == choice.id {
-                    choice.cost = u32::min(choice.cost, e.cost);
-                }
-            }
-        }
-    } else {
-        changed = true;
-        *one_of = Some(intersect);
-    }
-
-    changed
 }
 
 /// An input or output port of an operation.
@@ -1559,12 +1171,61 @@ impl From<NamedOutputRef> for PortRef {
 #[derive(Debug, Default)]
 struct Inferences {
     evaluations: HashMap<PortRef, MessageTypeInference>,
+    connections_into: HashMap<OperationRef, HashSet<OutputRef>>,
+    connection_from: HashMap<OutputRef, OperationRef>,
+    buffer_hints: HashMap<OperationRef, Vec<BufferInference>>,
 }
+
+struct BufferInference {
+    used_by: PortRef,
+    member: BufferIdentifier<'static>,
+    evaluate: EvaluateBufferLayoutHintFn,
+}
+
+impl BufferInference {
+    pub fn evaluate(
+        &self,
+        ctx: &ConstraintContext,
+    ) -> MessageTypeEvaluation {
+        let Some(target_inference) = ctx.get_inference_of(self.used_by.clone())? else {
+            return Ok(None);
+        };
+
+        (self.evaluate)(ctx, *target_inference, &self.member)
+    }
+}
+
+impl std::fmt::Debug for BufferInference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BufferInference")
+            .field("used_by", &self.used_by)
+            .field("member", &self.member)
+            .finish()
+    }
+}
+
+type EvaluateBufferLayoutHintFn = fn(
+    &ConstraintContext,
+    usize,
+    &BufferIdentifier,
+) -> MessageTypeEvaluation;
 
 impl Inferences {
     fn evaluation(&mut self, key: impl Into<PortRef>) -> &mut MessageTypeInference {
         let key = key.into();
         self.evaluations.entry(key).or_default()
+    }
+
+    fn constrain(
+        &mut self,
+        key: impl Into<PortRef>,
+        constraint: impl MessageTypeConstraint,
+    ) {
+        let port_constraint = &mut self.evaluation(key).constraint;
+
+        // TODO(@mxgrey): Remove this assertion when done testing
+        assert!(port_constraint.is_none());
+        *port_constraint = Some(Arc::new(constraint));
     }
 
     fn get_evaluation(&self, key: &PortRef) -> Result<&MessageTypeInference, DiagramErrorCode> {
@@ -1574,22 +1235,10 @@ impl Inferences {
             .ok_or_else(|| DiagramErrorCode::UnknownPort(key.clone()))
     }
 
-    fn no_choices(&self, key: &PortRef) -> Result<bool, DiagramErrorCode> {
-        Ok(self.get_evaluation(key)?.no_choices())
-    }
-
-    fn constraint_level_mut(
-        &mut self,
-        key: impl Into<PortRef>,
-        level: usize,
-    ) -> &mut Vec<Arc<dyn MessageTypeConstraint>> {
-        self.evaluation(key).constraints.entry(level).or_default()
-    }
-
-    fn into_constraint_map(self) -> HashMap<PortRef, ConstraintMap> {
+    fn into_constraint_map(self) -> HashMap<PortRef, Option<Arc<dyn MessageTypeConstraint>>> {
         let mut map = HashMap::new();
         for (port, infer) in self.evaluations {
-            map.insert(port, infer.constraints);
+            map.insert(port, infer.constraint);
         }
 
         map
@@ -1598,38 +1247,9 @@ impl Inferences {
     fn try_infer_types(&self) -> Option<InferredMessageTypes> {
         let mut inferred = InferredMessageTypes::new();
         for (port, evaluation) in &self.evaluations {
-            inferred.insert(port.clone(), evaluation.infer()?);
+            inferred.insert(port.clone(), evaluation.message_type?);
         }
         Some(inferred)
-    }
-
-    /// Identify the highest cost level that's creating ambiguity and then remove
-    /// that level across all ports that have ambiguity.
-    fn peel_highest_cost_level(
-        &mut self,
-        queue: &mut VecDeque<PortRef>,
-        dependents: &HashMap<PortRef, Vec<PortRef>>,
-    ) {
-        let highest_cost = self
-            .evaluations
-            .values_mut()
-            .map(|e| e.highest_ambiguous_cost())
-            .max()
-            .flatten();
-
-        let Some(highest_cost) = highest_cost else {
-            return;
-        };
-
-        for (port, evaluation) in &mut self.evaluations {
-            if evaluation.peel_ambiguous_cost(highest_cost) {
-                if let Some(deps) = dependents.get(port) {
-                    for dep in deps {
-                        queue.push_back(dep.clone());
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -1637,7 +1257,10 @@ impl Inferences {
 struct ExactMatch(PortRef);
 
 impl MessageTypeConstraint for ExactMatch {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
+    fn dependencies(
+        &self,
+        _: &ConstraintContext,
+    ) -> SmallVec<[PortRef; 8]> {
         smallvec![self.0.clone()]
     }
 
@@ -1650,118 +1273,57 @@ impl MessageTypeConstraint for ExactMatch {
 }
 
 #[derive(Debug)]
-struct ConnectInto(OperationRef);
+struct CloneInput {
+    operation: OperationRef,
+    targets: Vec<OperationRef>,
+}
 
-impl MessageTypeConstraint for ConnectInto {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
-        smallvec![self.0.clone().into()]
+impl MessageTypeConstraint for CloneInput {
+    fn dependencies(
+        &self,
+        context: &ConstraintContext,
+    ) -> SmallVec<[PortRef; 8]> {
+        self.targets
+            .iter()
+            .cloned()
+            .map(Into::into)
+            .chain(context.connections_into(&self.operation).into_iter().map(Into::into))
+            .collect()
     }
 
     fn evaluate(
         &self,
         context: &ConstraintContext,
     ) -> MessageTypeEvaluation {
-        context.evaluate_connect_into(&self.0)
+        context.evaluate_clone_input(&self.operation, &self.targets)
     }
 }
-
-#[derive(Debug)]
-struct ConnectFrom(OutputRef);
-
-impl MessageTypeConstraint for ConnectFrom {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
-        smallvec![self.0.clone().into()]
-    }
-
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
-        context.evaluate_connect_from(&self.0)
-    }
-}
-
-#[derive(Debug)]
-struct ConvertInto(OutputRef);
-
-impl MessageTypeConstraint for ConvertInto {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
-        smallvec![self.0.clone().into()]
-    }
-
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
-        context.evaluate_convert_into(&self.0)
-    }
-}
-
-#[derive(Debug)]
-struct ConvertFrom(OperationRef);
-
-impl MessageTypeConstraint for ConvertFrom {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
-        smallvec![self.0.clone().into()]
-    }
-
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
-        context.evaluate_convert_from(&self.0)
-    }
-}
-
-#[derive(Debug)]
-struct CloneInto(Vec<PortRef>);
-
-impl MessageTypeConstraint for CloneInto {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
-        self.0.iter().cloned().collect()
-    }
-
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
-        context.evaluate_clone_into(&self.0)
-    }
-}
-
-#[derive(Debug)]
-struct CloneFrom(PortRef);
-
-impl MessageTypeConstraint for CloneFrom {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
-        smallvec![self.0.clone()]
-    }
-
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
-        context.evaluate_clone_from(&self.0)
-    }
-}
-
 
 #[derive(Debug)]
 struct ResultInto {
-    ok: OutputRef,
-    err: OutputRef,
+    operation: OperationRef,
+    ok: OperationRef,
+    err: OperationRef,
 }
 
 impl MessageTypeConstraint for ResultInto {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
-        smallvec![self.ok.clone().into(), self.err.clone().into()]
+    fn dependencies(
+        &self,
+        context: &ConstraintContext,
+    ) -> SmallVec<[PortRef; 8]> {
+        context
+            .connections_into(&self.operation)
+            .into_iter()
+            .map(Into::into)
+            .chain([self.ok.clone().into(), self.err.clone().into()])
+            .collect()
     }
 
     fn evaluate(
         &self,
         context: &ConstraintContext,
     ) -> MessageTypeEvaluation {
-        context.evaluate_result_into(&self.ok, &self.err)
+        context.evaluate_result_input(&self.operation, &self.ok, &self.err)
     }
 }
 
@@ -1769,7 +1331,10 @@ impl MessageTypeConstraint for ResultInto {
 struct OkFrom(OperationRef);
 
 impl MessageTypeConstraint for OkFrom {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
+    fn dependencies(
+        &self,
+        _: &ConstraintContext,
+    ) -> SmallVec<[PortRef; 8]> {
         smallvec![self.0.clone().into()]
     }
 
@@ -1785,7 +1350,10 @@ impl MessageTypeConstraint for OkFrom {
 struct ErrFrom(OperationRef);
 
 impl MessageTypeConstraint for ErrFrom {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
+    fn dependencies(
+        &self,
+        _: &ConstraintContext,
+    ) -> SmallVec<[PortRef; 8]> {
         smallvec![self.0.clone().into()]
     }
 
@@ -1798,29 +1366,35 @@ impl MessageTypeConstraint for ErrFrom {
 }
 
 #[derive(Debug)]
-struct UnzipInto(SmallVec<[OutputRef; 8]>);
+struct UnzipInput(OperationRef);
 
-impl MessageTypeConstraint for UnzipInto {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
-        self.0.clone().into_iter().map(|output| output.into()).collect()
+impl MessageTypeConstraint for UnzipInput {
+    fn dependencies(
+        &self,
+        context: &ConstraintContext,
+    ) -> SmallVec<[PortRef; 8]> {
+        context.connections_into(&self.0).into_iter().map(Into::into).collect()
     }
 
     fn evaluate(
         &self,
         context: &ConstraintContext,
     ) -> MessageTypeEvaluation {
-        context.evaluate_unzip_into(&self.0)
+        context.evaluate_unzip_input(&self.0)
     }
 }
 
 #[derive(Debug)]
-struct UnzipFrom {
+struct UnzipOutput {
     op: OperationRef,
     element: usize,
 }
 
-impl MessageTypeConstraint for UnzipFrom {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
+impl MessageTypeConstraint for UnzipOutput {
+    fn dependencies(
+        &self,
+        _: &ConstraintContext,
+    ) -> SmallVec<[PortRef; 8]> {
         smallvec![self.op.clone().into()]
     }
 
@@ -1828,147 +1402,71 @@ impl MessageTypeConstraint for UnzipFrom {
         &self,
         context: &ConstraintContext,
     ) -> MessageTypeEvaluation {
-        context.evaluate_unzip_from(&self.op, self.element)
+        context.evaluate_unzip_output(&self.op, self.element)
     }
 }
 
 #[derive(Debug)]
-struct JoinInto {
-    joined: PortRef,
-    member: BufferIdentifier<'static>,
+struct BufferInput(OperationRef);
+
+// impl MessageTypeConstraint
+
+#[derive(Debug)]
+struct BufferAccessInput {
+    target: OperationRef,
 }
 
-impl MessageTypeConstraint for JoinInto {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
-        smallvec![self.joined.clone()]
+impl MessageTypeConstraint for BufferAccessInput {
+    fn dependencies(
+        &self,
+        _: &ConstraintContext,
+    ) -> SmallVec<[PortRef; 8]> {
+        smallvec![self.target.clone().into()]
     }
 
     fn evaluate(
         &self,
         context: &ConstraintContext,
     ) -> MessageTypeEvaluation {
-        context.evaluate_buffer_layout_member(
-            &self.joined,
-            &self.member,
-            |inference, msg| {
-                match &inference.operations_of(msg)?.join {
-                    Some(join) => Ok(&join.layout),
-                    None => Err(DiagramErrorCode::NotJoinable(
-                        inference.registry.messages.get_type_info_for(msg)?
-                    )),
-                }
-            }
-        )
+        context.evaluate_buffer_access_input(&self.target)
     }
 }
 
 #[derive(Debug)]
-struct BufferAccessLayoutMember {
-    accessor: PortRef,
-    member: BufferIdentifier<'static>,
-}
+struct SplitInput(OperationRef);
 
-impl MessageTypeConstraint for BufferAccessLayoutMember {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
-        smallvec![self.accessor.clone()]
+impl MessageTypeConstraint for SplitInput {
+    fn dependencies(
+        &self,
+        context: &ConstraintContext,
+    ) -> SmallVec<[PortRef; 8]> {
+        context.connections_into(&self.0).into_iter().map(Into::into).collect()
     }
 
     fn evaluate(
         &self,
         context: &ConstraintContext,
     ) -> MessageTypeEvaluation {
-        context.evaluate_buffer_layout_member(
-            &self.accessor,
-            &self.member,
-            |inference, msg| {
-                match &inference.operations_of(msg)?.buffer_access {
-                    Some(access) => Ok(&access.layout),
-                    None => Err(DiagramErrorCode::CannotAccessBuffers(
-                        inference.registry.messages.get_type_info_for(msg)?
-                    ))
-                }
-            }
-        )
+        context.evaluate_split_input(&self.0)
     }
 }
 
 #[derive(Debug)]
-struct BufferAccessRequestMessage {
-    accessor: PortRef,
-}
+struct SplitOutput(OperationRef);
 
-impl MessageTypeConstraint for BufferAccessRequestMessage {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
-        smallvec![self.accessor.clone()]
-    }
-
-    fn evaluate(
+impl MessageTypeConstraint for SplitOutput {
+    fn dependencies(
         &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
-        context.evaluate_buffer_access_request_message(&self.accessor)
-    }
-}
-
-#[derive(Debug)]
-struct ListenMember {
-    listener: PortRef,
-    member: BufferIdentifier<'static>,
-}
-
-impl MessageTypeConstraint for ListenMember {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
-        smallvec![self.listener.clone()]
-    }
-
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
-        context.evaluate_buffer_layout_member(
-            &self.listener,
-            &self.member,
-            |inference, msg| {
-                match &inference.operations_of(msg)?.listen {
-                    Some(listen) => Ok(&listen.layout),
-                    None => Err(DiagramErrorCode::CannotListen(
-                        inference.registry.messages.get_type_info_for(msg)?
-                    ))
-                }
-            }
-        )
-    }
-}
-
-#[derive(Debug)]
-struct SplitFrom(OperationRef);
-
-impl MessageTypeConstraint for SplitFrom {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
+        _: &ConstraintContext,
+    ) -> SmallVec<[PortRef; 8]> {
         smallvec![self.0.clone().into()]
-    }
-
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
-        context.evaluate_split_from(&self.0)
-    }
-}
-
-#[derive(Debug)]
-struct SplitInto(Vec<PortRef>);
-
-impl MessageTypeConstraint for SplitInto {
-    fn dependencies(&self) -> SmallVec<[PortRef; 8]> {
-        self.0.iter().cloned().collect()
     }
 
     fn evaluate(
         &self,
         ctx: &ConstraintContext,
     ) -> MessageTypeEvaluation {
-        ctx.evaluate_split_into(&self.0)
+        ctx.evaluate_split_output(&self.0)
     }
 }
 

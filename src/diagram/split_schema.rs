@@ -103,7 +103,7 @@ pub struct SplitSchema {
     #[serde(default, skip_serializing_if = "is_default")]
     pub sequential: Vec<NextOperation>,
     #[serde(default, skip_serializing_if = "is_default")]
-    pub keyed: HashMap<String, NextOperation>,
+    pub keyed: HashMap<OperationName, NextOperation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remaining: Option<NextOperation>,
     // TODO(@mxgrey): Consider what kind of settings we could provide to let
@@ -142,11 +142,9 @@ impl BuildDiagramOperation for SplitSchema {
     ) -> Result<(), DiagramErrorCode> {
         ctx.split(
             id,
-            self
-            .keyed
-            .values()
-            .chain(self.sequential.iter())
-            .chain(self.remaining.iter())
+            &self.sequential,
+            &self.keyed,
+            &self.remaining,
         );
         Ok(())
     }
@@ -306,7 +304,7 @@ where
         let mut outputs = Vec::new();
         let mut split = split.build(builder);
         for (key, target) in &split_op.keyed {
-            let output = split.specific_chain(key.clone(), |chain| {
+            let output = split.specific_chain(key.to_string(), |chain| {
                 chain.map_block(|(_, value)| value).output()
             })?;
 

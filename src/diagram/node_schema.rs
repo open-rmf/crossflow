@@ -121,16 +121,16 @@ impl BuildDiagramOperation for NodeSchema {
         let node = ctx.registry.get_node_registration(&self.builder)?.metadata();
 
         // Set the exact message type of the input port
-        ctx.one_of(id, &[node.request]);
+        ctx.fixed(id, node.request);
 
         // Set the exact message type of the output port, and connect it to the
         // next operation.
-        ctx.one_of(output_ref(id).next(), &[node.response]);
+        ctx.fixed(output_ref(id).next(), node.response);
         ctx.connect_into(output_ref(id).next(), &self.next);
 
         // Set the exact message type of each stream output.
         for (stream_id, stream_type) in &node.streams {
-            ctx.one_of(output_ref(id).stream_out(stream_id), &[*stream_type]);
+            ctx.fixed(output_ref(id).stream_out(stream_id), *stream_type);
         }
 
         // Connect each stream output to its target operation.

@@ -391,21 +391,26 @@ pub enum MessageTypeHint<TypeRepr = TypeInfo> {
     Fallback(TypeRepr),
 }
 
-impl MessageTypeHint<TypeInfo> {
-    #[cfg(feature = "diagram")]
-    pub fn export(
-        &self,
-        messages: &mut MessageRegistry,
-    ) -> MessageTypeHint<usize> {
-        let index = messages.registration.get_index_or_insert_placeholder(*self.inner());
+impl<TypeRepr> MessageTypeHint<TypeRepr> {
+    pub fn is_exact(&self) -> bool {
+        matches!(self, Self::Exact(_))
+    }
 
+    pub fn as_exact(&self) -> Option<TypeRepr>
+    where
+        TypeRepr: Copy,
+    {
         match self {
-            Self::Exact(_) => MessageTypeHint::Exact(index),
-            Self::Fallback(_) => MessageTypeHint::Fallback(index),
+            Self::Exact(info) => Some(*info),
+            _ => None,
         }
     }
 
-    fn inner(&self) -> &TypeInfo {
+    pub fn is_fallback(&self) -> bool {
+        matches!(self, Self::Fallback(_))
+    }
+
+    fn inner(&self) -> &TypeRepr {
         match self {
             Self::Exact(inner) => inner,
             Self::Fallback(inner) => inner,
@@ -427,23 +432,21 @@ impl MessageTypeHint<TypeInfo> {
         Self::Exact(TypeInfo::of::<T>())
     }
 
-    pub fn is_exact(&self) -> bool {
-        matches!(self, Self::Exact(_))
-    }
-
-    pub fn as_exact(&self) -> Option<TypeInfo> {
-        match self {
-            Self::Exact(info) => Some(*info),
-            _ => None,
-        }
-    }
-
     pub fn fallback<T: 'static>() -> Self {
         Self::Fallback(TypeInfo::of::<T>())
     }
 
-    pub fn is_fallback(&self) -> bool {
-        matches!(self, Self::Fallback(_))
+    #[cfg(feature = "diagram")]
+    pub fn export(
+        &self,
+        messages: &mut MessageRegistry,
+    ) -> MessageTypeHint<usize> {
+        let index = messages.registration.get_index_or_insert_placeholder(*self.inner());
+
+        match self {
+            Self::Exact(_) => MessageTypeHint::Exact(index),
+            Self::Fallback(_) => MessageTypeHint::Fallback(index),
+        }
     }
 }
 
@@ -497,7 +500,7 @@ pub struct DynamicBufferMapLayoutHints<TypeRepr> {
     /// The buffer identifiers can include names.
     pub names: bool,
     /// Constraints for the message types of the buffers.
-    pub constraint: BufferMapLayoutConstraint<TypeRepr>,
+    pub hint: Option<MessageTypeHint<TypeRepr>>,
 }
 
 impl DynamicBufferMapLayoutHints<TypeInfo> {
@@ -509,7 +512,7 @@ impl DynamicBufferMapLayoutHints<TypeInfo> {
         DynamicBufferMapLayoutHints {
             indices: self.indices,
             names: self.names,
-            constraint: self.constraint.export(messages),
+            hint: self.hint.as_ref().map(|h| h.export(messages)),
         }
     }
 }
@@ -828,7 +831,7 @@ impl BufferMapLayout for BufferMap {
             DynamicBufferMapLayoutHints {
                 indices: true,
                 names: true,
-                constraint: BufferMapLayoutConstraint::Any,
+                hint: None,
             }
         )
     }
@@ -1016,9 +1019,7 @@ impl<B: 'static + Send + Sync + AsAnyBuffer + Clone> BufferMapLayout for Vec<B> 
             DynamicBufferMapLayoutHints {
                 indices: true,
                 names: false,
-                constraint: BufferMapLayoutConstraint::OneOf(
-                    vec![B::message_type_hint()]
-                ),
+                hint: Some(B::message_type_hint()),
             }
         )
     }

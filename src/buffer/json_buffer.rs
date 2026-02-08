@@ -1264,9 +1264,7 @@ impl BufferMapLayout for HashMap<String, JsonBuffer> {
             DynamicBufferMapLayoutHints {
                 indices: false,
                 names: true,
-                constraint: BufferMapLayoutConstraint::AnyOf(
-                    vec![MessageTypeHint::Fallback(TypeInfo::of::<JsonMessage>())]
-                )
+                hint: Some(MessageTypeHint::Fallback(TypeInfo::of::<JsonMessage>())),
             }
         )
     }
@@ -1330,9 +1328,7 @@ impl BufferMapLayout for HashMap<BufferIdentifier<'static>, JsonBuffer> {
             DynamicBufferMapLayoutHints {
                 indices: true,
                 names: true,
-                constraint: BufferMapLayoutConstraint::AnyOf(vec![
-                    MessageTypeHint::Fallback(TypeInfo::of::<JsonMessage>())
-                ])
+                hint: Some(MessageTypeHint::Fallback(TypeInfo::of::<JsonMessage>())),
             }
         )
     }

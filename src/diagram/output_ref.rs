@@ -96,6 +96,18 @@ impl NamedOutputBuilder {
         self.key(OutputKey(smallvec!["next".into(), NameOrIndex::Index(index)]))
     }
 
+    pub fn sequential(self, index: usize) -> NamedOutputRef {
+        self.key(OutputKey(smallvec!["sequential".into(), NameOrIndex::Index(index)]))
+    }
+
+    pub fn keyed(self, key: &OperationName) -> NamedOutputRef {
+        self.key(OutputKey(smallvec!["keyed".into(), NameOrIndex::Name(Arc::clone(key))]))
+    }
+
+    pub fn remaining(self) -> NamedOutputRef {
+        self.key(OutputKey(smallvec!["remaining".into()]))
+    }
+
     pub fn section_output(self, output: &dyn Borrow<str>) -> NamedOutputRef {
         self.key(OutputKey(smallvec!["connect".into(), output.borrow().into()]))
     }

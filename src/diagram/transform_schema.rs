@@ -157,8 +157,8 @@ impl BuildDiagramOperation for TransformSchema {
     ) -> Result<(), DiagramErrorCode> {
         let json_message_index = ctx.registry.messages.registration.get_index::<JsonMessage>()?;
 
-        ctx.one_of(id, &[json_message_index]);
-        ctx.one_of(output_ref(id).next(), &[json_message_index]);
+        ctx.fixed(id, json_message_index);
+        ctx.fixed(output_ref(id).next(), json_message_index);
         ctx.connect_into(output_ref(id).next(), &self.next);
 
         Ok(())

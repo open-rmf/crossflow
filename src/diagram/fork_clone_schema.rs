@@ -103,11 +103,6 @@ impl BuildDiagramOperation for ForkCloneSchema {
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
         ctx.fork_clone(id, &self.next);
-
-        for (i, next) in self.next.iter().enumerate() {
-            ctx.connect_into(output_ref(id).next_index(i), next);
-        }
-
         Ok(())
     }
 }

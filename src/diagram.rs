@@ -917,6 +917,12 @@ pub enum DiagramErrorCode {
     )]
     MissingStartOrTerminate,
 
+    #[error("Operation [{0}] has no connections")]
+    NoConnection(OperationRef),
+
+    #[error("Cannot select message type. Choices: {}", format_list(.0))]
+    AmbiguousMessageType(Vec<TypeInfo>),
+
     #[error("Serialization was not registered for the target message type.")]
     NotSerializable(TypeInfo),
 
@@ -1094,7 +1100,7 @@ impl DiagramErrorCode {
 pub struct MessageTypeInferenceFailure {
     pub no_valid_choice: Vec<PortRef>,
     pub ambiguous_choice: Vec<(PortRef, Vec<Arc<str>>)>,
-    pub constraints: HashMap<PortRef, ConstraintMap>,
+    pub constraints: HashMap<PortRef, Option<Arc<dyn MessageTypeConstraint>>>,
 }
 
 impl std::fmt::Debug for MessageTypeInferenceFailure {

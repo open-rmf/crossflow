@@ -218,7 +218,7 @@ impl BuildDiagramOperation for SectionSchema {
                         operation: input_name.clone()
                     });
 
-                    ctx.one_of(&op, &[input_metadata.message_type]);
+                    ctx.fixed(&op, input_metadata.message_type);
                 }
 
                 for (buffer_name, buffer_metadata) in &metadata.interface.buffers {
@@ -228,13 +228,13 @@ impl BuildDiagramOperation for SectionSchema {
                     });
 
                     if let Some(buffer_message_type) = buffer_metadata.message_type {
-                        ctx.one_of(&op, &[buffer_message_type]);
+                        ctx.fixed(&op, buffer_message_type);
                     }
                 }
 
                 for (output_name, output_metadata) in &metadata.interface.outputs {
                     let op = output_ref(id).section_output(output_name);
-                    ctx.one_of(op, &[output_metadata.message_type]);
+                    ctx.fixed(op, output_metadata.message_type);
                 }
 
                 for (output_name, next) in &self.connect {

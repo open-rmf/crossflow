@@ -137,17 +137,7 @@ impl BuildDiagramOperation for BufferSchema {
         id: &OperationName,
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
-        if self.serialize.is_some_and(|x| x) {
-            let json_message_index = ctx
-                .registry
-                .messages
-                .registration
-                .get_index::<JsonMessage>()?;
-
-            dbg!();
-            ctx.one_of(id, &[json_message_index]);
-        }
-
+        ctx.buffer(id, self.serialize.unwrap_or(false));
         Ok(())
     }
 }
@@ -348,10 +338,10 @@ impl BuildDiagramOperation for ListenSchema {
 
     fn apply_message_type_constraints(
         &self,
-        _id: &OperationName,
+        id: &OperationName,
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
-        ctx.listen(&self.buffers, &self.next);
+        ctx.listen(id, &self.buffers, &self.next);
         Ok(())
     }
 }

@@ -97,9 +97,7 @@ impl BuildDiagramOperation for ForkResultSchema {
         id: &OperationName,
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
-        ctx.result(id, output_ref(id).ok(), output_ref(id).err());
-        ctx.connect_into(output_ref(id).ok(), &self.ok);
-        ctx.connect_into(output_ref(id).err(), &self.err);
+        ctx.result(id, &self.ok, &self.err);
         Ok(())
     }
 }
