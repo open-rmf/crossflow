@@ -118,26 +118,7 @@ impl BuildDiagramOperation for NodeSchema {
         id: &OperationName,
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
-        let node = ctx.registry.get_node_registration(&self.builder)?.metadata();
-
-        // Set the exact message type of the input port
-        ctx.fixed(id, node.request);
-
-        // Set the exact message type of the output port, and connect it to the
-        // next operation.
-        ctx.fixed(output_ref(id).next(), node.response);
-        ctx.connect_into(output_ref(id).next(), &self.next);
-
-        // Set the exact message type of each stream output.
-        for (stream_id, stream_type) in &node.streams {
-            ctx.fixed(output_ref(id).stream_out(stream_id), *stream_type);
-        }
-
-        // Connect each stream output to its target operation.
-        for (stream_id, stream_target) in &self.stream_out {
-            ctx.connect_into(output_ref(id).stream_out(stream_id), stream_target);
-        }
-
+        ctx.node(id, self)?;
         Ok(())
     }
 }

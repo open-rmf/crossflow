@@ -32,6 +32,7 @@ use crate::{
     MessageTypeHint, BufferSelection, NamedOutputRef, BuildDiagramOperation, MessageTypeInferenceFailure,
     Operations, OperationName, NamespaceList, NextOperation, output_ref, Diagram, StreamPack, StreamAvailability,
     DiagramError, TypeInfo, IncompatibleLayout, BufferIncompatibility, OperationRef,
+    NodeSchema, SectionSchema, SectionProvider, SectionError, NamespacedOperation, ScopeSchema,
 };
 
 pub type InferredMessageTypes = HashMap<PortRef, usize>;
@@ -215,17 +216,20 @@ where
     // Add constraints for the start operation
     ctx.connect_into(OutputRef::start(), ctx.into_operation_ref(&diagram.start));
     let request_msg_index = registry.messages.registration.get_index::<Request>()?;
-    ctx.fixed(OutputRef::start(), request_msg_index);
+    let start = ctx.into_port_ref(OutputRef::start());
+    ctx.fixed(start, request_msg_index);
 
     // Add constraints for the terminate operation
     let response_msg_index = registry.messages.registration.get_index::<Response>()?;
-    ctx.fixed(OperationRef::Terminate(Default::default()), response_msg_index);
+    let terminate = ctx.into_port_ref(OperationRef::Terminate(Default::default()));
+    ctx.fixed(terminate, response_msg_index);
 
     let mut streams = StreamAvailability::default();
     Streams::set_stream_availability(&mut streams);
     for (name, stream_type) in streams.named_streams() {
         let stream_msg_index = registry.messages.registration.get_index_dyn(&stream_type)?;
-        ctx.fixed(OperationRef::stream_out(&Arc::from(name)), stream_msg_index);
+        let stream = ctx.into_port_ref(OperationRef::stream_out(&Arc::from(name)));
+        ctx.fixed(stream, stream_msg_index);
     }
 
     Ok(())
@@ -256,9 +260,9 @@ pub struct InferenceContext<'a, 'b> {
 impl<'a, 'b> InferenceContext<'a, 'b> {
     /// Specify exactly what message types a port may have, irrespective of
     /// any connections to other operations.
-    pub fn fixed(
+    fn fixed(
         &mut self,
-        port: impl Into<PortRef>,
+        port: PortRef,
         message_type: usize,
     ) {
         let port = self.into_port_ref(port);
@@ -290,6 +294,204 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     ) {
         self.inference.connection_from.insert(output.clone(), input.clone());
         self.inference.connections_into.entry(input).or_default().insert(output);
+    }
+
+    /// Specify that an operation simply redirects its inputs into another operation
+    fn redirect_into(
+        &mut self,
+        from: OperationRef,
+        into: OperationRef,
+    ) {
+        self.inference.constrain(from.clone(), ExactMatch(into.clone().into()));
+        self.inference.redirected_input.insert(from.clone(), into.clone());
+        self.inference.redirections_into.entry(into).or_default().insert(from);
+    }
+
+    pub fn node(
+        &mut self,
+        operation_name: &OperationName,
+        schema: &NodeSchema,
+    ) -> Result<(), DiagramErrorCode> {
+        let node = self.registry.get_node_registration(&schema.builder)?.metadata();
+        let input = self.into_operation_ref(operation_name);
+
+        // Set the exact message type of the input port
+        self.fixed(input.into(), node.request);
+
+        // Set the exact message type of the output port, and connect it to the
+        // next operation.
+        let output = self.into_output_ref(output_ref(operation_name).next());
+        let target = self.into_operation_ref(&schema.next);
+        self.fixed(output.clone().into(), node.response);
+        self.connect_into(output, target);
+
+        // Set the exact message type of each stream output.
+        for (stream_id, stream_type) in &node.streams {
+            let stream = self.into_output_ref(output_ref(operation_name).stream_out(stream_id));
+            self.fixed(stream.into(), *stream_type);
+        }
+
+        // Connect each stream output to its target operation.
+        for (stream_id, stream_target) in &schema.stream_out {
+            let stream = self.into_output_ref(output_ref(operation_name).stream_out(stream_id));
+            let stream_target = self.into_operation_ref(stream_target);
+            self.connect_into(stream, stream_target);
+        }
+
+        Ok(())
+    }
+
+    pub fn section(
+        &mut self,
+        id: &OperationName,
+        schema: &SectionSchema,
+    ) -> Result<(), DiagramErrorCode> {
+        match &schema.provider {
+            SectionProvider::Builder(section_builder) => {
+                let metadata = &self
+                    .registry
+                    .get_section_registration(section_builder)?
+                    .metadata;
+
+                for (input_name, input_metadata) in &metadata.interface.inputs {
+                    let op = NextOperation::Namespace(NamespacedOperation {
+                        namespace: id.clone(),
+                        operation: input_name.clone()
+                    });
+                    let op = self.into_port_ref(&op);
+
+                    self.fixed(op, input_metadata.message_type);
+                }
+
+                for (buffer_name, buffer_metadata) in &metadata.interface.buffers {
+                    let op = NextOperation::Namespace(NamespacedOperation {
+                        namespace: id.clone(),
+                        operation: buffer_name.clone(),
+                    });
+                    let op = self.into_port_ref(&op);
+
+                    if let Some(buffer_message_type) = buffer_metadata.message_type {
+                        self.fixed(op, buffer_message_type);
+                    }
+                }
+
+                for (output_name, output_metadata) in &metadata.interface.outputs {
+                    let op = self.into_port_ref(
+                        output_ref(id).section_output(output_name)
+                    );
+                    self.fixed(op, output_metadata.message_type);
+                }
+
+                for (output_name, next) in &schema.connect {
+                    let op = self.into_output_ref(
+                        output_ref(id).section_output(output_name)
+                    );
+                    let target = self.into_operation_ref(next);
+                    self.connect_into(op, target);
+                }
+            }
+            SectionProvider::Template(section_template) => {
+                let section = self.templates.get_template(section_template)?;
+
+                for (child_id, op) in section.ops.iter() {
+                    self.add_child_operation(id, child_id, op, section.ops.clone(), None);
+                }
+
+                section.inputs.redirect(|op, next| {
+                    let op = self.into_operation_ref(OperationRef::exposed_input(id, op));
+                    let next = self.into_operation_ref(next.in_namespace(id));
+                    self.redirect_into(op, next);
+                    Ok(())
+                })?;
+
+                section.buffers.redirect(|op, next| {
+                    let op = self.into_operation_ref(OperationRef::exposed_input(id, op));
+                    let next = self.into_operation_ref(next.in_namespace(id));
+                    self.redirect_into(op, next);
+                    Ok(())
+                })?;
+
+                for expected_output in schema.connect.keys() {
+                    if !section.outputs.contains(expected_output) {
+                        return Err(SectionError::UnknownOutput(Arc::clone(expected_output)).into());
+                    }
+                }
+
+                for output in &section.outputs {
+                    if let Some(target) = schema.connect.get(output) {
+                        let output = self.into_operation_ref(
+                            NextOperation::Name(Arc::clone(output)).in_namespace(id)
+                        );
+                        let target = self.into_operation_ref(target);
+                        self.redirect_into(output, target);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn scope(
+        &mut self,
+        id: &OperationName,
+        schema: &ScopeSchema,
+    ) {
+        let scope_namespace = [Arc::clone(id)];
+        let operation = self.into_operation_ref(id);
+
+        // The request type of this scope must exactly match the request type
+        // of the starting operation.
+        let start_target = self.into_operation_ref(
+            OperationRef::from(&schema.start)
+            .in_namespaces(&scope_namespace)
+        );
+        self.redirect_into(operation, start_target);
+
+        for (stream_name, stream_target) in &schema.stream_out {
+            let stream = self.into_operation_ref(
+                OperationRef::scope_stream_out(id, stream_name)
+            );
+            let stream_target = self.into_operation_ref(stream_target);
+            self.redirect_into(stream, stream_target);
+        }
+
+        // The terminating message type of this scope must exactly match the
+        // request type of the next operation that the scope is connected to.
+        let terminate = self.into_operation_ref(OperationRef::terminate_for(id));
+        let terminate_target = self.into_operation_ref(&schema.next);
+        self.redirect_into(terminate, terminate_target);
+
+        for (child_id, op) in schema.ops.iter() {
+            self.add_child_operation(id, child_id, op, schema.ops.clone(), Some(schema.on_implicit_error()));
+        }
+    }
+
+    pub fn transform(
+        &mut self,
+        operation_name: &OperationName,
+        next: &NextOperation,
+    ) -> Result<(), DiagramErrorCode> {
+        let json_message_index = self.registry.messages.registration.get_index::<JsonMessage>()?;
+        let operation = self.into_operation_ref(operation_name);
+        let output = self.into_output_ref(output_ref(operation_name).next());
+        let target = self.into_operation_ref(next);
+
+        self.fixed(operation.into(), json_message_index);
+        self.fixed(output.clone().into(), json_message_index);
+        self.connect_into(output, target);
+
+        Ok(())
+    }
+
+    pub fn stream_out(
+        &mut self,
+        operation_name: &OperationName,
+        stream_name: &OperationName,
+    ) {
+        let operation = self.into_operation_ref(operation_name);
+        let stream = self.into_operation_ref(OperationRef::stream_out(stream_name));
+        self.inference.constrain(operation, ExactMatch(stream.into()));
     }
 
     pub fn fork_clone(
@@ -368,11 +570,11 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         operation_name: &OperationName,
         serialize: bool,
     ) -> Result<(), DiagramErrorCode> {
+        let operation = self.into_operation_ref(operation_name);
         if serialize {
             let json_index = self.registry.messages.registration.get_index::<JsonMessage>()?;
-            self.fixed(operation_name, json_index);
+            self.fixed(operation.into(), json_index);
         } else {
-            let operation = self.into_operation_ref(operation_name);
             self.inference.constrain(operation.clone(), BufferInput(operation));
         }
 
@@ -411,7 +613,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
         if serialize {
             let json_message_index = self.registry.messages.registration.get_index::<JsonMessage>()?;
-            self.fixed(output.clone(), json_message_index);
+            self.fixed(output.clone().into(), json_message_index);
             self.connect_into(output, target);
         } else {
             self.infer_from_downstream(output, target);
@@ -606,18 +808,36 @@ impl<'a> ConstraintContext<'a> {
         &self,
         input: &OperationRef,
     ) -> Result<SmallVec<[usize; 8]>, DiagramErrorCode> {
-        let Some(connections) = self.inferences.connections_into.get(input) else {
-            return Err(DiagramErrorCode::NoConnection(input.clone()));
-        };
-
-        if connections.is_empty() {
-            return Err(DiagramErrorCode::NoConnection(input.clone()));
-        }
-
         let mut message_types = SmallVec::new();
-        for connection in connections {
-            if let Some(message_type) = self.get_inference_of(connection.clone())? {
-                message_types.push(*message_type);
+        let mut input_queue: SmallVec<[&OperationRef; 8]> = SmallVec::new();
+        input_queue.push(input);
+        let mut visited = HashSet::new();
+
+        while let Some(input) = input_queue.pop() {
+            if !visited.insert(input) {
+                return Err(DiagramErrorCode::CircularRedirect(
+                    visited.into_iter().cloned().collect()
+                ));
+            }
+
+            let connections = self.inferences.connections_into.get(input);
+            let redirections = self.inferences.redirections_into.get(input);
+            if connections.is_none_or(|c| c.is_empty()) && redirections.is_none_or(|r| r.is_empty()) {
+                return Err(DiagramErrorCode::NoConnection(input.clone()));
+            }
+
+            if let Some(connections) = connections {
+                for connection in connections {
+                    if let Some(message_type) = self.get_inference_of(connection.clone())? {
+                        message_types.push(*message_type);
+                    }
+                }
+            }
+
+            if let Some(redirections) = redirections {
+                for redirect in redirections {
+                    input_queue.push(redirect);
+                }
             }
         }
 
@@ -1181,6 +1401,8 @@ struct Inferences {
     evaluations: HashMap<PortRef, MessageTypeInference>,
     connections_into: HashMap<OperationRef, HashSet<OutputRef>>,
     connection_from: HashMap<OutputRef, OperationRef>,
+    redirected_input: HashMap<OperationRef, OperationRef>,
+    redirections_into: HashMap<OperationRef, HashSet<OperationRef>>,
     buffer_hints: HashMap<OperationRef, Vec<BufferInference>>,
 }
 

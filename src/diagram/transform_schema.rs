@@ -155,13 +155,7 @@ impl BuildDiagramOperation for TransformSchema {
         id: &OperationName,
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
-        let json_message_index = ctx.registry.messages.registration.get_index::<JsonMessage>()?;
-
-        ctx.fixed(id, json_message_index);
-        ctx.fixed(output_ref(id).next(), json_message_index);
-        ctx.connect_into(output_ref(id).next(), &self.next);
-
-        Ok(())
+        ctx.transform(id, &self.next)
     }
 }
 

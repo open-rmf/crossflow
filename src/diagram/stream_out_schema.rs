@@ -92,7 +92,7 @@ impl BuildDiagramOperation for StreamOutSchema {
         id: &OperationName,
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
-        ctx.exact_match(id, OperationRef::stream_out(&self.name));
+        ctx.stream_out(id, &self.name);
         Ok(())
     }
 }

@@ -203,30 +203,7 @@ impl BuildDiagramOperation for ScopeSchema {
         id: &OperationName,
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
-        let scope_namespace = [Arc::clone(id)];
-
-        // The request type of this scope must exactly match the request type
-        // of the starting operation.
-        let start = OperationRef::from(&self.start)
-            .in_namespaces(&scope_namespace);
-        ctx.exact_match(id, start);
-
-        for (stream_name, stream_target) in &self.stream_out {
-            let stream_op = OperationRef::scope_stream_out(id, stream_name);
-            ctx.exact_match(stream_op, stream_target);
-        }
-
-        // The terminating message type of this scope must exactly match the
-        // request type of the next operation that the scope is connected to.
-        ctx.exact_match(
-            OperationRef::terminate_for(id),
-            &self.next,
-        );
-
-        for (child_id, op) in self.ops.iter() {
-            ctx.add_child_operation(id, child_id, op, self.ops.clone(), Some(self.on_implicit_error()));
-        }
-
+        ctx.scope(id, self);
         Ok(())
     }
 }
