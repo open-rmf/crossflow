@@ -93,7 +93,7 @@ impl Diagram {
         let dependents = {
             let mut dependents = HashMap::<_, Vec<PortRef>>::new();
             for (id, inference) in &inferences.evaluations {
-                for constraint in inference.constraint {
+                if let Some(constraint) = &inference.constraint {
                     let ctx = ConstraintContext { inferences: &inferences, registry };
                     let dependencies = constraint.dependencies(&ctx);
                     for dependency in dependencies {
@@ -112,78 +112,25 @@ impl Diagram {
 
         set_boundary_conditions::<Request, Response, Streams>(&mut inferences, self, registry)?;
 
-        loop {
-            // println!("queue: {}", super::format_list(&Vec::from_iter(queue.iter())));
-            while let Some(port) = queue.pop_front() {
-                println!("\n-----\nqueue: {}", super::format_list(&Vec::from_iter(queue.iter())));
-                println!("evaluating {port}");
-                let evaluation = inferences.get_evaluation(&port)?;
-
-                if let Some(reduction) = evaluation.evaluate(&inferences, registry)? {
-                    let evaluation = inferences.evaluation(port.clone());
-                    if evaluation.reduce(reduction, registry) {
-                        let new = as_type_name(&evaluation.message_type, registry)?;
-                        // The choices for this port have been reduced. We should
-                        // add its dependents to the queue if they're not in already.
-                        if let Some(deps) = dependents.get(&port) {
-                            for dep in deps {
-                                if !queue.contains(&dep) {
-                                    queue.push_back(dep.clone());
-                                }
+        while let Some(port) = queue.pop_front() {
+            let evaluation = inferences.get_evaluation(&port)?;
+            if let Some(message_type) = evaluation.evaluate(&inferences, registry)? {
+                if Some(message_type) != evaluation.message_type {
+                    // A new message type was determined for this port, so update
+                    // it and notify all dependents.
+                    inferences.evaluation(port.clone()).message_type = Some(message_type);
+                    if let Some(deps) = dependents.get(&port) {
+                        for dep in deps {
+                            if !queue.contains(&dep) {
+                                queue.push_back(dep.clone());
                             }
                         }
-
-                        // If there was a reduction, place this operation back
-                        // into the queue to re-evaluate it later until there
-                        // are no further reductions.
-                        queue.push_back(port.clone());
-                    }
-                } else {
-                    println!("no reduction for {port}");
-                }
-
-                if inferences.no_choices(&port)? {
-                    dbg!(&inferences);
-                    return Err(DiagramErrorCode::MessageTypeInferenceFailure(
-                        MessageTypeInferenceFailure {
-                            no_valid_choice: vec![port],
-                            ambiguous_choice: Default::default(),
-                            constraints: inferences.into_constraint_map(),
-                        }
-                    ));
-                }
-            }
-
-            if let Some(inferred) = inferences.try_infer_types() {
-                println!(" ---------------- DONE INFERRING ----------------------- ");
-                return Ok(inferred);
-            }
-
-            println!(" >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ");
-            dbg!(&inferences);
-            println!(" --------------------------------------------- ");
-
-            // All constraints are satisfied but there is some ambiguity
-            // remaining in the message type choices. We can try to peel away
-            // the highest cost choices across all the ports. This is not an
-            // algorithmically complete method, but it will ensure that outcomes
-            // (whether success or failure) are always consistent, always yielding
-            // the same selection of message types across all ports.
-            inferences.peel_highest_cost_level(&mut queue, &dependents);
-
-            if queue.is_empty() {
-                dbg!(&inferences);
-                let mut failure = MessageTypeInferenceFailure::default();
-                for (port, evaluation) in &inferences.evaluations {
-                    if evaluation.message_type.is_none() {
-                        failure.no_valid_choice.push(port.clone());
                     }
                 }
-
-                failure.constraints = inferences.into_constraint_map();
-                return Err(DiagramErrorCode::MessageTypeInferenceFailure(failure));
             }
         }
+
+        inferences.try_infer_types()
     }
 }
 
@@ -1465,21 +1412,15 @@ impl Inferences {
             .ok_or_else(|| DiagramErrorCode::UnknownPort(key.clone()))
     }
 
-    fn into_constraint_map(self) -> HashMap<PortRef, Option<Arc<dyn MessageTypeConstraint>>> {
-        let mut map = HashMap::new();
-        for (port, infer) in self.evaluations {
-            map.insert(port, infer.constraint);
-        }
-
-        map
-    }
-
-    fn try_infer_types(&self) -> Option<InferredMessageTypes> {
+    fn try_infer_types(&self) -> Result<InferredMessageTypes, DiagramErrorCode> {
         let mut inferred = InferredMessageTypes::new();
         for (port, evaluation) in &self.evaluations {
-            inferred.insert(port.clone(), evaluation.message_type?);
+            let Some(message_type) = evaluation.message_type else {
+                return Err(DiagramErrorCode::CannotInferType(port.clone()));
+            };
+            inferred.insert(port.clone(), message_type);
         }
-        Some(inferred)
+        Ok(inferred)
     }
 }
 
@@ -1783,7 +1724,7 @@ mod tests {
         .unwrap();
 
         let inference = diagram.infer_message_types::<JsonMessage, JsonMessage, ()>(&fixture.registry).unwrap();
-        // dbg!(inference);
+        dbg!(inference);
 
     }
 
