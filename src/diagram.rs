@@ -869,6 +869,10 @@ impl DiagramError {
     }
 }
 
+pub trait WithContext {
+    fn in_operation<F: FnOnce() -> OperationRef>(f: F);
+}
+
 #[derive(Debug)]
 pub struct DiagramErrorContext {
     op_id: Option<OperationRef>,

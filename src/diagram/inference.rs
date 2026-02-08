@@ -41,7 +41,7 @@ impl Diagram {
     pub fn infer_message_types<Request, Response, Streams>(
         &self,
         registry: &DiagramElementRegistry,
-    ) -> Result<InferredMessageTypes, DiagramErrorCode>
+    ) -> Result<InferredMessageTypes, DiagramError>
     where
         Request: 'static + Send + Sync,
         Response: 'static + Send + Sync,
@@ -78,13 +78,17 @@ impl Diagram {
                         templates: &self.templates,
                         on_implicit_error: &unfinished.on_implicit_error,
                         default_trace: self.default_trace,
-                        namespaces: unfinished.namespaces,
+                        namespaces: unfinished.namespaces.clone(),
                     },
                     registry,
                     generated_operations: &mut generated_operations,
                 };
 
-                unfinished.op.apply_message_type_constraints(&unfinished.id, &mut ctx)?;
+                unfinished.op.apply_message_type_constraints(&unfinished.id, &mut ctx)
+                    .map_err(|err| err.in_operation(
+                        OperationRef::from(&unfinished.id)
+                        .in_namespaces(&unfinished.namespaces)
+                    ))?;
             }
 
             unfinished_operations.extend(generated_operations.drain(..));
@@ -130,7 +134,7 @@ impl Diagram {
             }
         }
 
-        inferences.try_infer_types()
+        Ok(inferences.try_infer_types()?)
     }
 }
 
@@ -755,6 +759,21 @@ impl<'a> ConstraintContext<'a> {
         &self,
         input: &OperationRef,
     ) -> Result<SmallVec<[usize; 8]>, DiagramErrorCode> {
+        self.impl_get_message_types_into(input, true)
+    }
+
+    fn try_get_message_types_into(
+        &self,
+        input: &OperationRef,
+    ) -> Result<SmallVec<[usize; 8]>, DiagramErrorCode> {
+        self.impl_get_message_types_into(input, false)
+    }
+
+    fn impl_get_message_types_into(
+        &self,
+        input: &OperationRef,
+        connection_necessary: bool,
+    ) -> Result<SmallVec<[usize; 8]>, DiagramErrorCode> {
         let mut message_types = SmallVec::new();
         let mut input_queue: SmallVec<[&OperationRef; 8]> = SmallVec::new();
         input_queue.push(input);
@@ -769,7 +788,10 @@ impl<'a> ConstraintContext<'a> {
 
             let connections = self.inferences.connections_into.get(input);
             let redirections = self.inferences.redirections_into.get(input);
-            if connections.is_none_or(|c| c.is_empty()) && redirections.is_none_or(|r| r.is_empty()) {
+
+            let no_connections = connections.is_none_or(|c| c.is_empty());
+            let no_redirections = redirections.is_none_or(|r| r.is_empty());
+            if connection_necessary && no_connections && no_redirections {
                 return Err(DiagramErrorCode::NoConnection(input.clone()));
             }
 
@@ -1040,7 +1062,7 @@ impl<'a> ConstraintContext<'a> {
         &self,
         input: &OperationRef,
     ) -> MessageTypeEvaluation {
-        let incoming_message_types = self.get_message_types_into(input)?;
+        let incoming_message_types = self.try_get_message_types_into(input)?;
         if incoming_message_types.is_empty() {
             // There might not be any direct inputs to this buffer, so check for
             // buffer hints from accessors.
@@ -1294,9 +1316,7 @@ impl MessageTypeInference {
 }
 
 /// An input or output port of an operation.
-#[derive(
-    Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
-)]
+#[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
 pub enum PortRef {
     Input(OperationRef),
     Output(OutputRef),
@@ -1321,6 +1341,12 @@ impl std::fmt::Display for PortRef {
                 write!(f, "(output) {output}")
             }
         }
+    }
+}
+
+impl std::fmt::Debug for PortRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
     }
 }
 
@@ -1725,6 +1751,10 @@ mod tests {
 
         let inference = diagram.infer_message_types::<JsonMessage, JsonMessage, ()>(&fixture.registry).unwrap();
         dbg!(inference);
+
+        for (i, r) in fixture.registry.messages.registration.iter().enumerate() {
+            println!("\n - {i}. {}", r.type_info.type_name);
+        }
 
     }
 
