@@ -264,7 +264,7 @@ impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
                     .construction
                     .buffers
                     .get(&buffer_ref)
-                    .ok_or_else(|| DiagramErrorCode::UnknownOperation(buffer_ref))?;
+                    .ok_or_else(|| dbg!(DiagramErrorCode::UnknownOperation(buffer_ref)))?;
 
                 buffer_ref = match next {
                     BufferRef::Value(value) => return Ok(*value),
@@ -639,7 +639,7 @@ where
             let status = unfinished
                 .op
                 .build_diagram_operation(&unfinished.id, &mut ctx)
-                .map_err(|code| code.in_operation(unfinished.as_operation_ref()))?;
+                .map_err(|code| code.in_port(unfinished.as_operation_ref()))?;
 
             ctx.construction
                 .transfer_generated_operations(&mut deferred_operations, &mut made_progress);
@@ -706,7 +706,7 @@ where
                     target
                         .connector
                         .connect_into_target(output, &mut ctx)
-                        .map_err(|code| code.in_operation(id.clone()))?;
+                        .map_err(|code| code.in_port(id.clone()))?;
                 }
             }
 

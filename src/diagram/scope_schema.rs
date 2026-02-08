@@ -147,7 +147,8 @@ impl BuildDiagramOperation for ScopeSchema {
         )?;
 
         if let Some(begin_scope) = request.begin_scope {
-            ctx.add_output_into_target(&self.start, begin_scope);
+            let start = OperationRef::from(&self.start).in_namespace(id);
+            ctx.add_output_into_target(start, begin_scope);
         }
         ctx.set_input_for_target(id, request.external_input, trace.clone())?;
 

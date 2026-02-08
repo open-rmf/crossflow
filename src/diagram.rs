@@ -859,10 +859,10 @@ pub struct DiagramError {
 }
 
 impl DiagramError {
-    pub fn in_operation(op_id: impl Into<OperationRef>, code: DiagramErrorCode) -> Self {
+    pub fn in_port(port_id: impl Into<PortRef>, code: DiagramErrorCode) -> Self {
         Self {
             context: DiagramErrorContext {
-                op_id: Some(op_id.into()),
+                port_id: Some(port_id.into()),
             },
             code,
         }
@@ -870,17 +870,28 @@ impl DiagramError {
 }
 
 pub trait WithContext {
-    fn in_operation<F: FnOnce() -> OperationRef>(f: F);
+    type Ok;
+    fn in_port<P: Into<PortRef>, F: FnOnce() -> P>(self, f: F) -> Result<Self::Ok, DiagramError>;
 }
 
-#[derive(Debug)]
+impl<T> WithContext for Result<T, DiagramErrorCode> {
+    type Ok = T;
+    fn in_port<P: Into<PortRef>, F: FnOnce() -> P>(self, f: F) -> Result<T, DiagramError> {
+        match self {
+            Ok(ok) => Ok(ok),
+            Err(err) => Err(err.in_port(f().into()))
+        }
+    }
+}
+
+#[derive(Default, Debug)]
 pub struct DiagramErrorContext {
-    op_id: Option<OperationRef>,
+    port_id: Option<PortRef>,
 }
 
 impl Display for DiagramErrorContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(op_id) = &self.op_id {
+        if let Some(op_id) = &self.port_id {
             write!(f, "in operation [{}],", op_id)?;
         }
         Ok(())
@@ -1082,7 +1093,7 @@ fn format_list<T: std::fmt::Display>(list: &[T]) -> String {
 impl From<DiagramErrorCode> for DiagramError {
     fn from(code: DiagramErrorCode) -> Self {
         DiagramError {
-            context: DiagramErrorContext { op_id: None },
+            context: DiagramErrorContext::default(),
             code,
         }
     }
@@ -1093,8 +1104,8 @@ impl DiagramErrorCode {
         DiagramErrorCode::OperationNotFound(NextOperation::Name(name))
     }
 
-    pub fn in_operation(self, op_id: OperationRef) -> DiagramError {
-        DiagramError::in_operation(op_id, self)
+    pub fn in_port(self, port_id: impl Into<PortRef>) -> DiagramError {
+        DiagramError::in_port(port_id, self)
     }
 }
 

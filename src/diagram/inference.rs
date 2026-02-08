@@ -33,6 +33,7 @@ use crate::{
     Operations, OperationName, NamespaceList, NextOperation, output_ref, Diagram, StreamPack, StreamAvailability,
     DiagramError, TypeInfo, IncompatibleLayout, BufferIncompatibility, OperationRef,
     NodeSchema, SectionSchema, SectionProvider, SectionError, NamespacedOperation, ScopeSchema,
+    WithContext,
 };
 
 pub type InferredMessageTypes = HashMap<PortRef, usize>;
@@ -85,10 +86,10 @@ impl Diagram {
                 };
 
                 unfinished.op.apply_message_type_constraints(&unfinished.id, &mut ctx)
-                    .map_err(|err| err.in_operation(
+                    .in_port(||
                         OperationRef::from(&unfinished.id)
                         .in_namespaces(&unfinished.namespaces)
-                    ))?;
+                    )?;
             }
 
             unfinished_operations.extend(generated_operations.drain(..));
@@ -117,8 +118,8 @@ impl Diagram {
         set_boundary_conditions::<Request, Response, Streams>(&mut inferences, self, registry)?;
 
         while let Some(port) = queue.pop_front() {
-            let evaluation = inferences.get_evaluation(&port)?;
-            if let Some(message_type) = evaluation.evaluate(&inferences, registry)? {
+            let evaluation = inferences.get_evaluation(&port).in_port(|| port.clone())?;
+            if let Some(message_type) = evaluation.evaluate(&inferences, registry).in_port(|| port.clone())? {
                 if Some(message_type) != evaluation.message_type {
                     // A new message type was determined for this port, so update
                     // it and notify all dependents.
@@ -388,14 +389,12 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         id: &OperationName,
         schema: &ScopeSchema,
     ) {
-        let scope_namespace = [Arc::clone(id)];
         let operation = self.into_operation_ref(id);
 
         // The request type of this scope must exactly match the request type
         // of the starting operation.
         let start_target = self.into_operation_ref(
-            OperationRef::from(&schema.start)
-            .in_namespaces(&scope_namespace)
+            OperationRef::from(&schema.start).in_namespace(id)
         );
         self.redirect_into(operation, start_target);
 

@@ -58,6 +58,10 @@ impl OperationRef {
         }
     }
 
+    pub fn in_namespace(self, parent_namespace: &Arc<str>) -> Self {
+        self.in_namespaces(&[Arc::clone(parent_namespace)])
+    }
+
     pub fn scope_stream_out(
         scope_name: &OperationName,
         stream_name: &OperationName,
