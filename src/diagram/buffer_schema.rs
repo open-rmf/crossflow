@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Accessor, BufferSettings, JsonMessage, BufferMapLayoutHints, BufferMap, Builder, DynNode, BufferMapLayout,
-    DynOutput, InferenceContext,
+    DynOutput, InferenceContext, default_as_false, is_false,
 };
 
 use super::{
@@ -103,7 +103,8 @@ pub struct BufferSchema {
     pub settings: BufferSettings,
 
     /// If true, messages will be serialized before sending into the buffer.
-    pub serialize: Option<bool>,
+    #[serde(default = "default_as_false", skip_serializing_if = "is_false")]
+    pub serialize: bool,
 
     #[serde(flatten)]
     pub trace_settings: TraceSettings,
@@ -115,7 +116,7 @@ impl BuildDiagramOperation for BufferSchema {
         id: &OperationName,
         ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
-        let message_info = if self.serialize.is_some_and(|v| v) {
+        let message_info = if self.serialize {
             TypeInfo::of::<JsonMessage>()
         } else {
             ctx.inferred_message_type(id)?
@@ -137,7 +138,7 @@ impl BuildDiagramOperation for BufferSchema {
         id: &OperationName,
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
-        ctx.buffer(id, self.serialize.unwrap_or(false));
+        ctx.buffer(id, self.serialize)?;
         Ok(())
     }
 }

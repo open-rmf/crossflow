@@ -367,8 +367,16 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         &mut self,
         operation_name: &OperationName,
         serialize: bool,
-    ) {
+    ) -> Result<(), DiagramErrorCode> {
+        if serialize {
+            let json_index = self.registry.messages.registration.get_index::<JsonMessage>()?;
+            self.fixed(operation_name, json_index);
+        } else {
+            let operation = self.into_operation_ref(operation_name);
+            self.inference.constrain(operation.clone(), BufferInput(operation));
+        }
 
+        Ok(())
     }
 
     pub fn join(
@@ -861,7 +869,7 @@ impl<'a> ConstraintContext<'a> {
         Ok(Some(id))
     }
 
-    pub fn evaluate_buffer(
+    pub fn evaluate_buffer_input(
         &self,
         input: &OperationRef,
     ) -> MessageTypeEvaluation {
@@ -1409,7 +1417,29 @@ impl MessageTypeConstraint for UnzipOutput {
 #[derive(Debug)]
 struct BufferInput(OperationRef);
 
-// impl MessageTypeConstraint
+impl MessageTypeConstraint for BufferInput {
+    fn dependencies(
+        &self,
+        context: &ConstraintContext,
+    ) -> SmallVec<[PortRef; 8]> {
+        let mut deps = SmallVec::new();
+        deps.extend(context.connections_into(&self.0).into_iter().map(Into::into));
+        if let Some(hints) = context.inferences.buffer_hints.get(&self.0) {
+            for hint in hints {
+                deps.push(hint.used_by.clone());
+            }
+        }
+
+        deps
+    }
+
+    fn evaluate(
+        &self,
+        context: &ConstraintContext,
+    ) -> MessageTypeEvaluation {
+        context.evaluate_buffer_input(&self.0)
+    }
+}
 
 #[derive(Debug)]
 struct BufferAccessInput {
