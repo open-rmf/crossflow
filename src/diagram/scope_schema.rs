@@ -135,11 +135,10 @@ impl BuildDiagramOperation for ScopeSchema {
     ) -> Result<BuildStatus, DiagramErrorCode> {
         let trace = TraceInfo::new(self, self.trace_settings.trace)?;
         let mut scope = IncrementalScopeBuilder::begin(self.settings.clone(), ctx.builder);
+        let start_target = OperationRef::from(&self.start).in_namespace(id);
 
         // Set the scope request message type
-        let start_message_type = ctx.inferred_message_type(
-            OperationRef::from(&self.start).in_namespaces(&[Arc::clone(id)])
-        )?;
+        let start_message_type = ctx.inferred_message_type(start_target.clone())?;
         let request = ctx.registry.messages.set_scope_request(
             &start_message_type,
             &mut scope,
@@ -147,8 +146,7 @@ impl BuildDiagramOperation for ScopeSchema {
         )?;
 
         if let Some(begin_scope) = request.begin_scope {
-            let start = OperationRef::from(&self.start).in_namespace(id);
-            ctx.add_output_into_target(start, begin_scope);
+            ctx.add_output_into_target(start_target, begin_scope);
         }
         ctx.set_input_for_target(id, request.external_input, trace.clone())?;
 

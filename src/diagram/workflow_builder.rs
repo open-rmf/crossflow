@@ -264,7 +264,7 @@ impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
                     .construction
                     .buffers
                     .get(&buffer_ref)
-                    .ok_or_else(|| dbg!(DiagramErrorCode::UnknownOperation(buffer_ref)))?;
+                    .ok_or_else(|| DiagramErrorCode::UnknownOperation(buffer_ref))?;
 
                 buffer_ref = match next {
                     BufferRef::Value(value) => return Ok(*value),
@@ -565,6 +565,7 @@ where
     Streams: StreamPack,
 {
     let inference = diagram.infer_message_types::<Request, Response, Streams>(registry)?;
+
     // This borrow is a trick to make it cleaner to create BuilderContext.
     let message_type_inference = &inference;
 

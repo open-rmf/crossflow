@@ -37,6 +37,40 @@
     "trace_supported"
   ],
   "$defs": {
+    "BufferMapLayoutHints_for_uint": {
+      "description": "Hints for how a buffer map might be laid out.\n\n This can be thought of as a schema for the buffer map.",
+      "oneOf": [
+        {
+          "description": "The buffers in this map and their message types are not necessarily known in advance.",
+          "type": "object",
+          "properties": {
+            "dynamic": {
+              "$ref": "#/$defs/DynamicBufferMapLayoutHints_for_uint"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "dynamic"
+          ]
+        },
+        {
+          "description": "The buffer identifiers and their message types are fixed in advance.",
+          "type": "object",
+          "properties": {
+            "static": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/MessageTypeHint_for_uint"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "static"
+          ]
+        }
+      ]
+    },
     "ConfigExample": {
       "type": "object",
       "properties": {
@@ -53,11 +87,46 @@
         "config"
       ]
     },
+    "DynamicBufferMapLayoutHints_for_uint": {
+      "type": "object",
+      "properties": {
+        "hint": {
+          "description": "Constraints for the message types of the buffers.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MessageTypeHint_for_uint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "indices": {
+          "description": "The buffer identifiers can include indices.",
+          "type": "boolean"
+        },
+        "names": {
+          "description": "The buffer identifiers can include names.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "indices",
+        "names"
+      ]
+    },
     "MessageMetadata": {
       "type": "object",
       "properties": {
         "operations": {
-          "$ref": "#/$defs/MessageOperationMetadata"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MessageOperationsMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "schema": {
           "anyOf": [
@@ -74,11 +143,10 @@
         }
       },
       "required": [
-        "type_name",
-        "operations"
+        "type_name"
       ]
     },
-    "MessageOperationMetadata": {
+    "MessageOperationsMetadata": {
       "type": "object",
       "properties": {
         "deserialize": {
@@ -125,9 +193,13 @@
           "uniqueItems": true
         },
         "join": {
-          "type": [
-            "object",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BufferMapLayoutHints_for_uint"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "serialize": {
@@ -166,10 +238,7 @@
             "null"
           ],
           "items": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": "integer",
             "format": "uint",
             "minimum": 0
           }
@@ -180,6 +249,41 @@
         "try_into",
         "from",
         "try_from"
+      ]
+    },
+    "MessageTypeHint_for_uint": {
+      "description": "This hint is used by the diagram builder to assign types to buffers who do\n not have any messages pushed into them directly as input.",
+      "oneOf": [
+        {
+          "description": "An accessor is asking specifically for this type T via `BufferKey<T>`",
+          "type": "object",
+          "properties": {
+            "exact": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "exact"
+          ]
+        },
+        {
+          "description": "An accessor is using a generalized buffer, e.g. JsonBuffer or AnyBuffer,\n which can be represented by this type, but an exact type should be used\n if any other accessor has one.",
+          "type": "object",
+          "properties": {
+            "fallback": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "fallback"
+          ]
+        }
       ]
     },
     "NodeMetadata": {

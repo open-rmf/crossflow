@@ -59,7 +59,6 @@ impl Diagram {
             .ops
             .iter()
             .map(|(id, op)| {
-                // println!("{id}: {op:#?}");
                 UnfinishedOperation::new(
                     id,
                     op.clone() as Arc<dyn BuildDiagramOperation>,
@@ -93,6 +92,26 @@ impl Diagram {
             }
 
             unfinished_operations.extend(generated_operations.drain(..));
+        }
+
+        // Test for circular redirections, which are impossible to solve for and
+        // also logically unsound.
+        for redirect_from in inferences.redirected_input.keys() {
+            let mut next = Some(redirect_from);
+            let mut visited = Vec::new();
+
+            while let Some(top) = next.take() {
+                let circular = visited.contains(&top);
+                visited.push(top);
+
+                if circular {
+                    return Err(DiagramErrorCode::CircularRedirect(
+                        visited.into_iter().cloned().collect()
+                    ).into());
+                }
+
+                next = inferences.redirected_input.get(top);
+            }
         }
 
         let dependents = {
@@ -166,7 +185,7 @@ where
     };
 
     // Add constraints for the start operation
-    ctx.connect_into(OutputRef::start(), ctx.into_operation_ref(&diagram.start));
+    ctx.connect(OutputRef::start(), ctx.into_operation_ref(&diagram.start));
     let request_msg_index = registry.messages.registration.get_index::<Request>()?;
     let start = ctx.into_port_ref(OutputRef::start());
     ctx.fixed(start, request_msg_index);
@@ -217,8 +236,6 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         port: PortRef,
         message_type: usize,
     ) {
-        let port = self.into_port_ref(port);
-
         self
             .inference
             .evaluations
@@ -235,11 +252,11 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         input: OperationRef,
     ) {
         self.inference.constrain(output.clone(), ExactMatch(input.clone().into()));
-        self.connect_into(output, input);
+        self.connect(output, input);
     }
 
     /// Specify that an output connects into an input.
-    fn connect_into(
+    fn connect(
         &mut self,
         output: OutputRef,
         input: OperationRef,
@@ -249,7 +266,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     }
 
     /// Specify that an operation simply redirects its inputs into another operation
-    fn redirect_into(
+    fn redirect(
         &mut self,
         from: OperationRef,
         into: OperationRef,
@@ -275,7 +292,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let output = self.into_output_ref(output_ref(operation_name).next());
         let target = self.into_operation_ref(&schema.next);
         self.fixed(output.clone().into(), node.response);
-        self.connect_into(output, target);
+        self.connect(output, target);
 
         // Set the exact message type of each stream output.
         for (stream_id, stream_type) in &node.streams {
@@ -287,7 +304,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         for (stream_id, stream_target) in &schema.stream_out {
             let stream = self.into_output_ref(output_ref(operation_name).stream_out(stream_id));
             let stream_target = self.into_operation_ref(stream_target);
-            self.connect_into(stream, stream_target);
+            self.connect(stream, stream_target);
         }
 
         Ok(())
@@ -339,7 +356,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                         output_ref(id).section_output(output_name)
                     );
                     let target = self.into_operation_ref(next);
-                    self.connect_into(op, target);
+                    self.connect(op, target);
                 }
             }
             SectionProvider::Template(section_template) => {
@@ -352,14 +369,14 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                 section.inputs.redirect(|op, next| {
                     let op = self.into_operation_ref(OperationRef::exposed_input(id, op));
                     let next = self.into_operation_ref(next.in_namespace(id));
-                    self.redirect_into(op, next);
+                    self.redirect(op, next);
                     Ok(())
                 })?;
 
                 section.buffers.redirect(|op, next| {
                     let op = self.into_operation_ref(OperationRef::exposed_input(id, op));
                     let next = self.into_operation_ref(next.in_namespace(id));
-                    self.redirect_into(op, next);
+                    self.redirect(op, next);
                     Ok(())
                 })?;
 
@@ -375,11 +392,15 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                             NextOperation::Name(Arc::clone(output)).in_namespace(id)
                         );
                         let target = self.into_operation_ref(target);
-                        self.redirect_into(output, target);
+                        self.redirect(output, target);
                     }
                 }
             }
         }
+
+        let inner_terminate = self.into_operation_ref(OperationRef::terminate_for(id));
+        let outer_terminate = self.into_operation_ref(&NextOperation::terminate());
+        self.redirect(inner_terminate, outer_terminate);
 
         Ok(())
     }
@@ -396,21 +417,21 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let start_target = self.into_operation_ref(
             OperationRef::from(&schema.start).in_namespace(id)
         );
-        self.redirect_into(operation, start_target);
+        self.redirect(operation, start_target);
 
         for (stream_name, stream_target) in &schema.stream_out {
             let stream = self.into_operation_ref(
                 OperationRef::scope_stream_out(id, stream_name)
             );
             let stream_target = self.into_operation_ref(stream_target);
-            self.redirect_into(stream, stream_target);
+            self.redirect(stream, stream_target);
         }
 
         // The terminating message type of this scope must exactly match the
         // request type of the next operation that the scope is connected to.
         let terminate = self.into_operation_ref(OperationRef::terminate_for(id));
         let terminate_target = self.into_operation_ref(&schema.next);
-        self.redirect_into(terminate, terminate_target);
+        self.redirect(terminate, terminate_target);
 
         for (child_id, op) in schema.ops.iter() {
             self.add_child_operation(id, child_id, op, schema.ops.clone(), Some(schema.on_implicit_error()));
@@ -429,7 +450,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
         self.fixed(operation.into(), json_message_index);
         self.fixed(output.clone().into(), json_message_index);
-        self.connect_into(output, target);
+        self.connect(output, target);
 
         Ok(())
     }
@@ -457,7 +478,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
             targets.push(target.clone());
 
             let output = self.into_output_ref(output_ref(operation_name).next_index(i));
-            self.connect_into(output.clone(), target);
+            self.connect(output.clone(), target);
             self.inference.constrain(output, ExactMatch(operation.clone().into()));
         }
 
@@ -488,8 +509,8 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
             }
         );
 
-        self.connect_into(ok_output, ok_target);
-        self.connect_into(err_output, err_target);
+        self.connect(ok_output, ok_target);
+        self.connect(err_output, err_target);
     }
 
     pub fn unzip<'u>(
@@ -509,7 +530,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
             );
 
             let target = self.into_operation_ref(target);
-            self.connect_into(element_output, target);
+            self.connect(element_output, target);
         }
 
         self.inference.constrain(unzippable.clone(), UnzipInput(unzippable));
@@ -564,7 +585,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         if serialize {
             let json_message_index = self.registry.messages.registration.get_index::<JsonMessage>()?;
             self.fixed(output.clone().into(), json_message_index);
-            self.connect_into(output, target);
+            self.connect(output, target);
         } else {
             self.infer_from_downstream(output, target);
 
@@ -662,7 +683,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
             self.inference.constrain(output.clone(), SplitOutput(split.clone()));
 
             let target = self.into_operation_ref(target);
-            self.connect_into(output, target);
+            self.connect(output, target);
         }
 
         for (key, target) in keyed {
@@ -673,7 +694,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
             self.inference.constrain(output.clone(), SplitOutput(split.clone()));
 
             let target = self.into_operation_ref(target);
-            self.connect_into(output, target);
+            self.connect(output, target);
         }
 
         if let Some(target) = remaining {
@@ -684,7 +705,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
             self.inference.constrain(output.clone(), SplitOutput(split.clone()));
 
             let target = self.into_operation_ref(target);
-            self.connect_into(output, target);
+            self.connect(output, target);
         }
 
         self.inference.constrain(split.clone(), SplitInput(split));

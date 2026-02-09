@@ -70,7 +70,7 @@
       "properties": {
         "buffers": {
           "description": "Map of buffer keys and buffers.",
-          "$ref": "#/$defs/BufferSelection"
+          "$ref": "#/$defs/BufferSelection_for_NextOperation"
         },
         "display_text": {
           "description": "Override for text that should be displayed for an operation within an\n editor.",
@@ -139,10 +139,7 @@
         },
         "serialize": {
           "description": "If true, messages will be serialized before sending into the buffer.",
-          "type": [
-            "boolean",
-            "null"
-          ]
+          "type": "boolean"
         },
         "settings": {
           "$ref": "#/$defs/BufferSettings",
@@ -165,7 +162,7 @@
         }
       }
     },
-    "BufferSelection": {
+    "BufferSelection_for_NextOperation": {
       "anyOf": [
         {
           "type": "object",
@@ -502,7 +499,7 @@
       "properties": {
         "buffers": {
           "description": "Map of buffer keys and buffers.",
-          "$ref": "#/$defs/BufferSelection"
+          "$ref": "#/$defs/BufferSelection_for_NextOperation"
         },
         "clone": {
           "description": "List of the keys in the `buffers` dictionary whose value should be cloned\n instead of removed from the buffer (pulled) when the join occurs. Cloning\n the value will leave the buffer unchanged after the join operation takes\n place.",
@@ -555,7 +552,7 @@
       "properties": {
         "buffers": {
           "description": "Map of buffer keys and buffers.",
-          "$ref": "#/$defs/BufferSelection"
+          "$ref": "#/$defs/BufferSelection_for_NextOperation"
         },
         "display_text": {
           "description": "Override for text that should be displayed for an operation within an\n editor.",
