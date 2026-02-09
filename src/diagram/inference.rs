@@ -38,16 +38,64 @@ use crate::{
 
 pub type InferredMessageTypes = HashMap<PortRef, usize>;
 
-impl Diagram {
-    pub fn infer_message_types<Request, Response, Streams>(
-        &self,
+pub trait DiagramElementLookup {
+    fn json_message_index(&self) -> Result<usize, DiagramErrorCode>;
+
+}
+
+/// Specify the message types of a workflow's boundary operations.
+pub struct InferenceBoundaryConditions {
+    /// The message type for requests into the workflow
+    pub request: usize,
+    /// The message type for responses from the workflow
+    pub response: usize,
+    /// The message types of the streams for this workflow.
+    pub streams: HashMap<String, usize>,
+}
+
+impl InferenceBoundaryConditions {
+    pub fn new<Request, Response, Streams>(
         registry: &DiagramElementRegistry,
-    ) -> Result<InferredMessageTypes, DiagramError>
+    ) -> Result<Self, DiagramErrorCode>
     where
         Request: 'static + Send + Sync,
         Response: 'static + Send + Sync,
         Streams: StreamPack,
     {
+        let request = registry.messages.registration.get_index::<Request>()?;
+        let response = registry.messages.registration.get_index::<Response>()?;
+
+        let mut streams = HashMap::new();
+        let mut stream_availability = StreamAvailability::default();
+        Streams::set_stream_availability(&mut stream_availability);
+        for (name, stream_type) in stream_availability.named_streams() {
+            let stream_msg_index = registry.messages.registration.get_index_dyn(&stream_type)?;
+            streams.insert(name.to_string(), stream_msg_index);
+        }
+
+        Ok(Self { request, response, streams })
+    }
+
+    pub fn json_messages(
+        lookup: &dyn DiagramElementLookup,
+        stream_names: impl Iterator<Item = String>,
+    ) -> Result<Self, DiagramErrorCode> {
+        let json_message_index = lookup.json_message_index()?;
+        let streams = stream_names.map(|name| (name, json_message_index)).collect();
+        Ok(Self {
+            request: json_message_index,
+            response: json_message_index,
+            streams,
+        })
+    }
+}
+
+impl Diagram {
+    pub fn infer_message_types(
+        &self,
+        lookup: &dyn DiagramElementLookup,
+        boundary: InferenceBoundaryConditions,
+    ) -> Result<InferredMessageTypes, DiagramError> {
         self.validate_operation_names()?;
         self.validate_template_usage()?;
 
@@ -80,7 +128,7 @@ impl Diagram {
                         default_trace: self.default_trace,
                         namespaces: unfinished.namespaces.clone(),
                     },
-                    registry,
+                    lookup,
                     generated_operations: &mut generated_operations,
                 };
 
@@ -118,7 +166,7 @@ impl Diagram {
             let mut dependents = HashMap::<_, Vec<PortRef>>::new();
             for (id, inference) in &inferences.evaluations {
                 if let Some(constraint) = &inference.constraint {
-                    let ctx = ConstraintContext { inferences: &inferences, registry };
+                    let ctx = ConstraintContext { inferences: &inferences, registry: lookup };
                     let dependencies = constraint.dependencies(&ctx);
                     for dependency in dependencies {
                         dependents.entry(dependency).or_default().push(id.clone());
@@ -134,11 +182,11 @@ impl Diagram {
             queue.push_back(port.clone());
         }
 
-        set_boundary_conditions::<Request, Response, Streams>(&mut inferences, self, registry)?;
+        set_boundary_conditions(&mut inferences, self, lookup, boundary)?;
 
         while let Some(port) = queue.pop_front() {
             let evaluation = inferences.get_evaluation(&port).in_port(|| port.clone())?;
-            if let Some(message_type) = evaluation.evaluate(&inferences, registry).in_port(|| port.clone())? {
+            if let Some(message_type) = evaluation.evaluate(&inferences, lookup).in_port(|| port.clone())? {
                 if Some(message_type) != evaluation.message_type {
                     // A new message type was determined for this port, so update
                     // it and notify all dependents.
@@ -158,16 +206,12 @@ impl Diagram {
     }
 }
 
-fn set_boundary_conditions<Request, Response, Streams>(
+fn set_boundary_conditions(
     inferences: &mut Inferences,
     diagram: &Diagram,
-    registry: &DiagramElementRegistry,
-) -> Result<(), DiagramErrorCode>
-where
-    Request: 'static + Send + Sync,
-    Response: 'static + Send + Sync,
-    Streams: StreamPack,
-{
+    registry: &dyn DiagramElementLookup,
+    boundary: InferenceBoundaryConditions,
+) -> Result<(), DiagramErrorCode> {
     let root_on_implicit_error: OperationRef = (&diagram.on_implicit_error()).into();
     let mut generated_operations = Vec::new();
 
@@ -180,27 +224,22 @@ where
             default_trace: diagram.default_trace,
             namespaces: Default::default()
         },
-        registry,
+        lookup: registry,
         generated_operations: &mut generated_operations,
     };
 
     // Add constraints for the start operation
     ctx.connect(OutputRef::start(), ctx.into_operation_ref(&diagram.start));
-    let request_msg_index = registry.messages.registration.get_index::<Request>()?;
     let start = ctx.into_port_ref(OutputRef::start());
-    ctx.fixed(start, request_msg_index);
+    ctx.fixed(start, boundary.request);
 
     // Add constraints for the terminate operation
-    let response_msg_index = registry.messages.registration.get_index::<Response>()?;
     let terminate = ctx.into_port_ref(OperationRef::Terminate(Default::default()));
-    ctx.fixed(terminate, response_msg_index);
+    ctx.fixed(terminate, boundary.response);
 
-    let mut streams = StreamAvailability::default();
-    Streams::set_stream_availability(&mut streams);
-    for (name, stream_type) in streams.named_streams() {
-        let stream_msg_index = registry.messages.registration.get_index_dyn(&stream_type)?;
+    for (name, stream_type) in boundary.streams {
         let stream = ctx.into_port_ref(OperationRef::stream_out(&Arc::from(name)));
-        ctx.fixed(stream, stream_msg_index);
+        ctx.fixed(stream, stream_type);
     }
 
     Ok(())
@@ -224,7 +263,7 @@ impl std::fmt::Debug for DebugMessageTypeChoice {
 pub struct InferenceContext<'a, 'b> {
     inference: &'b mut Inferences,
     diagram_context: DiagramContext<'a>,
-    pub registry: &'a DiagramElementRegistry,
+    pub lookup: &'a dyn DiagramElementLookup,
     generated_operations: &'b mut Vec<UnfinishedOperation>,
 }
 
@@ -281,7 +320,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         operation_name: &OperationName,
         schema: &NodeSchema,
     ) -> Result<(), DiagramErrorCode> {
-        let node = self.registry.get_node_registration(&schema.builder)?.metadata();
+        let node = self.lookup.get_node_registration(&schema.builder)?.metadata();
         let input = self.into_operation_ref(operation_name);
 
         // Set the exact message type of the input port
@@ -318,7 +357,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         match &schema.provider {
             SectionProvider::Builder(section_builder) => {
                 let metadata = &self
-                    .registry
+                    .lookup
                     .get_section_registration(section_builder)?
                     .metadata;
 
@@ -443,7 +482,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         operation_name: &OperationName,
         next: &NextOperation,
     ) -> Result<(), DiagramErrorCode> {
-        let json_message_index = self.registry.messages.registration.get_index::<JsonMessage>()?;
+        let json_message_index = self.lookup.messages.registration.get_index::<JsonMessage>()?;
         let operation = self.into_operation_ref(operation_name);
         let output = self.into_output_ref(output_ref(operation_name).next());
         let target = self.into_operation_ref(next);
@@ -543,7 +582,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     ) -> Result<(), DiagramErrorCode> {
         let operation = self.into_operation_ref(operation_name);
         if serialize {
-            let json_index = self.registry.messages.registration.get_index::<JsonMessage>()?;
+            let json_index = self.lookup.messages.registration.get_index::<JsonMessage>()?;
             self.fixed(operation.into(), json_index);
         } else {
             self.inference.constrain(operation.clone(), BufferInput(operation));
@@ -583,7 +622,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         }
 
         if serialize {
-            let json_message_index = self.registry.messages.registration.get_index::<JsonMessage>()?;
+            let json_message_index = self.lookup.messages.registration.get_index::<JsonMessage>()?;
             self.fixed(output.clone().into(), json_message_index);
             self.connect(output, target);
         } else {
@@ -748,7 +787,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 #[derive(Clone, Copy)]
 pub struct ConstraintContext<'a> {
     inferences: &'a Inferences,
-    pub registry: &'a DiagramElementRegistry,
+    pub registry: &'a dyn DiagramElementLookup,
 }
 
 impl<'a> ConstraintContext<'a> {
@@ -972,7 +1011,7 @@ impl<'a> ConstraintContext<'a> {
             };
 
             let key = [*ok_inference, *err_inference];
-            let Some(r) = self.registry.messages.registration.lookup.result.get(&key) else {
+            let Some(r) = self.registry.messages.registration.reverse_lookup.result.get(&key) else {
                 // We can't conclude anything yet.
                 return Ok(None);
             };
@@ -1324,7 +1363,7 @@ impl MessageTypeInference {
     fn evaluate(
         &self,
         inference: &Inferences,
-        registry: &DiagramElementRegistry,
+        registry: &dyn DiagramElementLookup,
     ) -> MessageTypeEvaluation {
         let Some(constraint) = &self.constraint else {
             return Ok(None);

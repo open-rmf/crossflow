@@ -1570,11 +1570,11 @@ pub struct MessageRegistrations {
 
     /// Lookup message types that satisfy some constraint. This is used by
     /// message type inference.
-    pub(crate) lookup: MessageLookup,
+    pub(crate) reverse_lookup: ReverseMessageLookup,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct MessageLookup {
+pub struct ReverseMessageLookup {
     /// Map from [T, E] output registrations to Result<T, E> registration.
     pub(crate) result: HashMap<[usize; 2], usize>,
     /// Map from the unzipped types to the original zipped type.
@@ -1582,6 +1582,8 @@ pub struct MessageLookup {
     /// Map from the message type of the item that comes out of a split to all
     /// message types that can be split into it.
     pub(crate) split: HashMap<usize, Vec<usize>>,
+    /// The index where the [`JsonMessage`] type is registered.
+    pub(crate) json_message: Option<usize>,
 }
 
 impl MessageRegistrations {
@@ -1631,12 +1633,13 @@ impl MessageRegistrations {
             // self.messages.
             self.messages.get_mut(*index).unwrap()
         } else {
-            let index = self.messages.len();
-            self.indices.insert(target_type, index);
-            self.messages.push(MessageRegistration::new::<T>());
+            self.new_message_registration(
+                TypeInfo::of::<T>(),
+                MessageRegistration::new::<T>(),
+            );
 
             // SAFETY: We just pushed an entry in the previous line, and now we
-            // just want to retrieve a mutable borrow of it.
+            // simply want to retrieve a mutable borrow of it.
             self.messages.last_mut().unwrap()
         }
     }
@@ -1702,6 +1705,11 @@ impl MessageRegistrations {
         let index = self.messages.len();
         self.indices.insert(message_info, index);
         self.messages.push(registration);
+
+        if message_info == TypeInfo::of::<JsonMessage>() {
+            self.reverse_lookup.json_message = Some(index);
+        }
+
         index
     }
 

@@ -1238,8 +1238,6 @@ mod tests {
         .unwrap();
 
         let result = fixture.spawn_json_io_workflow(&diagram).unwrap_err();
-
-        dbg!(&result.code);
         assert!(matches!(result.code, DiagramErrorCode::CircularRedirect(_)));
     }
 

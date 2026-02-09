@@ -141,7 +141,7 @@ where
 
         let result_type = messages.registration.get_index_or_insert::<Result<T, E>>();
 
-        messages.registration.lookup.result.insert(output_types, result_type);
+        messages.registration.reverse_lookup.result.insert(output_types, result_type);
     }
 }
 

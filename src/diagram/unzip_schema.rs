@@ -185,7 +185,7 @@ macro_rules! dyn_unzip_impl {
                 )*
 
                 let unzip_index = registry.registration.get_index_or_insert::<($($P,)*)>();
-                registry.registration.lookup.unzip.insert(output_types.clone(), unzip_index);
+                registry.registration.reverse_lookup.unzip.insert(output_types.clone(), unzip_index);
 
                 UnzipRegistration { create, output_types }
             }

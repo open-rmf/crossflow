@@ -33,7 +33,7 @@ use super::{
     BufferSelection, Diagram, DiagramContext, DiagramElementRegistry, DiagramError, DiagramErrorCode, DynInputSlot,
     DynOutput, FinishingErrors, ImplicitDeserialization, ImplicitSerialization, ImplicitStringify,
     NamedOperationRef, NamespaceList, NextOperation, OperationName, OperationRef,
-    Operations, TraceToggle, TypeInfo, InferenceContext,
+    Operations, TraceToggle, TypeInfo, InferenceContext, InferenceBoundaryConditions,
 };
 
 use bevy_ecs::prelude::Entity;
@@ -564,7 +564,10 @@ where
     Response: 'static + Send + Sync,
     Streams: StreamPack,
 {
-    let inference = diagram.infer_message_types::<Request, Response, Streams>(registry)?;
+    let inference = diagram.infer_message_types(
+        registry,
+        InferenceBoundaryConditions::new::<Request, Response, Streams>(registry)?,
+    )?;
 
     // This borrow is a trick to make it cleaner to create BuilderContext.
     let message_type_inference = &inference;

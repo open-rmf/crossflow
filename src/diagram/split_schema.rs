@@ -346,7 +346,7 @@ where
         messages.register_serialize::<Vec<T::Item>, Serializer>();
         messages.register_clone::<Vec<T::Item>, Cloneable>();
 
-        messages.registration.lookup.split.entry(output_type).or_default().push(splittable_type);
+        messages.registration.reverse_lookup.split.entry(output_type).or_default().push(splittable_type);
     }
 }
 
