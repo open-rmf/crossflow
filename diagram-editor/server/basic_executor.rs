@@ -146,9 +146,22 @@ pub async fn run_async_with_args(
 
 /// This struct describes how the basic executor app should be set up. You can
 /// use this to add arbitrary systems and plugins to your executor app.
+///
+/// Inside the `setup` closure of `run_custom_setup`, create your app using
+///
+/// ```
+/// # use bevy_app::App;
+/// let mut app = App::new();
+/// ```
+///
+/// Then use `App::add_plugins` or `App::add_systems` or any other Bevy App setup
+/// methods you need before creating this data structure. Return this data
+/// structure from your `setup` closure after you have finished setting it up.
 pub struct BasicExecutorSetup {
-    /// Initialize the App
+    /// The app, initialized with everything the executor needs.
     pub app: App,
+    /// The registry with all necessary node builders, section builders, and
+    /// messages registered.
     pub registry: DiagramElementRegistry,
 }
 
@@ -166,10 +179,12 @@ impl BasicExecutorSetup {
 /// this gives you the opportunity to create a custom [`App`], adding whatever
 /// systems and plugins to it that you would like.
 ///
-/// A callback is used to set up the app because the [`App`] data structure
-/// cannot be moved between threads. This callback will be moved between threads.
-///
-/// If args is set to [`None`], we will use the environment variable arguments.
+/// # Arguments
+/// * `args` - Custom arguments for running the basic executor.
+///   If `args` is set to [`None`], we will use the environment variable arguments.
+/// * `setup` - A closure used to set up the app in-place because the [`App`] data
+///   structure cannot be moved between threads. This closure will be moved between
+///   threads so it must have the Send trait.
 pub fn run_custom_setup(
     args: Option<Args>,
     setup: impl FnOnce() -> BasicExecutorSetup + Send + 'static,
