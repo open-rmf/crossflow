@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     BuildDiagramOperation, Builder, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
     MessageRegistry, NextOperation, OperationName, RegisterClone, InferenceContext,
-    SerializeMessage, TraceInfo, TraceSettings, supported::*, output_ref,
+    SerializeMessage, TraceInfo, TraceSettings, supported::*,
 };
 
 type ForkResultFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;

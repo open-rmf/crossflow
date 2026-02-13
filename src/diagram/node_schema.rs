@@ -22,7 +22,7 @@ use std::{collections::HashMap, sync::Arc};
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderId, BuilderContext, DiagramErrorCode, JsonMessage,
     MissingStream, NextOperation, OperationName, TraceInfo, TraceSettings, is_default,
-    InferenceContext, output_ref,
+    InferenceContext,
 };
 
 /// Create an operation that that takes an input message and produces an

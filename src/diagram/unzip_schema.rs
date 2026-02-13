@@ -15,6 +15,7 @@
  *
 */
 
+use std::borrow::Cow;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use variadics_please::all_tuples_with_size;
@@ -110,7 +111,7 @@ impl BuildDiagramOperation for UnzipSchema {
 
         if actual_output.len() != self.next.len() {
             return Err(DiagramErrorCode::InvalidUnzip {
-                message: inferred_type,
+                message: Cow::Borrowed(inferred_type.type_name),
                 element: self.next.len(),
             });
         }

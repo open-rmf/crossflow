@@ -15,6 +15,9 @@
         "$ref": "#/$defs/NodeMetadata"
       }
     },
+    "reverse_message_lookup": {
+      "$ref": "#/$defs/ReverseMessageLookup"
+    },
     "schemas": {
       "type": "object",
       "additionalProperties": true
@@ -34,18 +37,19 @@
     "sections",
     "messages",
     "schemas",
+    "reverse_message_lookup",
     "trace_supported"
   ],
   "$defs": {
-    "BufferMapLayoutHints_for_uint": {
-      "description": "Hints for how a buffer map might be laid out.\n\n This can be thought of as a schema for the buffer map.",
+    "BufferMapLayoutHints": {
+      "description": "Hints for how a buffer map might be laid out.\n\nThis can be thought of as a schema for the buffer map.",
       "oneOf": [
         {
           "description": "The buffers in this map and their message types are not necessarily known in advance.",
           "type": "object",
           "properties": {
             "dynamic": {
-              "$ref": "#/$defs/DynamicBufferMapLayoutHints_for_uint"
+              "$ref": "#/$defs/DynamicBufferMapLayoutHints"
             }
           },
           "additionalProperties": false,
@@ -60,7 +64,12 @@
             "static": {
               "type": "object",
               "additionalProperties": {
-                "$ref": "#/$defs/MessageTypeHint_for_uint"
+                "$ref": "#/$defs/MessageTypeHint"
+              },
+              "patternProperties": {
+                "^\\d+$": {
+                  "$ref": "#/$defs/MessageTypeHint"
+                }
               }
             }
           },
@@ -74,12 +83,12 @@
     "ConfigExample": {
       "type": "object",
       "properties": {
+        "config": {
+          "description": "The value of the config"
+        },
         "description": {
           "description": "A description of what this config is for",
           "type": "string"
-        },
-        "config": {
-          "description": "The value of the config"
         }
       },
       "required": [
@@ -87,14 +96,14 @@
         "config"
       ]
     },
-    "DynamicBufferMapLayoutHints_for_uint": {
+    "DynamicBufferMapLayoutHints": {
       "type": "object",
       "properties": {
         "hint": {
           "description": "Constraints for the message types of the buffers.",
           "anyOf": [
             {
-              "$ref": "#/$defs/MessageTypeHint_for_uint"
+              "$ref": "#/$defs/MessageTypeHint"
             },
             {
               "type": "null"
@@ -195,7 +204,7 @@
         "join": {
           "anyOf": [
             {
-              "$ref": "#/$defs/BufferMapLayoutHints_for_uint"
+              "$ref": "#/$defs/BufferMapLayoutHints"
             },
             {
               "type": "null"
@@ -251,8 +260,8 @@
         "try_from"
       ]
     },
-    "MessageTypeHint_for_uint": {
-      "description": "This hint is used by the diagram builder to assign types to buffers who do\n not have any messages pushed into them directly as input.",
+    "MessageTypeHint": {
+      "description": "This hint is used by the diagram builder to assign types to buffers who do\nnot have any messages pushed into them directly as input.",
       "oneOf": [
         {
           "description": "An accessor is asking specifically for this type T via `BufferKey<T>`",
@@ -270,7 +279,7 @@
           ]
         },
         {
-          "description": "An accessor is using a generalized buffer, e.g. JsonBuffer or AnyBuffer,\n which can be represented by this type, but an exact type should be used\n if any other accessor has one.",
+          "description": "An accessor is using a generalized buffer, e.g. JsonBuffer or AnyBuffer,\nwhich can be represented by this type, but an exact type should be used\nif any other accessor has one.",
           "type": "object",
           "properties": {
             "fallback": {
@@ -289,12 +298,6 @@
     "NodeMetadata": {
       "type": "object",
       "properties": {
-        "description": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "config_examples": {
           "type": "array",
           "items": {
@@ -305,8 +308,14 @@
           "$ref": "#/$defs/Schema"
         },
         "default_display_text": {
-          "description": "If the user does not specify a default display text, the node ID will\n be used here.",
+          "description": "If the user does not specify a default display text, the node ID will\nbe used here.",
           "type": "string"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "request": {
           "type": "integer",
@@ -334,6 +343,99 @@
         "streams",
         "config_schema",
         "config_examples"
+      ]
+    },
+    "ReverseMessageLookup": {
+      "type": "object",
+      "properties": {
+        "json_message": {
+          "description": "The index where the [`JsonMessage`] type is registered.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0
+        },
+        "result": {
+          "description": "Map from [T, E] output registrations to Result<T, E> registration.",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0
+                },
+                "maxItems": 2,
+                "minItems": 2
+              },
+              {
+                "type": "integer",
+                "format": "uint",
+                "minimum": 0
+              }
+            ]
+          }
+        },
+        "split": {
+          "description": "Map from the message type of the item that comes out of a split to all\nmessage types that can be split into it.",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer",
+                "format": "uint",
+                "minimum": 0
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0
+                }
+              }
+            ]
+          }
+        },
+        "unzip": {
+          "description": "Map from the unzipped types to the original zipped type.",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0
+                }
+              },
+              {
+                "type": "integer",
+                "format": "uint",
+                "minimum": 0
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "result",
+        "unzip",
+        "split"
       ]
     },
     "Schema": {
@@ -399,12 +501,6 @@
     "SectionMetadata": {
       "type": "object",
       "properties": {
-        "description": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "config_examples": {
           "type": "array",
           "items": {
@@ -416,6 +512,12 @@
         },
         "default_display_text": {
           "type": "string"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "interface": {
           "$ref": "#/$defs/SectionInterface"

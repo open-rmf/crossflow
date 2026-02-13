@@ -3,13 +3,13 @@
   "title": "Diagram",
   "type": "object",
   "properties": {
+    "default_trace": {
+      "description": "Whether the operations in the workflow should be traced by default.\nBeing traced means each operation will emit an event each time it is\ntriggered. You can decide whether that event contains the serialized\nmessage data that triggered the operation.\n\nIf crossflow is not compiled with the \"trace\" feature then this\nsetting will have no effect.",
+      "$ref": "#/$defs/TraceToggle"
+    },
     "description": {
       "description": "Optional text to describe the workflow.",
       "type": "string"
-    },
-    "default_trace": {
-      "description": "Whether the operations in the workflow should be traced by default.\n Being traced means each operation will emit an event each time it is\n triggered. You can decide whether that event contains the serialized\n message data that triggered the operation.\n\n If crossflow is not compiled with the \"trace\" feature then this\n setting will have no effect.",
-      "$ref": "#/$defs/TraceToggle"
     },
     "extensions": {
       "description": "Settings for each extension.",
@@ -25,7 +25,7 @@
       }
     },
     "on_implicit_error": {
-      "description": "To simplify diagram definitions, the diagram workflow builder will\n sometimes insert implicit operations into the workflow, such as implicit\n serializing and deserializing. These implicit operations may be fallible.\n\n This field indicates how a failed implicit operation should be handled.\n If left unspecified, an implicit error will cause the entire workflow to\n be cancelled.",
+      "description": "To simplify diagram definitions, the diagram workflow builder will\nsometimes insert implicit operations into the workflow, such as implicit\nserializing and deserializing. These implicit operations may be fallible.\n\nThis field indicates how a failed implicit operation should be handled.\nIf left unspecified, an implicit error will cause the entire workflow to\nbe cancelled.",
       "anyOf": [
         {
           "$ref": "#/$defs/NextOperation"
@@ -65,15 +65,15 @@
   ],
   "$defs": {
     "BufferAccessSchema": {
-      "description": "Zip a message together with access to one or more buffers.\n\n The receiving node must have an input type of `(Message, Keys)`\n where `Keys` implements the [`Accessor`][1] trait.\n\n [1]: crate::Accessor\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"fork_clone\",\n     \"ops\": {\n         \"fork_clone\": {\n             \"type\": \"fork_clone\",\n             \"next\": [\"num_output\", \"string_output\"]\n         },\n         \"num_output\": {\n             \"type\": \"node\",\n             \"builder\": \"num_output\",\n             \"next\": \"buffer_access\"\n         },\n         \"string_output\": {\n             \"type\": \"node\",\n             \"builder\": \"string_output\",\n             \"next\": \"string_buffer\"\n         },\n         \"string_buffer\": {\n             \"type\": \"buffer\"\n         },\n         \"buffer_access\": {\n             \"type\": \"buffer_access\",\n             \"buffers\": [\"string_buffer\"],\n             \"next\": \"with_buffer_access\"\n         },\n         \"with_buffer_access\": {\n             \"type\": \"node\",\n             \"builder\": \"with_buffer_access\",\n             \"next\": { \"builtin\": \"terminate\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())\n ```",
+      "description": "Zip a message together with access to one or more buffers.\n\nThe receiving node must have an input type of `(Message, Keys)`\nwhere `Keys` implements the [`Accessor`][1] trait.\n\n[1]: crate::Accessor\n\n# Examples\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"fork_clone\",\n    \"ops\": {\n        \"fork_clone\": {\n            \"type\": \"fork_clone\",\n            \"next\": [\"num_output\", \"string_output\"]\n        },\n        \"num_output\": {\n            \"type\": \"node\",\n            \"builder\": \"num_output\",\n            \"next\": \"buffer_access\"\n        },\n        \"string_output\": {\n            \"type\": \"node\",\n            \"builder\": \"string_output\",\n            \"next\": \"string_buffer\"\n        },\n        \"string_buffer\": {\n            \"type\": \"buffer\"\n        },\n        \"buffer_access\": {\n            \"type\": \"buffer_access\",\n            \"buffers\": [\"string_buffer\"],\n            \"next\": \"with_buffer_access\"\n        },\n        \"with_buffer_access\": {\n            \"type\": \"node\",\n            \"builder\": \"with_buffer_access\",\n            \"next\": { \"builtin\": \"terminate\" }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```",
       "type": "object",
       "properties": {
         "buffers": {
           "description": "Map of buffer keys and buffers.",
-          "$ref": "#/$defs/BufferSelection_for_NextOperation"
+          "$ref": "#/$defs/BufferSelection"
         },
         "display_text": {
-          "description": "Override for text that should be displayed for an operation within an\n editor.",
+          "description": "Override for text that should be displayed for an operation within an\neditor.",
           "type": [
             "string",
             "null"
@@ -89,7 +89,7 @@
           "$ref": "#/$defs/NextOperation"
         },
         "trace": {
-          "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
+          "description": "Set what the tracing behavior should be for this operation. If this is\nleft unspecified then the default trace setting of the diagram will be\nused.",
           "anyOf": [
             {
               "$ref": "#/$defs/TraceToggle"
@@ -106,7 +106,7 @@
       ]
     },
     "BufferIdentifier": {
-      "description": "Uniquely identify a buffer within a buffer map, either by name or by an\n index value.",
+      "description": "Uniquely identify a buffer within a buffer map, either by name or by an\nindex value.",
       "anyOf": [
         {
           "description": "Identify a buffer by name",
@@ -121,11 +121,11 @@
       ]
     },
     "BufferSchema": {
-      "description": "Create a [`Buffer`][1] which can be used to store and pull data within\n a scope.\n\n By default the [`BufferSettings`][2] will keep the single last message\n pushed to the buffer. You can change that with the optional `settings`\n property.\n\n Use the `\"serialize\": true` option to serialize the messages into\n [`JsonMessage`] before they are inserted into the buffer. This\n allows any serializable message type to be pushed into the buffer. If\n left unspecified, the buffer will store the specific data type that gets\n pushed into it. If the buffer inputs are not being serialized, then all\n incoming messages being pushed into the buffer must have the same type.\n\n [1]: crate::Buffer\n [2]: crate::BufferSettings\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"fork_clone\",\n     \"ops\": {\n         \"fork_clone\": {\n             \"type\": \"fork_clone\",\n             \"next\": [\"num_output\", \"string_output\", \"all_num_buffer\", \"serialized_num_buffer\"]\n         },\n         \"num_output\": {\n             \"type\": \"node\",\n             \"builder\": \"num_output\",\n             \"next\": \"buffer_access\"\n         },\n         \"string_output\": {\n             \"type\": \"node\",\n             \"builder\": \"string_output\",\n             \"next\": \"string_buffer\"\n         },\n         \"string_buffer\": {\n             \"type\": \"buffer\",\n             \"settings\": {\n                 \"retention\": { \"keep_last\": 10 }\n             }\n         },\n         \"all_num_buffer\": {\n             \"type\": \"buffer\",\n             \"settings\": {\n                 \"retention\": \"keep_all\"\n             }\n         },\n         \"serialized_num_buffer\": {\n             \"type\": \"buffer\",\n             \"serialize\": true\n         },\n         \"buffer_access\": {\n             \"type\": \"buffer_access\",\n             \"buffers\": [\"string_buffer\"],\n             \"next\": \"with_buffer_access\"\n         },\n         \"with_buffer_access\": {\n             \"type\": \"node\",\n             \"builder\": \"with_buffer_access\",\n             \"next\": { \"builtin\": \"terminate\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())\n ```",
+      "description": "Create a [`Buffer`][1] which can be used to store and pull data within\na scope.\n\nBy default the [`BufferSettings`][2] will keep the single last message\npushed to the buffer. You can change that with the optional `settings`\nproperty.\n\nUse the `\"serialize\": true` option to serialize the messages into\n[`JsonMessage`] before they are inserted into the buffer. This\nallows any serializable message type to be pushed into the buffer. If\nleft unspecified, the buffer will store the specific data type that gets\npushed into it. If the buffer inputs are not being serialized, then all\nincoming messages being pushed into the buffer must have the same type.\n\n[1]: crate::Buffer\n[2]: crate::BufferSettings\n\n# Examples\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"fork_clone\",\n    \"ops\": {\n        \"fork_clone\": {\n            \"type\": \"fork_clone\",\n            \"next\": [\"num_output\", \"string_output\", \"all_num_buffer\", \"serialized_num_buffer\"]\n        },\n        \"num_output\": {\n            \"type\": \"node\",\n            \"builder\": \"num_output\",\n            \"next\": \"buffer_access\"\n        },\n        \"string_output\": {\n            \"type\": \"node\",\n            \"builder\": \"string_output\",\n            \"next\": \"string_buffer\"\n        },\n        \"string_buffer\": {\n            \"type\": \"buffer\",\n            \"settings\": {\n                \"retention\": { \"keep_last\": 10 }\n            }\n        },\n        \"all_num_buffer\": {\n            \"type\": \"buffer\",\n            \"settings\": {\n                \"retention\": \"keep_all\"\n            }\n        },\n        \"serialized_num_buffer\": {\n            \"type\": \"buffer\",\n            \"serialize\": true\n        },\n        \"buffer_access\": {\n            \"type\": \"buffer_access\",\n            \"buffers\": [\"string_buffer\"],\n            \"next\": \"with_buffer_access\"\n        },\n        \"with_buffer_access\": {\n            \"type\": \"node\",\n            \"builder\": \"with_buffer_access\",\n            \"next\": { \"builtin\": \"terminate\" }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```",
       "type": "object",
       "properties": {
         "display_text": {
-          "description": "Override for text that should be displayed for an operation within an\n editor.",
+          "description": "Override for text that should be displayed for an operation within an\neditor.",
           "type": [
             "string",
             "null"
@@ -150,7 +150,7 @@
           }
         },
         "trace": {
-          "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
+          "description": "Set what the tracing behavior should be for this operation. If this is\nleft unspecified then the default trace setting of the diagram will be\nused.",
           "anyOf": [
             {
               "$ref": "#/$defs/TraceToggle"
@@ -162,7 +162,7 @@
         }
       }
     },
-    "BufferSelection_for_NextOperation": {
+    "BufferSelection": {
       "anyOf": [
         {
           "type": "object",
@@ -193,7 +193,7 @@
     "BuiltinTarget": {
       "oneOf": [
         {
-          "description": "Use the output to terminate the current scope. The value passed into\n this operation will be the return value of the scope.",
+          "description": "Use the output to terminate the current scope. The value passed into\nthis operation will be the return value of the scope.",
           "type": "string",
           "const": "terminate"
         },
@@ -203,7 +203,7 @@
           "const": "dispose"
         },
         {
-          "description": "When triggered, cancel the current scope. If this is an inner scope of a\n workflow then the parent scope will see a disposal happen. If this is\n the root scope of a workflow then the whole workflow will cancel.",
+          "description": "When triggered, cancel the current scope. If this is an inner scope of a\nworkflow then the parent scope will see a disposal happen. If this is\nthe root scope of a workflow then the whole workflow will cancel.",
           "type": "string",
           "const": "cancel"
         }
@@ -383,11 +383,11 @@
       ]
     },
     "ForkCloneSchema": {
-      "description": "If the request is cloneable, clone it into multiple responses that can\n each be sent to a different operation. The `next` property is an array.\n\n This creates multiple simultaneous branches of execution within the\n workflow. Usually when you have multiple branches you will either\n * race - connect all branches to `terminate` and the first branch to\n   finish \"wins\" the race and gets to the be output\n * join - connect each branch into a buffer and then use the `join`\n   operation to reunite them\n * collect - TODO(@mxgrey): [add the collect operation](https://github.com/open-rmf/crossflow/issues/59)\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"begin_race\",\n     \"ops\": {\n         \"begin_race\": {\n             \"type\": \"fork_clone\",\n             \"next\": [\n                 \"ferrari\",\n                 \"mustang\"\n             ]\n         },\n         \"ferrari\": {\n             \"type\": \"node\",\n             \"builder\": \"drive\",\n             \"config\": \"ferrari\",\n             \"next\": { \"builtin\": \"terminate\" }\n         },\n         \"mustang\": {\n             \"type\": \"node\",\n             \"builder\": \"drive\",\n             \"config\": \"mustang\",\n             \"next\": { \"builtin\": \"terminate\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())",
+      "description": "If the request is cloneable, clone it into multiple responses that can\neach be sent to a different operation. The `next` property is an array.\n\nThis creates multiple simultaneous branches of execution within the\nworkflow. Usually when you have multiple branches you will either\n* race - connect all branches to `terminate` and the first branch to\n  finish \"wins\" the race and gets to the be output\n* join - connect each branch into a buffer and then use the `join`\n  operation to reunite them\n* collect - TODO(@mxgrey): [add the collect operation](https://github.com/open-rmf/crossflow/issues/59)\n\n# Examples\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"begin_race\",\n    \"ops\": {\n        \"begin_race\": {\n            \"type\": \"fork_clone\",\n            \"next\": [\n                \"ferrari\",\n                \"mustang\"\n            ]\n        },\n        \"ferrari\": {\n            \"type\": \"node\",\n            \"builder\": \"drive\",\n            \"config\": \"ferrari\",\n            \"next\": { \"builtin\": \"terminate\" }\n        },\n        \"mustang\": {\n            \"type\": \"node\",\n            \"builder\": \"drive\",\n            \"config\": \"mustang\",\n            \"next\": { \"builtin\": \"terminate\" }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())",
       "type": "object",
       "properties": {
         "display_text": {
-          "description": "Override for text that should be displayed for an operation within an\n editor.",
+          "description": "Override for text that should be displayed for an operation within an\neditor.",
           "type": [
             "string",
             "null"
@@ -406,7 +406,7 @@
           }
         },
         "trace": {
-          "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
+          "description": "Set what the tracing behavior should be for this operation. If this is\nleft unspecified then the default trace setting of the diagram will be\nused.",
           "anyOf": [
             {
               "$ref": "#/$defs/TraceToggle"
@@ -422,11 +422,11 @@
       ]
     },
     "ForkResultSchema": {
-      "description": "If the request is a [`Result<T, E>`], send the output message down an\n `ok` branch or down an `err` branch depending on whether the result has\n an [`Ok`] or [`Err`] value. The `ok` branch will receive a `T` while the\n `err` branch will receive an `E`.\n\n Only one branch will be activated by each input message that enters the\n operation.\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"fork_result\",\n     \"ops\": {\n         \"fork_result\": {\n             \"type\": \"fork_result\",\n             \"ok\": { \"builtin\": \"terminate\" },\n             \"err\": { \"builtin\": \"dispose\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())\n ```",
+      "description": "If the request is a [`Result<T, E>`], send the output message down an\n`ok` branch or down an `err` branch depending on whether the result has\nan [`Ok`] or [`Err`] value. The `ok` branch will receive a `T` while the\n`err` branch will receive an `E`.\n\nOnly one branch will be activated by each input message that enters the\noperation.\n\n# Examples\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"fork_result\",\n    \"ops\": {\n        \"fork_result\": {\n            \"type\": \"fork_result\",\n            \"ok\": { \"builtin\": \"terminate\" },\n            \"err\": { \"builtin\": \"dispose\" }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```",
       "type": "object",
       "properties": {
         "display_text": {
-          "description": "Override for text that should be displayed for an operation within an\n editor.",
+          "description": "Override for text that should be displayed for an operation within an\neditor.",
           "type": [
             "string",
             "null"
@@ -445,7 +445,7 @@
           "$ref": "#/$defs/NextOperation"
         },
         "trace": {
-          "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
+          "description": "Set what the tracing behavior should be for this operation. If this is\nleft unspecified then the default trace setting of the diagram will be\nused.",
           "anyOf": [
             {
               "$ref": "#/$defs/TraceToggle"
@@ -475,7 +475,7 @@
       ]
     },
     "InputRemapping": {
-      "description": "This defines how sections remap their inner operations (inputs and buffers)\n to expose them to operations that are siblings to the section.",
+      "description": "This defines how sections remap their inner operations (inputs and buffers)\nto expose them to operations that are siblings to the section.",
       "anyOf": [
         {
           "description": "Do a simple 1:1 forwarding of the names listed in the array",
@@ -485,7 +485,7 @@
           }
         },
         {
-          "description": "Rename an operation inside the section to expose it externally. The key\n of the map is what siblings of the section can connect to, and the value\n of the entry is the identifier of the input inside the section that is\n being exposed.\n\n This allows a section to expose inputs and buffers that are provided\n by inner sections.",
+          "description": "Rename an operation inside the section to expose it externally. The key\nof the map is what siblings of the section can connect to, and the value\nof the entry is the identifier of the input inside the section that is\nbeing exposed.\n\nThis allows a section to expose inputs and buffers that are provided\nby inner sections.",
           "type": "object",
           "additionalProperties": {
             "$ref": "#/$defs/NextOperation"
@@ -494,22 +494,22 @@
       ]
     },
     "JoinSchema": {
-      "description": "Wait for exactly one item to be available in each buffer listed in\n `buffers`, then join each of those items into a single output message\n that gets sent to `next`.\n\n If the `next` operation is not a `node` type (e.g. `fork_clone`) then\n you must specify a `target_node` so that the diagram knows what data\n structure to join the values into.\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"begin_measuring\",\n     \"ops\": {\n         \"begin_measuring\": {\n             \"type\": \"fork_clone\",\n             \"next\": [\"localize\", \"imu\"]\n         },\n         \"localize\": {\n             \"type\": \"node\",\n             \"builder\": \"localize\",\n             \"next\": \"estimated_position\"\n         },\n         \"imu\": {\n             \"type\": \"node\",\n             \"builder\": \"imu\",\n             \"config\": \"velocity\",\n             \"next\": \"estimated_velocity\"\n         },\n         \"estimated_position\": { \"type\": \"buffer\" },\n         \"estimated_velocity\": { \"type\": \"buffer\" },\n         \"gather_state\": {\n             \"type\": \"join\",\n             \"buffers\": {\n                 \"position\": \"estimate_position\",\n                 \"velocity\": \"estimate_velocity\"\n             },\n             \"next\": \"report_state\"\n         },\n         \"report_state\": {\n             \"type\": \"node\",\n             \"builder\": \"publish_state\",\n             \"next\": { \"builtin\": \"terminate\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())\n ```",
+      "description": "Wait for exactly one item to be available in each buffer listed in\n`buffers`, then join each of those items into a single output message\nthat gets sent to `next`.\n\nIf the `next` operation is not a `node` type (e.g. `fork_clone`) then\nyou must specify a `target_node` so that the diagram knows what data\nstructure to join the values into.\n\n# Examples\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"begin_measuring\",\n    \"ops\": {\n        \"begin_measuring\": {\n            \"type\": \"fork_clone\",\n            \"next\": [\"localize\", \"imu\"]\n        },\n        \"localize\": {\n            \"type\": \"node\",\n            \"builder\": \"localize\",\n            \"next\": \"estimated_position\"\n        },\n        \"imu\": {\n            \"type\": \"node\",\n            \"builder\": \"imu\",\n            \"config\": \"velocity\",\n            \"next\": \"estimated_velocity\"\n        },\n        \"estimated_position\": { \"type\": \"buffer\" },\n        \"estimated_velocity\": { \"type\": \"buffer\" },\n        \"gather_state\": {\n            \"type\": \"join\",\n            \"buffers\": {\n                \"position\": \"estimate_position\",\n                \"velocity\": \"estimate_velocity\"\n            },\n            \"next\": \"report_state\"\n        },\n        \"report_state\": {\n            \"type\": \"node\",\n            \"builder\": \"publish_state\",\n            \"next\": { \"builtin\": \"terminate\" }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```",
       "type": "object",
       "properties": {
         "buffers": {
           "description": "Map of buffer keys and buffers.",
-          "$ref": "#/$defs/BufferSelection_for_NextOperation"
+          "$ref": "#/$defs/BufferSelection"
         },
         "clone": {
-          "description": "List of the keys in the `buffers` dictionary whose value should be cloned\n instead of removed from the buffer (pulled) when the join occurs. Cloning\n the value will leave the buffer unchanged after the join operation takes\n place.",
+          "description": "List of the keys in the `buffers` dictionary whose value should be cloned\ninstead of removed from the buffer (pulled) when the join occurs. Cloning\nthe value will leave the buffer unchanged after the join operation takes\nplace.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/BufferIdentifier"
           }
         },
         "display_text": {
-          "description": "Override for text that should be displayed for an operation within an\n editor.",
+          "description": "Override for text that should be displayed for an operation within an\neditor.",
           "type": [
             "string",
             "null"
@@ -526,11 +526,11 @@
           "$ref": "#/$defs/NextOperation"
         },
         "serialize": {
-          "description": "Whether or not to automatically serialize the inputs into a single JsonMessage.\n This will only work if all input types are serializable, otherwise you will\n get a [`DiagramError`][super::DiagramError].",
+          "description": "Whether or not to automatically serialize the inputs into a single JsonMessage.\nThis will only work if all input types are serializable, otherwise you will\nget a [`DiagramError`][super::DiagramError].",
           "type": "boolean"
         },
         "trace": {
-          "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
+          "description": "Set what the tracing behavior should be for this operation. If this is\nleft unspecified then the default trace setting of the diagram will be\nused.",
           "anyOf": [
             {
               "$ref": "#/$defs/TraceToggle"
@@ -547,15 +547,15 @@
       ]
     },
     "ListenSchema": {
-      "description": "Listen on a buffer.\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"num_output\",\n     \"ops\": {\n         \"buffer\": {\n             \"type\": \"buffer\"\n         },\n         \"num_output\": {\n             \"type\": \"node\",\n             \"builder\": \"num_output\",\n             \"next\": \"buffer\"\n         },\n         \"listen\": {\n             \"type\": \"listen\",\n             \"buffers\": [\"buffer\"],\n             \"next\": \"listen_buffer\"\n         },\n         \"listen_buffer\": {\n             \"type\": \"node\",\n             \"builder\": \"listen_buffer\",\n             \"next\": { \"builtin\": \"terminate\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())",
+      "description": "Listen on a buffer.\n\n# Examples\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"num_output\",\n    \"ops\": {\n        \"buffer\": {\n            \"type\": \"buffer\"\n        },\n        \"num_output\": {\n            \"type\": \"node\",\n            \"builder\": \"num_output\",\n            \"next\": \"buffer\"\n        },\n        \"listen\": {\n            \"type\": \"listen\",\n            \"buffers\": [\"buffer\"],\n            \"next\": \"listen_buffer\"\n        },\n        \"listen_buffer\": {\n            \"type\": \"node\",\n            \"builder\": \"listen_buffer\",\n            \"next\": { \"builtin\": \"terminate\" }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())",
       "type": "object",
       "properties": {
         "buffers": {
           "description": "Map of buffer keys and buffers.",
-          "$ref": "#/$defs/BufferSelection_for_NextOperation"
+          "$ref": "#/$defs/BufferSelection"
         },
         "display_text": {
-          "description": "Override for text that should be displayed for an operation within an\n editor.",
+          "description": "Override for text that should be displayed for an operation within an\neditor.",
           "type": [
             "string",
             "null"
@@ -571,7 +571,7 @@
           "$ref": "#/$defs/NextOperation"
         },
         "trace": {
-          "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
+          "description": "Set what the tracing behavior should be for this operation. If this is\nleft unspecified then the default trace setting of the diagram will be\nused.",
           "anyOf": [
             {
               "$ref": "#/$defs/TraceToggle"
@@ -614,13 +614,13 @@
           ]
         },
         {
-          "description": "Refer to an \"inner\" operation of one of the sibling operations in a\n diagram. This can be used to target section inputs.",
+          "description": "Refer to an \"inner\" operation of one of the sibling operations in a\ndiagram. This can be used to target section inputs.",
           "$ref": "#/$defs/NamespacedOperation"
         }
       ]
     },
     "NodeSchema": {
-      "description": "Create an operation that that takes an input message and produces an\n output message.\n\n The behavior is determined by the choice of node `builder` and\n optionally the `config` that you provide. Each type of node builder has\n its own schema for the config.\n\n The output message will be sent to the operation specified by `next`.\n\n TODO(@mxgrey): [Support stream outputs](https://github.com/open-rmf/crossflow/issues/43)\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"cutting_board\",\n     \"ops\": {\n         \"cutting_board\": {\n             \"type\": \"node\",\n             \"builder\": \"chop\",\n             \"config\": \"diced\",\n             \"next\": \"bowl\"\n         },\n         \"bowl\": {\n             \"type\": \"node\",\n             \"builder\": \"stir\",\n             \"next\": \"oven\"\n         },\n         \"oven\": {\n             \"type\": \"node\",\n             \"builder\": \"bake\",\n             \"config\": {\n                 \"temperature\": 200,\n                 \"duration\": 120\n             },\n             \"next\": { \"builtin\": \"terminate\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())",
+      "description": "Create an operation that that takes an input message and produces an\noutput message.\n\nThe behavior is determined by the choice of node `builder` and\noptionally the `config` that you provide. Each type of node builder has\nits own schema for the config.\n\nThe output message will be sent to the operation specified by `next`.\n\nTODO(@mxgrey): [Support stream outputs](https://github.com/open-rmf/crossflow/issues/43)\n\n# Examples\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"cutting_board\",\n    \"ops\": {\n        \"cutting_board\": {\n            \"type\": \"node\",\n            \"builder\": \"chop\",\n            \"config\": \"diced\",\n            \"next\": \"bowl\"\n        },\n        \"bowl\": {\n            \"type\": \"node\",\n            \"builder\": \"stir\",\n            \"next\": \"oven\"\n        },\n        \"oven\": {\n            \"type\": \"node\",\n            \"builder\": \"bake\",\n            \"config\": {\n                \"temperature\": 200,\n                \"duration\": 120\n            },\n            \"next\": { \"builtin\": \"terminate\" }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())",
       "type": "object",
       "properties": {
         "builder": {
@@ -628,7 +628,7 @@
         },
         "config": true,
         "display_text": {
-          "description": "Override for text that should be displayed for an operation within an\n editor.",
+          "description": "Override for text that should be displayed for an operation within an\neditor.",
           "type": [
             "string",
             "null"
@@ -650,7 +650,7 @@
           }
         },
         "trace": {
-          "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
+          "description": "Set what the tracing behavior should be for this operation. If this is\nleft unspecified then the default trace setting of the diagram will be\nused.",
           "anyOf": [
             {
               "$ref": "#/$defs/TraceToggle"
@@ -667,10 +667,10 @@
       ]
     },
     "RetentionPolicy": {
-      "description": "Describe how data within a buffer gets retained. Most mechanisms that pull\n data from a buffer will remove the oldest item in the buffer, so this policy\n is for dealing with situations where items are being stored faster than they\n are being pulled.\n\n The default value is KeepLast(1).",
+      "description": "Describe how data within a buffer gets retained. Most mechanisms that pull\ndata from a buffer will remove the oldest item in the buffer, so this policy\nis for dealing with situations where items are being stored faster than they\nare being pulled.\n\nThe default value is KeepLast(1).",
       "oneOf": [
         {
-          "description": "Keep the last N items that were stored into the buffer. Once the limit\n is reached, the oldest item will be removed any time a new item arrives.",
+          "description": "Keep the last N items that were stored into the buffer. Once the limit\nis reached, the oldest item will be removed any time a new item arrives.",
           "type": "object",
           "properties": {
             "keep_last": {
@@ -685,7 +685,7 @@
           ]
         },
         {
-          "description": "Keep the first N items that are stored into the buffer. Once the limit\n is reached, any new item that arrives will be discarded.",
+          "description": "Keep the first N items that are stored into the buffer. Once the limit\nis reached, any new item that arrives will be discarded.",
           "type": "object",
           "properties": {
             "keep_first": {
@@ -707,11 +707,11 @@
       ]
     },
     "ScopeSchema": {
-      "description": "Create a scope which will function like its own encapsulated workflow\n within the paren workflow. Each message that enters a scope will trigger\n a new independent session for that scope to begin running with the incoming\n message itself being the input message of the scope. When multiple sessions\n for the same scope are running, they cannot see or interfere with each other.\n\n Once a session terminates, the scope will send the terminating message as\n its output. Scopes can use the `stream_out` operation to stream messages out\n to the parent workflow while running.\n\n Scopes have two common uses:\n * isolate - Prevent simultaneous runs of the same workflow components\n   (especially buffers) from interfering with each other.\n * race - Run multiple branches simultaneously inside the scope and race\n   them against each ohter. The first branch that reaches the scope's\n   terminate operation \"wins\" the race, and only its output will continue\n   on in the parent workflow. All other branches will be disposed.\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"approach_door\",\n     \"ops\": {\n         \"approach_door\": {\n             \"type\": \"scope\",\n             \"start\": \"begin\",\n             \"ops\": {\n                 \"begin\": {\n                     \"type\": \"fork_clone\",\n                     \"next\": [\n                         \"move_to_door\",\n                         \"detect_door_proximity\"\n                     ]\n                 },\n                 \"move_to_door\": {\n                     \"type\": \"node\",\n                     \"builder\": \"move\",\n                     \"config\": {\n                         \"place\": \"L1_north_lobby_outside\"\n                     },\n                     \"next\": { \"builtin\" : \"terminate\" }\n                 },\n                 \"detect_proximity\": {\n                     \"type\": \"node\",\n                     \"builder\": \"detect_proximity\",\n                     \"config\": {\n                         \"type\": \"door\",\n                         \"name\": \"L1_north_lobby\"\n                     },\n                     \"next\": { \"builtin\" : \"terminate\" }\n                 }\n             },\n             \"next\": { \"builtin\" : \"try_open_door\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())\n ```",
+      "description": "Create a scope which will function like its own encapsulated workflow\nwithin the paren workflow. Each message that enters a scope will trigger\na new independent session for that scope to begin running with the incoming\nmessage itself being the input message of the scope. When multiple sessions\nfor the same scope are running, they cannot see or interfere with each other.\n\nOnce a session terminates, the scope will send the terminating message as\nits output. Scopes can use the `stream_out` operation to stream messages out\nto the parent workflow while running.\n\nScopes have two common uses:\n* isolate - Prevent simultaneous runs of the same workflow components\n  (especially buffers) from interfering with each other.\n* race - Run multiple branches simultaneously inside the scope and race\n  them against each ohter. The first branch that reaches the scope's\n  terminate operation \"wins\" the race, and only its output will continue\n  on in the parent workflow. All other branches will be disposed.\n\n# Examples\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"approach_door\",\n    \"ops\": {\n        \"approach_door\": {\n            \"type\": \"scope\",\n            \"start\": \"begin\",\n            \"ops\": {\n                \"begin\": {\n                    \"type\": \"fork_clone\",\n                    \"next\": [\n                        \"move_to_door\",\n                        \"detect_door_proximity\"\n                    ]\n                },\n                \"move_to_door\": {\n                    \"type\": \"node\",\n                    \"builder\": \"move\",\n                    \"config\": {\n                        \"place\": \"L1_north_lobby_outside\"\n                    },\n                    \"next\": { \"builtin\" : \"terminate\" }\n                },\n                \"detect_proximity\": {\n                    \"type\": \"node\",\n                    \"builder\": \"detect_proximity\",\n                    \"config\": {\n                        \"type\": \"door\",\n                        \"name\": \"L1_north_lobby\"\n                    },\n                    \"next\": { \"builtin\" : \"terminate\" }\n                }\n            },\n            \"next\": { \"builtin\" : \"try_open_door\" }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```",
       "type": "object",
       "properties": {
         "display_text": {
-          "description": "Override for text that should be displayed for an operation within an\n editor.",
+          "description": "Override for text that should be displayed for an operation within an\neditor.",
           "type": [
             "string",
             "null"
@@ -728,7 +728,7 @@
           "$ref": "#/$defs/NextOperation"
         },
         "on_implicit_error": {
-          "description": "To simplify diagram definitions, the diagram workflow builder will\n sometimes insert implicit operations into the workflow, such as implicit\n serializing and deserializing. These implicit operations may be fallible.\n\n This field indicates how a failed implicit operation should be handled.\n If left unspecified, an implicit error will cause the entire workflow to\n be cancelled.",
+          "description": "To simplify diagram definitions, the diagram workflow builder will\nsometimes insert implicit operations into the workflow, such as implicit\nserializing and deserializing. These implicit operations may be fallible.\n\nThis field indicates how a failed implicit operation should be handled.\nIf left unspecified, an implicit error will cause the entire workflow to\nbe cancelled.",
           "anyOf": [
             {
               "$ref": "#/$defs/NextOperation"
@@ -754,7 +754,7 @@
           }
         },
         "start": {
-          "description": "Indicates which node inside the scope should receive the input into the\n scope.",
+          "description": "Indicates which node inside the scope should receive the input into the\nscope.",
           "$ref": "#/$defs/NextOperation"
         },
         "stream_out": {
@@ -766,7 +766,7 @@
           "default": {}
         },
         "trace": {
-          "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
+          "description": "Set what the tracing behavior should be for this operation. If this is\nleft unspecified then the default trace setting of the diagram will be\nused.",
           "anyOf": [
             {
               "$ref": "#/$defs/TraceToggle"
@@ -788,7 +788,7 @@
       "type": "object",
       "properties": {
         "uninterruptible": {
-          "description": "Should we prevent the scope from being interrupted (e.g. cancelled)?\n False by default, meaning by default scopes can be cancelled or\n interrupted.",
+          "description": "Should we prevent the scope from being interrupted (e.g. cancelled)?\nFalse by default, meaning by default scopes can be cancelled or\ninterrupted.",
           "type": "boolean"
         }
       },
@@ -797,7 +797,7 @@
       ]
     },
     "SectionSchema": {
-      "description": "Connect the request to a registered section.\n\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"section_op\",\n     \"ops\": {\n         \"section_op\": {\n             \"type\": \"section\",\n             \"builder\": \"my_section_builder\",\n             \"connect\": {\n                 \"my_section_output\": { \"builtin\": \"terminate\" }\n             }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())\n ```\n\n Custom sections can also be created via templates\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"templates\": {\n         \"my_template\": {\n             \"inputs\": [\"section_input\"],\n             \"outputs\": [\"section_output\"],\n             \"buffers\": [],\n             \"ops\": {\n                 \"section_input\": {\n                     \"type\": \"node\",\n                     \"builder\": \"my_node\",\n                     \"next\": \"section_output\"\n                 }\n             }\n         }\n     },\n     \"start\": \"section_op\",\n     \"ops\": {\n         \"section_op\": {\n             \"type\": \"section\",\n             \"template\": \"my_template\",\n             \"connect\": {\n                 \"section_output\": { \"builtin\": \"terminate\" }\n             }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())\n ```",
+      "description": "Connect the request to a registered section.\n\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"section_op\",\n    \"ops\": {\n        \"section_op\": {\n            \"type\": \"section\",\n            \"builder\": \"my_section_builder\",\n            \"connect\": {\n                \"my_section_output\": { \"builtin\": \"terminate\" }\n            }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```\n\nCustom sections can also be created via templates\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"templates\": {\n        \"my_template\": {\n            \"inputs\": [\"section_input\"],\n            \"outputs\": [\"section_output\"],\n            \"buffers\": [],\n            \"ops\": {\n                \"section_input\": {\n                    \"type\": \"node\",\n                    \"builder\": \"my_node\",\n                    \"next\": \"section_output\"\n                }\n            }\n        }\n    },\n    \"start\": \"section_op\",\n    \"ops\": {\n        \"section_op\": {\n            \"type\": \"section\",\n            \"template\": \"my_template\",\n            \"connect\": {\n                \"section_output\": { \"builtin\": \"terminate\" }\n            }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```",
       "type": "object",
       "properties": {
         "config": {
@@ -811,7 +811,7 @@
           "default": {}
         },
         "display_text": {
-          "description": "Override for text that should be displayed for an operation within an\n editor.",
+          "description": "Override for text that should be displayed for an operation within an\neditor.",
           "type": [
             "string",
             "null"
@@ -824,7 +824,7 @@
           "default": {}
         },
         "trace": {
-          "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
+          "description": "Set what the tracing behavior should be for this operation. If this is\nleft unspecified then the default trace setting of the diagram will be\nused.",
           "anyOf": [
             {
               "$ref": "#/$defs/TraceToggle"
@@ -864,12 +864,12 @@
       "type": "object",
       "properties": {
         "buffers": {
-          "description": "These are the buffers that the section is exposing for you to read,\n write, join, or listen to.",
+          "description": "These are the buffers that the section is exposing for you to read,\nwrite, join, or listen to.",
           "$ref": "#/$defs/InputRemapping",
           "default": []
         },
         "inputs": {
-          "description": "These are the inputs that the section is exposing for its sibling\n operations to send outputs into.",
+          "description": "These are the inputs that the section is exposing for its sibling\noperations to send outputs into.",
           "$ref": "#/$defs/InputRemapping",
           "default": []
         },
@@ -881,7 +881,7 @@
           }
         },
         "outputs": {
-          "description": "These are the outputs that the section is exposing so you can connect\n them into siblings of the section.",
+          "description": "These are the outputs that the section is exposing so you can connect\nthem into siblings of the section.",
           "type": "array",
           "default": [],
           "items": {
@@ -894,11 +894,11 @@
       ]
     },
     "SplitSchema": {
-      "description": "If the input message is a list-like or map-like object, split it into\n multiple output messages.\n\n Note that the type of output message from the split depends on how the\n input message implements the [`Splittable`][1] trait. In many cases this\n will be a tuple of `(key, value)`.\n\n There are three ways to specify where the split output messages should\n go, and all can be used at the same time:\n * `sequential` - For array-like collections, send the \"first\" element of\n   the collection to the first operation listed in the `sequential` array.\n   The \"second\" element of the collection goes to the second operation\n   listed in the `sequential` array. And so on for all elements in the\n   collection. If one of the elements in the collection is mentioned in\n   the `keyed` set, then the sequence will pass over it as if the element\n   does not exist at all.\n * `keyed` - For map-like collections, send the split element associated\n   with the specified key to its associated output.\n * `remaining` - Any elements that are were not captured by `sequential`\n   or by `keyed` will be sent to this.\n\n [1]: crate::Splittable\n\n # Examples\n\n Suppose I am an animal rescuer sorting through a new collection of\n animals that need recuing. My home has space for three exotic animals\n plus any number of dogs and cats.\n\n I have a custom `SpeciesCollection` data structure that implements\n [`Splittable`][1] by allowing you to key on the type of animal.\n\n In the workflow below, we send all cats and dogs to `home`, and we also\n send the first three non-dog and non-cat species to `home`. All\n remaining animals go to the zoo.\n\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"select_animals\",\n     \"ops\": {\n         \"select_animals\": {\n             \"type\": \"split\",\n             \"sequential\": [\n                 \"home\",\n                 \"home\",\n                 \"home\"\n             ],\n             \"keyed\": {\n                 \"cat\": \"home\",\n                 \"dog\": \"home\"\n             },\n             \"remaining\": \"zoo\"\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())\n ```\n\n If we input `[\"frog\", \"cat\", \"bear\", \"beaver\", \"dog\", \"rabbit\", \"dog\", \"monkey\"]`\n then `frog`, `bear`, and `beaver` will be sent to `home` since those are\n the first three animals that are not `dog` or `cat`, and we will also\n send one `cat` and two `dog` home. `rabbit` and `monkey` will be sent to the zoo.",
+      "description": "If the input message is a list-like or map-like object, split it into\nmultiple output messages.\n\nNote that the type of output message from the split depends on how the\ninput message implements the [`Splittable`][1] trait. In many cases this\nwill be a tuple of `(key, value)`.\n\nThere are three ways to specify where the split output messages should\ngo, and all can be used at the same time:\n* `sequential` - For array-like collections, send the \"first\" element of\n  the collection to the first operation listed in the `sequential` array.\n  The \"second\" element of the collection goes to the second operation\n  listed in the `sequential` array. And so on for all elements in the\n  collection. If one of the elements in the collection is mentioned in\n  the `keyed` set, then the sequence will pass over it as if the element\n  does not exist at all.\n* `keyed` - For map-like collections, send the split element associated\n  with the specified key to its associated output.\n* `remaining` - Any elements that are were not captured by `sequential`\n  or by `keyed` will be sent to this.\n\n[1]: crate::Splittable\n\n# Examples\n\nSuppose I am an animal rescuer sorting through a new collection of\nanimals that need recuing. My home has space for three exotic animals\nplus any number of dogs and cats.\n\nI have a custom `SpeciesCollection` data structure that implements\n[`Splittable`][1] by allowing you to key on the type of animal.\n\nIn the workflow below, we send all cats and dogs to `home`, and we also\nsend the first three non-dog and non-cat species to `home`. All\nremaining animals go to the zoo.\n\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"select_animals\",\n    \"ops\": {\n        \"select_animals\": {\n            \"type\": \"split\",\n            \"sequential\": [\n                \"home\",\n                \"home\",\n                \"home\"\n            ],\n            \"keyed\": {\n                \"cat\": \"home\",\n                \"dog\": \"home\"\n            },\n            \"remaining\": \"zoo\"\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```\n\nIf we input `[\"frog\", \"cat\", \"bear\", \"beaver\", \"dog\", \"rabbit\", \"dog\", \"monkey\"]`\nthen `frog`, `bear`, and `beaver` will be sent to `home` since those are\nthe first three animals that are not `dog` or `cat`, and we will also\nsend one `cat` and two `dog` home. `rabbit` and `monkey` will be sent to the zoo.",
       "type": "object",
       "properties": {
         "display_text": {
-          "description": "Override for text that should be displayed for an operation within an\n editor.",
+          "description": "Override for text that should be displayed for an operation within an\neditor.",
           "type": [
             "string",
             "null"
@@ -933,7 +933,7 @@
           }
         },
         "trace": {
-          "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
+          "description": "Set what the tracing behavior should be for this operation. If this is\nleft unspecified then the default trace setting of the diagram will be\nused.",
           "anyOf": [
             {
               "$ref": "#/$defs/TraceToggle"
@@ -946,11 +946,11 @@
       }
     },
     "StreamOutSchema": {
-      "description": "Declare a stream output for the current scope. Outputs that you connect\n to this operation will be streamed out of the scope that this operation\n is declared in.\n\n For the root-level scope, make sure you use a stream pack that is\n compatible with all stream out operations that you declare, otherwise\n you may get a connection error at runtime.\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"plan\",\n     \"ops\": {\n         \"progress_stream\": {\n             \"type\": \"stream_out\",\n             \"name\": \"progress\"\n         },\n         \"plan\": {\n             \"type\": \"node\",\n             \"builder\": \"planner\",\n             \"next\": \"drive\",\n             \"stream_out\" : {\n                 \"progress\": \"progress_stream\"\n             }\n         },\n         \"drive\": {\n             \"type\": \"node\",\n             \"builder\": \"navigation\",\n             \"next\": { \"builtin\": \"terminate\" },\n             \"stream_out\": {\n                 \"progress\": \"progress_stream\"\n             }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())\n ```",
+      "description": "Declare a stream output for the current scope. Outputs that you connect\nto this operation will be streamed out of the scope that this operation\nis declared in.\n\nFor the root-level scope, make sure you use a stream pack that is\ncompatible with all stream out operations that you declare, otherwise\nyou may get a connection error at runtime.\n\n# Examples\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"plan\",\n    \"ops\": {\n        \"progress_stream\": {\n            \"type\": \"stream_out\",\n            \"name\": \"progress\"\n        },\n        \"plan\": {\n            \"type\": \"node\",\n            \"builder\": \"planner\",\n            \"next\": \"drive\",\n            \"stream_out\" : {\n                \"progress\": \"progress_stream\"\n            }\n        },\n        \"drive\": {\n            \"type\": \"node\",\n            \"builder\": \"navigation\",\n            \"next\": { \"builtin\": \"terminate\" },\n            \"stream_out\": {\n                \"progress\": \"progress_stream\"\n            }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```",
       "type": "object",
       "properties": {
         "display_text": {
-          "description": "Override for text that should be displayed for an operation within an\n editor.",
+          "description": "Override for text that should be displayed for an operation within an\neditor.",
           "type": [
             "string",
             "null"
@@ -967,7 +967,7 @@
           "type": "string"
         },
         "trace": {
-          "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
+          "description": "Set what the tracing behavior should be for this operation. If this is\nleft unspecified then the default trace setting of the diagram will be\nused.",
           "anyOf": [
             {
               "$ref": "#/$defs/TraceToggle"
@@ -990,26 +990,26 @@
           "const": "off"
         },
         {
-          "description": "Emit a minimal signal with just the operation information when the\n operation is activated.",
+          "description": "Emit a minimal signal with just the operation information when the\noperation is activated.",
           "type": "string",
           "const": "on"
         },
         {
-          "description": "Emit a signal that includes a serialized copy of the message when the\n operation is activated. This may substantially increase the overhead of\n triggering operations depending on the size and frequency of the messages,\n so it is recommended only for high-level workflows or for debugging.\n\n If the message is not serializable then it will simply not be included\n in the event information.",
+          "description": "Emit a signal that includes a serialized copy of the message when the\noperation is activated. This may substantially increase the overhead of\ntriggering operations depending on the size and frequency of the messages,\nso it is recommended only for high-level workflows or for debugging.\n\nIf the message is not serializable then it will simply not be included\nin the event information.",
           "type": "string",
           "const": "messages"
         }
       ]
     },
     "TransformSchema": {
-      "description": "If the request is serializable, transform it by running it through a [CEL](https://cel.dev/) program.\n The context includes a \"request\" variable which contains the input message.\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"transform\",\n     \"ops\": {\n         \"transform\": {\n             \"type\": \"transform\",\n             \"cel\": \"request.name\",\n             \"next\": { \"builtin\": \"terminate\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())\n ```\n\n Note that due to how `serde_json` performs serialization, positive integers are always\n serialized as unsigned. In CEL, You can't do an operation between unsigned and signed so\n it is recommended to always perform explicit casts.\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"transform\",\n     \"ops\": {\n         \"transform\": {\n             \"type\": \"transform\",\n             \"cel\": \"int(request.score) * 3\",\n             \"next\": { \"builtin\": \"terminate\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())\n ```",
+      "description": "If the request is serializable, transform it by running it through a [CEL](https://cel.dev/) program.\nThe context includes a \"request\" variable which contains the input message.\n\n# Examples\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"transform\",\n    \"ops\": {\n        \"transform\": {\n            \"type\": \"transform\",\n            \"cel\": \"request.name\",\n            \"next\": { \"builtin\": \"terminate\" }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```\n\nNote that due to how `serde_json` performs serialization, positive integers are always\nserialized as unsigned. In CEL, You can't do an operation between unsigned and signed so\nit is recommended to always perform explicit casts.\n\n# Examples\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"transform\",\n    \"ops\": {\n        \"transform\": {\n            \"type\": \"transform\",\n            \"cel\": \"int(request.score) * 3\",\n            \"next\": { \"builtin\": \"terminate\" }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```",
       "type": "object",
       "properties": {
         "cel": {
           "type": "string"
         },
         "display_text": {
-          "description": "Override for text that should be displayed for an operation within an\n editor.",
+          "description": "Override for text that should be displayed for an operation within an\neditor.",
           "type": [
             "string",
             "null"
@@ -1025,7 +1025,7 @@
           "$ref": "#/$defs/NextOperation"
         },
         "on_error": {
-          "description": "Specify what happens if an error occurs during the transformation. If\n you specify a target for on_error, then an error message will be sent to\n that target. You can set this to `{ \"builtin\": \"dispose\" }` to simply\n ignore errors.\n\n If left unspecified, a failure will be treated like an implicit operation\n failure and behave according to `on_implicit_error`.",
+          "description": "Specify what happens if an error occurs during the transformation. If\nyou specify a target for on_error, then an error message will be sent to\nthat target. You can set this to `{ \"builtin\": \"dispose\" }` to simply\nignore errors.\n\nIf left unspecified, a failure will be treated like an implicit operation\nfailure and behave according to `on_implicit_error`.",
           "anyOf": [
             {
               "$ref": "#/$defs/NextOperation"
@@ -1036,7 +1036,7 @@
           ]
         },
         "trace": {
-          "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
+          "description": "Set what the tracing behavior should be for this operation. If this is\nleft unspecified then the default trace setting of the diagram will be\nused.",
           "anyOf": [
             {
               "$ref": "#/$defs/TraceToggle"
@@ -1053,11 +1053,11 @@
       ]
     },
     "UnzipSchema": {
-      "description": "If the input message is a tuple of (T1, T2, T3, ...), unzip it into\n multiple output messages of T1, T2, T3, ...\n\n Each output message may have a different type and can be sent to a\n different operation. This creates multiple simultaneous branches of\n execution within the workflow. See [`DiagramOperation::ForkClone`] for\n more information on parallel branches.\n\n # Examples\n ```\n # crossflow::Diagram::from_json_str(r#\"\n {\n     \"version\": \"0.1.0\",\n     \"start\": \"name_phone_address\",\n     \"ops\": {\n         \"name_phone_address\": {\n             \"type\": \"unzip\",\n             \"next\": [\n                 \"process_name\",\n                 \"process_phone_number\",\n                 \"process_address\"\n             ]\n         },\n         \"process_name\": {\n             \"type\": \"node\",\n             \"builder\": \"process_name\",\n             \"next\": \"name_processed\"\n         },\n         \"process_phone_number\": {\n             \"type\": \"node\",\n             \"builder\": \"process_phone_number\",\n             \"next\": \"phone_number_processed\"\n         },\n         \"process_address\": {\n             \"type\": \"node\",\n             \"builder\": \"process_address\",\n             \"next\": \"address_processed\"\n         },\n         \"name_processed\": { \"type\": \"buffer\" },\n         \"phone_number_processed\": { \"type\": \"buffer\" },\n         \"address_processed\": { \"type\": \"buffer\" },\n         \"finished\": {\n             \"type\": \"join\",\n             \"buffers\": [\n                 \"name_processed\",\n                 \"phone_number_processed\",\n                 \"address_processed\"\n             ],\n             \"next\": { \"builtin\": \"terminate\" }\n         }\n     }\n }\n # \"#)?;\n # Ok::<_, serde_json::Error>(())\n ```\n\n [`DiagramOperation::ForkClone`]: super::DiagramOperation::ForkClone",
+      "description": "If the input message is a tuple of (T1, T2, T3, ...), unzip it into\nmultiple output messages of T1, T2, T3, ...\n\nEach output message may have a different type and can be sent to a\ndifferent operation. This creates multiple simultaneous branches of\nexecution within the workflow. See [`DiagramOperation::ForkClone`] for\nmore information on parallel branches.\n\n# Examples\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"name_phone_address\",\n    \"ops\": {\n        \"name_phone_address\": {\n            \"type\": \"unzip\",\n            \"next\": [\n                \"process_name\",\n                \"process_phone_number\",\n                \"process_address\"\n            ]\n        },\n        \"process_name\": {\n            \"type\": \"node\",\n            \"builder\": \"process_name\",\n            \"next\": \"name_processed\"\n        },\n        \"process_phone_number\": {\n            \"type\": \"node\",\n            \"builder\": \"process_phone_number\",\n            \"next\": \"phone_number_processed\"\n        },\n        \"process_address\": {\n            \"type\": \"node\",\n            \"builder\": \"process_address\",\n            \"next\": \"address_processed\"\n        },\n        \"name_processed\": { \"type\": \"buffer\" },\n        \"phone_number_processed\": { \"type\": \"buffer\" },\n        \"address_processed\": { \"type\": \"buffer\" },\n        \"finished\": {\n            \"type\": \"join\",\n            \"buffers\": [\n                \"name_processed\",\n                \"phone_number_processed\",\n                \"address_processed\"\n            ],\n            \"next\": { \"builtin\": \"terminate\" }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```\n\n[`DiagramOperation::ForkClone`]: super::DiagramOperation::ForkClone",
       "type": "object",
       "properties": {
         "display_text": {
-          "description": "Override for text that should be displayed for an operation within an\n editor.",
+          "description": "Override for text that should be displayed for an operation within an\neditor.",
           "type": [
             "string",
             "null"
@@ -1076,7 +1076,7 @@
           }
         },
         "trace": {
-          "description": "Set what the tracing behavior should be for this operation. If this is\n left unspecified then the default trace setting of the diagram will be\n used.",
+          "description": "Set what the tracing behavior should be for this operation. If this is\nleft unspecified then the default trace setting of the diagram will be\nused.",
           "anyOf": [
             {
               "$ref": "#/$defs/TraceToggle"

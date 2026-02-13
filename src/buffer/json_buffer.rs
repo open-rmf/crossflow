@@ -43,7 +43,7 @@ use crate::{
     Gate, GateState, IncompatibleLayout, InspectBuffer, JoinBehavior, Joined, Joining,
     ManageBuffer, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
     NotifyBufferUpdate, OperationError, OperationResult, OrBroken, add_listener_to_source,
-    BufferMapLayoutHints, BufferMapLayoutConstraint, DynamicBufferMapLayoutHints, TypeInfo,
+    BufferMapLayoutHints, DynamicBufferMapLayoutHints, TypeInfo,
 };
 
 /// A [`Buffer`] whose message type has been anonymized, but which is known to

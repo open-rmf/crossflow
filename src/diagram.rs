@@ -936,7 +936,7 @@ pub enum DiagramErrorCode {
     NoConnection(OperationRef),
 
     #[error("Cannot select message type. Choices: {}", format_list(.0))]
-    AmbiguousMessageType(Vec<TypeInfo>),
+    AmbiguousMessageType(Vec<Cow<'static, str>>),
 
     #[error("Serialization was not registered for the target message type.")]
     NotSerializable(TypeInfo),
@@ -945,33 +945,33 @@ pub enum DiagramErrorCode {
     NotDeserializable(TypeInfo),
 
     #[error("Cloning was not registered for the target message type. Type: {0}")]
-    NotCloneable(TypeInfo),
+    NotCloneable(Cow<'static, str>),
 
     #[error("The target message type does not support unzipping. Type: {0}")]
-    NotUnzippable(TypeInfo),
+    NotUnzippable(Cow<'static, str>),
 
     #[error(
         "The unzipped message [{message}] does not have the requested element [{element}]"
     )]
     InvalidUnzip {
-        message: TypeInfo,
+        message: Cow<'static, str>,
         element: usize,
     },
 
     #[error(
         "Call .with_result() on your node to be able to fork its Result-type output. Type: {0}"
     )]
-    CannotForkResult(TypeInfo),
+    CannotForkResult(Cow<'static, str>),
 
     #[error(
         "Response cannot be split. Make sure to use .with_split() when building the node. Type: {0}"
     )]
-    NotSplittable(TypeInfo),
+    NotSplittable(Cow<'static, str>),
 
     #[error(
         "Message cannot be joined. Make sure to use .with_join() when building the target node. Type: {0}"
     )]
-    NotJoinable(TypeInfo),
+    NotJoinable(Cow<'static, str>),
 
     #[error("Empty join is not allowed.")]
     EmptyJoin,
@@ -1013,10 +1013,10 @@ pub enum DiagramErrorCode {
     CannotBoxOrUnbox,
 
     #[error("buffer access is not registered for {0}")]
-    CannotAccessBuffers(TypeInfo),
+    CannotAccessBuffers(Cow<'static, str>),
 
     #[error("listening is not registered for {0}")]
-    CannotListen(TypeInfo),
+    CannotListen(Cow<'static, str>),
 
     #[error(transparent)]
     IncompatibleBuffers(#[from] IncompatibleLayout),

@@ -26,7 +26,6 @@ use super::{
     BuildDiagramOperation, BuildStatus, BuilderId, BuilderContext, DiagramElementRegistry,
     DiagramErrorCode, DynInputSlot, DynOutput, NamespacedOperation, NextOperation, OperationName,
     OperationRef, Operations, RedirectConnection, TraceInfo, TraceSettings, MessageRegistrations,
-    output_ref,
 };
 
 pub use crossflow_derive::Section;

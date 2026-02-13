@@ -15,6 +15,7 @@
  *
 */
 
+use std::borrow::Cow;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -129,7 +130,9 @@ impl BuildDiagramOperation for JoinSchema {
 
             *buffer = (*buffer)
                 .join_by_cloning()
-                .ok_or_else(|| DiagramErrorCode::NotCloneable(buffer.message_type()))?;
+                .ok_or_else(|| DiagramErrorCode::NotCloneable(
+                    Cow::Borrowed(buffer.message_type().type_name))
+                )?;
         }
 
         if self.serialize {

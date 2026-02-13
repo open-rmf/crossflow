@@ -18,30 +18,25 @@
 use smallvec::{smallvec, SmallVec};
 
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet, VecDeque},
     ops::Deref,
     sync::Arc,
-    cmp::Ordering,
 };
 use serde::{Serialize, Deserialize};
 use schemars::JsonSchema;
 
 use crate::{
-    OutputRef, DiagramElementRegistry, DiagramErrorCode, DiagramContext, MessageOperations,
-    JsonMessage, BufferIdentifier, BufferMapLayoutHints, BufferMapLayoutConstraint, AnyMessageBox,
-    MessageTypeHint, BufferSelection, NamedOutputRef, BuildDiagramOperation, MessageTypeInferenceFailure,
+    OutputRef, DiagramElementRegistry, DiagramErrorCode, DiagramContext, BufferIdentifier, BufferMapLayoutHints,
+    BufferSelection, NamedOutputRef, BuildDiagramOperation,
     Operations, OperationName, NamespaceList, NextOperation, output_ref, Diagram, StreamPack, StreamAvailability,
-    DiagramError, TypeInfo, IncompatibleLayout, BufferIncompatibility, OperationRef,
+    DiagramError, IncompatibleLayout, OperationRef,
     NodeSchema, SectionSchema, SectionProvider, SectionError, NamespacedOperation, ScopeSchema,
-    WithContext,
+    WithContext, MetadataAccess,
 };
 
 pub type InferredMessageTypes = HashMap<PortRef, usize>;
 
-pub trait DiagramElementLookup {
-    fn json_message_index(&self) -> Result<usize, DiagramErrorCode>;
-
-}
 
 /// Specify the message types of a workflow's boundary operations.
 pub struct InferenceBoundaryConditions {
@@ -77,11 +72,11 @@ impl InferenceBoundaryConditions {
     }
 
     pub fn json_messages(
-        lookup: &dyn DiagramElementLookup,
-        stream_names: impl Iterator<Item = String>,
+        lookup: &dyn MetadataAccess,
+        stream_names: impl IntoIterator<Item = String>,
     ) -> Result<Self, DiagramErrorCode> {
         let json_message_index = lookup.json_message_index()?;
-        let streams = stream_names.map(|name| (name, json_message_index)).collect();
+        let streams = stream_names.into_iter().map(|name| (name, json_message_index)).collect();
         Ok(Self {
             request: json_message_index,
             response: json_message_index,
@@ -93,7 +88,7 @@ impl InferenceBoundaryConditions {
 impl Diagram {
     pub fn infer_message_types(
         &self,
-        lookup: &dyn DiagramElementLookup,
+        lookup: &dyn MetadataAccess,
         boundary: InferenceBoundaryConditions,
     ) -> Result<InferredMessageTypes, DiagramError> {
         self.validate_operation_names()?;
@@ -128,7 +123,7 @@ impl Diagram {
                         default_trace: self.default_trace,
                         namespaces: unfinished.namespaces.clone(),
                     },
-                    lookup,
+                    metadata: lookup,
                     generated_operations: &mut generated_operations,
                 };
 
@@ -166,7 +161,7 @@ impl Diagram {
             let mut dependents = HashMap::<_, Vec<PortRef>>::new();
             for (id, inference) in &inferences.evaluations {
                 if let Some(constraint) = &inference.constraint {
-                    let ctx = ConstraintContext { inferences: &inferences, registry: lookup };
+                    let ctx = ConstraintContext { inferences: &inferences, metadata: lookup };
                     let dependencies = constraint.dependencies(&ctx);
                     for dependency in dependencies {
                         dependents.entry(dependency).or_default().push(id.clone());
@@ -209,7 +204,7 @@ impl Diagram {
 fn set_boundary_conditions(
     inferences: &mut Inferences,
     diagram: &Diagram,
-    registry: &dyn DiagramElementLookup,
+    registry: &dyn MetadataAccess,
     boundary: InferenceBoundaryConditions,
 ) -> Result<(), DiagramErrorCode> {
     let root_on_implicit_error: OperationRef = (&diagram.on_implicit_error()).into();
@@ -224,7 +219,7 @@ fn set_boundary_conditions(
             default_trace: diagram.default_trace,
             namespaces: Default::default()
         },
-        lookup: registry,
+        metadata: registry,
         generated_operations: &mut generated_operations,
     };
 
@@ -245,25 +240,10 @@ fn set_boundary_conditions(
     Ok(())
 }
 
-struct DebugMessageTypeChoice {
-    name: &'static str,
-    cost: u32,
-}
-
-impl std::fmt::Debug for DebugMessageTypeChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f
-            .debug_map()
-            .entry(&"name", &self.name)
-            .entry(&"cost", &self.cost)
-            .finish()
-    }
-}
-
 pub struct InferenceContext<'a, 'b> {
     inference: &'b mut Inferences,
     diagram_context: DiagramContext<'a>,
-    pub lookup: &'a dyn DiagramElementLookup,
+    pub metadata: &'a dyn MetadataAccess,
     generated_operations: &'b mut Vec<UnfinishedOperation>,
 }
 
@@ -320,21 +300,21 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         operation_name: &OperationName,
         schema: &NodeSchema,
     ) -> Result<(), DiagramErrorCode> {
-        let node = self.lookup.get_node_registration(&schema.builder)?.metadata();
+        let node = self.metadata.node_metadata(&schema.builder)?;
         let input = self.into_operation_ref(operation_name);
 
         // Set the exact message type of the input port
-        self.fixed(input.into(), node.request);
+        self.fixed(input.into(), node.request());
 
         // Set the exact message type of the output port, and connect it to the
         // next operation.
         let output = self.into_output_ref(output_ref(operation_name).next());
         let target = self.into_operation_ref(&schema.next);
-        self.fixed(output.clone().into(), node.response);
+        self.fixed(output.clone().into(), node.response());
         self.connect(output, target);
 
         // Set the exact message type of each stream output.
-        for (stream_id, stream_type) in &node.streams {
+        for (stream_id, stream_type) in node.streams() {
             let stream = self.into_output_ref(output_ref(operation_name).stream_out(stream_id));
             self.fixed(stream.into(), *stream_type);
         }
@@ -356,10 +336,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     ) -> Result<(), DiagramErrorCode> {
         match &schema.provider {
             SectionProvider::Builder(section_builder) => {
-                let metadata = &self
-                    .lookup
-                    .get_section_registration(section_builder)?
-                    .metadata;
+                let metadata = &self.metadata.section_metadata(section_builder)?;
 
                 for (input_name, input_metadata) in &metadata.interface.inputs {
                     let op = NextOperation::Namespace(NamespacedOperation {
@@ -482,7 +459,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         operation_name: &OperationName,
         next: &NextOperation,
     ) -> Result<(), DiagramErrorCode> {
-        let json_message_index = self.lookup.messages.registration.get_index::<JsonMessage>()?;
+        let json_message_index = self.metadata.json_message_index()?;
         let operation = self.into_operation_ref(operation_name);
         let output = self.into_output_ref(output_ref(operation_name).next());
         let target = self.into_operation_ref(next);
@@ -582,7 +559,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     ) -> Result<(), DiagramErrorCode> {
         let operation = self.into_operation_ref(operation_name);
         if serialize {
-            let json_index = self.lookup.messages.registration.get_index::<JsonMessage>()?;
+            let json_index = self.metadata.json_message_index()?;
             self.fixed(operation.into(), json_index);
         } else {
             self.inference.constrain(operation.clone(), BufferInput(operation));
@@ -601,13 +578,8 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let output = self.into_output_ref(output_ref(operation_name).next());
         let target = self.into_operation_ref(next);
         let evaluate = |context: &ConstraintContext, msg: usize, member: &BufferIdentifier| {
-            let Some(join) = &context.operations_of(msg)?.join else {
-                return Err(DiagramErrorCode::NotJoinable(
-                    context.type_info_for(msg)?
-                ));
-            };
-
-            evaluate_buffer_hint(&join.layout, member)
+            let layout = &context.metadata.join_layout(msg)?;
+            evaluate_buffer_hint(layout, member)
         };
 
         for (member, buffer) in selection.iter() {
@@ -622,7 +594,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         }
 
         if serialize {
-            let json_message_index = self.lookup.messages.registration.get_index::<JsonMessage>()?;
+            let json_message_index = self.metadata.json_message_index()?;
             self.fixed(output.clone().into(), json_message_index);
             self.connect(output, target);
         } else {
@@ -648,13 +620,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let output = self.into_output_ref(output_ref(operation_name).next());
         let target = self.into_operation_ref(next);
         let evaluate = |context: &ConstraintContext, msg: usize, member: &BufferIdentifier| {
-            let layout = match &context.operations_of(msg)?.buffer_access {
-                Some(access) => &access.layout,
-                None => return Err(DiagramErrorCode::CannotAccessBuffers(
-                    context.type_info_for(msg)?
-                )),
-            };
-
+            let layout = context.metadata.buffer_access_layout(msg)?;
             evaluate_buffer_hint(layout, member)
         };
 
@@ -682,13 +648,8 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let output = self.into_output_ref(output_ref(operation_name).next());
         let target = self.into_operation_ref(next);
         let evaluate = |context: &ConstraintContext, msg: usize, member: &BufferIdentifier| {
-            let Some(listen) = &context.operations_of(msg)?.listen else {
-                return Err(DiagramErrorCode::CannotListen(
-                    context.type_info_for(msg)?
-                ));
-            };
-
-            evaluate_buffer_hint(&listen.layout, member)
+            let layout = context.metadata.listen_layout(msg)?;
+            evaluate_buffer_hint(layout, member)
         };
 
         for (member, buffer) in selection.iter() {
@@ -787,7 +748,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 #[derive(Clone, Copy)]
 pub struct ConstraintContext<'a> {
     inferences: &'a Inferences,
-    pub registry: &'a dyn DiagramElementLookup,
+    pub metadata: &'a dyn MetadataAccess,
 }
 
 impl<'a> ConstraintContext<'a> {
@@ -901,7 +862,7 @@ impl<'a> ConstraintContext<'a> {
                 // output message type. If they can, use that type.
                 let mut compatible = true;
                 for incoming in &incoming_message_types {
-                    compatible &= self.operations_of(*incoming)?.into_impls.get(&output_message_type).is_some();
+                    compatible &= self.metadata.can_convert(*incoming, output_message_type)?;
                 }
 
                 if !compatible {
@@ -915,7 +876,7 @@ impl<'a> ConstraintContext<'a> {
                 // There isn't a clear choice for the output message type, so we
                 // should see if we can resolve the incoming types.
                 for incoming in &incoming_message_types {
-                    if self.operations_of(*incoming)?.serialize.is_none() {
+                    if !self.metadata.can_seralize(*incoming)? {
                         return Err(DiagramErrorCode::AmbiguousMessageType(
                             self.type_info_for_slice(&incoming_message_types)?
                         ));
@@ -924,7 +885,7 @@ impl<'a> ConstraintContext<'a> {
 
                 // These are all serializable, so we should choose JsonMessage
                 // if it's an option.
-                let Ok(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() else {
+                let Ok(json_index) = self.metadata.json_message_index() else {
                     return Err(DiagramErrorCode::AmbiguousMessageType(
                         self.type_info_for_slice(&incoming_message_types)?
                     ));
@@ -938,9 +899,9 @@ impl<'a> ConstraintContext<'a> {
             }
         };
 
-        if self.operations_of(selected_input_type)?.fork_clone.is_none() {
+        if !self.metadata.can_clone(selected_input_type)? {
             return Err(DiagramErrorCode::NotCloneable(
-                self.registry.messages.get_type_info_for(selected_input_type)?
+                self.type_name_for(selected_input_type)?
             ));
         }
 
@@ -970,13 +931,13 @@ impl<'a> ConstraintContext<'a> {
 
         // There is more than one message type consider. If all of them can be
         // deserialized then we will use JsonMessage.
-        let Ok(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() else {
+        let Ok(json_index) = self.metadata.json_message_index() else {
             // This is only meant to be a hint, so no need to call it an error.
             return Ok(None);
         };
 
         for message_type in message_types {
-            if self.operations_of(message_type)?.deserialize.is_none() {
+            if !self.metadata.can_deserialize(message_type)? {
                 // Cannot deserialize all of the target messages, so we can't
                 // choose a clear outgoing message. This is only meant to be a
                 // hint, so we don't treat it as an error.
@@ -1011,7 +972,7 @@ impl<'a> ConstraintContext<'a> {
             };
 
             let key = [*ok_inference, *err_inference];
-            let Some(r) = self.registry.messages.registration.reverse_lookup.result.get(&key) else {
+            let Some(r) = self.metadata.reverse_lookup().result.get(&key) else {
                 // We can't conclude anything yet.
                 return Ok(None);
             };
@@ -1023,11 +984,7 @@ impl<'a> ConstraintContext<'a> {
             return Ok(None);
         };
 
-        if self.operations_of(selected_input_type)?.fork_result.is_none() {
-            return Err(DiagramErrorCode::CannotForkResult(
-                self.type_info_for(selected_input_type)?
-            ));
-        }
+        self.metadata.fork_result_output_types(selected_input_type)?;
 
         Ok(Some(selected_input_type))
     }
@@ -1055,13 +1012,8 @@ impl<'a> ConstraintContext<'a> {
             return Ok(None);
         };
 
-        let Some(r) = &self.operations_of(*result_inference)?.fork_result else {
-            return Err(DiagramErrorCode::CannotForkResult(
-                self.type_info_for(*result_inference)?
-            ));
-        };
-
-        Ok(Some(r.output_types[index]))
+        let output_types = self.metadata.fork_result_output_types(*result_inference)?;
+        Ok(Some(output_types[index]))
     }
 
     pub fn evaluate_unzip_input(
@@ -1079,12 +1031,7 @@ impl<'a> ConstraintContext<'a> {
             return Ok(None);
         };
 
-        if !self.operations_of(*unzip_msg)?.unzip.is_some() {
-            return Err(DiagramErrorCode::NotUnzippable(
-                self.type_info_for(*unzip_msg)?
-            ));
-        }
-
+        self.metadata.unzip_output_types(*unzip_msg)?;
         Ok(Some(*unzip_msg))
 
         // TODO(@mxgrey): We could consider backing out the unzip type based on
@@ -1101,15 +1048,11 @@ impl<'a> ConstraintContext<'a> {
             return Ok(None);
         };
 
-        let Some(unzip_op) = &self.operations_of(*unzip_inference)?.unzip else {
-            return Err(DiagramErrorCode::NotUnzippable(
-                self.registry.messages.get_type_info_for(*unzip_inference)?
-            ))
-        };
+        let unzip_outputs = self.metadata.unzip_output_types(*unzip_inference)?;
 
-        let Some(id) = unzip_op.output_types.get(element).copied() else {
+        let Some(id) = unzip_outputs.get(element).copied() else {
             return Err(DiagramErrorCode::InvalidUnzip {
-                message: self.type_info_for(*unzip_inference)?,
+                message: self.type_name_for(*unzip_inference)?,
                 element,
             });
         };
@@ -1164,13 +1107,8 @@ impl<'a> ConstraintContext<'a> {
             return Ok(None);
         };
 
-        if let Some(buffer_access) = &self.operations_of(*target_inference)?.buffer_access {
-            return Ok(Some(buffer_access.request_message));
-        } else {
-            return Err(DiagramErrorCode::CannotAccessBuffers(
-                self.type_info_for(*target_inference)?
-            ));
-        }
+        let request_message = self.metadata.buffer_access_request_type(*target_inference)?;
+        Ok(Some(request_message))
     }
 
     pub fn evaluate_split_input(
@@ -1180,22 +1118,23 @@ impl<'a> ConstraintContext<'a> {
         let incoming_message_types = self.get_message_types_into(operation)?;
         if incoming_message_types.len() <= 1 {
             if let Some(incoming_message_type) = incoming_message_types.first() {
-                let ops = self.operations_of(*incoming_message_type)?;
-                if ops.split.is_none() && ops.serialize.is_some() {
+                let can_split = self.metadata.can_split(*incoming_message_type)?;
+                let can_serialize = self.metadata.can_seralize(*incoming_message_type)?;
+                if !can_split && can_serialize {
                     // The message cannot be split but it can be serialized, so
                     // we should change it to a JsonMessage.
-                    let Ok(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() else {
+                    let Ok(json_index) = self.metadata.json_message_index() else {
                         return Err(DiagramErrorCode::NotSplittable(
-                            self.type_info_for(*incoming_message_type)?
+                            self.type_name_for(*incoming_message_type)?
                         ));
                     };
 
                     return Ok(Some(json_index));
-                } else if ops.split.is_none() {
+                } else if !can_split {
                     // The message cannot be split and cannot be serialized, so
                     // it is not a valid choice for the split operation.
                     return Err(DiagramErrorCode::NotSplittable(
-                        self.type_info_for(*incoming_message_type)?
+                        self.type_name_for(*incoming_message_type)?
                     ));
                 }
             }
@@ -1203,7 +1142,7 @@ impl<'a> ConstraintContext<'a> {
             return Ok(incoming_message_types.first().copied());
         }
 
-        let Ok(json_index) = self.registry.messages.registration.get_index::<JsonMessage>() else {
+        let Ok(json_index) = self.metadata.json_message_index() else {
             return Err(DiagramErrorCode::AmbiguousMessageType(
                 self.type_info_for_slice(&incoming_message_types)?
             ));
@@ -1212,7 +1151,7 @@ impl<'a> ConstraintContext<'a> {
         // Check if all incoming messages can be serialized. If so, we can funnel
         // them into a JsonMessage before splitting.
         for incoming_message_type in &incoming_message_types {
-            if self.operations_of(*incoming_message_type)?.serialize.is_none() {
+            if !self.metadata.can_seralize(*incoming_message_type)? {
                 return Err(DiagramErrorCode::AmbiguousMessageType(
                     self.type_info_for_slice(&incoming_message_types)?
                 ));
@@ -1231,41 +1170,24 @@ impl<'a> ConstraintContext<'a> {
             return Ok(None);
         };
 
-        let Some(split) = &self.operations_of(*split_inference)?.split else {
-            return Err(DiagramErrorCode::NotSplittable(
-                self.type_info_for(*split_inference)?
-            ));
-        };
-
-        Ok(Some(split.output_type))
+        let output_type = self.metadata.split_output_type(*split_inference)?;
+        Ok(Some(output_type))
     }
 
-    pub fn operations_of(
-        &self,
-        message_type_index: usize,
-    ) -> Result<&MessageOperations, DiagramErrorCode> {
-        self
-            .registry
-            .messages
-            .registration
-            .get_by_index(message_type_index)?
-            .get_operations()
-    }
-
-    pub fn type_info_for(
+    pub fn type_name_for(
         &self,
         index: usize,
-    ) -> Result<TypeInfo, DiagramErrorCode> {
-        Ok(self.registry.messages.registration.get_by_index(index)?.type_info)
+    ) -> Result<Cow<'static, str>, DiagramErrorCode> {
+        Ok(Cow::Owned(self.metadata.message_type_name(index)?.to_owned()))
     }
 
     pub fn type_info_for_slice(
         &self,
         indices: &[usize],
-    ) -> Result<Vec<TypeInfo>, DiagramErrorCode> {
+    ) -> Result<Vec<Cow<'static, str>>, DiagramErrorCode> {
         let mut info = Vec::new();
         for index in indices {
-            info.push(self.type_info_for(*index)?);
+            info.push(self.type_name_for(*index)?);
         }
 
         Ok(info)
@@ -1363,13 +1285,13 @@ impl MessageTypeInference {
     fn evaluate(
         &self,
         inference: &Inferences,
-        registry: &dyn DiagramElementLookup,
+        registry: &dyn MetadataAccess,
     ) -> MessageTypeEvaluation {
         let Some(constraint) = &self.constraint else {
             return Ok(None);
         };
 
-        let ctx = ConstraintContext { inferences: inference, registry };
+        let ctx = ConstraintContext { inferences: inference, metadata: registry };
         constraint.evaluate(&ctx)
     }
 }
@@ -1750,12 +1672,13 @@ impl MessageTypeConstraint for SplitOutput {
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::*, testing::*, diagram::testing::*};
+    use super::InferenceBoundaryConditions;
+    use crate::{prelude::*, diagram::testing::*};
     use serde_json::json;
 
     #[test]
     fn test_split_type_inference() {
-        let mut fixture = DiagramTestFixture::new();
+        let fixture = DiagramTestFixture::new();
 
         let diagram = Diagram::from_json(json!({
             "version": "0.1.0",
@@ -1808,7 +1731,10 @@ mod tests {
         }))
         .unwrap();
 
-        let inference = diagram.infer_message_types::<JsonMessage, JsonMessage, ()>(&fixture.registry).unwrap();
+        let inference = diagram.infer_message_types(
+            &fixture.registry,
+            InferenceBoundaryConditions::json_messages(&fixture.registry, []).unwrap(),
+        ).unwrap();
         dbg!(inference);
 
         for (i, r) in fixture.registry.messages.registration.iter().enumerate() {
@@ -1819,7 +1745,7 @@ mod tests {
 
     #[test]
     fn test_fork_clone_type_inference() {
-        let mut fixture = DiagramTestFixture::new();
+        let fixture = DiagramTestFixture::new();
 
         let diagram = Diagram::from_json(json!({
             "version": "0.1.0",
@@ -1860,7 +1786,10 @@ mod tests {
         }))
         .unwrap();
 
-        let inference = diagram.infer_message_types::<JsonMessage, JsonMessage, ()>(&fixture.registry).unwrap();
+        let inference = diagram.infer_message_types(
+            &fixture.registry,
+            InferenceBoundaryConditions::json_messages(&fixture.registry, []).unwrap(),
+        ).unwrap();
         dbg!(inference);
     }
 

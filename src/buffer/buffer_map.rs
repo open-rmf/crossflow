@@ -526,43 +526,6 @@ impl<TypeRepr> DynamicBufferMapLayoutHints<TypeRepr> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(
-    feature = "diagram",
-    derive(Serialize, Deserialize, JsonSchema),
-    serde(rename_all = "snake_case")
-)]
-pub enum BufferMapLayoutConstraint<TypeRepr> {
-    /// Each buffer can contain any message type
-    Any,
-    /// Each buffer can contain any message type from this set
-    AnyOf(Vec<MessageTypeHint<TypeRepr>>),
-    /// All buffers must have the same message type and it must match a hint from this set
-    OneOf(Vec<MessageTypeHint<TypeRepr>>),
-}
-
-impl BufferMapLayoutConstraint<TypeInfo> {
-    #[cfg(feature = "diagram")]
-    pub fn export(
-        &self,
-        messages: &mut MessageRegistry,
-    ) -> BufferMapLayoutConstraint<usize> {
-        match self {
-            Self::Any => BufferMapLayoutConstraint::Any,
-            Self::AnyOf(hints) => BufferMapLayoutConstraint::AnyOf(export_hints(hints, messages)),
-            Self::OneOf(hints) => BufferMapLayoutConstraint::OneOf(export_hints(hints, messages)),
-        }
-    }
-}
-
-#[cfg(feature = "diagram")]
-fn export_hints(
-    hints: &Vec<MessageTypeHint<TypeInfo>>,
-    messages: &mut MessageRegistry,
-) -> Vec<MessageTypeHint<usize>> {
-    hints.into_iter().map(|h| h.export(messages)).collect()
-}
-
 /// This trait helps auto-generated buffer map structs to implement the Buffering
 /// trait.
 pub trait BufferMapStruct: Sized + Clone + 'static + Send + Sync {

@@ -8,8 +8,8 @@ use std::{
 
 #[derive(Copy, Clone, Debug, Eq)]
 pub struct TypeInfo {
-    pub type_id: TypeId,
-    pub type_name: &'static str,
+    pub(crate) type_id: TypeId,
+    pub(crate) type_name: &'static str,
 }
 
 impl TypeInfo {
@@ -21,6 +21,14 @@ impl TypeInfo {
             type_id: TypeId::of::<T>(),
             type_name: type_name::<T>(),
         }
+    }
+
+    pub fn type_name(&self) -> &'static str {
+        self.type_name
+    }
+
+    pub fn type_id(&self) -> TypeId {
+        self.type_id
     }
 }
 
