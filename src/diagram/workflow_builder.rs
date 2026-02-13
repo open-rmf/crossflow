@@ -547,7 +547,7 @@ pub trait BuildDiagramOperation {
 /// will be called for each output produced by [`BuildDiagramOperation`].
 ///
 /// You are allowed to generate new outputs during the [`ConnectIntoTarget`]
-/// phase by calling [`DiagramContext::add_output_into_target`].
+/// phase by calling [`BuilderContext::add_output_into_target`].
 pub trait ConnectIntoTarget {
     fn connect_into_target(
         &mut self,
