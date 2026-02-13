@@ -22,7 +22,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
 
-use crate::{ForkResultOutput, JsonMessage, InferenceContext};
+use crate::{ForkResultOutput, InferenceContext, JsonMessage};
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, NextOperation,
@@ -121,12 +121,10 @@ impl BuildDiagramOperation for TransformSchema {
             move |req: JsonMessage| -> Result<JsonMessage, TransformError> {
                 let mut context = Context::default();
                 context.add_variable("request", req)?;
-                Ok(
-                    program
+                Ok(program
                     .execute(&context)?
                     .json()
-                    .map_err(|err| TransformError::ConvertToJson(err.to_string()))?
-                )
+                    .map_err(|err| TransformError::ConvertToJson(err.to_string()))?)
             },
         );
 

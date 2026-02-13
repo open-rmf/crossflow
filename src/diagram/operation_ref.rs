@@ -62,19 +62,14 @@ impl OperationRef {
         self.in_namespaces(&[Arc::clone(parent_namespace)])
     }
 
-    pub fn scope_stream_out(
-        scope_name: &OperationName,
-        stream_name: &OperationName,
-    ) -> Self {
+    pub fn scope_stream_out(scope_name: &OperationName, stream_name: &OperationName) -> Self {
         Self::StreamOut(StreamOutRef {
             namespaces: NamespaceList::for_child_of(Arc::clone(scope_name)),
             name: Arc::clone(stream_name),
         })
     }
 
-    pub fn stream_out(
-        stream_name: &OperationName,
-    ) -> Self {
+    pub fn stream_out(stream_name: &OperationName) -> Self {
         Self::StreamOut(StreamOutRef {
             namespaces: Default::default(),
             name: Arc::clone(stream_name),
@@ -85,10 +80,7 @@ impl OperationRef {
         Self::Terminate(NamespaceList::for_child_of(Arc::clone(namespace)))
     }
 
-    pub fn exposed_input(
-        section_id: &OperationName,
-        input_id: &OperationName,
-    ) -> Self {
+    pub fn exposed_input(section_id: &OperationName, input_id: &OperationName) -> Self {
         Self::Named(NamedOperationRef {
             namespaces: Default::default(),
             exposed_namespace: Some(Arc::clone(section_id)),

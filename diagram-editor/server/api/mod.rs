@@ -9,9 +9,9 @@ use axum::{
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
-use crossflow::DiagramElementRegistry;
 #[cfg(feature = "json_schema")]
 use crossflow::DiagramElementMetadata;
+use crossflow::DiagramElementRegistry;
 
 use mime_guess::mime;
 

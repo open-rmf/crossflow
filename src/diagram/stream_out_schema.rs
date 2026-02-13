@@ -21,8 +21,8 @@ use serde::{Deserialize, Serialize};
 use crate::TraceSettings;
 
 use super::{
-    BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, OperationName,
-    RedirectConnection, InferenceContext, OperationRef,
+    BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, InferenceContext,
+    OperationName, OperationRef, RedirectConnection,
 };
 
 /// Declare a stream output for the current scope. Outputs that you connect

@@ -438,7 +438,8 @@ pub mod prelude {
             JsonMessage,
         },
         diagram::{
-            Diagram, DiagramElementRegistry, DiagramError, NodeBuilderOptions, Section, SectionInterfaceItem,
+            Diagram, DiagramElementRegistry, DiagramError, NodeBuilderOptions, Section,
+            SectionInterfaceItem,
         },
     };
 

@@ -15,18 +15,18 @@
  *
 */
 
-use std::borrow::Cow;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 use super::{
     BufferSelection, BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode,
     JsonMessage, NextOperation, OperationName,
 };
 use crate::{
-    BufferIdentifier, TraceSettings, default_as_false, is_default, is_false,
-    BufferMap, Builder, DynOutput, Joined, BufferMapLayout, BufferMapLayoutHints,
-    MessageRegistry, InferenceContext, output_ref,
+    BufferIdentifier, BufferMap, BufferMapLayout, BufferMapLayoutHints, Builder, DynOutput,
+    InferenceContext, Joined, MessageRegistry, TraceSettings, default_as_false, is_default,
+    is_false, output_ref,
 };
 
 /// Wait for exactly one item to be available in each buffer listed in
@@ -128,11 +128,9 @@ impl BuildDiagramOperation for JoinSchema {
                 });
             };
 
-            *buffer = (*buffer)
-                .join_by_cloning()
-                .ok_or_else(|| DiagramErrorCode::NotCloneable(
-                    Cow::Borrowed(buffer.message_type().type_name))
-                )?;
+            *buffer = (*buffer).join_by_cloning().ok_or_else(|| {
+                DiagramErrorCode::NotCloneable(Cow::Borrowed(buffer.message_type().type_name))
+            })?;
         }
 
         if self.serialize {
@@ -169,11 +167,11 @@ pub struct JoinRegistration {
 
 impl JoinRegistration {
     pub fn new<T: Joined>(messages: &mut MessageRegistry) -> Self {
-        let create = |buffers: &BufferMap, builder: &mut Builder| -> Result<DynOutput, DiagramErrorCode> {
-            Ok(builder.try_join::<T>(buffers)?.output().into())
-        };
-        let layout = <T::Buffers as BufferMapLayout>::get_layout_hints()
-            .export(messages);
+        let create =
+            |buffers: &BufferMap, builder: &mut Builder| -> Result<DynOutput, DiagramErrorCode> {
+                Ok(builder.try_join::<T>(buffers)?.output().into())
+            };
+        let layout = <T::Buffers as BufferMapLayout>::get_layout_hints().export(messages);
 
         Self { create, layout }
     }

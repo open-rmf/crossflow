@@ -25,9 +25,9 @@ use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Serialize, de::DeserializeOwned};
 
 use super::{
-    BuilderContext, DiagramErrorCode, DynForkResult, DynInputSlot, DynOutput, JsonMessage,
-    MessageRegistrations, MessageRegistry, TypeInfo, TypeMismatch, supported::*,
-    BasicConnect, ConnectIntoTarget,
+    BasicConnect, BuilderContext, ConnectIntoTarget, DiagramErrorCode, DynForkResult, DynInputSlot,
+    DynOutput, JsonMessage, MessageRegistrations, MessageRegistry, TypeInfo, TypeMismatch,
+    supported::*,
 };
 use crate::JsonBuffer;
 
@@ -89,8 +89,7 @@ where
 
         #[cfg(feature = "trace")]
         {
-            ops.enable_trace_serialization =
-                Some(Trace::enable_value_serialization::<T>);
+            ops.enable_trace_serialization = Some(Trace::enable_value_serialization::<T>);
         }
 
         // Serialize and deserialize both generate the schema, so check before
@@ -150,10 +149,7 @@ impl<T> SerializeMessage<T> for NotSupported {
 }
 
 impl<T> DeserializeMessage<T> for NotSupported {
-    fn register_deserialize(
-        _: &mut MessageRegistrations,
-        _: &mut SchemaGenerator,
-    ) {
+    fn register_deserialize(_: &mut MessageRegistrations, _: &mut SchemaGenerator) {
         // Do nothing
     }
 }
@@ -231,7 +227,10 @@ impl ImplicitSerialization {
         incoming: DynOutput,
         ctx: &mut BuilderContext,
     ) -> Result<Result<(), DynOutput>, DiagramErrorCode> {
-        if self.serialized_input.is_compatible(incoming.message_info(), ctx)? {
+        if self
+            .serialized_input
+            .is_compatible(incoming.message_info(), ctx)?
+        {
             incoming.connect_to(&self.serialized_input.input_slot, ctx.builder)?;
             return Ok(Ok(()));
         }
@@ -374,7 +373,10 @@ impl ImplicitStringify {
         incoming: DynOutput,
         ctx: &mut BuilderContext,
     ) -> Result<Result<(), DynOutput>, DiagramErrorCode> {
-        if self.string_input.is_compatible(incoming.message_info(), ctx)? {
+        if self
+            .string_input
+            .is_compatible(incoming.message_info(), ctx)?
+        {
             self.string_input.connect_into_target(incoming, ctx)?;
             return Ok(Ok(()));
         }

@@ -15,29 +15,20 @@
  *
 */
 
-use std::{
-    any::Any,
-    borrow::Cow,
-    collections::HashMap,
-    marker::PhantomData,
-    sync::Arc,
-};
+use std::{any::Any, borrow::Cow, collections::HashMap, marker::PhantomData, sync::Arc};
 
 use bevy_ecs::prelude::{Commands, Entity};
 
 pub use crate::dyn_node::*;
 use crate::{
-    Accessor, AnyBuffer, BufferMap, BufferSettings,
-    Builder, IncrementalScopeBuilder, IncrementalScopeRequest,
-    IncrementalScopeResponse,
-    Joined, JsonMessage, JoinRegistration,
-    BufferAccessRegistration, ListenRegistration,
+    Accessor, AnyBuffer, BufferAccessRegistration, BufferMap, BufferSettings, Builder,
+    IncrementalScopeBuilder, IncrementalScopeRequest, IncrementalScopeResponse, JoinRegistration,
+    Joined, JsonMessage, ListenRegistration,
 };
 
 use serde_with::serde_as;
 
 use super::*;
-
 
 pub struct MessageRegistrationBuilder<'a, Message> {
     pub(super) data: &'a mut MessageRegistry,
@@ -187,12 +178,16 @@ where
 
         let mapping = Arc::new(mapping) as CreateIntoFn;
         let u_index = self.data.registration.get_index_or_insert::<U>();
-        self.data.registration.get_or_insert_operations::<Message>()
+        self.data
+            .registration
+            .get_or_insert_operations::<Message>()
             .into_impls
             .insert(u_index, Arc::clone(&mapping));
 
         let message_index = self.data.registration.get_index_or_insert::<Message>();
-        self.data.registration.get_or_insert_operations::<U>()
+        self.data
+            .registration
+            .get_or_insert_operations::<U>()
             .from_impls
             .insert(message_index, mapping);
 
@@ -254,10 +249,8 @@ where
         let f = Arc::new(f);
         let mapping = move |builder: &mut Builder| -> DynForkResult {
             let f = Arc::clone(&f);
-            let node = builder.create_map_block(move |request| {
-                f(request)
-                .map_err(|err| err.to_string())
-            });
+            let node =
+                builder.create_map_block(move |request| f(request).map_err(|err| err.to_string()));
             let (fork_input, fork_result) = builder.create_fork_result();
             builder.connect(node.output, fork_input);
 
@@ -270,12 +263,16 @@ where
 
         let mapping = Arc::new(mapping) as CreateTryIntoFn;
         let u_index = self.data.registration.get_index_or_insert::<U>();
-        self.data.registration.get_or_insert_operations::<Message>()
+        self.data
+            .registration
+            .get_or_insert_operations::<Message>()
             .try_into_impls
             .insert(u_index, Arc::clone(&mapping));
 
         let message_index = self.data.registration.get_index_or_insert::<Message>();
-        self.data.registration.get_or_insert_operations::<U>()
+        self.data
+            .registration
+            .get_or_insert_operations::<U>()
             .try_from_impls
             .insert(message_index, mapping);
 
@@ -346,10 +343,9 @@ impl MessageRegistration {
     }
 
     pub fn get_operations(&self) -> Result<&MessageOperations, DiagramErrorCode> {
-        self
-        .operations
-        .as_ref()
-        .ok_or_else(|| DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(self.type_info.type_name)]))
+        self.operations.as_ref().ok_or_else(|| {
+            DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(self.type_info.type_name)])
+        })
     }
 }
 
@@ -369,12 +365,13 @@ impl MessageRegistry {
         }
     }
 
-    pub(crate) fn get_dyn(&self, target_type: &TypeInfo) -> Result<&MessageRegistration, DiagramErrorCode> {
-        self.registration
-            .get_dyn(target_type)
-            .ok_or_else(|| DiagramErrorCode::UnregisteredTypes(
-            vec![Cow::Borrowed(target_type.type_name)]
-        ))
+    pub(crate) fn get_dyn(
+        &self,
+        target_type: &TypeInfo,
+    ) -> Result<&MessageRegistration, DiagramErrorCode> {
+        self.registration.get_dyn(target_type).ok_or_else(|| {
+            DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(target_type.type_name)])
+        })
     }
 
     pub fn deserialize(
@@ -422,7 +419,9 @@ impl MessageRegistry {
         builder: &mut Builder,
     ) -> Result<Option<DynForkResult>, DiagramErrorCode> {
         let ops = self.get_operations(incoming_type)?;
-        ops.serialize.map(|serialize| serialize(builder)).transpose()
+        ops.serialize
+            .map(|serialize| serialize(builder))
+            .transpose()
     }
 
     pub fn try_to_string(
@@ -449,11 +448,12 @@ impl MessageRegistry {
         message_info: &TypeInfo,
         builder: &mut Builder,
     ) -> Result<DynForkClone, DiagramErrorCode> {
-        let create = self.get_operations(message_info)?
-            .fork_clone
-            .ok_or(DiagramErrorCode::NotCloneable(
-                Cow::Borrowed(message_info.type_name)
-            ))?;
+        let create =
+            self.get_operations(message_info)?
+                .fork_clone
+                .ok_or(DiagramErrorCode::NotCloneable(Cow::Borrowed(
+                    message_info.type_name,
+                )))?;
 
         create(builder)
     }
@@ -465,9 +465,7 @@ impl MessageRegistry {
         T: Send + Sync + 'static + Any,
         F: RegisterClone<T>,
     {
-        let ops = &mut self
-            .registration
-            .get_or_insert_operations::<T>();
+        let ops = &mut self.registration.get_or_insert_operations::<T>();
         if !F::CLONEABLE || ops.fork_clone.is_some() {
             return false;
         }
@@ -484,7 +482,9 @@ impl MessageRegistry {
         self.get_operations(message_info)?
             .unzip
             .as_ref()
-            .ok_or(DiagramErrorCode::NotUnzippable(Cow::Borrowed(message_info.type_name)))
+            .ok_or(DiagramErrorCode::NotUnzippable(Cow::Borrowed(
+                message_info.type_name,
+            )))
     }
 
     /// Register a unzip function if not already registered, returns true if the new
@@ -498,9 +498,7 @@ impl MessageRegistry {
     {
         let unzip_impl = Supported::<(T, Serializer, Cloneable)>::register_unzip(self);
 
-        let ops = self
-            .registration
-            .get_or_insert_operations::<T>();
+        let ops = self.registration.get_or_insert_operations::<T>();
         if ops.unzip.is_some() {
             return false;
         }
@@ -518,7 +516,9 @@ impl MessageRegistry {
             .get_operations(message_info)?
             .fork_result
             .as_ref()
-            .ok_or(DiagramErrorCode::CannotForkResult(Cow::Borrowed(message_info.type_name)))?
+            .ok_or(DiagramErrorCode::CannotForkResult(Cow::Borrowed(
+                message_info.type_name,
+            )))?
             .create;
 
         create(builder)
@@ -542,7 +542,9 @@ impl MessageRegistry {
         let create = self
             .get_operations(message_info)?
             .split
-            .ok_or(DiagramErrorCode::NotSplittable(Cow::Borrowed(message_info.type_name)))?
+            .ok_or(DiagramErrorCode::NotSplittable(Cow::Borrowed(
+                message_info.type_name,
+            )))?
             .create;
 
         create(split_op, builder)
@@ -563,9 +565,7 @@ impl MessageRegistry {
         settings: BufferSettings,
         builder: &mut Builder,
     ) -> Result<AnyBuffer, DiagramErrorCode> {
-        let f = self
-            .get_operations(message_info)?
-            .create_buffer_impl;
+        let f = self.get_operations(message_info)?.create_buffer_impl;
 
         Ok(f(settings, builder))
     }
@@ -576,10 +576,7 @@ impl MessageRegistry {
         incremental: &mut IncrementalScopeBuilder,
         commands: &mut Commands,
     ) -> Result<IncrementalScopeRequest, DiagramErrorCode> {
-        let f = self
-            .get_operations(message_info)?
-            .build_scope
-            .set_request;
+        let f = self.get_operations(message_info)?.build_scope.set_request;
 
         f(incremental, commands).map_err(Into::into)
     }
@@ -590,10 +587,7 @@ impl MessageRegistry {
         incremental: &mut IncrementalScopeBuilder,
         commands: &mut Commands,
     ) -> Result<IncrementalScopeResponse, DiagramErrorCode> {
-        let f = self
-            .get_operations(message_info)?
-            .build_scope
-            .set_response;
+        let f = self.get_operations(message_info)?.build_scope.set_response;
 
         f(incremental, commands).map_err(Into::into)
     }
@@ -618,8 +612,7 @@ impl MessageRegistry {
         message_info: &TypeInfo,
         builder: &mut Builder,
     ) -> Result<DynNode, DiagramErrorCode> {
-        let f = self.get_operations(message_info)?
-            .create_trigger_impl;
+        let f = self.get_operations(message_info)?.create_trigger_impl;
 
         Ok(f(builder))
     }
@@ -630,7 +623,8 @@ impl MessageRegistry {
         buffers: &BufferMap,
         builder: &mut Builder,
     ) -> Result<DynOutput, DiagramErrorCode> {
-        let create = self.get_operations(joinable)?
+        let create = self
+            .get_operations(joinable)?
             .join
             .as_ref()
             .ok_or_else(|| DiagramErrorCode::NotJoinable(Cow::Borrowed(joinable.type_name)))?
@@ -647,10 +641,7 @@ impl MessageRegistry {
     {
         let join = JoinRegistration::new::<T>(self);
 
-        self
-            .registration
-            .get_or_insert_operations::<T>()
-            .join = Some(join);
+        self.registration.get_or_insert_operations::<T>().join = Some(join);
     }
 
     pub fn with_buffer_access(
@@ -659,10 +650,13 @@ impl MessageRegistry {
         buffers: &BufferMap,
         builder: &mut Builder,
     ) -> Result<DynNode, DiagramErrorCode> {
-        let create = self.get_operations(target_type)?
+        let create = self
+            .get_operations(target_type)?
             .buffer_access
             .as_ref()
-            .ok_or(DiagramErrorCode::CannotAccessBuffers(Cow::Borrowed(target_type.type_name)))?
+            .ok_or(DiagramErrorCode::CannotAccessBuffers(Cow::Borrowed(
+                target_type.type_name,
+            )))?
             .create;
 
         create(buffers, builder)
@@ -674,8 +668,7 @@ impl MessageRegistry {
     {
         let buffer_access = BufferAccessRegistration::new::<T>(self);
 
-        self
-            .registration
+        self.registration
             .get_or_insert_operations::<T>()
             .buffer_access = Some(buffer_access);
     }
@@ -686,7 +679,8 @@ impl MessageRegistry {
         buffers: &BufferMap,
         builder: &mut Builder,
     ) -> Result<DynOutput, DiagramErrorCode> {
-        let create = self.get_operations(target_type)?
+        let create = self
+            .get_operations(target_type)?
             .listen
             .as_ref()
             .ok_or_else(|| DiagramErrorCode::CannotListen(Cow::Borrowed(target_type.type_name)))?
@@ -705,19 +699,14 @@ impl MessageRegistry {
     {
         let listen = ListenRegistration::new::<T>(self);
 
-        self
-            .registration
-            .get_or_insert_operations::<T>()
-            .listen = Some(listen);
+        self.registration.get_or_insert_operations::<T>().listen = Some(listen);
     }
 
     pub(crate) fn register_to_string<T>(&mut self)
     where
         T: 'static + Send + Sync + ToString,
     {
-        let ops = &mut self
-            .registration
-            .get_or_insert_operations::<T>();
+        let ops = &mut self.registration.get_or_insert_operations::<T>();
 
         ops.to_string_impl =
             Some(|builder| builder.create_map_block(|msg: T| msg.to_string()).into());
@@ -730,9 +719,9 @@ impl MessageRegistry {
         self.get_dyn(message_info)?
             .operations
             .as_ref()
-            .ok_or_else(|| DiagramErrorCode::UnregisteredTypes(vec![
-                Cow::Borrowed(message_info.type_name)
-            ]))
+            .ok_or_else(|| {
+                DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(message_info.type_name)])
+            })
     }
 }
 
@@ -786,19 +775,19 @@ impl MessageRegistrations {
     }
 
     pub(crate) fn get_dyn(&self, target_type: &TypeInfo) -> Option<&MessageRegistration> {
-        self
-        .indices
-        .get(target_type)
-        .map(|index| self.messages.get(*index))
-        .flatten()
+        self.indices
+            .get(target_type)
+            .map(|index| self.messages.get(*index))
+            .flatten()
     }
 
     pub(crate) fn get_by_index(
         &self,
         index: usize,
     ) -> Result<&MessageRegistration, DiagramErrorCode> {
-        self.messages.get(index).ok_or_else(||
-            DiagramErrorCode::UnknownMessageTypeIndex {
+        self.messages
+            .get(index)
+            .ok_or_else(|| DiagramErrorCode::UnknownMessageTypeIndex {
                 index,
                 limit: self.len(),
             })
@@ -820,10 +809,7 @@ impl MessageRegistrations {
             // self.messages.
             self.messages.get_mut(*index).unwrap()
         } else {
-            self.new_message_registration(
-                TypeInfo::of::<T>(),
-                MessageRegistration::new::<T>(),
-            );
+            self.new_message_registration(TypeInfo::of::<T>(), MessageRegistration::new::<T>());
 
             // SAFETY: We just pushed an entry in the previous line, and now we
             // simply want to retrieve a mutable borrow of it.
@@ -833,7 +819,7 @@ impl MessageRegistrations {
 
     pub(crate) fn get_or_insert_operations<T>(&mut self) -> &mut MessageOperations
     where
-        T: 'static + Send + Sync
+        T: 'static + Send + Sync,
     {
         self.get_or_insert::<T>()
             .operations
@@ -841,9 +827,9 @@ impl MessageRegistrations {
     }
 
     pub(crate) fn get_index_dyn(&self, target_type: &TypeInfo) -> Result<usize, DiagramErrorCode> {
-        self.indices.get(target_type).cloned().ok_or_else(
-            || DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(target_type.type_name)])
-        )
+        self.indices.get(target_type).cloned().ok_or_else(|| {
+            DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(target_type.type_name)])
+        })
     }
 
     // Used in testing
@@ -853,9 +839,9 @@ impl MessageRegistrations {
         T: 'static + Send + Sync,
     {
         let type_info = TypeInfo::of::<T>();
-        self.indices.get(&type_info).cloned().ok_or_else(
-            || DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(type_info.type_name)])
-        )
+        self.indices.get(&type_info).cloned().ok_or_else(|| {
+            DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(type_info.type_name)])
+        })
     }
 
     pub(crate) fn get_index_or_insert<T>(&mut self) -> usize
@@ -866,10 +852,7 @@ impl MessageRegistrations {
         if let Some(index) = self.indices.get(&target_type) {
             *index
         } else {
-            self.new_message_registration(
-                target_type,
-                MessageRegistration::new::<T>(),
-            )
+            self.new_message_registration(target_type, MessageRegistration::new::<T>())
         }
     }
 

@@ -36,11 +36,11 @@ use smallvec::SmallVec;
 use crate::{
     Accessing, Accessor, Buffer, BufferAccessMut, BufferAccessors, BufferError, BufferIdentifier,
     BufferKey, BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferMap,
-    BufferMapLayout, BufferStorage, Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer,
-    FetchFromBuffer, Gate, GateState, IncompatibleLayout, InspectBuffer, Joining, ManageBuffer,
-    MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate,
-    OperationError, OperationResult, OperationRoster, OrBroken, TypeInfo, add_listener_to_source,
-    BufferMapLayoutHints,
+    BufferMapLayout, BufferMapLayoutHints, BufferStorage, Bufferable, Buffering, Builder,
+    CloneFromBuffer, DrainBuffer, FetchFromBuffer, Gate, GateState, IncompatibleLayout,
+    InspectBuffer, Joining, ManageBuffer, MessageTypeHint, MessageTypeHintEvaluation,
+    MessageTypeHintMap, NotifyBufferUpdate, OperationError, OperationResult, OperationRoster,
+    OrBroken, TypeInfo, add_listener_to_source,
 };
 
 /// A [`Buffer`] whose message type has been anonymized. Joining with this buffer
@@ -348,13 +348,11 @@ impl BufferMapLayout for AnyBuffer {
 
     fn get_layout_hints() -> BufferMapLayoutHints {
         BufferMapLayoutHints::Static(
-            [
-                (
-                    BufferIdentifier::Index(0),
-                    MessageTypeHint::Fallback(TypeInfo::of::<AnyMessageBox>()),
-                )
-            ]
-            .into()
+            [(
+                BufferIdentifier::Index(0),
+                MessageTypeHint::Fallback(TypeInfo::of::<AnyMessageBox>()),
+            )]
+            .into(),
         )
     }
 }

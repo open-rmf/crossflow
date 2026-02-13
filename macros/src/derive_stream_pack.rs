@@ -47,7 +47,6 @@ pub(crate) fn impl_stream_pack(pack_struct: &ItemStruct) -> Result<TokenStream, 
     let generics = &pack_struct.generics;
     let vis = &pack_struct.vis;
 
-
     let input_streams: Vec<Ident> = field_idents
         .iter()
         .map(|ident| Ident::new(&format!("input_{ident}"), ident.span()))

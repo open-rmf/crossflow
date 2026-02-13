@@ -22,14 +22,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    Builder, ForRemaining, FromSequential, FromSpecific, ListSplitKey, MapSplitKey,
-    OperationResult, SplitDispatcher, Splittable, is_default, InferenceContext,
+    Builder, ForRemaining, FromSequential, FromSpecific, InferenceContext, ListSplitKey,
+    MapSplitKey, OperationResult, SplitDispatcher, Splittable, is_default,
 };
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
-    MessageRegistry, NextOperation, OperationName, RegisterClone,
-    SerializeMessage, TraceInfo, TraceSettings, supported::*,
+    MessageRegistry, NextOperation, OperationName, RegisterClone, SerializeMessage, TraceInfo,
+    TraceSettings, supported::*,
 };
 
 /// If the input message is a list-like or map-like object, split it into
@@ -140,12 +140,7 @@ impl BuildDiagramOperation for SplitSchema {
         id: &OperationName,
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
-        ctx.split(
-            id,
-            &self.sequential,
-            &self.keyed,
-            &self.remaining,
-        );
+        ctx.split(id, &self.sequential, &self.keyed, &self.remaining);
         Ok(())
     }
 }
@@ -334,19 +329,26 @@ where
         let splittable_type = messages.registration.get_index_or_insert::<T>();
         let output_type = messages.registration.get_index_or_insert::<T::Item>();
 
-        let ops = &mut messages
-            .registration
-            .get_or_insert_operations::<T>();
+        let ops = &mut messages.registration.get_or_insert_operations::<T>();
 
         let create = Self::create_split;
-        ops.split = Some(SplitRegistration { create, output_type });
+        ops.split = Some(SplitRegistration {
+            create,
+            output_type,
+        });
 
         messages.register_serialize::<T::Item, Serializer>();
         messages.register_clone::<T::Item, Cloneable>();
         messages.register_serialize::<Vec<T::Item>, Serializer>();
         messages.register_clone::<Vec<T::Item>, Cloneable>();
 
-        messages.registration.reverse_lookup.split.entry(output_type).or_default().push(splittable_type);
+        messages
+            .registration
+            .reverse_lookup
+            .split
+            .entry(output_type)
+            .or_default()
+            .push(splittable_type);
     }
 }
 

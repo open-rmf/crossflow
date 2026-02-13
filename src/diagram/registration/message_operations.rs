@@ -23,8 +23,9 @@ use std::{
 };
 
 pub use crate::dyn_node::*;
-use crate::{AnyBuffer, AsAnyBuffer, BufferSettings, Builder, JoinRegistration, BufferMapLayoutHints, SplitRegistration,
-    BufferAccessRegistration, ListenRegistration, BufferAccessMetadata,
+use crate::{
+    AnyBuffer, AsAnyBuffer, BufferAccessMetadata, BufferAccessRegistration, BufferMapLayoutHints,
+    BufferSettings, Builder, JoinRegistration, ListenRegistration, SplitRegistration,
 };
 
 use super::*;
@@ -34,8 +35,10 @@ pub(crate) type SerializeFn = fn(&mut Builder) -> Result<DynForkResult, DiagramE
 pub(crate) type ForkCloneFn = fn(&mut Builder) -> Result<DynForkClone, DiagramErrorCode>;
 pub(crate) type CreateBufferFn = fn(BufferSettings, &mut Builder) -> AnyBuffer;
 pub(crate) type CreateTriggerFn = fn(&mut Builder) -> DynNode;
-pub(crate) type CreateIntoFn = Arc<dyn Fn(&mut Builder) -> (DynInputSlot, DynOutput) + 'static + Send + Sync>;
-pub(crate) type CreateTryIntoFn = Arc<dyn Fn(&mut Builder) -> DynForkResult + 'static + Send + Sync>;
+pub(crate) type CreateIntoFn =
+    Arc<dyn Fn(&mut Builder) -> (DynInputSlot, DynOutput) + 'static + Send + Sync>;
+pub(crate) type CreateTryIntoFn =
+    Arc<dyn Fn(&mut Builder) -> DynForkResult + 'static + Send + Sync>;
 pub(crate) type ToStringFn = fn(&mut Builder) -> DynNode;
 
 pub struct MessageOperations {

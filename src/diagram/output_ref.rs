@@ -15,17 +15,17 @@
  *
 */
 
+use smallvec::{SmallVec, smallvec};
 use std::{
     borrow::{Borrow, Cow},
     ops::Deref,
     sync::Arc,
 };
-use smallvec::{smallvec, SmallVec};
 
-use serde::{Serialize, Deserialize};
-use schemars::{json_schema, JsonSchema};
+use schemars::{JsonSchema, json_schema};
+use serde::{Deserialize, Serialize};
 
-use crate::{NamespaceList, OperationName, NameOrIndex};
+use crate::{NameOrIndex, NamespaceList, OperationName};
 
 #[derive(
     Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
@@ -39,7 +39,9 @@ impl OutputRef {
     pub fn in_namespaces(self, parent_namespaces: &[Arc<str>]) -> Self {
         match self {
             Self::Named(named) => Self::Named(named.in_namespaces(parent_namespaces)),
-            Self::Start(namespaces) => Self::Start(namespaces.with_parent_namespaces(parent_namespaces)),
+            Self::Start(namespaces) => {
+                Self::Start(namespaces.with_parent_namespaces(parent_namespaces))
+            }
         }
     }
 
@@ -57,9 +59,7 @@ impl From<NamedOutputRef> for OutputRef {
 impl std::fmt::Display for OutputRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            OutputRef::Named(named) => {
-                named.fmt(f)
-            }
+            OutputRef::Named(named) => named.fmt(f),
             OutputRef::Start(namespaces) => {
                 write!(f, "{namespaces}(start)")
             }
@@ -68,7 +68,9 @@ impl std::fmt::Display for OutputRef {
 }
 
 pub fn output_ref(operation: &OperationName) -> NamedOutputBuilder {
-    NamedOutputBuilder { operation: Arc::clone(operation) }
+    NamedOutputBuilder {
+        operation: Arc::clone(operation),
+    }
 }
 
 pub struct NamedOutputBuilder {
@@ -81,7 +83,10 @@ impl NamedOutputBuilder {
     }
 
     pub fn stream_out(self, stream: &dyn Borrow<str>) -> NamedOutputRef {
-        self.key(OutputKey(smallvec!["stream_out".into(), stream.borrow().into()]))
+        self.key(OutputKey(smallvec![
+            "stream_out".into(),
+            stream.borrow().into()
+        ]))
     }
 
     pub fn ok(self) -> NamedOutputRef {
@@ -93,15 +98,24 @@ impl NamedOutputBuilder {
     }
 
     pub fn next_index(self, index: usize) -> NamedOutputRef {
-        self.key(OutputKey(smallvec!["next".into(), NameOrIndex::Index(index)]))
+        self.key(OutputKey(smallvec![
+            "next".into(),
+            NameOrIndex::Index(index)
+        ]))
     }
 
     pub fn sequential(self, index: usize) -> NamedOutputRef {
-        self.key(OutputKey(smallvec!["sequential".into(), NameOrIndex::Index(index)]))
+        self.key(OutputKey(smallvec![
+            "sequential".into(),
+            NameOrIndex::Index(index)
+        ]))
     }
 
     pub fn keyed(self, key: &OperationName) -> NamedOutputRef {
-        self.key(OutputKey(smallvec!["keyed".into(), NameOrIndex::Name(Arc::clone(key))]))
+        self.key(OutputKey(smallvec![
+            "keyed".into(),
+            NameOrIndex::Name(Arc::clone(key))
+        ]))
     }
 
     pub fn remaining(self) -> NamedOutputRef {
@@ -109,7 +123,10 @@ impl NamedOutputBuilder {
     }
 
     pub fn section_output(self, output: &dyn Borrow<str>) -> NamedOutputRef {
-        self.key(OutputKey(smallvec!["connect".into(), output.borrow().into()]))
+        self.key(OutputKey(smallvec![
+            "connect".into(),
+            output.borrow().into()
+        ]))
     }
 
     pub fn key(self, key: impl Into<OutputKey>) -> NamedOutputRef {
@@ -154,9 +171,7 @@ impl NamedOutputRef {
 /// or fork_result:
 /// - ["ok"]
 /// - ["err"]
-#[derive(
-    Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct OutputKey(pub SmallVec<[NameOrIndex; 4]>);
 
 impl Deref for OutputKey {
@@ -188,7 +203,7 @@ impl std::fmt::Display for &'_ OutputKey {
                 }
             }
 
-            if i+1 < self.0.len() {
+            if i + 1 < self.0.len() {
                 write!(f, ".")?;
             }
         }

@@ -15,18 +15,12 @@
  *
 */
 
-use std::{
-    any::Any,
-    borrow::Borrow,
-    cell::RefCell,
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{any::Any, borrow::Borrow, cell::RefCell, collections::HashMap, sync::Arc};
 
 use anyhow::Error as Anyhow;
 
 pub use crate::dyn_node::*;
-use crate::{Builder, DisplayText, JsonBuffer, JsonMessage, Node, StreamPack, AnyMessageBox};
+use crate::{AnyMessageBox, Builder, DisplayText, JsonBuffer, JsonMessage, Node, StreamPack};
 
 #[cfg(feature = "trace")]
 use crate::Trace;
@@ -38,8 +32,10 @@ use super::{
     BuilderId, DeserializeMessage, DiagramErrorCode, DynForkClone, DynForkResult, DynSplit,
     DynType, JsonRegistration, RegisterJson, RegisterSplit, Section, SectionInterface,
     SectionInterfaceDescription, SerializeMessage, SplitSchema, TransformError, TypeInfo,
-    buffer_schema::BufferAccessRequest, fork_clone_schema::RegisterClone,
-    fork_result_schema::{RegisterForkResult, ForkResultRegistration}, register_json,
+    buffer_schema::BufferAccessRequest,
+    fork_clone_schema::RegisterClone,
+    fork_result_schema::{ForkResultRegistration, RegisterForkResult},
+    register_json,
     supported::*,
     unzip_schema::{RegisterUnzip, UnzipRegistration},
 };
@@ -155,7 +151,6 @@ impl DiagramElementRegistry {
         Request: Send + Sync + 'static + DynType + Serialize + DeserializeOwned + Clone,
         Response: Send + Sync + 'static + DynType + Serialize + DeserializeOwned + Clone,
         Streams::StreamTypes: RegisterStreams<Supported, Supported, Supported>,
-
     {
         self.opt_out().register_node_builder(options, builder)
     }
@@ -346,7 +341,10 @@ impl DiagramElementRegistry {
         &self,
         message_index: usize,
     ) -> Result<&MessageOperations, DiagramErrorCode> {
-        self.messages.registration.get_by_index(message_index)?.get_operations()
+        self.messages
+            .registration
+            .get_by_index(message_index)?
+            .get_operations()
     }
 
     /// Register useful messages that are known to the crossflow library.
@@ -383,8 +381,7 @@ impl DiagramElementRegistry {
             .with_into::<u64>()
             .with_into::<usize>();
 
-        self.register_message::<u32>()
-            .with_into::<u64>();
+        self.register_message::<u32>().with_into::<u64>();
 
         self.register_message::<u64>();
 
@@ -401,15 +398,13 @@ impl DiagramElementRegistry {
             .with_into::<i64>()
             .with_into::<isize>();
 
-        self.register_message::<i32>()
-            .with_into::<i64>();
+        self.register_message::<i32>().with_into::<i64>();
 
         self.register_message::<i64>();
 
         self.register_message::<isize>();
 
-        self.register_message::<f32>()
-            .with_into::<f64>();
+        self.register_message::<f32>().with_into::<f64>();
 
         self.register_message::<f64>();
         self.register_message::<bool>();
@@ -590,8 +585,22 @@ mod tests {
             NodeBuilderOptions::new("multiply3").with_default_display_text("Test Name"),
             |builder, _config: ()| builder.create_map_block(multiply3),
         );
-        let req_ops = registry.messages.registration.get::<i64>().unwrap().operations.as_ref().unwrap();
-        let resp_ops = registry.messages.registration.get::<i64>().unwrap().operations.as_ref().unwrap();
+        let req_ops = registry
+            .messages
+            .registration
+            .get::<i64>()
+            .unwrap()
+            .operations
+            .as_ref()
+            .unwrap();
+        let resp_ops = registry
+            .messages
+            .registration
+            .get::<i64>()
+            .unwrap()
+            .operations
+            .as_ref()
+            .unwrap();
         assert!(req_ops.deserializable());
         assert!(resp_ops.serializable());
         assert!(resp_ops.cloneable());
@@ -608,8 +617,22 @@ mod tests {
             NodeBuilderOptions::new("multiply3").with_default_display_text("Test Name"),
             |builder, _config: ()| builder.create_map_block(multiply3),
         );
-        let req_ops = &registry.messages.registration.get::<i64>().unwrap().operations.as_ref().unwrap();
-        let resp_ops = &registry.messages.registration.get::<i64>().unwrap().operations.as_ref().unwrap();
+        let req_ops = &registry
+            .messages
+            .registration
+            .get::<i64>()
+            .unwrap()
+            .operations
+            .as_ref()
+            .unwrap();
+        let resp_ops = &registry
+            .messages
+            .registration
+            .get::<i64>()
+            .unwrap()
+            .operations
+            .as_ref()
+            .unwrap();
         assert!(req_ops.deserializable());
         assert!(resp_ops.serializable());
         assert!(resp_ops.cloneable());
@@ -628,8 +651,22 @@ mod tests {
                 move |builder: &mut Builder, _config: ()| builder.create_map_block(tuple_resp),
             )
             .with_unzip();
-        let req_ops = &registry.messages.registration.get::<()>().unwrap().operations.as_ref().unwrap();
-        let resp_ops = &registry.messages.registration.get::<(i64,)>().unwrap().operations.as_ref().unwrap();
+        let req_ops = &registry
+            .messages
+            .registration
+            .get::<()>()
+            .unwrap()
+            .operations
+            .as_ref()
+            .unwrap();
+        let resp_ops = &registry
+            .messages
+            .registration
+            .get::<(i64,)>()
+            .unwrap()
+            .operations
+            .as_ref()
+            .unwrap();
         assert!(req_ops.deserializable());
         assert!(resp_ops.serializable());
         assert!(resp_ops.unzippable());
@@ -741,7 +778,14 @@ mod tests {
             .operations
             .as_ref()
             .unwrap();
-        let resp_ops = &registry.messages.registration.get::<()>().unwrap().operations.as_ref().unwrap();
+        let resp_ops = &registry
+            .messages
+            .registration
+            .get::<()>()
+            .unwrap()
+            .operations
+            .as_ref()
+            .unwrap();
         assert!(!req_ops.deserializable());
         assert!(resp_ops.serializable());
 
@@ -764,7 +808,14 @@ mod tests {
                 .get_node_registration("opaque_response_map")
                 .is_ok()
         );
-        let req_ops = &registry.messages.registration.get::<()>().unwrap().operations.as_ref().unwrap();
+        let req_ops = &registry
+            .messages
+            .registration
+            .get::<()>()
+            .unwrap()
+            .operations
+            .as_ref()
+            .unwrap();
         let resp_ops = &registry
             .messages
             .registration
@@ -877,11 +928,9 @@ mod tests {
             .with_unzip();
 
         reg.register_node_builder(NodeBuilderOptions::new("result_test"), |builder, _: ()| {
-                builder.create_map_block(|value: f32| {
-                    Ok::<f32, f32>(value)
-                })
-            })
-            .with_result();
+            builder.create_map_block(|value: f32| Ok::<f32, f32>(value))
+        })
+        .with_result();
 
         reg.register_node_builder(
             NodeBuilderOptions::new("stream_test"),
@@ -1020,7 +1069,11 @@ mod tests {
         type Error = &'static str;
         fn try_from(value: TestMaybeFooBar) -> Result<Self, Self::Error> {
             if let (Some(foo), Some(bar)) = (value.foo, value.bar) {
-                Ok(TestFooBar { foo, bar, baz: None })
+                Ok(TestFooBar {
+                    foo,
+                    bar,
+                    baz: None,
+                })
             } else {
                 Err("missing a field")
             }
@@ -1110,7 +1163,13 @@ mod tests {
             .registration
             .get_index_or_insert::<TestBar>();
 
-        let ops = registry.messages.registration.get_or_insert::<TestFooBar>().operations.as_ref().unwrap();
+        let ops = registry
+            .messages
+            .registration
+            .get_or_insert::<TestFooBar>()
+            .operations
+            .as_ref()
+            .unwrap();
         assert!(ops.from_impls.contains_key(&index_foo_bar_baz));
         assert!(ops.try_from_impls.contains_key(&index_maybe_foo_bar));
         assert!(ops.try_from_impls.contains_key(&index_bar_baz));
@@ -1122,84 +1181,90 @@ mod tests {
 
         assert!(
             registry
-            .messages
-            .registration
-            .get_or_insert::<TestFooBarBaz>()
-            .operations
-            .as_ref()
-            .unwrap()
-            .into_impls
-            .contains_key(&index_foo_bar)
+                .messages
+                .registration
+                .get_or_insert::<TestFooBarBaz>()
+                .operations
+                .as_ref()
+                .unwrap()
+                .into_impls
+                .contains_key(&index_foo_bar)
         );
         assert!(
             registry
-            .messages
-            .registration
-            .get_or_insert::<TestMaybeFooBar>()
-            .operations
-            .as_ref()
-            .unwrap()
-            .try_into_impls
-            .contains_key(&index_foo_bar)
+                .messages
+                .registration
+                .get_or_insert::<TestMaybeFooBar>()
+                .operations
+                .as_ref()
+                .unwrap()
+                .try_into_impls
+                .contains_key(&index_foo_bar)
         );
         assert!(
             registry
-            .messages
-            .registration
-            .get_or_insert::<TestBarBaz>()
-            .operations
-            .as_ref()
-            .unwrap()
-            .try_into_impls
-            .contains_key(&index_foo_bar)
+                .messages
+                .registration
+                .get_or_insert::<TestBarBaz>()
+                .operations
+                .as_ref()
+                .unwrap()
+                .try_into_impls
+                .contains_key(&index_foo_bar)
         );
         assert!(
             registry
-            .messages
-            .registration
-            .get_or_insert::<TestBarBaz>()
-            .operations
-            .as_ref()
-            .unwrap()
-            .try_from_impls
-            .contains_key(&index_foo_bar)
+                .messages
+                .registration
+                .get_or_insert::<TestBarBaz>()
+                .operations
+                .as_ref()
+                .unwrap()
+                .try_from_impls
+                .contains_key(&index_foo_bar)
         );
         assert!(
             registry
-            .messages
-            .registration
-            .get_or_insert::<TestMaybeFooBar>()
-            .operations
-            .as_ref()
-            .unwrap()
-            .from_impls
-            .contains_key(&index_foo_bar)
+                .messages
+                .registration
+                .get_or_insert::<TestMaybeFooBar>()
+                .operations
+                .as_ref()
+                .unwrap()
+                .from_impls
+                .contains_key(&index_foo_bar)
         );
         assert!(
             registry
-            .messages
-            .registration
-            .get_or_insert::<TestFoo>()
-            .operations
-            .as_ref()
-            .unwrap()
-            .from_impls
-            .contains_key(&index_foo_bar)
+                .messages
+                .registration
+                .get_or_insert::<TestFoo>()
+                .operations
+                .as_ref()
+                .unwrap()
+                .from_impls
+                .contains_key(&index_foo_bar)
         );
         assert!(
             registry
-            .messages
-            .registration
-            .get_or_insert::<TestBar>()
-            .operations
-            .as_ref()
-            .unwrap()
-            .from_impls
-            .contains_key(&index_foo_bar)
+                .messages
+                .registration
+                .get_or_insert::<TestBar>()
+                .operations
+                .as_ref()
+                .unwrap()
+                .from_impls
+                .contains_key(&index_foo_bar)
         );
 
         let metadata = registry.metadata();
-        let ops = metadata.messages().get(index_foo_bar).unwrap().operations().as_ref().unwrap();
+        let ops = metadata
+            .messages()
+            .get(index_foo_bar)
+            .unwrap()
+            .operations()
+            .as_ref()
+            .unwrap();
         assert!(ops.from_messages().contains(&index_foo_bar_baz));
         assert!(ops.try_from_messages().contains(&index_maybe_foo_bar));
         assert!(ops.try_from_messages().contains(&index_bar_baz));
@@ -1211,80 +1276,80 @@ mod tests {
 
         assert!(
             metadata
-            .messages()
-            .get(index_foo_bar_baz)
-            .unwrap()
-            .operations()
-            .as_ref()
-            .unwrap()
-            .into_messages()
-            .contains(&index_foo_bar)
+                .messages()
+                .get(index_foo_bar_baz)
+                .unwrap()
+                .operations()
+                .as_ref()
+                .unwrap()
+                .into_messages()
+                .contains(&index_foo_bar)
         );
         assert!(
             metadata
-            .messages()
-            .get(index_maybe_foo_bar)
-            .unwrap()
-            .operations()
-            .as_ref()
-            .unwrap()
-            .try_into_messages()
-            .contains(&index_foo_bar)
+                .messages()
+                .get(index_maybe_foo_bar)
+                .unwrap()
+                .operations()
+                .as_ref()
+                .unwrap()
+                .try_into_messages()
+                .contains(&index_foo_bar)
         );
         assert!(
             metadata
-            .messages()
-            .get(index_bar_baz)
-            .unwrap()
-            .operations()
-            .as_ref()
-            .unwrap()
-            .try_into_messages()
-            .contains(&index_foo_bar)
+                .messages()
+                .get(index_bar_baz)
+                .unwrap()
+                .operations()
+                .as_ref()
+                .unwrap()
+                .try_into_messages()
+                .contains(&index_foo_bar)
         );
         assert!(
             metadata
-            .messages()
-            .get(index_bar_baz)
-            .unwrap()
-            .operations()
-            .as_ref()
-            .unwrap()
-            .try_from_messages()
-            .contains(&index_foo_bar)
+                .messages()
+                .get(index_bar_baz)
+                .unwrap()
+                .operations()
+                .as_ref()
+                .unwrap()
+                .try_from_messages()
+                .contains(&index_foo_bar)
         );
         assert!(
             metadata
-            .messages()
-            .get(index_maybe_foo_bar)
-            .unwrap()
-            .operations()
-            .as_ref()
-            .unwrap()
-            .from_messages()
-            .contains(&index_foo_bar)
+                .messages()
+                .get(index_maybe_foo_bar)
+                .unwrap()
+                .operations()
+                .as_ref()
+                .unwrap()
+                .from_messages()
+                .contains(&index_foo_bar)
         );
         assert!(
             metadata
-            .messages()
-            .get(index_foo)
-            .unwrap()
-            .operations()
-            .as_ref()
-            .unwrap()
-            .from_messages()
-            .contains(&index_foo_bar)
+                .messages()
+                .get(index_foo)
+                .unwrap()
+                .operations()
+                .as_ref()
+                .unwrap()
+                .from_messages()
+                .contains(&index_foo_bar)
         );
         assert!(
             metadata
-            .messages()
-            .get(index_bar)
-            .unwrap()
-            .operations()
-            .as_ref()
-            .unwrap()
-            .from_messages()
-            .contains(&index_foo_bar)
+                .messages()
+                .get(index_bar)
+                .unwrap()
+                .operations()
+                .as_ref()
+                .unwrap()
+                .from_messages()
+                .contains(&index_foo_bar)
         );
     }
 }

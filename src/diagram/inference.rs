@@ -15,28 +15,26 @@
  *
 */
 
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet, VecDeque},
     ops::Deref,
     sync::Arc,
 };
-use serde::{Serialize, Deserialize};
-use schemars::JsonSchema;
 
 use crate::{
-    OutputRef, DiagramElementRegistry, DiagramErrorCode, DiagramContext, BufferIdentifier, BufferMapLayoutHints,
-    BufferSelection, NamedOutputRef, BuildDiagramOperation,
-    Operations, OperationName, NamespaceList, NextOperation, output_ref, Diagram, StreamPack, StreamAvailability,
-    DiagramError, IncompatibleLayout, OperationRef,
-    NodeSchema, SectionSchema, SectionProvider, SectionError, NamespacedOperation, ScopeSchema,
-    WithContext, MetadataAccess,
+    BufferIdentifier, BufferMapLayoutHints, BufferSelection, BuildDiagramOperation, Diagram,
+    DiagramContext, DiagramElementRegistry, DiagramError, DiagramErrorCode, IncompatibleLayout,
+    MetadataAccess, NamedOutputRef, NamespaceList, NamespacedOperation, NextOperation, NodeSchema,
+    OperationName, OperationRef, Operations, OutputRef, ScopeSchema, SectionError, SectionProvider,
+    SectionSchema, StreamAvailability, StreamPack, WithContext, output_ref,
 };
 
 pub type InferredMessageTypes = HashMap<PortRef, usize>;
-
 
 /// Specify the message types of a workflow's boundary operations.
 pub struct InferenceBoundaryConditions {
@@ -68,7 +66,11 @@ impl InferenceBoundaryConditions {
             streams.insert(name.to_string(), stream_msg_index);
         }
 
-        Ok(Self { request, response, streams })
+        Ok(Self {
+            request,
+            response,
+            streams,
+        })
     }
 
     pub fn json_messages(
@@ -76,7 +78,10 @@ impl InferenceBoundaryConditions {
         stream_names: impl IntoIterator<Item = String>,
     ) -> Result<Self, DiagramErrorCode> {
         let json_message_index = lookup.json_message_index()?;
-        let streams = stream_names.into_iter().map(|name| (name, json_message_index)).collect();
+        let streams = stream_names
+            .into_iter()
+            .map(|name| (name, json_message_index))
+            .collect();
         Ok(Self {
             request: json_message_index,
             response: json_message_index,
@@ -127,11 +132,12 @@ impl Diagram {
                     generated_operations: &mut generated_operations,
                 };
 
-                unfinished.op.apply_message_type_constraints(&unfinished.id, &mut ctx)
-                    .in_port(||
-                        OperationRef::from(&unfinished.id)
-                        .in_namespaces(&unfinished.namespaces)
-                    )?;
+                unfinished
+                    .op
+                    .apply_message_type_constraints(&unfinished.id, &mut ctx)
+                    .in_port(|| {
+                        OperationRef::from(&unfinished.id).in_namespaces(&unfinished.namespaces)
+                    })?;
             }
 
             unfinished_operations.extend(generated_operations.drain(..));
@@ -149,8 +155,9 @@ impl Diagram {
 
                 if circular {
                     return Err(DiagramErrorCode::CircularRedirect(
-                        visited.into_iter().cloned().collect()
-                    ).into());
+                        visited.into_iter().cloned().collect(),
+                    )
+                    .into());
                 }
 
                 next = inferences.redirected_input.get(top);
@@ -161,7 +168,10 @@ impl Diagram {
             let mut dependents = HashMap::<_, Vec<PortRef>>::new();
             for (id, inference) in &inferences.evaluations {
                 if let Some(constraint) = &inference.constraint {
-                    let ctx = ConstraintContext { inferences: &inferences, metadata: lookup };
+                    let ctx = ConstraintContext {
+                        inferences: &inferences,
+                        metadata: lookup,
+                    };
                     let dependencies = constraint.dependencies(&ctx);
                     for dependency in dependencies {
                         dependents.entry(dependency).or_default().push(id.clone());
@@ -181,7 +191,10 @@ impl Diagram {
 
         while let Some(port) = queue.pop_front() {
             let evaluation = inferences.get_evaluation(&port).in_port(|| port.clone())?;
-            if let Some(message_type) = evaluation.evaluate(&inferences, lookup).in_port(|| port.clone())? {
+            if let Some(message_type) = evaluation
+                .evaluate(&inferences, lookup)
+                .in_port(|| port.clone())?
+            {
                 if Some(message_type) != evaluation.message_type {
                     // A new message type was determined for this port, so update
                     // it and notify all dependents.
@@ -217,7 +230,7 @@ fn set_boundary_conditions(
             templates: &diagram.templates,
             on_implicit_error: &root_on_implicit_error,
             default_trace: diagram.default_trace,
-            namespaces: Default::default()
+            namespaces: Default::default(),
         },
         metadata: registry,
         generated_operations: &mut generated_operations,
@@ -250,13 +263,8 @@ pub struct InferenceContext<'a, 'b> {
 impl<'a, 'b> InferenceContext<'a, 'b> {
     /// Specify exactly what message types a port may have, irrespective of
     /// any connections to other operations.
-    fn fixed(
-        &mut self,
-        port: PortRef,
-        message_type: usize,
-    ) {
-        self
-            .inference
+    fn fixed(&mut self, port: PortRef, message_type: usize) {
+        self.inference
             .evaluations
             .entry(port)
             .or_default()
@@ -265,34 +273,36 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
     /// Specify that the message type of an output should be directly inferred
     /// from the message type of the input that it connects into.
-    fn infer_from_downstream(
-        &mut self,
-        output: OutputRef,
-        input: OperationRef,
-    ) {
-        self.inference.constrain(output.clone(), ExactMatch(input.clone().into()));
+    fn infer_from_downstream(&mut self, output: OutputRef, input: OperationRef) {
+        self.inference
+            .constrain(output.clone(), ExactMatch(input.clone().into()));
         self.connect(output, input);
     }
 
     /// Specify that an output connects into an input.
-    fn connect(
-        &mut self,
-        output: OutputRef,
-        input: OperationRef,
-    ) {
-        self.inference.connection_from.insert(output.clone(), input.clone());
-        self.inference.connections_into.entry(input).or_default().insert(output);
+    fn connect(&mut self, output: OutputRef, input: OperationRef) {
+        self.inference
+            .connection_from
+            .insert(output.clone(), input.clone());
+        self.inference
+            .connections_into
+            .entry(input)
+            .or_default()
+            .insert(output);
     }
 
     /// Specify that an operation simply redirects its inputs into another operation
-    fn redirect(
-        &mut self,
-        from: OperationRef,
-        into: OperationRef,
-    ) {
-        self.inference.constrain(from.clone(), ExactMatch(into.clone().into()));
-        self.inference.redirected_input.insert(from.clone(), into.clone());
-        self.inference.redirections_into.entry(into).or_default().insert(from);
+    fn redirect(&mut self, from: OperationRef, into: OperationRef) {
+        self.inference
+            .constrain(from.clone(), ExactMatch(into.clone().into()));
+        self.inference
+            .redirected_input
+            .insert(from.clone(), into.clone());
+        self.inference
+            .redirections_into
+            .entry(into)
+            .or_default()
+            .insert(from);
     }
 
     pub fn node(
@@ -341,7 +351,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                 for (input_name, input_metadata) in &metadata.interface.inputs {
                     let op = NextOperation::Namespace(NamespacedOperation {
                         namespace: id.clone(),
-                        operation: input_name.clone()
+                        operation: input_name.clone(),
                     });
                     let op = self.into_port_ref(&op);
 
@@ -361,16 +371,12 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                 }
 
                 for (output_name, output_metadata) in &metadata.interface.outputs {
-                    let op = self.into_port_ref(
-                        output_ref(id).section_output(output_name)
-                    );
+                    let op = self.into_port_ref(output_ref(id).section_output(output_name));
                     self.fixed(op, output_metadata.message_type);
                 }
 
                 for (output_name, next) in &schema.connect {
-                    let op = self.into_output_ref(
-                        output_ref(id).section_output(output_name)
-                    );
+                    let op = self.into_output_ref(output_ref(id).section_output(output_name));
                     let target = self.into_operation_ref(next);
                     self.connect(op, target);
                 }
@@ -405,7 +411,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                 for output in &section.outputs {
                     if let Some(target) = schema.connect.get(output) {
                         let output = self.into_operation_ref(
-                            NextOperation::Name(Arc::clone(output)).in_namespace(id)
+                            NextOperation::Name(Arc::clone(output)).in_namespace(id),
                         );
                         let target = self.into_operation_ref(target);
                         self.redirect(output, target);
@@ -421,24 +427,17 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         Ok(())
     }
 
-    pub fn scope(
-        &mut self,
-        id: &OperationName,
-        schema: &ScopeSchema,
-    ) {
+    pub fn scope(&mut self, id: &OperationName, schema: &ScopeSchema) {
         let operation = self.into_operation_ref(id);
 
         // The request type of this scope must exactly match the request type
         // of the starting operation.
-        let start_target = self.into_operation_ref(
-            OperationRef::from(&schema.start).in_namespace(id)
-        );
+        let start_target =
+            self.into_operation_ref(OperationRef::from(&schema.start).in_namespace(id));
         self.redirect(operation, start_target);
 
         for (stream_name, stream_target) in &schema.stream_out {
-            let stream = self.into_operation_ref(
-                OperationRef::scope_stream_out(id, stream_name)
-            );
+            let stream = self.into_operation_ref(OperationRef::scope_stream_out(id, stream_name));
             let stream_target = self.into_operation_ref(stream_target);
             self.redirect(stream, stream_target);
         }
@@ -450,7 +449,13 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         self.redirect(terminate, terminate_target);
 
         for (child_id, op) in schema.ops.iter() {
-            self.add_child_operation(id, child_id, op, schema.ops.clone(), Some(schema.on_implicit_error()));
+            self.add_child_operation(
+                id,
+                child_id,
+                op,
+                schema.ops.clone(),
+                Some(schema.on_implicit_error()),
+            );
         }
     }
 
@@ -471,21 +476,14 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         Ok(())
     }
 
-    pub fn stream_out(
-        &mut self,
-        operation_name: &OperationName,
-        stream_name: &OperationName,
-    ) {
+    pub fn stream_out(&mut self, operation_name: &OperationName, stream_name: &OperationName) {
         let operation = self.into_operation_ref(operation_name);
         let stream = self.into_operation_ref(OperationRef::stream_out(stream_name));
-        self.inference.constrain(operation, ExactMatch(stream.into()));
+        self.inference
+            .constrain(operation, ExactMatch(stream.into()));
     }
 
-    pub fn fork_clone(
-        &mut self,
-        operation_name: &OperationName,
-        next: &[NextOperation],
-    ) {
+    pub fn fork_clone(&mut self, operation_name: &OperationName, next: &[NextOperation]) {
         let operation = self.into_operation_ref(operation_name);
 
         let mut targets = Vec::new();
@@ -495,10 +493,12 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
             let output = self.into_output_ref(output_ref(operation_name).next_index(i));
             self.connect(output.clone(), target);
-            self.inference.constrain(output, ExactMatch(operation.clone().into()));
+            self.inference
+                .constrain(output, ExactMatch(operation.clone().into()));
         }
 
-        self.inference.constrain(operation.clone(), CloneInput { operation, targets });
+        self.inference
+            .constrain(operation.clone(), CloneInput { operation, targets });
     }
 
     pub fn result(
@@ -511,18 +511,20 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let ok_output = self.into_output_ref(output_ref(operation_name).ok());
         let err_output = self.into_output_ref(output_ref(operation_name).err());
 
-        self.inference.constrain(ok_output.clone(), OkFrom(operation.clone()));
-        self.inference.constrain(err_output.clone(), ErrFrom(operation.clone()));
+        self.inference
+            .constrain(ok_output.clone(), OkFrom(operation.clone()));
+        self.inference
+            .constrain(err_output.clone(), ErrFrom(operation.clone()));
 
         let ok_target = self.into_operation_ref(ok);
         let err_target = self.into_operation_ref(err);
         self.inference.constrain(
             operation.clone(),
-            ResultInto{
+            ResultInto {
                 operation,
                 ok: ok_target.clone(),
                 err: err_target.clone(),
-            }
+            },
         );
 
         self.connect(ok_output, ok_target);
@@ -532,24 +534,26 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     pub fn unzip<'u>(
         &mut self,
         unzippable_name: &OperationName,
-        targets: impl Iterator<Item=&'u NextOperation>,
+        targets: impl Iterator<Item = &'u NextOperation>,
     ) {
         let unzippable = self.into_operation_ref(unzippable_name);
         for (i, target) in targets.enumerate() {
-            let element_output = self.into_output_ref(
-                output_ref(unzippable_name).next_index(i)
-            );
+            let element_output = self.into_output_ref(output_ref(unzippable_name).next_index(i));
 
             self.inference.constrain(
                 element_output.clone(),
-                UnzipOutput { op: unzippable.clone(), element: i }
+                UnzipOutput {
+                    op: unzippable.clone(),
+                    element: i,
+                },
             );
 
             let target = self.into_operation_ref(target);
             self.connect(element_output, target);
         }
 
-        self.inference.constrain(unzippable.clone(), UnzipInput(unzippable));
+        self.inference
+            .constrain(unzippable.clone(), UnzipInput(unzippable));
     }
 
     pub fn buffer(
@@ -562,7 +566,8 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
             let json_index = self.metadata.json_message_index()?;
             self.fixed(operation.into(), json_index);
         } else {
-            self.inference.constrain(operation.clone(), BufferInput(operation));
+            self.inference
+                .constrain(operation.clone(), BufferInput(operation));
         }
 
         Ok(())
@@ -584,13 +589,15 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
         for (member, buffer) in selection.iter() {
             let buffer = self.into_operation_ref(buffer);
-            self.inference.buffer_hints.entry(buffer).or_default().push(
-                BufferInference {
+            self.inference
+                .buffer_hints
+                .entry(buffer)
+                .or_default()
+                .push(BufferInference {
                     used_by: output.clone().into(),
                     member: member.to_owned(),
                     evaluate,
-                }
-            );
+                });
         }
 
         if serialize {
@@ -626,17 +633,20 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
         for (member, buffer) in selection.iter() {
             let buffer = self.into_operation_ref(buffer);
-            self.inference.buffer_hints.entry(buffer.into()).or_default().push(
-                BufferInference {
+            self.inference
+                .buffer_hints
+                .entry(buffer.into())
+                .or_default()
+                .push(BufferInference {
                     used_by: output.clone().into(),
                     member: member.to_owned(),
                     evaluate,
-                }
-            );
+                });
         }
 
         self.infer_from_downstream(output, target.clone());
-        self.inference.constrain(operation, BufferAccessInput { target });
+        self.inference
+            .constrain(operation, BufferAccessInput { target });
     }
 
     pub fn listen(
@@ -654,13 +664,15 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
         for (member, buffer) in selection.iter() {
             let buffer = self.into_operation_ref(buffer);
-            self.inference.buffer_hints.entry(buffer).or_default().push(
-                BufferInference {
+            self.inference
+                .buffer_hints
+                .entry(buffer)
+                .or_default()
+                .push(BufferInference {
                     used_by: output.clone().into(),
                     member: member.to_owned(),
                     evaluate,
-                }
-            );
+                });
         }
 
         self.infer_from_downstream(output, target);
@@ -676,33 +688,30 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let split = self.into_operation_ref(split_name);
 
         for (i, target) in sequential.iter().enumerate() {
-            let output = self.into_output_ref(
-                output_ref(split_name).next_index(i)
-            );
+            let output = self.into_output_ref(output_ref(split_name).next_index(i));
 
-            self.inference.constrain(output.clone(), SplitOutput(split.clone()));
+            self.inference
+                .constrain(output.clone(), SplitOutput(split.clone()));
 
             let target = self.into_operation_ref(target);
             self.connect(output, target);
         }
 
         for (key, target) in keyed {
-            let output = self.into_output_ref(
-                output_ref(split_name).keyed(key)
-            );
+            let output = self.into_output_ref(output_ref(split_name).keyed(key));
 
-            self.inference.constrain(output.clone(), SplitOutput(split.clone()));
+            self.inference
+                .constrain(output.clone(), SplitOutput(split.clone()));
 
             let target = self.into_operation_ref(target);
             self.connect(output, target);
         }
 
         if let Some(target) = remaining {
-            let output = self.into_output_ref(
-                output_ref(split_name).remaining()
-            );
+            let output = self.into_output_ref(output_ref(split_name).remaining());
 
-            self.inference.constrain(output.clone(), SplitOutput(split.clone()));
+            self.inference
+                .constrain(output.clone(), SplitOutput(split.clone()));
 
             let target = self.into_operation_ref(target);
             self.connect(output, target);
@@ -728,21 +737,17 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                 let op: OperationRef = (&op).into();
                 op.in_namespaces(&namespaces)
             }
-            None => {
-                self.on_implicit_error.clone()
-            }
+            None => self.on_implicit_error.clone(),
         };
 
-        self.generated_operations
-            .push(UnfinishedOperation {
-                id: Arc::clone(child_id),
-                namespaces,
-                op: op.clone() as Arc<dyn BuildDiagramOperation>,
-                sibling_ops,
-                on_implicit_error,
-            })
+        self.generated_operations.push(UnfinishedOperation {
+            id: Arc::clone(child_id),
+            namespaces,
+            op: op.clone() as Arc<dyn BuildDiagramOperation>,
+            sibling_ops,
+            on_implicit_error,
+        })
     }
-
 }
 
 #[derive(Clone, Copy)]
@@ -802,7 +807,7 @@ impl<'a> ConstraintContext<'a> {
         while let Some(input) = input_queue.pop() {
             if !visited.insert(input) {
                 return Err(DiagramErrorCode::CircularRedirect(
-                    visited.into_iter().cloned().collect()
+                    visited.into_iter().cloned().collect(),
                 ));
             }
 
@@ -867,7 +872,7 @@ impl<'a> ConstraintContext<'a> {
 
                 if !compatible {
                     return Err(DiagramErrorCode::AmbiguousMessageType(
-                        self.type_info_for_slice(&incoming_message_types)?
+                        self.type_info_for_slice(&incoming_message_types)?,
                     ));
                 }
 
@@ -878,7 +883,7 @@ impl<'a> ConstraintContext<'a> {
                 for incoming in &incoming_message_types {
                     if !self.metadata.can_seralize(*incoming)? {
                         return Err(DiagramErrorCode::AmbiguousMessageType(
-                            self.type_info_for_slice(&incoming_message_types)?
+                            self.type_info_for_slice(&incoming_message_types)?,
                         ));
                     }
                 }
@@ -887,7 +892,7 @@ impl<'a> ConstraintContext<'a> {
                 // if it's an option.
                 let Ok(json_index) = self.metadata.json_message_index() else {
                     return Err(DiagramErrorCode::AmbiguousMessageType(
-                        self.type_info_for_slice(&incoming_message_types)?
+                        self.type_info_for_slice(&incoming_message_types)?,
                     ));
                 };
 
@@ -901,7 +906,7 @@ impl<'a> ConstraintContext<'a> {
 
         if !self.metadata.can_clone(selected_input_type)? {
             return Err(DiagramErrorCode::NotCloneable(
-                self.type_name_for(selected_input_type)?
+                self.type_name_for(selected_input_type)?,
             ));
         }
 
@@ -911,10 +916,7 @@ impl<'a> ConstraintContext<'a> {
     /// Find a single output type that is compatible with all the target inputs,
     /// i.e. either the same message type being sent to all of them, or a single
     /// message type that can be converted to all of them.
-    pub fn same_output_type(
-        &self,
-        targets: &[OperationRef],
-    ) -> MessageTypeEvaluation {
+    pub fn same_output_type(&self, targets: &[OperationRef]) -> MessageTypeEvaluation {
         let mut message_types: SmallVec<[usize; 8]> = Default::default();
         for target in targets {
             let port: PortRef = target.clone().into();
@@ -984,22 +986,17 @@ impl<'a> ConstraintContext<'a> {
             return Ok(None);
         };
 
-        self.metadata.fork_result_output_types(selected_input_type)?;
+        self.metadata
+            .fork_result_output_types(selected_input_type)?;
 
         Ok(Some(selected_input_type))
     }
 
-    pub fn evaluate_ok_from(
-        &self,
-        from_result: &OperationRef,
-    ) -> MessageTypeEvaluation {
+    pub fn evaluate_ok_from(&self, from_result: &OperationRef) -> MessageTypeEvaluation {
         self.evaluate_result_output(from_result, 0)
     }
 
-    pub fn evaluate_err_from(
-        &self,
-        from_result: &OperationRef,
-    ) -> MessageTypeEvaluation {
+    pub fn evaluate_err_from(&self, from_result: &OperationRef) -> MessageTypeEvaluation {
         self.evaluate_result_output(from_result, 1)
     }
 
@@ -1016,14 +1013,11 @@ impl<'a> ConstraintContext<'a> {
         Ok(Some(output_types[index]))
     }
 
-    pub fn evaluate_unzip_input(
-        &self,
-        operation: &OperationRef,
-    ) -> MessageTypeEvaluation {
+    pub fn evaluate_unzip_input(&self, operation: &OperationRef) -> MessageTypeEvaluation {
         let incoming_message_types = self.get_message_types_into(operation)?;
         if incoming_message_types.len() > 1 {
             return Err(DiagramErrorCode::AmbiguousMessageType(
-                self.type_info_for_slice(&incoming_message_types)?
+                self.type_info_for_slice(&incoming_message_types)?,
             ));
         }
 
@@ -1060,10 +1054,7 @@ impl<'a> ConstraintContext<'a> {
         Ok(Some(id))
     }
 
-    pub fn evaluate_buffer_input(
-        &self,
-        input: &OperationRef,
-    ) -> MessageTypeEvaluation {
+    pub fn evaluate_buffer_input(&self, input: &OperationRef) -> MessageTypeEvaluation {
         let incoming_message_types = self.try_get_message_types_into(input)?;
         if incoming_message_types.is_empty() {
             // There might not be any direct inputs to this buffer, so check for
@@ -1087,34 +1078,30 @@ impl<'a> ConstraintContext<'a> {
                 return Ok(hint_message_types.first().cloned());
             } else {
                 return Err(DiagramErrorCode::AmbiguousMessageType(
-                    self.type_info_for_slice(&hint_message_types)?
+                    self.type_info_for_slice(&hint_message_types)?,
                 ));
             }
         } else if incoming_message_types.len() == 1 {
             return Ok(incoming_message_types.first().cloned());
         } else {
             return Err(DiagramErrorCode::AmbiguousMessageType(
-                self.type_info_for_slice(&incoming_message_types)?
+                self.type_info_for_slice(&incoming_message_types)?,
             ));
         }
     }
 
-    pub fn evaluate_buffer_access_input(
-        &self,
-        target: &OperationRef,
-    ) -> MessageTypeEvaluation {
+    pub fn evaluate_buffer_access_input(&self, target: &OperationRef) -> MessageTypeEvaluation {
         let Some(target_inference) = self.get_inference_of(target.clone())? else {
             return Ok(None);
         };
 
-        let request_message = self.metadata.buffer_access_request_type(*target_inference)?;
+        let request_message = self
+            .metadata
+            .buffer_access_request_type(*target_inference)?;
         Ok(Some(request_message))
     }
 
-    pub fn evaluate_split_input(
-        &self,
-        operation: &OperationRef,
-    ) -> MessageTypeEvaluation {
+    pub fn evaluate_split_input(&self, operation: &OperationRef) -> MessageTypeEvaluation {
         let incoming_message_types = self.get_message_types_into(operation)?;
         if incoming_message_types.len() <= 1 {
             if let Some(incoming_message_type) = incoming_message_types.first() {
@@ -1125,7 +1112,7 @@ impl<'a> ConstraintContext<'a> {
                     // we should change it to a JsonMessage.
                     let Ok(json_index) = self.metadata.json_message_index() else {
                         return Err(DiagramErrorCode::NotSplittable(
-                            self.type_name_for(*incoming_message_type)?
+                            self.type_name_for(*incoming_message_type)?,
                         ));
                     };
 
@@ -1134,7 +1121,7 @@ impl<'a> ConstraintContext<'a> {
                     // The message cannot be split and cannot be serialized, so
                     // it is not a valid choice for the split operation.
                     return Err(DiagramErrorCode::NotSplittable(
-                        self.type_name_for(*incoming_message_type)?
+                        self.type_name_for(*incoming_message_type)?,
                     ));
                 }
             }
@@ -1144,7 +1131,7 @@ impl<'a> ConstraintContext<'a> {
 
         let Ok(json_index) = self.metadata.json_message_index() else {
             return Err(DiagramErrorCode::AmbiguousMessageType(
-                self.type_info_for_slice(&incoming_message_types)?
+                self.type_info_for_slice(&incoming_message_types)?,
             ));
         };
 
@@ -1153,7 +1140,7 @@ impl<'a> ConstraintContext<'a> {
         for incoming_message_type in &incoming_message_types {
             if !self.metadata.can_seralize(*incoming_message_type)? {
                 return Err(DiagramErrorCode::AmbiguousMessageType(
-                    self.type_info_for_slice(&incoming_message_types)?
+                    self.type_info_for_slice(&incoming_message_types)?,
                 ));
             }
         }
@@ -1162,10 +1149,7 @@ impl<'a> ConstraintContext<'a> {
         Ok(Some(json_index))
     }
 
-    pub fn evaluate_split_output(
-        &self,
-        operation: &OperationRef,
-    ) -> MessageTypeEvaluation {
+    pub fn evaluate_split_output(&self, operation: &OperationRef) -> MessageTypeEvaluation {
         let Some(split_inference) = self.get_inference_of(operation.clone())? else {
             return Ok(None);
         };
@@ -1174,11 +1158,10 @@ impl<'a> ConstraintContext<'a> {
         Ok(Some(output_type))
     }
 
-    pub fn type_name_for(
-        &self,
-        index: usize,
-    ) -> Result<Cow<'static, str>, DiagramErrorCode> {
-        Ok(Cow::Owned(self.metadata.message_type_name(index)?.to_owned()))
+    pub fn type_name_for(&self, index: usize) -> Result<Cow<'static, str>, DiagramErrorCode> {
+        Ok(Cow::Owned(
+            self.metadata.message_type_name(index)?.to_owned(),
+        ))
     }
 
     pub fn type_info_for_slice(
@@ -1210,9 +1193,7 @@ fn evaluate_buffer_hint(
 
             let mut incompatibility = IncompatibleLayout::default();
             incompatibility.forbidden_buffers.push(member.to_owned());
-            return Err(DiagramErrorCode::IncompatibleBuffers(
-                incompatibility
-            ));
+            return Err(DiagramErrorCode::IncompatibleBuffers(incompatibility));
         }
         BufferMapLayoutHints::Static(hints) => {
             if let Some(hint) = hints.get(member) {
@@ -1264,15 +1245,9 @@ impl<'a, 'b> Deref for InferenceContext<'a, 'b> {
 pub type MessageTypeEvaluation = Result<Option<usize>, DiagramErrorCode>;
 
 pub trait MessageTypeConstraint: std::fmt::Debug + 'static + Send + Sync {
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation;
+    fn evaluate(&self, context: &ConstraintContext) -> MessageTypeEvaluation;
 
-    fn dependencies(
-        &self,
-        context: &ConstraintContext,
-    ) -> SmallVec<[PortRef; 8]>;
+    fn dependencies(&self, context: &ConstraintContext) -> SmallVec<[PortRef; 8]>;
 }
 
 #[derive(Debug, Default, Clone)]
@@ -1291,7 +1266,10 @@ impl MessageTypeInference {
             return Ok(None);
         };
 
-        let ctx = ConstraintContext { inferences: inference, metadata: registry };
+        let ctx = ConstraintContext {
+            inferences: inference,
+            metadata: registry,
+        };
         constraint.evaluate(&ctx)
     }
 }
@@ -1367,10 +1345,7 @@ struct BufferInference {
 }
 
 impl BufferInference {
-    pub fn evaluate(
-        &self,
-        ctx: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
+    pub fn evaluate(&self, ctx: &ConstraintContext) -> MessageTypeEvaluation {
         let Some(target_inference) = ctx.get_inference_of(self.used_by.clone())? else {
             return Ok(None);
         };
@@ -1388,11 +1363,8 @@ impl std::fmt::Debug for BufferInference {
     }
 }
 
-type EvaluateBufferLayoutHintFn = fn(
-    &ConstraintContext,
-    usize,
-    &BufferIdentifier,
-) -> MessageTypeEvaluation;
+type EvaluateBufferLayoutHintFn =
+    fn(&ConstraintContext, usize, &BufferIdentifier) -> MessageTypeEvaluation;
 
 impl Inferences {
     fn evaluation(&mut self, key: impl Into<PortRef>) -> &mut MessageTypeInference {
@@ -1400,11 +1372,7 @@ impl Inferences {
         self.evaluations.entry(key).or_default()
     }
 
-    fn constrain(
-        &mut self,
-        key: impl Into<PortRef>,
-        constraint: impl MessageTypeConstraint,
-    ) {
+    fn constrain(&mut self, key: impl Into<PortRef>, constraint: impl MessageTypeConstraint) {
         let port_constraint = &mut self.evaluation(key).constraint;
 
         // TODO(@mxgrey): Remove this assertion when done testing
@@ -1413,8 +1381,7 @@ impl Inferences {
     }
 
     fn get_evaluation(&self, key: &PortRef) -> Result<&MessageTypeInference, DiagramErrorCode> {
-        self
-            .evaluations
+        self.evaluations
             .get(&key)
             .ok_or_else(|| DiagramErrorCode::UnknownPort(key.clone()))
     }
@@ -1435,17 +1402,11 @@ impl Inferences {
 struct ExactMatch(PortRef);
 
 impl MessageTypeConstraint for ExactMatch {
-    fn dependencies(
-        &self,
-        _: &ConstraintContext,
-    ) -> SmallVec<[PortRef; 8]> {
+    fn dependencies(&self, _: &ConstraintContext) -> SmallVec<[PortRef; 8]> {
         smallvec![self.0.clone()]
     }
 
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
+    fn evaluate(&self, context: &ConstraintContext) -> MessageTypeEvaluation {
         context.get_inference_of(self.0.clone()).cloned()
     }
 }
@@ -1457,22 +1418,21 @@ struct CloneInput {
 }
 
 impl MessageTypeConstraint for CloneInput {
-    fn dependencies(
-        &self,
-        context: &ConstraintContext,
-    ) -> SmallVec<[PortRef; 8]> {
+    fn dependencies(&self, context: &ConstraintContext) -> SmallVec<[PortRef; 8]> {
         self.targets
             .iter()
             .cloned()
             .map(Into::into)
-            .chain(context.connections_into(&self.operation).into_iter().map(Into::into))
+            .chain(
+                context
+                    .connections_into(&self.operation)
+                    .into_iter()
+                    .map(Into::into),
+            )
             .collect()
     }
 
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
+    fn evaluate(&self, context: &ConstraintContext) -> MessageTypeEvaluation {
         context.evaluate_clone_input(&self.operation, &self.targets)
     }
 }
@@ -1485,10 +1445,7 @@ struct ResultInto {
 }
 
 impl MessageTypeConstraint for ResultInto {
-    fn dependencies(
-        &self,
-        context: &ConstraintContext,
-    ) -> SmallVec<[PortRef; 8]> {
+    fn dependencies(&self, context: &ConstraintContext) -> SmallVec<[PortRef; 8]> {
         context
             .connections_into(&self.operation)
             .into_iter()
@@ -1497,10 +1454,7 @@ impl MessageTypeConstraint for ResultInto {
             .collect()
     }
 
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
+    fn evaluate(&self, context: &ConstraintContext) -> MessageTypeEvaluation {
         context.evaluate_result_input(&self.operation, &self.ok, &self.err)
     }
 }
@@ -1509,17 +1463,11 @@ impl MessageTypeConstraint for ResultInto {
 struct OkFrom(OperationRef);
 
 impl MessageTypeConstraint for OkFrom {
-    fn dependencies(
-        &self,
-        _: &ConstraintContext,
-    ) -> SmallVec<[PortRef; 8]> {
+    fn dependencies(&self, _: &ConstraintContext) -> SmallVec<[PortRef; 8]> {
         smallvec![self.0.clone().into()]
     }
 
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
+    fn evaluate(&self, context: &ConstraintContext) -> MessageTypeEvaluation {
         context.evaluate_ok_from(&self.0)
     }
 }
@@ -1528,17 +1476,11 @@ impl MessageTypeConstraint for OkFrom {
 struct ErrFrom(OperationRef);
 
 impl MessageTypeConstraint for ErrFrom {
-    fn dependencies(
-        &self,
-        _: &ConstraintContext,
-    ) -> SmallVec<[PortRef; 8]> {
+    fn dependencies(&self, _: &ConstraintContext) -> SmallVec<[PortRef; 8]> {
         smallvec![self.0.clone().into()]
     }
 
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
+    fn evaluate(&self, context: &ConstraintContext) -> MessageTypeEvaluation {
         context.evaluate_err_from(&self.0)
     }
 }
@@ -1547,17 +1489,15 @@ impl MessageTypeConstraint for ErrFrom {
 struct UnzipInput(OperationRef);
 
 impl MessageTypeConstraint for UnzipInput {
-    fn dependencies(
-        &self,
-        context: &ConstraintContext,
-    ) -> SmallVec<[PortRef; 8]> {
-        context.connections_into(&self.0).into_iter().map(Into::into).collect()
+    fn dependencies(&self, context: &ConstraintContext) -> SmallVec<[PortRef; 8]> {
+        context
+            .connections_into(&self.0)
+            .into_iter()
+            .map(Into::into)
+            .collect()
     }
 
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
+    fn evaluate(&self, context: &ConstraintContext) -> MessageTypeEvaluation {
         context.evaluate_unzip_input(&self.0)
     }
 }
@@ -1569,17 +1509,11 @@ struct UnzipOutput {
 }
 
 impl MessageTypeConstraint for UnzipOutput {
-    fn dependencies(
-        &self,
-        _: &ConstraintContext,
-    ) -> SmallVec<[PortRef; 8]> {
+    fn dependencies(&self, _: &ConstraintContext) -> SmallVec<[PortRef; 8]> {
         smallvec![self.op.clone().into()]
     }
 
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
+    fn evaluate(&self, context: &ConstraintContext) -> MessageTypeEvaluation {
         context.evaluate_unzip_output(&self.op, self.element)
     }
 }
@@ -1588,12 +1522,14 @@ impl MessageTypeConstraint for UnzipOutput {
 struct BufferInput(OperationRef);
 
 impl MessageTypeConstraint for BufferInput {
-    fn dependencies(
-        &self,
-        context: &ConstraintContext,
-    ) -> SmallVec<[PortRef; 8]> {
+    fn dependencies(&self, context: &ConstraintContext) -> SmallVec<[PortRef; 8]> {
         let mut deps = SmallVec::new();
-        deps.extend(context.connections_into(&self.0).into_iter().map(Into::into));
+        deps.extend(
+            context
+                .connections_into(&self.0)
+                .into_iter()
+                .map(Into::into),
+        );
         if let Some(hints) = context.inferences.buffer_hints.get(&self.0) {
             for hint in hints {
                 deps.push(hint.used_by.clone());
@@ -1603,10 +1539,7 @@ impl MessageTypeConstraint for BufferInput {
         deps
     }
 
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
+    fn evaluate(&self, context: &ConstraintContext) -> MessageTypeEvaluation {
         context.evaluate_buffer_input(&self.0)
     }
 }
@@ -1617,17 +1550,11 @@ struct BufferAccessInput {
 }
 
 impl MessageTypeConstraint for BufferAccessInput {
-    fn dependencies(
-        &self,
-        _: &ConstraintContext,
-    ) -> SmallVec<[PortRef; 8]> {
+    fn dependencies(&self, _: &ConstraintContext) -> SmallVec<[PortRef; 8]> {
         smallvec![self.target.clone().into()]
     }
 
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
+    fn evaluate(&self, context: &ConstraintContext) -> MessageTypeEvaluation {
         context.evaluate_buffer_access_input(&self.target)
     }
 }
@@ -1636,17 +1563,15 @@ impl MessageTypeConstraint for BufferAccessInput {
 struct SplitInput(OperationRef);
 
 impl MessageTypeConstraint for SplitInput {
-    fn dependencies(
-        &self,
-        context: &ConstraintContext,
-    ) -> SmallVec<[PortRef; 8]> {
-        context.connections_into(&self.0).into_iter().map(Into::into).collect()
+    fn dependencies(&self, context: &ConstraintContext) -> SmallVec<[PortRef; 8]> {
+        context
+            .connections_into(&self.0)
+            .into_iter()
+            .map(Into::into)
+            .collect()
     }
 
-    fn evaluate(
-        &self,
-        context: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
+    fn evaluate(&self, context: &ConstraintContext) -> MessageTypeEvaluation {
         context.evaluate_split_input(&self.0)
     }
 }
@@ -1655,27 +1580,24 @@ impl MessageTypeConstraint for SplitInput {
 struct SplitOutput(OperationRef);
 
 impl MessageTypeConstraint for SplitOutput {
-    fn dependencies(
-        &self,
-        _: &ConstraintContext,
-    ) -> SmallVec<[PortRef; 8]> {
+    fn dependencies(&self, _: &ConstraintContext) -> SmallVec<[PortRef; 8]> {
         smallvec![self.0.clone().into()]
     }
 
-    fn evaluate(
-        &self,
-        ctx: &ConstraintContext,
-    ) -> MessageTypeEvaluation {
+    fn evaluate(&self, ctx: &ConstraintContext) -> MessageTypeEvaluation {
         ctx.evaluate_split_output(&self.0)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use super::InferenceBoundaryConditions;
-    use crate::{prelude::*, diagram::testing::*, PortRef, output_ref, MessageRegistrations, OutputRef, OperationRef, NextOperation};
+    use crate::{
+        MessageRegistrations, NextOperation, OperationRef, OutputRef, PortRef, diagram::testing::*,
+        output_ref, prelude::*,
+    };
     use serde_json::json;
+    use std::collections::HashMap;
 
     #[test]
     fn test_split_type_inference() {
@@ -1732,16 +1654,21 @@ mod tests {
         }))
         .unwrap();
 
-        let inference = diagram.infer_message_types(
-            &fixture.registry,
-            InferenceBoundaryConditions::json_messages(&fixture.registry, []).unwrap(),
-        ).unwrap();
+        let inference = diagram
+            .infer_message_types(
+                &fixture.registry,
+                InferenceBoundaryConditions::json_messages(&fixture.registry, []).unwrap(),
+            )
+            .unwrap();
         validate_spit_type_inference(inference, &fixture.registry.messages.registration);
 
-        let inference = diagram.infer_message_types(
-            &fixture.registry.metadata(),
-            InferenceBoundaryConditions::json_messages(&fixture.registry.metadata(), []).unwrap(),
-        ).unwrap();
+        let inference = diagram
+            .infer_message_types(
+                &fixture.registry.metadata(),
+                InferenceBoundaryConditions::json_messages(&fixture.registry.metadata(), [])
+                    .unwrap(),
+            )
+            .unwrap();
         validate_spit_type_inference(inference, &fixture.registry.messages.registration);
     }
 
@@ -1749,21 +1676,13 @@ mod tests {
         inference: HashMap<PortRef, usize>,
         registration: &MessageRegistrations,
     ) {
-        let op = |name: &str| -> PortRef {
-            (&NextOperation::Name(name.into())).into()
-        };
+        let op = |name: &str| -> PortRef { (&NextOperation::Name(name.into())).into() };
         let json_index = registration.get_index::<JsonMessage>().unwrap();
         let f64_index = registration.get_index::<f64>().unwrap();
 
-        assert_eq!(
-            inference[&op("x10-buffer")],
-            f64_index,
-        );
+        assert_eq!(inference[&op("x10-buffer")], f64_index,);
 
-        assert_eq!(
-            inference[&op("x100-buffer")],
-            f64_index,
-        );
+        assert_eq!(inference[&op("x100-buffer")], f64_index,);
 
         assert_eq!(
             inference[&output_ref(&"split".into()).next_index(0).into()],
@@ -1775,25 +1694,13 @@ mod tests {
             json_index,
         );
 
-        assert_eq!(
-            inference[&op("sum")],
-            json_index,
-        );
+        assert_eq!(inference[&op("sum")], json_index,);
 
-        assert_eq!(
-            inference[&op("x10")],
-            json_index,
-        );
+        assert_eq!(inference[&op("x10")], json_index,);
 
-        assert_eq!(
-            inference[&op("x100")],
-            json_index,
-        );
+        assert_eq!(inference[&op("x100")], json_index,);
 
-        assert_eq!(
-            inference[&op("split")],
-            json_index,
-        );
+        assert_eq!(inference[&op("split")], json_index,);
 
         assert_eq!(
             inference[&output_ref(&"join".into()).next().into()],
@@ -1815,10 +1722,7 @@ mod tests {
             f64_index,
         );
 
-        assert_eq!(
-            inference[&OutputRef::start().into()],
-            json_index,
-        );
+        assert_eq!(inference[&OutputRef::start().into()], json_index,);
 
         assert_eq!(
             inference[&OperationRef::Terminate(Default::default()).into()],
@@ -1869,16 +1773,21 @@ mod tests {
         }))
         .unwrap();
 
-        let inference = diagram.infer_message_types(
-            &fixture.registry,
-            InferenceBoundaryConditions::json_messages(&fixture.registry, []).unwrap(),
-        ).unwrap();
+        let inference = diagram
+            .infer_message_types(
+                &fixture.registry,
+                InferenceBoundaryConditions::json_messages(&fixture.registry, []).unwrap(),
+            )
+            .unwrap();
         validate_fork_clone_type_inference(inference, &fixture.registry.messages.registration);
 
-        let inference = diagram.infer_message_types(
-            &fixture.registry.metadata(),
-            InferenceBoundaryConditions::json_messages(&fixture.registry.metadata(), []).unwrap(),
-        ).unwrap();
+        let inference = diagram
+            .infer_message_types(
+                &fixture.registry.metadata(),
+                InferenceBoundaryConditions::json_messages(&fixture.registry.metadata(), [])
+                    .unwrap(),
+            )
+            .unwrap();
         validate_fork_clone_type_inference(inference, &fixture.registry.messages.registration);
     }
 
@@ -1886,17 +1795,12 @@ mod tests {
         inference: HashMap<PortRef, usize>,
         registration: &MessageRegistrations,
     ) {
-        let op = |name: &str| -> PortRef {
-            (&NextOperation::Name(name.into())).into()
-        };
+        let op = |name: &str| -> PortRef { (&NextOperation::Name(name.into())).into() };
         let json_index = registration.get_index::<JsonMessage>().unwrap();
         let i64_index = registration.get_index::<i64>().unwrap();
         let f64_index = registration.get_index::<f64>().unwrap();
 
-        assert_eq!(
-            inference[&op("fork_clone")],
-            json_index,
-        );
+        assert_eq!(inference[&op("fork_clone")], json_index,);
 
         assert_eq!(
             inference[&output_ref(&"fork_clone".into()).next_index(0).into()],
@@ -1908,50 +1812,32 @@ mod tests {
             json_index,
         );
 
-        assert_eq!(
-            inference[&op("add_one")],
-            i64_index,
-        );
+        assert_eq!(inference[&op("add_one")], i64_index,);
 
         assert_eq!(
             inference[&output_ref(&"add_one".into()).next().into()],
             i64_index,
         );
 
-        assert_eq!(
-            inference[&op("add_two")],
-            i64_index,
-        );
+        assert_eq!(inference[&op("add_two")], i64_index,);
 
         assert_eq!(
             inference[&output_ref(&"add_two".into()).next().into()],
             i64_index,
         );
 
-        assert_eq!(
-            inference[&op("multiply")],
-            json_index,
-        );
+        assert_eq!(inference[&op("multiply")], json_index,);
 
         assert_eq!(
             inference[&output_ref(&"multiply".into()).next().into()],
             f64_index,
         );
 
-        assert_eq!(
-            inference[&op("buffer_one")],
-            i64_index,
-        );
+        assert_eq!(inference[&op("buffer_one")], i64_index,);
 
-        assert_eq!(
-            inference[&op("buffer_two")],
-            i64_index,
-        );
+        assert_eq!(inference[&op("buffer_two")], i64_index,);
 
-        assert_eq!(
-            inference[&OutputRef::start().into()],
-            json_index,
-        );
+        assert_eq!(inference[&OutputRef::start().into()], json_index,);
 
         assert_eq!(
             inference[&OperationRef::Terminate(Default::default()).into()],

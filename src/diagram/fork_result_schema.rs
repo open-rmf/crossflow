@@ -19,8 +19,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    BuildDiagramOperation, Builder, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
-    MessageRegistry, NextOperation, OperationName, RegisterClone, InferenceContext,
+    BuildDiagramOperation, BuildStatus, Builder, BuilderContext, DiagramErrorCode, DynInputSlot,
+    DynOutput, InferenceContext, MessageRegistry, NextOperation, OperationName, RegisterClone,
     SerializeMessage, TraceInfo, TraceSettings, supported::*,
 };
 
@@ -137,11 +137,18 @@ where
         messages
             .registration
             .get_or_insert_operations::<Result<T, E>>()
-            .fork_result = Some(ForkResultRegistration { create, output_types });
+            .fork_result = Some(ForkResultRegistration {
+            create,
+            output_types,
+        });
 
         let result_type = messages.registration.get_index_or_insert::<Result<T, E>>();
 
-        messages.registration.reverse_lookup.result.insert(output_types, result_type);
+        messages
+            .registration
+            .reverse_lookup
+            .result
+            .insert(output_types, result_type);
     }
 }
 

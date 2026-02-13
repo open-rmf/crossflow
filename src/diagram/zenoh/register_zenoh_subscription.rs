@@ -119,143 +119,150 @@ impl DiagramElementRegistry {
             .no_serializing()
             .no_deserializing()
             .register_node_builder_fallible(
-            NodeBuilderOptions::new("zenoh_subscription")
-                .with_default_display_text("Zenoh Subscription"),
-            move |builder, config: ZenohSubscriptionConfig| {
-                builder.commands().queue(ensure_session.clone());
+                NodeBuilderOptions::new("zenoh_subscription")
+                    .with_default_display_text("Zenoh Subscription"),
+                move |builder, config: ZenohSubscriptionConfig| {
+                    builder.commands().queue(ensure_session.clone());
 
-                let active_buffer = builder.create_buffer::<()>(BufferSettings::default());
-                let access = builder.create_buffer_access::<(), _>(active_buffer);
+                    let active_buffer = builder.create_buffer::<()>(BufferSettings::default());
+                    let access = builder.create_buffer_access::<(), _>(active_buffer);
 
-                let decoder: Codec = (&config.decoder).try_into()?;
+                    let decoder: Codec = (&config.decoder).try_into()?;
 
-                let callback = move |In(input): AsyncCallbackInput<
-                    ((), BufferKey<()>),
-                    ZenohNodeStreams,
-                >,
-                                     mut active: BufferAccessMut<()>,
-                                     session: Res<ZenohSession>| {
-                    // First make sure an instance of this node isn't already active
-                    let already_active = active
-                        .get_mut(&input.request.1)
-                        .map_err(|_| ZenohSubscriptionError::BufferDespawned)
-                        .and_then(|mut active_buffer| {
-                            if active_buffer.is_empty() {
-                                active_buffer.push(());
-                                return Ok(());
-                            } else {
-                                return Err(ZenohSubscriptionError::AlreadyActive);
-                            }
-                        });
-
-                    let session = session.outcome.clone();
-
-                    let (sender, mut receiver) = unbounded_channel();
-                    input.streams.canceller.send(sender);
-
-                    let config = config.clone();
-                    let decoder = decoder.clone();
-                    async move {
-                        // Return right away if the subscription is already active
-                        already_active?;
-
-                        let cancel = receiver.recv();
-
-                        let active_key = input.request.1;
-
-                        // Capture all the activity of the subscribing and
-                        // cancelling inside this block so we have a convenient
-                        // way to catch errors. We want to make sure we clean up
-                        // the buffer before fully exiting the node implementation,
-                        // and we don't want any errors to short-circuit that cleanup.
-                        let r = async move {
-                            // Capture all activity related to subscribing in
-                            // this future so we can race it head-to-head with
-                            // the cancellation signal.
-                            let subscribing = async move {
-                                let session = session
-                                    .await
-                                    .map_err(|_| ZenohSubscriptionError::SessionRemoved)?
-                                    .map_err(ZenohSubscriptionError::ZenohError)?;
-
-                                let subscription_builder = session
-                                    .declare_subscriber(config.key.as_ref())
-                                    .allowed_origin(config.locality.into())
-                                    .history(config.history.into());
-
-                                let subscription = match config.recovery {
-                                    ZenohSubscriptionRecoveryConfig::None => subscription_builder,
-                                    ZenohSubscriptionRecoveryConfig::PeriodicQueries(period) => {
-                                        subscription_builder.recovery(
-                                            RecoveryConfig::default().periodic_queries(period),
-                                        )
+                    let callback =
+                        move |In(input): AsyncCallbackInput<
+                            ((), BufferKey<()>),
+                            ZenohNodeStreams,
+                        >,
+                              mut active: BufferAccessMut<()>,
+                              session: Res<ZenohSession>| {
+                            // First make sure an instance of this node isn't already active
+                            let already_active = active
+                                .get_mut(&input.request.1)
+                                .map_err(|_| ZenohSubscriptionError::BufferDespawned)
+                                .and_then(|mut active_buffer| {
+                                    if active_buffer.is_empty() {
+                                        active_buffer.push(());
+                                        return Ok(());
+                                    } else {
+                                        return Err(ZenohSubscriptionError::AlreadyActive);
                                     }
-                                    ZenohSubscriptionRecoveryConfig::Heartbeat => {
-                                        subscription_builder
-                                            .recovery(RecoveryConfig::default().heartbeat())
-                                    }
-                                }
-                                .await
-                                .map_err(ArcError::new)?;
+                                });
 
-                                loop {
-                                    let next_sample = match subscription.recv_async().await {
-                                        Ok(sample) => sample,
-                                        Err(err) => {
-                                            input.streams.out_error.send(format!("{err}"));
-                                            continue;
+                            let session = session.outcome.clone();
+
+                            let (sender, mut receiver) = unbounded_channel();
+                            input.streams.canceller.send(sender);
+
+                            let config = config.clone();
+                            let decoder = decoder.clone();
+                            async move {
+                                // Return right away if the subscription is already active
+                                already_active?;
+
+                                let cancel = receiver.recv();
+
+                                let active_key = input.request.1;
+
+                                // Capture all the activity of the subscribing and
+                                // cancelling inside this block so we have a convenient
+                                // way to catch errors. We want to make sure we clean up
+                                // the buffer before fully exiting the node implementation,
+                                // and we don't want any errors to short-circuit that cleanup.
+                                let r = async move {
+                                    // Capture all activity related to subscribing in
+                                    // this future so we can race it head-to-head with
+                                    // the cancellation signal.
+                                    let subscribing = async move {
+                                        let session = session
+                                            .await
+                                            .map_err(|_| ZenohSubscriptionError::SessionRemoved)?
+                                            .map_err(ZenohSubscriptionError::ZenohError)?;
+
+                                        let subscription_builder = session
+                                            .declare_subscriber(config.key.as_ref())
+                                            .allowed_origin(config.locality.into())
+                                            .history(config.history.into());
+
+                                        let subscription = match config.recovery {
+                                            ZenohSubscriptionRecoveryConfig::None => {
+                                                subscription_builder
+                                            }
+                                            ZenohSubscriptionRecoveryConfig::PeriodicQueries(
+                                                period,
+                                            ) => subscription_builder.recovery(
+                                                RecoveryConfig::default().periodic_queries(period),
+                                            ),
+                                            ZenohSubscriptionRecoveryConfig::Heartbeat => {
+                                                subscription_builder
+                                                    .recovery(RecoveryConfig::default().heartbeat())
+                                            }
+                                        }
+                                        .await
+                                        .map_err(ArcError::new)?;
+
+                                        loop {
+                                            let next_sample = match subscription.recv_async().await
+                                            {
+                                                Ok(sample) => sample,
+                                                Err(err) => {
+                                                    input.streams.out_error.send(format!("{err}"));
+                                                    continue;
+                                                }
+                                            };
+
+                                            match decoder.decode(&next_sample) {
+                                                Ok(msg) => {
+                                                    input.streams.out.send(msg);
+                                                }
+                                                Err(msg) => {
+                                                    input.streams.out_error.send(msg);
+                                                }
+                                            }
                                         }
                                     };
 
-                                    match decoder.decode(&next_sample) {
-                                        Ok(msg) => {
-                                            input.streams.out.send(msg);
-                                        }
-                                        Err(msg) => {
-                                            input.streams.out_error.send(msg);
-                                        }
-                                    }
+                                    race(
+                                        subscribing,
+                                        receive_cancel::<ZenohSubscriptionError>(cancel),
+                                    )
+                                    .await
                                 }
-                            };
+                                .await;
 
-                            race(
-                                subscribing,
-                                receive_cancel::<ZenohSubscriptionError>(cancel),
-                            )
-                            .await
-                        }
-                        .await;
+                                // Clear the buffer to indicate that the subscription
+                                // could be restarted.
+                                let _ = input
+                                    .channel
+                                    .commands(move |commands| {
+                                        commands.queue(move |world: &mut World| {
+                                            let _ = world.buffer_mut(
+                                                &active_key,
+                                                |mut active_buffer| {
+                                                    active_buffer.drain(..);
+                                                },
+                                            );
+                                        });
+                                    })
+                                    .await;
 
-                        // Clear the buffer to indicate that the subscription
-                        // could be restarted.
-                        let _ = input
-                            .channel
-                            .commands(move |commands| {
-                                commands.queue(move |world: &mut World| {
-                                    let _ = world.buffer_mut(&active_key, |mut active_buffer| {
-                                        active_buffer.drain(..);
-                                    });
-                                });
-                            })
-                            .await;
+                                // Return the result from earlier
+                                r
+                            }
+                        };
 
-                        // Return the result from earlier
-                        r
-                    }
-                };
+                    let node = builder.create_node(callback.as_callback());
+                    builder.connect(access.output, node.input);
 
-                let node = builder.create_node(callback.as_callback());
-                builder.connect(access.output, node.input);
-
-                Ok(Node::<_, _, ZenohNodeStreams> {
-                    input: access.input,
-                    output: node.output,
-                    streams: node.streams,
-                })
-            },
-        )
-        .with_common_request()
-        .with_common_response()
-        .with_result();
+                    Ok(Node::<_, _, ZenohNodeStreams> {
+                        input: access.input,
+                        output: node.output,
+                        streams: node.streams,
+                    })
+                },
+            )
+            .with_common_request()
+            .with_common_response()
+            .with_result();
     }
 }

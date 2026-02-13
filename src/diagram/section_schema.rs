@@ -20,12 +20,15 @@ use std::{collections::HashMap, sync::Arc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{AnyBuffer, AnyMessageBox, Buffer, InputSlot, JsonBuffer, JsonMessage, Output, InferenceContext};
+use crate::{
+    AnyBuffer, AnyMessageBox, Buffer, InferenceContext, InputSlot, JsonBuffer, JsonMessage, Output,
+};
 
 use super::{
-    BuildDiagramOperation, BuildStatus, BuilderId, BuilderContext, DiagramElementRegistry,
-    DiagramErrorCode, DynInputSlot, DynOutput, NamespacedOperation, NextOperation, OperationName,
-    OperationRef, Operations, RedirectConnection, TraceInfo, TraceSettings, MessageRegistrations,
+    BuildDiagramOperation, BuildStatus, BuilderContext, BuilderId, DiagramElementRegistry,
+    DiagramErrorCode, DynInputSlot, DynOutput, MessageRegistrations, NamespacedOperation,
+    NextOperation, OperationName, OperationRef, Operations, RedirectConnection, TraceInfo,
+    TraceSettings,
 };
 
 pub use crossflow_derive::Section;
@@ -260,7 +263,7 @@ pub trait SectionInterfaceItem {
     fn add_metadata(
         messages: &mut MessageRegistrations,
         interface: &mut SectionInterface,
-        key: &str
+        key: &str,
     );
 
     fn insert_into_slots(self, key: &str, slots: &mut SectionSlots);
@@ -278,10 +281,9 @@ where
         key: &str,
     ) {
         let message_type = messages.get_index_or_insert::<T>();
-        interface.inputs.insert(
-            key.into(),
-            SectionInput { message_type },
-        );
+        interface
+            .inputs
+            .insert(key.into(), SectionInput { message_type });
     }
 
     fn insert_into_slots(self, key: &str, slots: &mut SectionSlots) {
@@ -301,10 +303,9 @@ where
         key: &str,
     ) {
         let message_type = messages.get_index_or_insert::<T>();
-        interface.outputs.insert(
-            key.into(),
-            SectionOutput { message_type },
-        );
+        interface
+            .outputs
+            .insert(key.into(), SectionOutput { message_type });
     }
 
     fn insert_into_slots(self, key: &str, slots: &mut SectionSlots) {
@@ -324,10 +325,9 @@ where
         key: &str,
     ) {
         let message_type = Some(messages.get_index_or_insert::<T>());
-        interface.buffers.insert(
-            key.into(),
-            SectionBuffer { message_type },
-        );
+        interface
+            .buffers
+            .insert(key.into(), SectionBuffer { message_type });
     }
 
     fn insert_into_slots(self, key: &str, slots: &mut SectionSlots) {
@@ -338,11 +338,7 @@ where
 impl SectionInterfaceItem for AnyBuffer {
     type MessageType = AnyMessageBox;
 
-    fn add_metadata(
-        _: &mut MessageRegistrations,
-        interface: &mut SectionInterface,
-        key: &str,
-    ) {
+    fn add_metadata(_: &mut MessageRegistrations, interface: &mut SectionInterface, key: &str) {
         interface
             .buffers
             .insert(key.into(), SectionBuffer { message_type: None });
@@ -356,11 +352,7 @@ impl SectionInterfaceItem for AnyBuffer {
 impl SectionInterfaceItem for JsonBuffer {
     type MessageType = JsonMessage;
 
-    fn add_metadata(
-        _: &mut MessageRegistrations,
-        interface: &mut SectionInterface,
-        key: &str,
-    ) {
+    fn add_metadata(_: &mut MessageRegistrations, interface: &mut SectionInterface, key: &str) {
         interface
             .buffers
             .insert(key.into(), SectionBuffer { message_type: None });
@@ -371,7 +363,7 @@ impl SectionInterfaceItem for JsonBuffer {
     }
 }
 
-#[derive( Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SectionInput {
     pub(super) message_type: usize,
 }
@@ -522,7 +514,13 @@ mod tests {
         assert_eq!(interface.buffers.len(), 1);
         assert_eq!(
             interface.buffers["baz"].message_type,
-            Some(registry.messages.registration.get_index::<String>().unwrap()),
+            Some(
+                registry
+                    .messages
+                    .registration
+                    .get_index::<String>()
+                    .unwrap()
+            ),
         );
     }
 

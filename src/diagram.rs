@@ -48,7 +48,7 @@ pub use diagram_context::*;
 pub use fork_clone_schema::{DynForkClone, ForkCloneSchema, RegisterClone};
 pub use fork_result_schema::{DynForkResult, ForkResultSchema};
 pub use inference::*;
-pub use join_schema::{JoinSchema, JoinRegistration};
+pub use join_schema::{JoinRegistration, JoinSchema};
 pub use node_schema::NodeSchema;
 pub use operation_ref::*;
 pub use output_ref::*;
@@ -229,7 +229,7 @@ impl JsonSchema for NamespacedOperation {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", untagged)]
-pub enum BufferSelection<Identifier=NextOperation> {
+pub enum BufferSelection<Identifier = NextOperation> {
     Dict(HashMap<String, Identifier>),
     Array(Vec<Identifier>),
 }
@@ -244,12 +244,8 @@ impl<Identifier> BufferSelection<Identifier> {
 
     pub fn iter(&self) -> BufferSelectionIter<'_, Identifier> {
         match self {
-            Self::Dict(dict) => {
-                BufferSelectionIter::Dict(dict.iter())
-            }
-            Self::Array(array) => {
-                BufferSelectionIter::Array(array.iter().enumerate())
-            }
+            Self::Dict(dict) => BufferSelectionIter::Dict(dict.iter()),
+            Self::Array(array) => BufferSelectionIter::Array(array.iter().enumerate()),
         }
     }
 }
@@ -263,22 +259,12 @@ impl<'a, Identifier> Iterator for BufferSelectionIter<'a, Identifier> {
     type Item = (BufferIdentifier<'a>, &'a Identifier);
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            Self::Dict(dict) => {
-                dict.next().map(|(name, id)|
-                    (
-                        BufferIdentifier::Name(Cow::Borrowed(name.as_str())),
-                        id,
-                    )
-                )
-            }
-            Self::Array(array) => {
-                array.next().map(|(index, id)|
-                    (
-                        BufferIdentifier::Index(index),
-                        id,
-                    )
-                )
-            }
+            Self::Dict(dict) => dict
+                .next()
+                .map(|(name, id)| (BufferIdentifier::Name(Cow::Borrowed(name.as_str())), id)),
+            Self::Array(array) => array
+                .next()
+                .map(|(index, id)| (BufferIdentifier::Index(index), id)),
         }
     }
 }
@@ -717,9 +703,11 @@ impl Diagram {
 
     /// Get how implicit errors will be handled in the root scope of this diagram.
     pub fn on_implicit_error(&self) -> NextOperation {
-        self.on_implicit_error.clone().unwrap_or(
-            NextOperation::Builtin { builtin: BuiltinTarget::Cancel }
-        )
+        self.on_implicit_error
+            .clone()
+            .unwrap_or(NextOperation::Builtin {
+                builtin: BuiltinTarget::Cancel,
+            })
     }
 }
 
@@ -879,7 +867,7 @@ impl<T> WithContext for Result<T, DiagramErrorCode> {
     fn in_port<P: Into<PortRef>, F: FnOnce() -> P>(self, f: F) -> Result<T, DiagramError> {
         match self {
             Ok(ok) => Ok(ok),
-            Err(err) => Err(err.in_port(f().into()))
+            Err(err) => Err(err.in_port(f().into())),
         }
     }
 }
@@ -904,10 +892,16 @@ pub enum DiagramErrorCode {
     BuilderNotFound(BuilderId),
 
     #[error("node builder [{builder}] encountered an error: {error}")]
-    NodeBuildingError { builder: BuilderId, error: Arc<Anyhow> },
+    NodeBuildingError {
+        builder: BuilderId,
+        error: Arc<Anyhow>,
+    },
 
     #[error("section builder [{builder}] encountered an error: {error}")]
-    SectionBuildingError { builder: BuilderId, error: Arc<Anyhow> },
+    SectionBuildingError {
+        builder: BuilderId,
+        error: Arc<Anyhow>,
+    },
 
     #[error("operation [{0}] not found")]
     OperationNotFound(NextOperation),
@@ -950,9 +944,7 @@ pub enum DiagramErrorCode {
     #[error("The target message type does not support unzipping. Type: {0}")]
     NotUnzippable(Cow<'static, str>),
 
-    #[error(
-        "The unzipped message [{message}] does not have the requested element [{element}]"
-    )]
+    #[error("The unzipped message [{message}] does not have the requested element [{element}]")]
     InvalidUnzip {
         message: Cow<'static, str>,
         element: usize,
@@ -995,12 +987,11 @@ pub enum DiagramErrorCode {
     CannotInferType(PortRef),
 
     #[error("Unknown message type index: {index}. Limit: {limit}")]
-    UnknownMessageTypeIndex {
-        index: usize,
-        limit: usize,
-    },
+    UnknownMessageTypeIndex { index: usize, limit: usize },
 
-    #[error("The message type for port [{0}] was never inferred. This suggests an implementation error in an operation.")]
+    #[error(
+        "The message type for port [{0}] was never inferred. This suggests an implementation error in an operation."
+    )]
     MessageTypeNotInferred(PortRef),
 
     #[error("There was an attempt to use an operation in an invalid way: [{0}]")]
@@ -1078,7 +1069,7 @@ pub enum DiagramErrorCode {
     IncrementalScopeError(#[from] IncrementalScopeError),
 
     #[error("Unable to infer message types within the diagram: {0}")]
-    MessageTypeInferenceFailure(MessageTypeInferenceFailure)
+    MessageTypeInferenceFailure(MessageTypeInferenceFailure),
 }
 
 fn format_list<T: std::fmt::Display>(list: &[T]) -> String {
@@ -1136,7 +1127,11 @@ impl MessageTypeInferenceFailure {
 impl std::fmt::Display for MessageTypeInferenceFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if !self.no_valid_choice.is_empty() {
-            write!(f, "No valid message type choices for {}. ", format_list(&self.no_valid_choice))?;
+            write!(
+                f,
+                "No valid message type choices for {}. ",
+                format_list(&self.no_valid_choice)
+            )?;
         }
 
         if !self.ambiguous_choice.is_empty() {
@@ -1185,7 +1180,9 @@ impl std::fmt::Display for FinishingErrors {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(untagged)]
 pub enum NameOrIndex {
     Name(Arc<str>),

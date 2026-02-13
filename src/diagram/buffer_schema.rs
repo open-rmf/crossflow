@@ -19,13 +19,13 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Accessor, BufferSettings, JsonMessage, BufferMapLayoutHints, BufferMap, Builder, DynNode, BufferMapLayout,
-    DynOutput, InferenceContext, default_as_false, is_false,
+    Accessor, BufferMap, BufferMapLayout, BufferMapLayoutHints, BufferSettings, Builder, DynNode,
+    DynOutput, InferenceContext, JsonMessage, default_as_false, is_false,
 };
 
 use super::{
     BufferSelection, BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode,
-    NextOperation, OperationName, TraceInfo, TraceSettings, TypeInfo, MessageRegistry,
+    MessageRegistry, NextOperation, OperationName, TraceInfo, TraceSettings, TypeInfo,
 };
 
 /// Create a [`Buffer`][1] which can be used to store and pull data within
@@ -232,7 +232,6 @@ impl BuildDiagramOperation for BufferAccessSchema {
         ctx.buffer_access(id, &self.buffers, &self.next);
         Ok(())
     }
-
 }
 
 pub trait BufferAccessRequest {
@@ -276,7 +275,10 @@ impl BufferAccessRegistration {
 
         Self {
             create,
-            metadata: BufferAccessMetadata { request_message, layout },
+            metadata: BufferAccessMetadata {
+                request_message,
+                layout,
+            },
         }
     }
 }
@@ -367,8 +369,7 @@ impl ListenRegistration {
         let create = |buffers: &BufferMap, builder: &mut Builder| {
             Ok(builder.try_listen::<T>(buffers)?.output().into())
         };
-        let layout = <T::Buffers as BufferMapLayout>::get_layout_hints()
-            .export(messages);
+        let layout = <T::Buffers as BufferMapLayout>::get_layout_hints().export(messages);
 
         Self { create, layout }
     }

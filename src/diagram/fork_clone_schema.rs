@@ -15,16 +15,16 @@
  *
 */
 
-use std::borrow::Cow;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 use crate::{Builder, CloneFromBuffer, ForkCloneOutput};
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
-    MessageOperations, NextOperation, OperationName, TraceInfo, TraceSettings, TypeInfo,
-    supported::*, InferenceContext,
+    InferenceContext, MessageOperations, NextOperation, OperationName, TraceInfo, TraceSettings,
+    TypeInfo, supported::*,
 };
 
 /// If the request is cloneable, clone it into multiple responses that can
@@ -118,9 +118,11 @@ impl<T: 'static> RegisterClone<T> for NotSupported {
     const CLONEABLE: bool = false;
 
     fn register_clone(ops: &mut MessageOperations) {
-        ops.fork_clone = Some(|_| Err(DiagramErrorCode::NotCloneable(
-            Cow::Borrowed(TypeInfo::of::<T>().type_name)
-        )));
+        ops.fork_clone = Some(|_| {
+            Err(DiagramErrorCode::NotCloneable(Cow::Borrowed(
+                TypeInfo::of::<T>().type_name,
+            )))
+        });
     }
 }
 

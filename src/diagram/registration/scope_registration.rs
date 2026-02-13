@@ -18,14 +18,17 @@
 use bevy_ecs::prelude::{Commands, Entity};
 
 use crate::{
-    IncrementalScopeBuilder, IncrementalScopeRequestResult, IncrementalScopeResponseResult,
-    DynInputSlot, DynOutput, NamedStream, StreamOf,
+    DynInputSlot, DynOutput, IncrementalScopeBuilder, IncrementalScopeRequestResult,
+    IncrementalScopeResponseResult, NamedStream, StreamOf,
 };
 
 pub(crate) struct BuildScope {
-    pub(crate) set_request: fn(&mut IncrementalScopeBuilder, &mut Commands) -> IncrementalScopeRequestResult,
-    pub(crate) set_response: fn(&mut IncrementalScopeBuilder, &mut Commands) -> IncrementalScopeResponseResult,
-    pub(crate) spawn_basic_scope_stream: fn(Entity, Entity, &mut Commands) -> (DynInputSlot, DynOutput),
+    pub(crate) set_request:
+        fn(&mut IncrementalScopeBuilder, &mut Commands) -> IncrementalScopeRequestResult,
+    pub(crate) set_response:
+        fn(&mut IncrementalScopeBuilder, &mut Commands) -> IncrementalScopeResponseResult,
+    pub(crate) spawn_basic_scope_stream:
+        fn(Entity, Entity, &mut Commands) -> (DynInputSlot, DynOutput),
 }
 
 impl BuildScope {

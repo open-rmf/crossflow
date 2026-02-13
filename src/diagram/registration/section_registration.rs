@@ -18,7 +18,7 @@
 use std::cell::RefCell;
 
 pub use crate::dyn_node::*;
-use crate::{Builder, DisplayText, ConfigExample};
+use crate::{Builder, ConfigExample, DisplayText};
 
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};

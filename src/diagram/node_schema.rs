@@ -20,9 +20,9 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
 
 use super::{
-    BuildDiagramOperation, BuildStatus, BuilderId, BuilderContext, DiagramErrorCode, JsonMessage,
-    MissingStream, NextOperation, OperationName, TraceInfo, TraceSettings, is_default,
-    InferenceContext,
+    BuildDiagramOperation, BuildStatus, BuilderContext, BuilderId, DiagramErrorCode,
+    InferenceContext, JsonMessage, MissingStream, NextOperation, OperationName, TraceInfo,
+    TraceSettings, is_default,
 };
 
 /// Create an operation that that takes an input message and produces an

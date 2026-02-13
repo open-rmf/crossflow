@@ -15,17 +15,17 @@
  *
 */
 
-use std::borrow::Cow;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use variadics_please::all_tuples_with_size;
 
 use crate::Builder;
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
-    MessageRegistry, NextOperation, OperationName, RegisterClone, SerializeMessage, TraceInfo,
-    TraceSettings, supported::*, InferenceContext,
+    InferenceContext, MessageRegistry, NextOperation, OperationName, RegisterClone,
+    SerializeMessage, TraceInfo, TraceSettings, supported::*,
 };
 
 /// If the input message is a tuple of (T1, T2, T3, ...), unzip it into
@@ -105,7 +105,11 @@ impl BuildDiagramOperation for UnzipSchema {
         let mut actual_output = Vec::new();
         for t in &unzip.output_types {
             actual_output.push(
-                ctx.registry.messages.registration.get_by_index(*t)?.type_info
+                ctx.registry
+                    .messages
+                    .registration
+                    .get_by_index(*t)?
+                    .type_info,
             );
         }
 
@@ -269,7 +273,10 @@ mod tests {
         .unwrap();
 
         let err = fixture.spawn_json_io_workflow(&diagram).unwrap_err();
-        assert!(matches!(err.code, DiagramErrorCode::InvalidUnzip { element: 2, .. }));
+        assert!(matches!(
+            err.code,
+            DiagramErrorCode::InvalidUnzip { element: 2, .. }
+        ));
     }
 
     #[test]

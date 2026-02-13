@@ -17,23 +17,24 @@
 
 use std::{
     collections::{HashMap, HashSet, hash_map::Entry},
-    sync::Arc,
     ops::Deref,
+    sync::Arc,
 };
 
 use crate::{
-    AnyBuffer, BufferIdentifier, BufferMap, Builder, BuilderScopeContext, JsonMessage,
-    Scope, StreamPack, dyn_node::DynStreamInputPack, PortRef,
+    AnyBuffer, BufferIdentifier, BufferMap, Builder, BuilderScopeContext, JsonMessage, PortRef,
+    Scope, StreamPack, dyn_node::DynStreamInputPack,
 };
 
 #[cfg(feature = "trace")]
 use crate::{OperationInfo, Trace};
 
 use super::{
-    BufferSelection, Diagram, DiagramContext, DiagramElementRegistry, DiagramError, DiagramErrorCode, DynInputSlot,
-    DynOutput, FinishingErrors, ImplicitDeserialization, ImplicitSerialization, ImplicitStringify,
-    NamedOperationRef, NamespaceList, NextOperation, OperationName, OperationRef,
-    Operations, TraceToggle, TypeInfo, InferenceContext, InferenceBoundaryConditions, TypeMismatch,
+    BufferSelection, Diagram, DiagramContext, DiagramElementRegistry, DiagramError,
+    DiagramErrorCode, DynInputSlot, DynOutput, FinishingErrors, ImplicitDeserialization,
+    ImplicitSerialization, ImplicitStringify, InferenceBoundaryConditions, InferenceContext,
+    NamedOperationRef, NamespaceList, NextOperation, OperationName, OperationRef, Operations,
+    TraceToggle, TypeInfo, TypeMismatch,
 };
 
 use bevy_ecs::prelude::Entity;
@@ -95,7 +96,10 @@ impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
     /// Get the message type that has been inferred for a certain input/output
     /// port. This will only include ports that your operation added constraints
     /// for.
-    pub fn inferred_message_type(&self, port: impl Into<PortRef>) -> Result<TypeInfo, DiagramErrorCode> {
+    pub fn inferred_message_type(
+        &self,
+        port: impl Into<PortRef>,
+    ) -> Result<TypeInfo, DiagramErrorCode> {
         let port = self.into_port_ref(port);
         let type_index = self
             .message_type_inference
@@ -251,13 +255,18 @@ impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
     /// Create a buffer map based on the buffer inputs provided. If one or more
     /// of the buffers in BufferInputs is not available, get an error including
     /// the name of the missing buffer.
-    pub fn create_buffer_map(&self, inputs: &BufferSelection) -> Result<BufferMap, DiagramErrorCode> {
+    pub fn create_buffer_map(
+        &self,
+        inputs: &BufferSelection,
+    ) -> Result<BufferMap, DiagramErrorCode> {
         let attempt_get_buffer = |buffer: &NextOperation| -> Result<AnyBuffer, DiagramErrorCode> {
             let mut buffer_ref: OperationRef = self.into_operation_ref(buffer);
             let mut visited = HashSet::new();
             loop {
                 if !visited.insert(buffer_ref.clone()) {
-                    return Err(DiagramErrorCode::CircularRedirect(visited.into_iter().collect()));
+                    return Err(DiagramErrorCode::CircularRedirect(
+                        visited.into_iter().collect(),
+                    ));
                 }
 
                 let next = self
@@ -322,9 +331,7 @@ impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
                 let op: OperationRef = (&op).into();
                 op.in_namespaces(&namespaces)
             }
-            None => {
-                self.on_implicit_error.clone()
-            }
+            None => self.on_implicit_error.clone(),
         };
 
         self.construction
@@ -856,11 +863,7 @@ where
         // TODO(@mxgrey): The trace settings for stream_out are not properly
         // based on whatever the user sets in the StreamOutSchema.
         let name: Arc<str> = name.as_ref().into();
-        ctx.set_input_for_target(
-            OperationRef::stream_out(&name),
-            input,
-            TraceInfo::default(),
-        )?;
+        ctx.set_input_for_target(OperationRef::stream_out(&name), input, TraceInfo::default())?;
     }
 
     // Add the dispose operation
@@ -945,7 +948,8 @@ impl BasicConnect {
             .registry
             .messages
             .get_operations(self.input_slot.message_info())?
-            .from_impls.contains_key(&incoming_index);
+            .from_impls
+            .contains_key(&incoming_index);
 
         Ok(r)
     }
@@ -973,7 +977,11 @@ impl ConnectIntoTarget for BasicConnect {
         }
 
         let incoming_type = *output.message_info();
-        let incoming_type_index = ctx.registry.messages.registration.get_index_dyn(&incoming_type)?;
+        let incoming_type_index = ctx
+            .registry
+            .messages
+            .registration
+            .get_index_dyn(&incoming_type)?;
         let convert = ctx
             .registry
             .messages
@@ -981,10 +989,12 @@ impl ConnectIntoTarget for BasicConnect {
             .get_operations()?
             .from_impls
             .get(&incoming_type_index)
-            .ok_or_else(|| DiagramErrorCode::TypeMismatch(TypeMismatch {
-                source_type: incoming_type,
-                target_type: *self.input_slot.message_info(),
-            }))?;
+            .ok_or_else(|| {
+                DiagramErrorCode::TypeMismatch(TypeMismatch {
+                    source_type: incoming_type,
+                    target_type: *self.input_slot.message_info(),
+                })
+            })?;
 
         let (conversion_input, converted_output) = (*convert)(ctx.builder);
         converted_output.connect_to(&self.input_slot, ctx.builder)?;
@@ -1140,9 +1150,8 @@ impl TraceInfo {
         trace: Option<TraceToggle>,
     ) -> Result<Self, DiagramErrorCode> {
         let construction = Some(Arc::new(
-            serde_json::to_value(construction).map_err(|err|
-                DiagramErrorCode::TraceInfoError(Arc::new(err))
-            )?,
+            serde_json::to_value(construction)
+                .map_err(|err| DiagramErrorCode::TraceInfoError(Arc::new(err)))?,
         ));
 
         Ok(Self {
@@ -1154,7 +1163,7 @@ impl TraceInfo {
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::*, diagram::testing::*};
+    use crate::{diagram::testing::*, prelude::*};
     use serde_json::json;
 
     #[test]
@@ -1163,20 +1172,12 @@ mod tests {
 
         fixture.registry.register_node_builder(
             NodeBuilderOptions::new("low_res_add"),
-            |builder, config: i8| {
-                builder.create_map_block(move |request: i8| {
-                    request + config
-                })
-            }
+            |builder, config: i8| builder.create_map_block(move |request: i8| request + config),
         );
 
         fixture.registry.register_node_builder(
             NodeBuilderOptions::new("mid_res_add"),
-            |builder, config: i32| {
-                builder.create_map_block(move |request: i32| {
-                    request + config
-                })
-            }
+            |builder, config: i32| builder.create_map_block(move |request: i32| request + config),
         );
 
         let diagram = Diagram::from_json(json!({
@@ -1205,7 +1206,9 @@ mod tests {
         }))
         .unwrap();
 
-        let r: JsonMessage = fixture.spawn_and_run(&diagram, JsonMessage::from(1)).unwrap();
+        let r: JsonMessage = fixture
+            .spawn_and_run(&diagram, JsonMessage::from(1))
+            .unwrap();
         assert_eq!(r.as_i64().unwrap(), 7);
     }
 }

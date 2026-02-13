@@ -16,7 +16,8 @@
 */
 
 use crate::{
-    Operations, Templates, OperationRef, TraceToggle, NamespaceList, OperationName, OutputRef, PortRef,
+    NamespaceList, OperationName, OperationRef, Operations, OutputRef, PortRef, Templates,
+    TraceToggle,
 };
 
 pub struct DiagramContext<'a> {

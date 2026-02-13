@@ -15,28 +15,15 @@
  *
 */
 
-use std::{
-    any::Any,
-    borrow::Cow,
-    cell::RefCell,
-    collections::HashMap,
-    marker::PhantomData,
-};
-
+use std::{any::Any, borrow::Cow, cell::RefCell, collections::HashMap, marker::PhantomData};
 
 pub use crate::dyn_node::*;
 use crate::{
-    BuilderId, DiagramErrorCode, DynType, RegisterSplit,
-    diagram::supported::*,
-    Accessor,
-    Builder, DisplayText,
-    Joined, JsonMessage,
-    MessageRegistrationBuilder, DiagramElementRegistry,
+    Accessor, Builder, BuilderId, DiagramElementRegistry, DiagramErrorCode, DisplayText, DynType,
+    Joined, JsonMessage, MessageRegistrationBuilder, RegisterSplit, diagram::supported::*,
 };
 
-use super::{
-    RegisterForkResult, RegisterUnzip, ConfigExample, BufferAccessRequest,
-};
+use super::{BufferAccessRequest, ConfigExample, RegisterForkResult, RegisterUnzip};
 
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -306,8 +293,7 @@ where
         U: 'static + Send + Sync,
         Response: Into<U>,
     {
-        MessageRegistrationBuilder::<Response>::new(&mut self.registry.messages)
-            .with_into::<U>();
+        MessageRegistrationBuilder::<Response>::new(&mut self.registry.messages).with_into::<U>();
         self
     }
 
@@ -334,8 +320,7 @@ where
     where
         V: 'static + Send + Sync + Into<Request>,
     {
-        MessageRegistrationBuilder::<Request>::new(&mut self.registry.messages)
-            .with_from::<V>();
+        MessageRegistrationBuilder::<Request>::new(&mut self.registry.messages).with_from::<V>();
         self
     }
 

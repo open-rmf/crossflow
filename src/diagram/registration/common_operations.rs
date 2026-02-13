@@ -17,16 +17,12 @@
 
 use variadics_please::all_tuples;
 
-use std::{
-    cell::RefCell,
-    marker::PhantomData,
-    sync::Arc,
-};
+use std::{cell::RefCell, marker::PhantomData, sync::Arc};
 
 use anyhow::Error as Anyhow;
 
 pub use crate::dyn_node::*;
-use crate::{Builder, Node, StreamAvailability, StreamPack, StreamEffect};
+use crate::{Builder, Node, StreamAvailability, StreamEffect, StreamPack};
 
 use super::*;
 
@@ -133,8 +129,7 @@ impl<'a, DeserializeImpl, SerializeImpl, Cloneable>
             .into_iter()
             .map(|(k, v)|
                 // SAFETY: We register all the streams earlier in this function
-                (k, self.registry.messages.registration.get_index_dyn(&v).unwrap())
-            )
+                (k, self.registry.messages.registration.get_index_dyn(&v).unwrap()))
             .collect();
 
         let registration = NodeRegistration {
@@ -152,8 +147,8 @@ impl<'a, DeserializeImpl, SerializeImpl, Cloneable>
                 config_examples: options.config_examples,
             },
             create_node_impl: RefCell::new(Box::new(move |builder, config| {
-                let config =
-                    serde_json::from_value(config).map_err(|err| DiagramErrorCode::ConfigError(Arc::new(err)))?;
+                let config = serde_json::from_value(config)
+                    .map_err(|err| DiagramErrorCode::ConfigError(Arc::new(err)))?;
                 let node =
                     f(builder, config).map_err(|error| DiagramErrorCode::NodeBuildingError {
                         builder: Arc::clone(&node_builder_name),
@@ -274,9 +269,7 @@ pub trait RegisterStreams<DeserializeImpl, SerializeImpl, Cloneable> {
 }
 
 impl<D, S, C> RegisterStreams<D, S, C> for () {
-    fn register_streams(
-        _: &mut CommonOperations<D, S, C>,
-    ) {
+    fn register_streams(_: &mut CommonOperations<D, S, C>) {
         // Do nothing
     }
 }

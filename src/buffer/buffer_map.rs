@@ -74,16 +74,10 @@ impl<'a> BufferIdentifier<'a> {
     pub fn to_owned(&self) -> BufferIdentifier<'static> {
         match self {
             Self::Index(index) => BufferIdentifier::Index(*index),
-            Self::Name(name) => {
-                match name {
-                    Cow::Borrowed(name) => {
-                        BufferIdentifier::Name(Cow::Owned((*name).into()))
-                    }
-                    Cow::Owned(name) => {
-                        BufferIdentifier::Name(Cow::Owned(name.clone()))
-                    }
-                }
-            }
+            Self::Name(name) => match name {
+                Cow::Borrowed(name) => BufferIdentifier::Name(Cow::Owned((*name).into())),
+                Cow::Owned(name) => BufferIdentifier::Name(Cow::Owned(name.clone())),
+            },
         }
     }
 }
@@ -437,11 +431,10 @@ impl MessageTypeHint<TypeInfo> {
     }
 
     #[cfg(feature = "diagram")]
-    pub fn export(
-        &self,
-        messages: &mut MessageRegistry,
-    ) -> MessageTypeHint<usize> {
-        let index = messages.registration.get_index_or_insert_placeholder(*self.inner());
+    pub fn export(&self, messages: &mut MessageRegistry) -> MessageTypeHint<usize> {
+        let index = messages
+            .registration
+            .get_index_or_insert_placeholder(*self.inner());
 
         match self {
             Self::Exact(_) => MessageTypeHint::Exact(index),
@@ -450,7 +443,8 @@ impl MessageTypeHint<TypeInfo> {
     }
 }
 
-pub type MessageTypeHintMap<TypeRepr = TypeInfo> = HashMap<BufferIdentifier<'static>, MessageTypeHint<TypeRepr>>;
+pub type MessageTypeHintMap<TypeRepr = TypeInfo> =
+    HashMap<BufferIdentifier<'static>, MessageTypeHint<TypeRepr>>;
 
 /// Hints for how a buffer map might be laid out.
 ///
@@ -470,10 +464,7 @@ pub enum BufferMapLayoutHints<TypeRepr = TypeInfo> {
 
 impl BufferMapLayoutHints<TypeInfo> {
     #[cfg(feature = "diagram")]
-    pub fn export(
-        &self,
-        messages: &mut MessageRegistry,
-    ) -> BufferMapLayoutHints<usize> {
+    pub fn export(&self, messages: &mut MessageRegistry) -> BufferMapLayoutHints<usize> {
         match self {
             Self::Dynamic(hints) => BufferMapLayoutHints::Dynamic(hints.export(messages)),
             Self::Static(hints) => {
@@ -483,7 +474,7 @@ impl BufferMapLayoutHints<TypeInfo> {
                     .collect();
 
                 BufferMapLayoutHints::Static(exported_hints)
-            },
+            }
         }
     }
 }
@@ -505,10 +496,7 @@ pub struct DynamicBufferMapLayoutHints<TypeRepr> {
 
 impl DynamicBufferMapLayoutHints<TypeInfo> {
     #[cfg(feature = "diagram")]
-    pub fn export(
-        &self,
-        messages: &mut MessageRegistry,
-    ) -> DynamicBufferMapLayoutHints<usize> {
+    pub fn export(&self, messages: &mut MessageRegistry) -> DynamicBufferMapLayoutHints<usize> {
         DynamicBufferMapLayoutHints {
             indices: self.indices,
             names: self.names,
@@ -790,13 +778,11 @@ impl BufferMapLayout for BufferMap {
     }
 
     fn get_layout_hints() -> BufferMapLayoutHints {
-        BufferMapLayoutHints::Dynamic(
-            DynamicBufferMapLayoutHints {
-                indices: true,
-                names: true,
-                hint: None,
-            }
-        )
+        BufferMapLayoutHints::Dynamic(DynamicBufferMapLayoutHints {
+            indices: true,
+            names: true,
+            hint: None,
+        })
     }
 }
 
@@ -895,12 +881,11 @@ impl<T: 'static + Send + Sync> BufferMapLayout for Buffer<T> {
 
     fn get_layout_hints() -> BufferMapLayoutHints {
         BufferMapLayoutHints::Static(
-            [
-                (
-                    BufferIdentifier::Index(0),
-                    MessageTypeHint::Exact(TypeInfo::of::<T>())
-                )
-            ].into()
+            [(
+                BufferIdentifier::Index(0),
+                MessageTypeHint::Exact(TypeInfo::of::<T>()),
+            )]
+            .into(),
         )
     }
 }
@@ -978,13 +963,11 @@ impl<B: 'static + Send + Sync + AsAnyBuffer + Clone> BufferMapLayout for Vec<B> 
     }
 
     fn get_layout_hints() -> BufferMapLayoutHints {
-        BufferMapLayoutHints::Dynamic(
-            DynamicBufferMapLayoutHints {
-                indices: true,
-                names: false,
-                hint: Some(B::message_type_hint()),
-            }
-        )
+        BufferMapLayoutHints::Dynamic(DynamicBufferMapLayoutHints {
+            indices: true,
+            names: false,
+            hint: Some(B::message_type_hint()),
+        })
     }
 }
 
