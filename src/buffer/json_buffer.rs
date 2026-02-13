@@ -39,10 +39,11 @@ use crate::{
     Accessing, Accessor, AnyBuffer, AnyBufferAccessInterface, AnyBufferKey, AnyRange, AsAnyBuffer,
     Buffer, BufferAccessMut, BufferAccessors, BufferError, BufferIdentifier, BufferKey,
     BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferMap, BufferMapLayout,
-    BufferMapStruct, BufferStorage, Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer,
-    Gate, GateState, IncompatibleLayout, InspectBuffer, JoinBehavior, Joined, Joining,
-    ManageBuffer, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
-    NotifyBufferUpdate, OperationError, OperationResult, OrBroken, add_listener_to_source,
+    BufferMapLayoutHints, BufferMapStruct, BufferStorage, Bufferable, Buffering, Builder,
+    CloneFromBuffer, DrainBuffer, DynamicBufferMapLayoutHints, Gate, GateState, IncompatibleLayout,
+    InspectBuffer, JoinBehavior, Joined, Joining, ManageBuffer, MessageTypeHint,
+    MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate, OperationError,
+    OperationResult, OrBroken, TypeInfo, add_listener_to_source,
 };
 
 /// A [`Buffer`] whose message type has been anonymized, but which is known to
@@ -1205,6 +1206,16 @@ impl BufferMapLayout for JsonBuffer {
         evaluation.fallback::<JsonMessage>(0);
         evaluation.evaluate()
     }
+
+    fn get_layout_hints() -> BufferMapLayoutHints {
+        BufferMapLayoutHints::Static(
+            [(
+                BufferIdentifier::Index(0),
+                MessageTypeHint::Fallback(TypeInfo::of::<JsonMessage>()),
+            )]
+            .into(),
+        )
+    }
 }
 
 impl Joined for serde_json::Map<String, JsonMessage> {
@@ -1244,6 +1255,14 @@ impl BufferMapLayout for HashMap<String, JsonBuffer> {
             evaluation.fallback::<JsonMessage>(identifier);
         }
         evaluation.evaluate()
+    }
+
+    fn get_layout_hints() -> BufferMapLayoutHints {
+        BufferMapLayoutHints::Dynamic(DynamicBufferMapLayoutHints {
+            indices: false,
+            names: true,
+            hint: Some(MessageTypeHint::Fallback(TypeInfo::of::<JsonMessage>())),
+        })
     }
 }
 
@@ -1298,6 +1317,14 @@ impl BufferMapLayout for HashMap<BufferIdentifier<'static>, JsonBuffer> {
             evaluation.fallback::<JsonMessage>(identifier);
         }
         evaluation.evaluate()
+    }
+
+    fn get_layout_hints() -> BufferMapLayoutHints {
+        BufferMapLayoutHints::Dynamic(DynamicBufferMapLayoutHints {
+            indices: true,
+            names: true,
+            hint: Some(MessageTypeHint::Fallback(TypeInfo::of::<JsonMessage>())),
+        })
     }
 }
 

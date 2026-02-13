@@ -42,9 +42,10 @@ bevy_time = "0.16"
 bevy_utils = "0.16"
 clap = { version = "4.5.23", features = ["derive"] }
 mime_guess = "2.0.5"
-schemars = "0.9.0"
+schemars = "1.2.0"
 serde = "1.0.219"
 serde_json = "1.0.140"
+serde_with = "3.16.1"
 tokio = { version = "1.47.1", default-features = false }
 tonic = "0.14"
 prost = "0.14"
@@ -94,6 +95,7 @@ bevy_time = { workspace = true }
 schemars = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive", "rc"] }
 serde_json = { workspace = true, optional = true }
+serde_with = { workspace = true, optional = true }
 cel-interpreter = { version = "0.9.0", features = ["json"], optional = true }
 
 # --- Dependencies for grpc feature
@@ -129,6 +131,7 @@ diagram = [
   "dep:semver",
   "dep:serde",
   "dep:serde_json",
+  "dep:serde_with",
   "dep:strum",
 ]
 trace = ["diagram"]

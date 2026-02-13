@@ -25,8 +25,9 @@ use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Serialize, de::DeserializeOwned};
 
 use super::{
-    DiagramContext, DiagramErrorCode, DynForkResult, DynInputSlot, DynOutput, JsonMessage,
-    MessageRegistration, MessageRegistry, TypeInfo, TypeMismatch, supported::*,
+    BasicConnect, BuilderContext, ConnectIntoTarget, DiagramErrorCode, DynForkResult, DynInputSlot,
+    DynOutput, JsonMessage, MessageRegistrations, MessageRegistry, TypeInfo, TypeMismatch,
+    supported::*,
 };
 use crate::JsonBuffer;
 
@@ -55,7 +56,7 @@ where
 
 pub trait SerializeMessage<T> {
     fn register_serialize(
-        messages: &mut HashMap<TypeInfo, MessageRegistration>,
+        messages: &mut MessageRegistrations,
         schema_generator: &mut SchemaGenerator,
     );
 }
@@ -65,14 +66,12 @@ where
     T: Serialize + DynType + Send + Sync + 'static,
 {
     fn register_serialize(
-        messages: &mut HashMap<TypeInfo, MessageRegistration>,
+        messages: &mut MessageRegistrations,
         schema_generator: &mut SchemaGenerator,
     ) {
-        let reg = &mut messages
-            .entry(TypeInfo::of::<T>())
-            .or_insert(MessageRegistration::new::<T>());
+        let ops = messages.get_or_insert_operations::<T>();
 
-        reg.operations.serialize_impl = Some(|builder| {
+        ops.serialize = Some(|builder| {
             let serialize = builder.create_map_block(|message: T| {
                 serde_json::to_value(message).map_err(|err| err.to_string())
             });
@@ -90,12 +89,12 @@ where
 
         #[cfg(feature = "trace")]
         {
-            reg.operations.enable_trace_serialization =
-                Some(Trace::enable_value_serialization::<T>);
+            ops.enable_trace_serialization = Some(Trace::enable_value_serialization::<T>);
         }
 
         // Serialize and deserialize both generate the schema, so check before
         // generating it.
+        let reg = messages.get_or_insert::<T>();
         if reg.schema.is_none() {
             reg.schema = Some(T::json_schema(schema_generator));
         }
@@ -104,7 +103,7 @@ where
 
 pub trait DeserializeMessage<T> {
     fn register_deserialize(
-        messages: &mut HashMap<TypeInfo, MessageRegistration>,
+        messages: &mut MessageRegistrations,
         schema_generator: &mut SchemaGenerator,
     );
 }
@@ -114,14 +113,11 @@ where
     T: 'static + Send + Sync + DeserializeOwned + DynType,
 {
     fn register_deserialize(
-        messages: &mut HashMap<TypeInfo, MessageRegistration>,
+        messages: &mut MessageRegistrations,
         schema_generator: &mut SchemaGenerator,
     ) {
-        let reg = &mut messages
-            .entry(TypeInfo::of::<T>())
-            .or_insert(MessageRegistration::new::<T>());
-
-        reg.operations.deserialize_impl = Some(|builder| {
+        let ops = messages.get_or_insert_operations::<T>();
+        ops.deserialize = Some(|builder| {
             let deserialize = builder.create_map_block(|message: JsonMessage| {
                 serde_json::from_value::<T>(message).map_err(|err| err.to_string())
             });
@@ -139,6 +135,7 @@ where
 
         // Serialize and deserialize both generate the schema, so check before
         // generating it.
+        let reg = messages.get_or_insert::<T>();
         if reg.schema.is_none() {
             reg.schema = Some(T::json_schema(schema_generator));
         }
@@ -146,16 +143,13 @@ where
 }
 
 impl<T> SerializeMessage<T> for NotSupported {
-    fn register_serialize(_: &mut HashMap<TypeInfo, MessageRegistration>, _: &mut SchemaGenerator) {
+    fn register_serialize(_: &mut MessageRegistrations, _: &mut SchemaGenerator) {
         // Do nothing
     }
 }
 
 impl<T> DeserializeMessage<T> for NotSupported {
-    fn register_deserialize(
-        _: &mut HashMap<TypeInfo, MessageRegistration>,
-        _: &mut SchemaGenerator,
-    ) {
+    fn register_deserialize(_: &mut MessageRegistrations, _: &mut SchemaGenerator) {
         // Do nothing
     }
 }
@@ -204,7 +198,7 @@ where
 
 pub struct ImplicitSerialization {
     incoming_types: HashMap<TypeInfo, DynInputSlot>,
-    serialized_input: Arc<DynInputSlot>,
+    serialized_input: BasicConnect,
 }
 
 impl ImplicitSerialization {
@@ -218,7 +212,7 @@ impl ImplicitSerialization {
         }
 
         Ok(Self {
-            serialized_input: Arc::new(serialized_input),
+            serialized_input: BasicConnect::new(serialized_input),
             incoming_types: Default::default(),
         })
     }
@@ -231,10 +225,13 @@ impl ImplicitSerialization {
     pub fn try_implicit_serialize(
         &mut self,
         incoming: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<Result<(), DynOutput>, DiagramErrorCode> {
-        if incoming.message_info() == &TypeInfo::of::<JsonMessage>() {
-            incoming.connect_to(&self.serialized_input, ctx.builder)?;
+        if self
+            .serialized_input
+            .is_compatible(incoming.message_info(), ctx)?
+        {
+            incoming.connect_to(&self.serialized_input.input_slot, ctx.builder)?;
             return Ok(Ok(()));
         }
 
@@ -252,7 +249,7 @@ impl ImplicitSerialization {
 
                 serialize
                     .ok
-                    .connect_to(&self.serialized_input, ctx.builder)?;
+                    .connect_to(&self.serialized_input.input_slot, ctx.builder)?;
 
                 let error_target = ctx.get_implicit_error_target();
                 ctx.add_output_into_target(error_target, serialize.err);
@@ -271,19 +268,19 @@ impl ImplicitSerialization {
     pub fn implicit_serialize(
         &mut self,
         incoming: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         self.try_implicit_serialize(incoming, ctx)?
             .map_err(|incoming| DiagramErrorCode::NotSerializable(*incoming.message_info()))
     }
 
     pub fn serialized_input_slot(&self) -> &Arc<DynInputSlot> {
-        &self.serialized_input
+        &self.serialized_input.input_slot
     }
 }
 
 pub struct ImplicitDeserialization {
-    deserialized_input: Arc<DynInputSlot>,
+    basic_input: BasicConnect,
     // The serialized input will only be created if a JsonMessage output
     // attempts to connect to this operation. Otherwise there is no need to
     // create it.
@@ -295,14 +292,14 @@ impl ImplicitDeserialization {
         deserialized_input: DynInputSlot,
         registration: &MessageRegistry,
     ) -> Result<Option<Self>, DiagramErrorCode> {
-        if registration
-            .messages
-            .get(&deserialized_input.message_info())
-            .and_then(|reg| reg.operations.deserialize_impl.as_ref())
-            .is_some()
-        {
+        let can_deserialize = registration
+            .get_operations(deserialized_input.message_info())?
+            .deserialize
+            .is_some();
+
+        if can_deserialize {
             return Ok(Some(Self {
-                deserialized_input: Arc::new(deserialized_input),
+                basic_input: BasicConnect::new(deserialized_input),
                 serialized_input: None,
             }));
         }
@@ -313,15 +310,8 @@ impl ImplicitDeserialization {
     pub fn implicit_deserialize(
         &mut self,
         incoming: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
-        if incoming.message_info() == self.deserialized_input.message_info() {
-            // Connect them directly because they match
-            return incoming
-                .connect_to(&self.deserialized_input, ctx.builder)
-                .map_err(Into::into);
-        }
-
         if incoming.message_info() == &TypeInfo::of::<JsonMessage>() {
             // Connect to the input for serialized messages
             let serialized_input = match self.serialized_input {
@@ -330,11 +320,11 @@ impl ImplicitDeserialization {
                     let deserialize = ctx
                         .registry
                         .messages
-                        .deserialize(self.deserialized_input.message_info(), ctx.builder)?;
+                        .deserialize(self.basic_input.input_slot.message_info(), ctx.builder)?;
 
                     deserialize
                         .ok
-                        .connect_to(&self.deserialized_input, ctx.builder)?;
+                        .connect_to(&self.basic_input.input_slot, ctx.builder)?;
 
                     let error_target = ctx.get_implicit_error_target();
                     ctx.add_output_into_target(error_target, deserialize.err);
@@ -349,21 +339,17 @@ impl ImplicitDeserialization {
                 .map_err(Into::into);
         }
 
-        Err(TypeMismatch {
-            source_type: *incoming.message_info(),
-            target_type: *self.deserialized_input.message_info(),
-        }
-        .into())
+        self.basic_input.connect_into_target(incoming, ctx)
     }
 
     pub fn deserialized_input_slot(&self) -> &Arc<DynInputSlot> {
-        &self.deserialized_input
+        &self.basic_input.input_slot
     }
 }
 
 pub struct ImplicitStringify {
     incoming_types: HashMap<TypeInfo, DynInputSlot>,
-    string_input: DynInputSlot,
+    string_input: BasicConnect,
 }
 
 impl ImplicitStringify {
@@ -377,7 +363,7 @@ impl ImplicitStringify {
         }
 
         Ok(Self {
-            string_input,
+            string_input: BasicConnect::new(string_input),
             incoming_types: Default::default(),
         })
     }
@@ -385,10 +371,13 @@ impl ImplicitStringify {
     pub fn try_implicit_stringify(
         &mut self,
         incoming: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<Result<(), DynOutput>, DiagramErrorCode> {
-        if incoming.message_info() == &TypeInfo::of::<String>() {
-            incoming.connect_to(&self.string_input, ctx.builder)?;
+        if self
+            .string_input
+            .is_compatible(incoming.message_info(), ctx)?
+        {
+            self.string_input.connect_into_target(incoming, ctx)?;
             return Ok(Ok(()));
         }
 
@@ -406,7 +395,7 @@ impl ImplicitStringify {
 
                 stringify
                     .output
-                    .connect_to(&self.string_input, ctx.builder)?;
+                    .connect_to(&self.string_input.input_slot, ctx.builder)?;
                 vacant.insert(stringify.input).clone()
             }
         };

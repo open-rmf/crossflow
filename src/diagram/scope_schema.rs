@@ -15,21 +15,15 @@
  *
 */
 
-use bevy_ecs::prelude::Entity;
-
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::collections::HashMap;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BuildDiagramOperation, BuildStatus, ConnectIntoTarget, DiagramContext, DiagramErrorCode,
-    DynOutput, IncrementalScopeBuilder, IncrementalScopeRequest, IncrementalScopeResponse,
-    InferMessageType, NamespaceList, NextOperation, OperationName, OperationRef, Operations,
-    ScopeSettings, StreamOutRef, TraceSettings, standard_input_connection,
+    BuildDiagramOperation, BuildStatus, BuilderContext, BuiltinTarget, DiagramErrorCode,
+    IncrementalScopeBuilder, InferenceContext, NextOperation, OperationName, OperationRef,
+    Operations, ScopeSettings, TraceInfo, TraceSettings,
 };
 
 /// Create a scope which will function like its own encapsulated workflow
@@ -134,21 +128,53 @@ impl BuildDiagramOperation for ScopeSchema {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
-        let scope = IncrementalScopeBuilder::begin(self.settings.clone(), ctx.builder);
+        let trace = TraceInfo::new(self, self.trace_settings.trace)?;
+        let mut scope = IncrementalScopeBuilder::begin(self.settings.clone(), ctx.builder);
+        let start_target = OperationRef::from(&self.start).in_namespace(id);
 
-        for (stream_in_id, stream_out_target) in &self.stream_out {
-            ctx.set_connect_into_target(
-                StreamOutRef::new_for_scope(id.clone(), stream_in_id.clone()),
-                ConnectScopeStream {
-                    scope_id: scope.builder_scope_context().scope,
-                    parent_scope_id: ctx.builder.scope(),
-                    stream_out_target: ctx.into_operation_ref(stream_out_target),
-                    connection: None,
-                },
-            )?;
+        // Set the scope request message type
+        let start_message_type = ctx.inferred_message_type(start_target.clone())?;
+        let request = ctx.registry.messages.set_scope_request(
+            &start_message_type,
+            &mut scope,
+            ctx.builder.commands(),
+        )?;
+
+        if let Some(begin_scope) = request.begin_scope {
+            ctx.add_output_into_target(start_target, begin_scope);
         }
+        ctx.set_input_for_target(id, request.external_input, trace.clone())?;
+
+        for (stream_name, stream_out_target) in &self.stream_out {
+            let stream_op = OperationRef::scope_stream_out(id, stream_name);
+            let stream_message_type = ctx.inferred_message_type(stream_op.clone())?;
+
+            let (stream_input, stream_output) = ctx.registry.messages.spawn_basic_scope_stream(
+                &stream_message_type,
+                scope.builder_scope_context().scope,
+                ctx.builder.scope(),
+                ctx.builder.commands(),
+            )?;
+
+            ctx.set_input_for_target(stream_op, stream_input, trace.clone())?;
+            ctx.add_output_into_target(stream_out_target, stream_output);
+        }
+
+        // Set the scope response message type
+        let next_message_type = ctx.inferred_message_type(&self.next)?;
+        let response = ctx.registry.messages.set_scope_response(
+            &next_message_type,
+            &mut scope,
+            ctx.builder.commands(),
+        )?;
+
+        if let Some(external_output) = response.external_output {
+            ctx.add_output_into_target(&self.next, external_output);
+        }
+
+        ctx.set_input_for_target(OperationRef::terminate_for(id), response.terminate, trace)?;
 
         for (child_id, op) in self.ops.iter() {
             ctx.add_child_operation(
@@ -156,187 +182,32 @@ impl BuildDiagramOperation for ScopeSchema {
                 child_id,
                 op,
                 self.ops.clone(),
+                Some(self.on_implicit_error()),
                 Some(scope.builder_scope_context()),
             );
         }
 
-        ctx.set_connect_into_target(
-            id,
-            ConnectScopeRequest {
-                scope: scope.clone(),
-                start: ctx.into_child_operation_ref(id, &self.start),
-                connection: None,
-            },
-        )?;
-
-        ctx.set_connect_into_target(
-            OperationRef::Terminate(NamespaceList::for_child_of(Arc::clone(id))),
-            ConnectScopeResponse {
-                scope,
-                next: ctx.into_operation_ref(&self.next),
-                connection: None,
-            },
-        )?;
-
         Ok(BuildStatus::Finished)
     }
-}
 
-struct ConnectScopeRequest {
-    scope: IncrementalScopeBuilder,
-    start: OperationRef,
-    connection: Option<Box<dyn ConnectIntoTarget + 'static>>,
-}
-
-impl ConnectIntoTarget for ConnectScopeRequest {
-    fn connect_into_target(
-        &mut self,
-        output: DynOutput,
-        ctx: &mut DiagramContext,
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
-        if let Some(connection) = &mut self.connection {
-            return connection.connect_into_target(output, ctx);
-        } else {
-            let IncrementalScopeRequest {
-                external_input,
-                begin_scope,
-            } = ctx.registry.messages.set_scope_request(
-                output.message_info(),
-                &mut self.scope,
-                ctx.builder.commands(),
-            )?;
-
-            if let Some(begin_scope) = begin_scope {
-                ctx.add_output_into_target(self.start.clone(), begin_scope);
-            }
-
-            let mut connection = standard_input_connection(external_input, &ctx.registry)?;
-            connection.connect_into_target(output, ctx)?;
-            self.connection = Some(connection);
-        }
-
+        ctx.scope(id, self);
         Ok(())
     }
-
-    fn infer_input_type(
-        &self,
-        ctx: &DiagramContext,
-        visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
-        if let Some(connection) = &self.connection {
-            connection.infer_input_type(ctx, visited)
-        } else {
-            ctx.redirect_infer_input_type(&self.start, visited)
-        }
-    }
-
-    fn is_finished(&self) -> Result<(), DiagramErrorCode> {
-        self.scope.is_finished().map_err(Into::into)
-    }
 }
 
-struct ConnectScopeResponse {
-    scope: IncrementalScopeBuilder,
-    next: OperationRef,
-    connection: Option<Box<dyn ConnectIntoTarget + 'static>>,
-}
-
-impl ConnectIntoTarget for ConnectScopeResponse {
-    fn connect_into_target(
-        &mut self,
-        output: DynOutput,
-        ctx: &mut DiagramContext,
-    ) -> Result<(), DiagramErrorCode> {
-        if let Some(connection) = &mut self.connection {
-            return connection.connect_into_target(output, ctx);
-        } else {
-            let IncrementalScopeResponse {
-                terminate,
-                external_output,
-            } = ctx.registry.messages.set_scope_response(
-                output.message_info(),
-                &mut self.scope,
-                ctx.builder.commands(),
-            )?;
-
-            if let Some(external_output) = external_output {
-                ctx.add_output_into_target(self.next.clone(), external_output);
-            }
-
-            let mut connection = standard_input_connection(terminate, ctx.registry)?;
-            connection.connect_into_target(output, ctx)?;
-            self.connection = Some(connection);
-        }
-
-        Ok(())
+impl ScopeSchema {
+    pub fn on_implicit_error(&self) -> NextOperation {
+        self.on_implicit_error
+            .clone()
+            .unwrap_or(NextOperation::Builtin {
+                builtin: BuiltinTarget::Cancel,
+            })
     }
-
-    fn infer_input_type(
-        &self,
-        ctx: &DiagramContext,
-        visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
-        if let Some(connection) = &self.connection {
-            connection.infer_input_type(ctx, visited)
-        } else {
-            ctx.redirect_infer_input_type(&self.next, visited)
-        }
-    }
-
-    // We do not implement is_finished because just having it for
-    // ConnectScopeRequest is sufficient, since it will report that the scope
-    // isn't finished whether the request or the response didn't get a connection.
-}
-
-struct ConnectScopeStream {
-    scope_id: Entity,
-    parent_scope_id: Entity,
-    stream_out_target: OperationRef,
-    connection: Option<Box<dyn ConnectIntoTarget + 'static>>,
-}
-
-impl ConnectIntoTarget for ConnectScopeStream {
-    fn connect_into_target(
-        &mut self,
-        output: DynOutput,
-        ctx: &mut DiagramContext,
-    ) -> Result<(), DiagramErrorCode> {
-        if let Some(connection) = &mut self.connection {
-            return connection.connect_into_target(output, ctx);
-        } else {
-            let (stream_input, stream_output) = ctx.registry.messages.spawn_basic_scope_stream(
-                output.message_info(),
-                self.scope_id,
-                self.parent_scope_id,
-                ctx.builder.commands(),
-            )?;
-
-            ctx.add_output_into_target(self.stream_out_target.clone(), stream_output);
-            let mut connection = standard_input_connection(stream_input, ctx.registry)?;
-            connection.connect_into_target(output, ctx)?;
-            self.connection = Some(connection);
-        }
-
-        Ok(())
-    }
-
-    fn infer_input_type(
-        &self,
-        ctx: &DiagramContext,
-        visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
-        if let Some(connection) = &self.connection {
-            connection.infer_input_type(ctx, visited)
-        } else {
-            ctx.redirect_infer_input_type(&self.stream_out_target, visited)
-        }
-    }
-
-    // We do not implement is_finished because there is no negative impact on
-    // the soundness of the workflow if the user hasn't connected any output to
-    // a stream, as long as the rest of the workflow can build. The worst case
-    // scenario is an operation downstream of the stream output won't be able to
-    // infer its message type, but that will show up as a diagram error elsewhere.
 }
 
 #[cfg(test)]

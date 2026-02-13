@@ -59,6 +59,7 @@ impl<S: StreamEffect> StreamPack for AnonymousStream<S> {
     type StreamReceivers = Receiver<S::Output>;
     type StreamChannels = StreamChannel<S>;
     type StreamBuffers = StreamBuffer<S::Input>;
+    type StreamTypes = (S,);
 
     fn spawn_scope_streams(
         in_scope: Entity,

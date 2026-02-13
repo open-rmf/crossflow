@@ -20,12 +20,15 @@ use std::{collections::HashMap, sync::Arc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{AnyBuffer, AnyMessageBox, Buffer, InputSlot, JsonBuffer, JsonMessage, Output};
+use crate::{
+    AnyBuffer, AnyMessageBox, Buffer, InferenceContext, InputSlot, JsonBuffer, JsonMessage, Output,
+};
 
 use super::{
-    BuildDiagramOperation, BuildStatus, BuilderId, DiagramContext, DiagramElementRegistry,
-    DiagramErrorCode, DynInputSlot, DynOutput, NamespacedOperation, NextOperation, OperationName,
-    OperationRef, Operations, RedirectConnection, TraceInfo, TraceSettings, TypeInfo,
+    BuildDiagramOperation, BuildStatus, BuilderContext, BuilderId, DiagramElementRegistry,
+    DiagramErrorCode, DynInputSlot, DynOutput, MessageRegistrations, NamespacedOperation,
+    NextOperation, OperationName, OperationRef, Operations, RedirectConnection, TraceInfo,
+    TraceSettings,
 };
 
 pub use crossflow_derive::Section;
@@ -108,7 +111,7 @@ impl BuildDiagramOperation for SectionSchema {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         match &self.provider {
             SectionProvider::Builder(section_builder) => {
@@ -160,7 +163,7 @@ impl BuildDiagramOperation for SectionSchema {
                 let section = ctx.templates.get_template(section_template)?;
 
                 for (child_id, op) in section.ops.iter() {
-                    ctx.add_child_operation(id, child_id, op, section.ops.clone(), None);
+                    ctx.add_child_operation(id, child_id, op, section.ops.clone(), None, None);
                 }
 
                 section
@@ -192,22 +195,31 @@ impl BuildDiagramOperation for SectionSchema {
         }
 
         ctx.set_connect_into_target(
-            OperationRef::terminate_for(id.clone()),
+            OperationRef::terminate_for(id),
             RedirectConnection::new(ctx.into_operation_ref(&NextOperation::terminate())),
         )?;
 
         Ok(BuildStatus::Finished)
     }
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        ctx.section(id, self)?;
+        Ok(())
+    }
 }
 
-#[derive(Serialize, Clone, JsonSchema)]
-pub struct SectionMetadata {
+#[derive(Serialize, Deserialize, Clone, JsonSchema)]
+pub struct SectionInterface {
     pub(super) inputs: HashMap<OperationName, SectionInput>,
     pub(super) outputs: HashMap<OperationName, SectionOutput>,
     pub(super) buffers: HashMap<OperationName, SectionBuffer>,
 }
 
-impl SectionMetadata {
+impl SectionInterface {
     pub fn new() -> Self {
         Self {
             inputs: HashMap::new(),
@@ -217,8 +229,8 @@ impl SectionMetadata {
     }
 }
 
-pub trait SectionMetadataProvider {
-    fn metadata() -> &'static SectionMetadata;
+pub trait SectionInterfaceDescription {
+    fn interface_metadata(messages: &mut MessageRegistrations) -> &'static SectionInterface;
 }
 
 pub struct SectionSlots {
@@ -245,27 +257,33 @@ pub trait Section {
         Self: Sized;
 }
 
-pub trait SectionItem {
+pub trait SectionInterfaceItem {
     type MessageType;
 
-    fn build_metadata(metadata: &mut SectionMetadata, key: &str);
+    fn add_metadata(
+        messages: &mut MessageRegistrations,
+        interface: &mut SectionInterface,
+        key: &str,
+    );
 
     fn insert_into_slots(self, key: &str, slots: &mut SectionSlots);
 }
 
-impl<T> SectionItem for InputSlot<T>
+impl<T> SectionInterfaceItem for InputSlot<T>
 where
     T: Send + Sync + 'static,
 {
     type MessageType = T;
 
-    fn build_metadata(metadata: &mut SectionMetadata, key: &str) {
-        metadata.inputs.insert(
-            key.into(),
-            SectionInput {
-                message_type: TypeInfo::of::<T>(),
-            },
-        );
+    fn add_metadata(
+        messages: &mut MessageRegistrations,
+        interface: &mut SectionInterface,
+        key: &str,
+    ) {
+        let message_type = messages.get_index_or_insert::<T>();
+        interface
+            .inputs
+            .insert(key.into(), SectionInput { message_type });
     }
 
     fn insert_into_slots(self, key: &str, slots: &mut SectionSlots) {
@@ -273,19 +291,21 @@ where
     }
 }
 
-impl<T> SectionItem for Output<T>
+impl<T> SectionInterfaceItem for Output<T>
 where
     T: Send + Sync + 'static,
 {
     type MessageType = T;
 
-    fn build_metadata(metadata: &mut SectionMetadata, key: &str) {
-        metadata.outputs.insert(
-            key.into(),
-            SectionOutput {
-                message_type: TypeInfo::of::<T>(),
-            },
-        );
+    fn add_metadata(
+        messages: &mut MessageRegistrations,
+        interface: &mut SectionInterface,
+        key: &str,
+    ) {
+        let message_type = messages.get_index_or_insert::<T>();
+        interface
+            .outputs
+            .insert(key.into(), SectionOutput { message_type });
     }
 
     fn insert_into_slots(self, key: &str, slots: &mut SectionSlots) {
@@ -293,19 +313,21 @@ where
     }
 }
 
-impl<T> SectionItem for Buffer<T>
+impl<T> SectionInterfaceItem for Buffer<T>
 where
     T: Send + Sync + 'static,
 {
     type MessageType = T;
 
-    fn build_metadata(metadata: &mut SectionMetadata, key: &str) {
-        metadata.buffers.insert(
-            key.into(),
-            SectionBuffer {
-                item_type: Some(TypeInfo::of::<T>()),
-            },
-        );
+    fn add_metadata(
+        messages: &mut MessageRegistrations,
+        interface: &mut SectionInterface,
+        key: &str,
+    ) {
+        let message_type = Some(messages.get_index_or_insert::<T>());
+        interface
+            .buffers
+            .insert(key.into(), SectionBuffer { message_type });
     }
 
     fn insert_into_slots(self, key: &str, slots: &mut SectionSlots) {
@@ -313,13 +335,13 @@ where
     }
 }
 
-impl SectionItem for AnyBuffer {
+impl SectionInterfaceItem for AnyBuffer {
     type MessageType = AnyMessageBox;
 
-    fn build_metadata(metadata: &mut SectionMetadata, key: &str) {
-        metadata
+    fn add_metadata(_: &mut MessageRegistrations, interface: &mut SectionInterface, key: &str) {
+        interface
             .buffers
-            .insert(key.into(), SectionBuffer { item_type: None });
+            .insert(key.into(), SectionBuffer { message_type: None });
     }
 
     fn insert_into_slots(self, key: &str, slots: &mut SectionSlots) {
@@ -327,13 +349,13 @@ impl SectionItem for AnyBuffer {
     }
 }
 
-impl SectionItem for JsonBuffer {
+impl SectionInterfaceItem for JsonBuffer {
     type MessageType = JsonMessage;
 
-    fn build_metadata(metadata: &mut SectionMetadata, key: &str) {
-        metadata
+    fn add_metadata(_: &mut MessageRegistrations, interface: &mut SectionInterface, key: &str) {
+        interface
             .buffers
-            .insert(key.into(), SectionBuffer { item_type: None });
+            .insert(key.into(), SectionBuffer { message_type: None });
     }
 
     fn insert_into_slots(self, key: &str, slots: &mut SectionSlots) {
@@ -341,19 +363,19 @@ impl SectionItem for JsonBuffer {
     }
 }
 
-#[derive(Serialize, Clone, JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SectionInput {
-    pub(super) message_type: TypeInfo,
+    pub(super) message_type: usize,
 }
 
-#[derive(Serialize, Clone, JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SectionOutput {
-    pub(super) message_type: TypeInfo,
+    pub(super) message_type: usize,
 }
 
-#[derive(Serialize, Clone, JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SectionBuffer {
-    pub(super) item_type: Option<TypeInfo>,
+    pub(super) message_type: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -435,7 +457,7 @@ impl InputRemapping {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(Clone, thiserror::Error, Debug)]
 pub enum SectionError {
     #[error("operation has extra output [{0}] that is not in the section")]
     UnknownOutput(OperationName),
@@ -447,7 +469,7 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        SectionBuilderOptions, TypeInfo,
+        SectionBuilderOptions,
         diagram::{DiagramErrorCode, SectionError, testing::*},
         prelude::*,
         testing::*,
@@ -477,16 +499,28 @@ mod tests {
         );
 
         let reg = registry.get_section_registration("test_section").unwrap();
-        assert_eq!(reg.default_display_text.as_ref(), "TestSection");
-        let metadata = &reg.metadata;
-        assert_eq!(metadata.inputs.len(), 1);
-        assert_eq!(metadata.inputs["foo"].message_type, TypeInfo::of::<i64>());
-        assert_eq!(metadata.outputs.len(), 1);
-        assert_eq!(metadata.outputs["bar"].message_type, TypeInfo::of::<f64>());
-        assert_eq!(metadata.buffers.len(), 1);
+        assert_eq!(reg.metadata.default_display_text.as_ref(), "TestSection");
+        let interface = &reg.metadata.interface;
+        assert_eq!(interface.inputs.len(), 1);
         assert_eq!(
-            metadata.buffers["baz"].item_type,
-            Some(TypeInfo::of::<String>())
+            interface.inputs["foo"].message_type,
+            registry.messages.registration.get_index::<i64>().unwrap(),
+        );
+        assert_eq!(interface.outputs.len(), 1);
+        assert_eq!(
+            interface.outputs["bar"].message_type,
+            registry.messages.registration.get_index::<f64>().unwrap(),
+        );
+        assert_eq!(interface.buffers.len(), 1);
+        assert_eq!(
+            interface.buffers["baz"].message_type,
+            Some(
+                registry
+                    .messages
+                    .registration
+                    .get_index::<String>()
+                    .unwrap()
+            ),
         );
     }
 
@@ -511,7 +545,7 @@ mod tests {
             },
         );
         let reg = registry.get_message_registration::<(i64, i64)>().unwrap();
-        assert!(reg.operations.unzip_impl.is_some());
+        assert!(reg.operations.as_ref().unwrap().unzip.is_some());
     }
 
     #[derive(Section)]
@@ -537,7 +571,7 @@ mod tests {
         let reg = registry
             .get_message_registration::<Result<i64, String>>()
             .unwrap();
-        assert!(reg.operations.fork_result_impl.is_some());
+        assert!(reg.operations.as_ref().unwrap().fork_result.is_some());
     }
 
     #[derive(Section)]
@@ -561,7 +595,7 @@ mod tests {
             },
         );
         let reg = registry.get_message_registration::<Vec<i64>>().unwrap();
-        assert!(reg.operations.split_impl.is_some());
+        assert!(reg.operations.as_ref().unwrap().split.is_some());
     }
 
     #[derive(Section)]
@@ -585,7 +619,7 @@ mod tests {
             },
         );
         let reg = registry.get_message_registration::<Vec<i64>>().unwrap();
-        assert!(reg.operations.join_impl.is_some());
+        assert!(reg.operations.as_ref().unwrap().join.is_some());
     }
 
     #[derive(Section)]
@@ -611,7 +645,7 @@ mod tests {
         let reg = registry
             .get_message_registration::<(i64, Vec<BufferKey<i64>>)>()
             .unwrap();
-        assert!(reg.operations.buffer_access_impl.is_some());
+        assert!(reg.operations.as_ref().unwrap().buffer_access.is_some());
     }
 
     #[derive(Section)]
@@ -637,7 +671,7 @@ mod tests {
         let reg = registry
             .get_message_registration::<Vec<BufferKey<i64>>>()
             .unwrap();
-        assert!(reg.operations.listen_impl.is_some());
+        assert!(reg.operations.as_ref().unwrap().listen.is_some());
     }
 
     #[derive(Section)]
@@ -1201,7 +1235,6 @@ mod tests {
         .unwrap();
 
         let result = fixture.spawn_json_io_workflow(&diagram).unwrap_err();
-
         assert!(matches!(result.code, DiagramErrorCode::CircularRedirect(_)));
     }
 

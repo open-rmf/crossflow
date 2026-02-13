@@ -22,14 +22,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    Builder, ForRemaining, FromSequential, FromSpecific, ListSplitKey, MapSplitKey,
-    OperationResult, SplitDispatcher, Splittable, is_default,
+    Builder, ForRemaining, FromSequential, FromSpecific, InferenceContext, ListSplitKey,
+    MapSplitKey, OperationResult, SplitDispatcher, Splittable, is_default,
 };
 
 use super::{
-    BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode, DynInputSlot, DynOutput,
-    MessageRegistration, MessageRegistry, NextOperation, OperationName, RegisterClone,
-    SerializeMessage, TraceInfo, TraceSettings, TypeInfo, supported::*,
+    BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
+    MessageRegistry, NextOperation, OperationName, RegisterClone, SerializeMessage, TraceInfo,
+    TraceSettings, supported::*,
 };
 
 /// If the input message is a list-like or map-like object, split it into
@@ -103,7 +103,7 @@ pub struct SplitSchema {
     #[serde(default, skip_serializing_if = "is_default")]
     pub sequential: Vec<NextOperation>,
     #[serde(default, skip_serializing_if = "is_default")]
-    pub keyed: HashMap<String, NextOperation>,
+    pub keyed: HashMap<OperationName, NextOperation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remaining: Option<NextOperation>,
     // TODO(@mxgrey): Consider what kind of settings we could provide to let
@@ -119,24 +119,29 @@ impl BuildDiagramOperation for SplitSchema {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
-        let Some(sample_input) = ctx.infer_input_type_into_target(id)? else {
-            // There are no outputs ready for this target, so we can't do
-            // anything yet. The builder should try again later.
-            return Ok(BuildStatus::defer("waiting for an input"));
-        };
+        let input_message_type = ctx.inferred_message_type(id)?;
 
         let split = ctx
             .registry
             .messages
-            .split(&sample_input, self, ctx.builder)?;
+            .split(&input_message_type, self, ctx.builder)?;
         let trace = TraceInfo::new(self, self.trace_settings.trace)?;
         ctx.set_input_for_target(id, split.input, trace)?;
         for (target, output) in split.outputs {
             ctx.add_output_into_target(&target, output);
         }
         Ok(BuildStatus::Finished)
+    }
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        ctx.split(id, &self.sequential, &self.keyed, &self.remaining);
+        Ok(())
     }
 }
 
@@ -256,6 +261,14 @@ impl FromSpecific for ListSplitKey {
     }
 }
 
+pub type SplitFn = fn(&SplitSchema, &mut Builder) -> Result<DynSplit, DiagramErrorCode>;
+
+#[derive(Debug, Clone, Copy)]
+pub struct SplitRegistration {
+    pub create: SplitFn,
+    pub output_type: usize,
+}
+
 #[derive(Debug)]
 pub struct DynSplit {
     pub(super) input: DynInputSlot,
@@ -263,12 +276,12 @@ pub struct DynSplit {
 }
 
 pub trait RegisterSplit {
-    fn perform_split(
+    fn create_split(
         split_op: &SplitSchema,
         builder: &mut Builder,
     ) -> Result<DynSplit, DiagramErrorCode>;
 
-    fn on_register(registry: &mut MessageRegistry);
+    fn register_split(messages: &mut MessageRegistry);
 }
 
 impl<T, Serializer, Cloneable> RegisterSplit for Supported<(T, Serializer, Cloneable)>
@@ -278,7 +291,7 @@ where
     Serializer: SerializeMessage<T::Item> + SerializeMessage<Vec<T::Item>>,
     Cloneable: RegisterClone<T::Item> + RegisterClone<Vec<T::Item>>,
 {
-    fn perform_split(
+    fn create_split(
         split_op: &SplitSchema,
         builder: &mut Builder,
     ) -> Result<DynSplit, DiagramErrorCode> {
@@ -286,7 +299,7 @@ where
         let mut outputs = Vec::new();
         let mut split = split.build(builder);
         for (key, target) in &split_op.keyed {
-            let output = split.specific_chain(key.clone(), |chain| {
+            let output = split.specific_chain(key.to_string(), |chain| {
                 chain.map_block(|(_, value)| value).output()
             })?;
 
@@ -312,19 +325,30 @@ where
         })
     }
 
-    fn on_register(registry: &mut MessageRegistry) {
-        let ops = &mut registry
-            .messages
-            .entry(TypeInfo::of::<T>())
-            .or_insert(MessageRegistration::new::<T>())
-            .operations;
+    fn register_split(messages: &mut MessageRegistry) {
+        let splittable_type = messages.registration.get_index_or_insert::<T>();
+        let output_type = messages.registration.get_index_or_insert::<T::Item>();
 
-        ops.split_impl = Some(Self::perform_split);
+        let ops = &mut messages.registration.get_or_insert_operations::<T>();
 
-        registry.register_serialize::<T::Item, Serializer>();
-        registry.register_clone::<T::Item, Cloneable>();
-        registry.register_serialize::<Vec<T::Item>, Serializer>();
-        registry.register_clone::<Vec<T::Item>, Cloneable>();
+        let create = Self::create_split;
+        ops.split = Some(SplitRegistration {
+            create,
+            output_type,
+        });
+
+        messages.register_serialize::<T::Item, Serializer>();
+        messages.register_clone::<T::Item, Cloneable>();
+        messages.register_serialize::<Vec<T::Item>, Serializer>();
+        messages.register_clone::<Vec<T::Item>, Cloneable>();
+
+        messages
+            .registration
+            .reverse_lookup
+            .split
+            .entry(output_type)
+            .or_default()
+            .push(splittable_type);
     }
 }
 

@@ -55,7 +55,7 @@ pub(crate) fn impl_section(input_struct: &ItemStruct) -> Result<TokenStream> {
     let register_message: Vec<TokenStream> = zip(&field_type, &field_configs)
         .map(|(field_type, (_config, span))| {
             quote_spanned! {*span=>
-                let mut _message = _opt_out.register_message::<<#field_type as ::crossflow::SectionItem>::MessageType>();
+                let mut _message = _opt_out.register_message::<<#field_type as ::crossflow::SectionInterfaceItem>::MessageType>();
             }
         })
         .collect();
@@ -94,18 +94,19 @@ pub(crate) fn impl_section(input_struct: &ItemStruct) -> Result<TokenStream> {
             }
         }
 
-        impl #impl_generics ::crossflow::SectionMetadataProvider for #struct_ident #ty_generics #where_clause {
-            fn metadata() -> &'static ::crossflow::SectionMetadata {
-                static METADATA: ::std::sync::OnceLock<::crossflow::SectionMetadata> = ::std::sync::OnceLock::new();
+        impl #impl_generics ::crossflow::SectionInterfaceDescription for #struct_ident #ty_generics #where_clause {
+            fn interface_metadata(messages: &mut ::crossflow::MessageRegistrations) -> &'static ::crossflow::SectionInterface {
+                static METADATA: ::std::sync::OnceLock<::crossflow::SectionInterface> = ::std::sync::OnceLock::new();
                 METADATA.get_or_init(|| {
-                    let mut metadata = ::crossflow::SectionMetadata::new();
+                    let mut interface = ::crossflow::SectionInterface::new();
                     #(
-                        <#field_type as ::crossflow::SectionItem>::build_metadata(
-                            &mut metadata,
+                        <#field_type as ::crossflow::SectionInterfaceItem>::add_metadata(
+                            messages,
+                            &mut interface,
                             &#field_name_str,
                         );
                     )*
-                    metadata
+                    interface
                 })
             }
         }

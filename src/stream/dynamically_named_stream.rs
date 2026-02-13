@@ -52,6 +52,7 @@ impl<S: StreamEffect> StreamPack for DynamicallyNamedStream<S> {
     type StreamReceivers = Receiver<<Self as StreamEffect>::Output>;
     type StreamChannels = DynamicallyNamedStreamChannel<S>;
     type StreamBuffers = DynamicallyNamedStreamBuffer<S::Input>;
+    type StreamTypes = (S,);
 
     fn spawn_scope_streams(
         in_scope: Entity,

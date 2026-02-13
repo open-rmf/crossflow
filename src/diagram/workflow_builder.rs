@@ -16,24 +16,25 @@
 */
 
 use std::{
-    borrow::Cow,
     collections::{HashMap, HashSet, hash_map::Entry},
+    ops::Deref,
     sync::Arc,
 };
 
 use crate::{
-    AnyBuffer, BufferIdentifier, BufferMap, Builder, BuilderScopeContext, JsonMessage,
-    MessageTypeHint, MessageTypeHintMap, Scope, StreamPack, dyn_node::DynStreamInputPack,
+    AnyBuffer, BufferIdentifier, BufferMap, Builder, BuilderScopeContext, JsonMessage, PortRef,
+    Scope, StreamPack, dyn_node::DynStreamInputPack,
 };
 
 #[cfg(feature = "trace")]
 use crate::{OperationInfo, Trace};
 
 use super::{
-    BufferSelection, Diagram, DiagramElementRegistry, DiagramError, DiagramErrorCode, DynInputSlot,
-    DynOutput, FinishingErrors, ImplicitDeserialization, ImplicitSerialization, ImplicitStringify,
-    MessageRegistry, NamedOperationRef, NamespaceList, NextOperation, OperationName, OperationRef,
-    Operations, StreamOutRef, Templates, TraceToggle, TypeInfo,
+    BufferSelection, Diagram, DiagramContext, DiagramElementRegistry, DiagramError,
+    DiagramErrorCode, DynInputSlot, DynOutput, FinishingErrors, ImplicitDeserialization,
+    ImplicitSerialization, ImplicitStringify, InferenceBoundaryConditions, InferenceContext,
+    NamedOperationRef, NamespaceList, NextOperation, OperationName, OperationRef, Operations,
+    TraceToggle, TypeInfo, TypeMismatch,
 };
 
 use bevy_ecs::prelude::Entity;
@@ -48,8 +49,6 @@ struct DiagramConstruction {
     outputs_into_target: HashMap<OperationRef, Vec<DynOutput>>,
     /// A map of what buffers exist in the diagram
     buffers: HashMap<OperationRef, BufferRef>,
-    /// A map of type hints for each buffer, provided by listeners and accessors
-    buffer_hints: HashMap<OperationRef, HashSet<MessageTypeHint>>,
     /// Operations that were spawned by another operation.
     generated_operations: Vec<UnfinishedOperation>,
 }
@@ -85,108 +84,30 @@ impl DiagramConstruction {
     }
 }
 
-pub struct DiagramContext<'a, 'c, 'w, 's, 'b> {
+pub struct BuilderContext<'a, 'c, 'w, 's, 'b> {
+    pub registry: &'a DiagramElementRegistry,
+    message_type_inference: &'a HashMap<PortRef, usize>,
     construction: &'c mut DiagramConstruction,
     pub builder: &'c mut Builder<'w, 's, 'b>,
-    pub registry: &'a DiagramElementRegistry,
-    pub operations: Operations,
-    pub templates: &'a Templates,
-    pub on_implicit_error: &'a OperationRef,
-    #[allow(unused)]
-    default_trace: TraceToggle,
-    namespaces: NamespaceList,
+    diagram_context: DiagramContext<'a>,
 }
 
-impl<'a, 'c, 'w, 's, 'b> DiagramContext<'a, 'c, 'w, 's, 'b> {
-    /// Infer the [`TypeInfo`] for the input messages into the specified operation.
-    ///
-    /// If this returns [`None`] then not enough of the diagram has been built
-    /// yet to infer the input type. In that case you can return something like
-    /// `Ok(BuildStatus::defer("waiting for an input"))`.
-    ///
-    /// The workflow builder will ensure that all outputs targeting this
-    /// operation are compatible with this message type.
-    ///
-    /// During the [`ConnectIntoTarget`] phase all information about outputs
-    /// going into this target will be drained, so this function is generally
-    /// not useful during that phase. If you need to retain this information
-    /// during the [`ConnectIntoTarget`] phase then you should capture the
-    /// [`TypeInfo`] that you receive from this function during the
-    /// [`BuildDiagramOperation`] phase.
-    pub fn infer_input_type_into_target(
+impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
+    /// Get the message type that has been inferred for a certain input/output
+    /// port. This will only include ports that your operation added constraints
+    /// for.
+    pub fn inferred_message_type(
         &self,
-        id: impl Into<OperationRef>,
-    ) -> Result<Option<TypeInfo>, DiagramErrorCode> {
-        let id = self.into_operation_ref(id);
-        if let Some(target) = self.construction.connect_into_target.get(&id) {
-            let mut visited = HashSet::new();
-            visited.insert(id.clone());
-            let preferred = target
-                .connector
-                .infer_input_type(self, &mut visited)?
-                .map(|infer| infer.preferred_input_type())
-                .flatten();
-            if let Some(preferred) = preferred {
-                return Ok(Some(preferred));
-            }
-        }
+        port: impl Into<PortRef>,
+    ) -> Result<TypeInfo, DiagramErrorCode> {
+        let port = self.into_port_ref(port);
+        let type_index = self
+            .message_type_inference
+            .get(&port)
+            .copied()
+            .ok_or_else(|| DiagramErrorCode::MessageTypeNotInferred(port))?;
 
-        let infer = self
-            .construction
-            .outputs_into_target
-            .get(&id)
-            .and_then(|outputs| outputs.first())
-            .map(|o| *o.message_info());
-        Ok(infer)
-    }
-
-    pub fn infer_buffer_message_type_from_hints(
-        &self,
-        id: impl Into<OperationRef>,
-    ) -> Result<Option<TypeInfo>, DiagramErrorCode> {
-        // TODO(@mxgrey): Eventually support fallback types. For now we will
-        // only support exact types, because we currently cannot know when all
-        // possible information is available, so using a fallback type could
-        // lead to race conditions and inconsistent workflow construction.
-        let id = self.into_operation_ref(id);
-        let Some(hints) = self.construction.buffer_hints.get(&id) else {
-            return Ok(None);
-        };
-
-        let Some(first_exact) = hints.iter().filter_map(|hint| hint.as_exact()).next() else {
-            return Ok(None);
-        };
-
-        for other in hints.iter().filter_map(|hint| hint.as_exact()) {
-            if other != first_exact {
-                return Err(DiagramErrorCode::InconsistentBufferHints(
-                    hints.iter().cloned().collect(),
-                ));
-            }
-        }
-
-        Ok(Some(first_exact))
-    }
-
-    /// Redirect the inference of an input type to another input. This can be
-    /// used by implementations of [`ConnectIntoTarget`] whose input types are
-    /// dependent on a downstream operation.
-    pub fn redirect_infer_input_type(
-        &self,
-        redirect_to: &OperationRef,
-        visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
-        if visited.insert(redirect_to.clone()) {
-            if let Some(target) = self.construction.connect_into_target.get(&redirect_to) {
-                return target.connector.infer_input_type(self, visited);
-            } else {
-                return Ok(None);
-            }
-        } else {
-            return Err(DiagramErrorCode::CircularRedirect(
-                visited.drain().collect(),
-            ));
-        }
+        self.registry.messages.get_type_info_for(type_index)
     }
 
     /// Add an output to connect into a target.
@@ -248,10 +169,7 @@ impl<'a, 'c, 'w, 's, 'b> DiagramContext<'a, 'c, 'w, 's, 'b> {
             let enable_trace_serialization = self
                 .registry
                 .messages
-                .messages
-                .get(input.message_info())
-                .ok_or_else(|| DiagramErrorCode::UnregisteredType(*input.message_info()))?
-                .operations
+                .get_operations(input.message_info())?
                 .enable_trace_serialization;
 
             if let Some(enable) = enable_trace_serialization {
@@ -337,20 +255,25 @@ impl<'a, 'c, 'w, 's, 'b> DiagramContext<'a, 'c, 'w, 's, 'b> {
     /// Create a buffer map based on the buffer inputs provided. If one or more
     /// of the buffers in BufferInputs is not available, get an error including
     /// the name of the missing buffer.
-    pub fn create_buffer_map(&self, inputs: &BufferSelection) -> Result<BufferMap, String> {
-        let attempt_get_buffer = |buffer: &NextOperation| -> Result<AnyBuffer, String> {
+    pub fn create_buffer_map(
+        &self,
+        inputs: &BufferSelection,
+    ) -> Result<BufferMap, DiagramErrorCode> {
+        let attempt_get_buffer = |buffer: &NextOperation| -> Result<AnyBuffer, DiagramErrorCode> {
             let mut buffer_ref: OperationRef = self.into_operation_ref(buffer);
             let mut visited = HashSet::new();
             loop {
                 if !visited.insert(buffer_ref.clone()) {
-                    return Err(format!("circular reference for buffer [{buffer}]"));
+                    return Err(DiagramErrorCode::CircularRedirect(
+                        visited.into_iter().collect(),
+                    ));
                 }
 
                 let next = self
                     .construction
                     .buffers
                     .get(&buffer_ref)
-                    .ok_or_else(|| format!("cannot find buffer named [{buffer}]"))?;
+                    .ok_or_else(|| DiagramErrorCode::UnknownOperation(buffer_ref))?;
 
                 buffer_ref = match next {
                     BufferRef::Value(value) => return Ok(*value),
@@ -380,90 +303,6 @@ impl<'a, 'c, 'w, 's, 'b> DiagramContext<'a, 'c, 'w, 's, 'b> {
         }
     }
 
-    pub fn set_listen_type_hints(
-        &mut self,
-        message_type: &TypeInfo,
-        buffers: &BufferSelection,
-    ) -> Result<(), DiagramErrorCode> {
-        self.set_type_hints(message_type, buffers, MessageRegistry::listen_hint)
-    }
-
-    pub fn set_access_type_hints(
-        &mut self,
-        message_type: &TypeInfo,
-        buffers: &BufferSelection,
-    ) -> Result<(), DiagramErrorCode> {
-        self.set_type_hints(message_type, buffers, MessageRegistry::accessor_hint)
-    }
-
-    fn set_type_hints(
-        &mut self,
-        message_type: &TypeInfo,
-        buffers: &BufferSelection,
-        get_hints: fn(
-            &MessageRegistry,
-            &TypeInfo,
-            HashSet<BufferIdentifier<'static>>,
-        ) -> Result<MessageTypeHintMap, DiagramErrorCode>,
-    ) -> Result<(), DiagramErrorCode> {
-        match buffers {
-            BufferSelection::Dict(mapping) => {
-                let identifiers = mapping.keys().map(|k| k.clone().into()).collect();
-                let hints = (get_hints)(&self.registry.messages, message_type, identifiers)?;
-                for (k, op_id) in mapping {
-                    let op_id = self.into_operation_ref(op_id);
-                    let k: BufferIdentifier = k.clone().into();
-                    let hint = hints
-                        .get(&k)
-                        .ok_or_else(|| DiagramErrorCode::BrokenBufferMessageTypeHint(k))?;
-                    self.construction
-                        .buffer_hints
-                        .entry(op_id)
-                        .or_default()
-                        .insert(*hint);
-                }
-            }
-            BufferSelection::Array(arr) => {
-                let identifiers = (0..arr.len()).into_iter().map(|k| k.into()).collect();
-                let hints = (get_hints)(&self.registry.messages, message_type, identifiers)?;
-                for (i, op_id) in arr.iter().enumerate() {
-                    let op_id = self.into_operation_ref(op_id);
-                    let k: BufferIdentifier = i.into();
-                    let hint = hints
-                        .get(&k)
-                        .ok_or_else(|| DiagramErrorCode::BrokenBufferMessageTypeHint(k))?;
-                    self.construction
-                        .buffer_hints
-                        .entry(op_id)
-                        .or_default()
-                        .insert(*hint);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn get_implicit_error_target(&self) -> OperationRef {
-        self.on_implicit_error.clone()
-    }
-
-    pub fn into_operation_ref(&self, id: impl Into<OperationRef>) -> OperationRef {
-        let id: OperationRef = id.into();
-        id.in_namespaces(&self.namespaces)
-    }
-
-    pub fn into_child_operation_ref(
-        &self,
-        id: &OperationName,
-        child_id: impl Into<OperationRef>,
-    ) -> OperationRef {
-        let child_id: OperationRef = child_id.into();
-        child_id
-            .in_namespaces(&[id.clone()])
-            .in_namespaces(&self.namespaces)
-    }
-
     /// Add an operation which exists as a child inside another operation.
     ///
     /// For example this is used by section templates to add their inner
@@ -481,19 +320,28 @@ impl<'a, 'c, 'w, 's, 'b> DiagramContext<'a, 'c, 'w, 's, 'b> {
         child_id: &OperationName,
         op: &Arc<T>,
         sibling_ops: Operations,
+        on_implicit_error: Option<NextOperation>,
         scope: Option<BuilderScopeContext>,
     ) {
         let mut namespaces = self.namespaces.clone();
         namespaces.push(Arc::clone(id));
-        let op = as_build_diagram_operation(op);
+
+        let on_implicit_error = match on_implicit_error {
+            Some(op) => {
+                let op: OperationRef = (&op).into();
+                op.in_namespaces(&namespaces)
+            }
+            None => self.on_implicit_error.clone(),
+        };
 
         self.construction
             .generated_operations
             .push(UnfinishedOperation {
                 id: Arc::clone(child_id),
                 namespaces,
-                op: op.into(),
+                op: op.clone() as Arc<dyn BuildDiagramOperation>,
                 sibling_ops: sibling_ops.clone(),
+                on_implicit_error,
                 scope: scope.unwrap_or(self.builder.context),
             });
     }
@@ -605,6 +453,13 @@ impl<'a, 'c, 'w, 's, 'b> DiagramContext<'a, 'c, 'w, 's, 'b> {
     }
 }
 
+impl<'a, 'c, 'w, 's, 'b> Deref for BuilderContext<'a, 'c, 'w, 's, 'b> {
+    type Target = DiagramContext<'a>;
+    fn deref(&self) -> &Self::Target {
+        &self.diagram_context
+    }
+}
+
 /// Indicate whether the operation has finished building.
 #[derive(Debug, Clone)]
 pub enum BuildStatus {
@@ -619,13 +474,13 @@ pub enum BuildStatus {
         /// iteration of the workflow build then we assume it is impossible to
         /// build the diagram.
         progress: bool,
-        reason: Cow<'static, str>,
+        reason: DiagramErrorCode,
     },
 }
 
 impl BuildStatus {
     /// Indicate that the build of the operation needs to be deferred.
-    pub fn defer(reason: impl Into<Cow<'static, str>>) -> Self {
+    pub fn defer(reason: impl Into<DiagramErrorCode>) -> Self {
         Self::Defer {
             progress: false,
             reason: reason.into(),
@@ -657,7 +512,7 @@ impl BuildStatus {
 
     /// Change this build status into its reason for deferral, if it is a
     /// deferral.
-    pub fn into_deferral_reason(self) -> Option<Cow<'static, str>> {
+    pub fn into_deferral_reason(self) -> Option<DiagramErrorCode> {
         match self {
             Self::Defer { reason, .. } => Some(reason),
             Self::Finished => None,
@@ -670,12 +525,6 @@ impl BuildStatus {
     }
 }
 
-pub fn as_build_diagram_operation<T: BuildDiagramOperation + 'static>(
-    op: &Arc<T>,
-) -> Arc<dyn BuildDiagramOperation> {
-    op.clone()
-}
-
 /// This trait is used to instantiate operations in the workflow. This trait
 /// will be called on each operation in the diagram until it finishes building.
 /// Each operation should use this to provide a [`ConnectIntoTarget`] handle for
@@ -684,45 +533,31 @@ pub trait BuildDiagramOperation {
     fn build_diagram_operation<'a, 'c>(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode>;
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode>;
 }
 
 /// This trait is used to connect outputs to their target operations. This trait
 /// will be called for each output produced by [`BuildDiagramOperation`].
 ///
 /// You are allowed to generate new outputs during the [`ConnectIntoTarget`]
-/// phase by calling [`DiagramContext::add_output_into_target`].
+/// phase by calling [`BuilderContext::add_output_into_target`].
 pub trait ConnectIntoTarget {
     fn connect_into_target(
         &mut self,
         output: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode>;
-
-    fn infer_input_type(
-        &self,
-        ctx: &DiagramContext,
-        visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode>;
 
     fn is_finished(&self) -> Result<(), DiagramErrorCode> {
         Ok(())
     }
-}
-
-/// This trait helps to determine what types of messages can go into an input
-/// slot.
-///
-/// For the first implementation of this, we are only considering the most
-/// preferred message type, but in the future we should add support for
-/// building a constraint graph to support inference in cases where an input
-/// can accept multiple different message types.
-///
-/// NOTE(@mxgrey): We may expand on this trait in the future to enable message
-/// type negotiation for operations that can accept a range of message types.
-pub trait InferMessageType {
-    fn preferred_input_type(&self) -> Option<TypeInfo>;
 }
 
 pub(super) fn create_workflow<Request, Response, Streams>(
@@ -736,31 +571,33 @@ where
     Response: 'static + Send + Sync,
     Streams: StreamPack,
 {
-    diagram.validate_operation_names()?;
-    diagram.validate_template_usage()?;
+    let inference = diagram.infer_message_types(
+        registry,
+        InferenceBoundaryConditions::new::<Request, Response, Streams>(registry)?,
+    )?;
+
+    // This borrow is a trick to make it cleaner to create BuilderContext.
+    let message_type_inference = &inference;
 
     let mut construction = DiagramConstruction::default();
 
-    let default_on_implicit_error = OperationRef::Cancel(NamespaceList::default());
-    let opt_on_implicit_error: Option<OperationRef> =
-        diagram.on_implicit_error.as_ref().map(Into::into);
-
-    let on_implicit_error = opt_on_implicit_error
-        .as_ref()
-        .unwrap_or(&default_on_implicit_error);
+    let root_on_implicit_error: OperationRef = (&diagram.on_implicit_error()).into();
 
     initialize_builtin_operations(
         diagram.start.clone(),
         scope,
-        &mut DiagramContext {
+        &mut BuilderContext {
             construction: &mut construction,
             builder,
+            message_type_inference,
             registry,
-            operations: diagram.ops.clone(),
-            templates: &diagram.templates,
-            default_trace: diagram.default_trace,
-            on_implicit_error,
-            namespaces: NamespaceList::default(),
+            diagram_context: DiagramContext {
+                operations: diagram.ops.clone(),
+                templates: &diagram.templates,
+                default_trace: diagram.default_trace,
+                on_implicit_error: &root_on_implicit_error,
+                namespaces: NamespaceList::default(),
+            },
         },
     )?;
 
@@ -769,9 +606,10 @@ where
         .iter()
         .map(|(id, op)| {
             UnfinishedOperation::new(
-                Arc::clone(id),
-                as_build_diagram_operation(op),
+                id,
+                op.clone() as Arc<dyn BuildDiagramOperation>,
                 &diagram.ops,
+                root_on_implicit_error.clone(),
                 builder.context,
             )
         })
@@ -794,22 +632,25 @@ where
                 commands: builder.commands,
             };
 
-            let mut ctx = DiagramContext {
+            let mut ctx = BuilderContext {
                 construction: &mut construction,
                 builder: &mut builder,
+                message_type_inference,
                 registry,
-                operations: unfinished.sibling_ops.clone(),
-                templates: &diagram.templates,
-                default_trace: diagram.default_trace,
-                on_implicit_error,
-                namespaces: unfinished.namespaces.clone(),
+                diagram_context: DiagramContext {
+                    operations: unfinished.sibling_ops.clone(),
+                    templates: &diagram.templates,
+                    default_trace: diagram.default_trace,
+                    on_implicit_error: &unfinished.on_implicit_error,
+                    namespaces: unfinished.namespaces.clone(),
+                },
             };
 
             // Attempt to build this operation
             let status = unfinished
                 .op
                 .build_diagram_operation(&unfinished.id, &mut ctx)
-                .map_err(|code| code.in_operation(unfinished.as_operation_ref()))?;
+                .map_err(|code| code.in_port(unfinished.as_operation_ref()))?;
 
             ctx.construction
                 .transfer_generated_operations(&mut deferred_operations, &mut made_progress);
@@ -846,26 +687,29 @@ where
                     commands: builder.commands,
                 };
 
-                let mut ctx = DiagramContext {
+                let mut ctx = BuilderContext {
                     construction: &mut connector_construction,
                     builder: &mut builder,
+                    message_type_inference,
                     registry,
-                    operations: diagram.ops.clone(),
-                    templates: &diagram.templates,
-                    default_trace: diagram.default_trace,
-                    on_implicit_error,
-                    // TODO(@mxgrey): The namespace while connecting into targets
-                    // is always empty since the ConnectIntoTargets implementation
-                    // is expected to provide targets that are already fully
-                    // resolved. This inconsistency is questionable and will
-                    // probably lead to bugs in the future, so we should
-                    // reconisder our approach to this.
-                    //
-                    // Perhaps we can introduce a specific trait IntoOperationRef
-                    // that takes in parent namespace information and behaves
-                    // differently between NextOperation vs OperationRef. Then
-                    // we also store namespace information per Target.
-                    namespaces: Default::default(),
+                    diagram_context: DiagramContext {
+                        operations: diagram.ops.clone(),
+                        templates: &diagram.templates,
+                        default_trace: diagram.default_trace,
+                        on_implicit_error: &root_on_implicit_error,
+                        // TODO(@mxgrey): The namespace while connecting into targets
+                        // is always empty since the ConnectIntoTargets implementation
+                        // is expected to provide targets that are already fully
+                        // resolved. This inconsistency is questionable and will
+                        // probably lead to bugs in the future, so we should
+                        // reconisder our approach to this.
+                        //
+                        // Perhaps we can introduce a specific trait IntoOperationRef
+                        // that takes in parent namespace information and behaves
+                        // differently between NextOperation vs OperationRef. Then
+                        // we also store namespace information per Target.
+                        namespaces: Default::default(),
+                    },
                 };
 
                 for output in outputs {
@@ -873,7 +717,7 @@ where
                     target
                         .connector
                         .connect_into_target(output, &mut ctx)
-                        .map_err(|code| code.in_operation(id.clone()))?;
+                        .map_err(|code| code.in_port(id.clone()))?;
                 }
             }
 
@@ -944,6 +788,8 @@ struct UnfinishedOperation {
     op: Arc<dyn BuildDiagramOperation>,
     /// The sibling operations of the one that is being built
     sibling_ops: Operations,
+    /// How this operation should handle implicit errors, if needed
+    on_implicit_error: OperationRef,
     /// The scope of this operation. This is used to create the correct Builder
     /// for the operation.
     scope: BuilderScopeContext,
@@ -965,15 +811,17 @@ impl std::fmt::Debug for UnfinishedOperation {
 
 impl UnfinishedOperation {
     pub fn new(
-        id: OperationName,
+        id: &OperationName,
         op: Arc<dyn BuildDiagramOperation>,
         sibling_ops: &Operations,
+        on_implicit_error: OperationRef,
         scope: BuilderScopeContext,
     ) -> Self {
         Self {
-            id,
+            id: Arc::clone(id),
             op,
             sibling_ops: sibling_ops.clone(),
+            on_implicit_error,
             namespaces: Default::default(),
             scope,
         }
@@ -992,7 +840,7 @@ impl UnfinishedOperation {
 fn initialize_builtin_operations<Request, Response, Streams>(
     start: NextOperation,
     scope: Scope<Request, Response, Streams>,
-    ctx: &mut DiagramContext,
+    ctx: &mut BuilderContext,
 ) -> Result<(), DiagramError>
 where
     Request: 'static + Send + Sync,
@@ -1014,11 +862,8 @@ where
     for (name, input) in streams.named {
         // TODO(@mxgrey): The trace settings for stream_out are not properly
         // based on whatever the user sets in the StreamOutSchema.
-        ctx.set_input_for_target(
-            StreamOutRef::new_for_root(name),
-            input,
-            TraceInfo::default(),
-        )?;
+        let name: Arc<str> = name.as_ref().into();
+        ctx.set_input_for_target(OperationRef::stream_out(&name), input, TraceInfo::default())?;
     }
 
     // Add the dispose operation
@@ -1040,23 +885,9 @@ impl ConnectIntoTarget for ConnectToDispose {
     fn connect_into_target(
         &mut self,
         _output: DynOutput,
-        _ctx: &mut DiagramContext,
+        _ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         Ok(())
-    }
-
-    fn infer_input_type(
-        &self,
-        _ctx: &DiagramContext,
-        _visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
-        Ok(Some(Arc::new(ConnectToDispose)))
-    }
-}
-
-impl InferMessageType for ConnectToDispose {
-    fn preferred_input_type(&self) -> Option<TypeInfo> {
-        None
     }
 }
 
@@ -1078,27 +909,16 @@ pub fn standard_input_connection(
         return Ok(Box::new(deserialization));
     }
 
-    Ok(Box::new(BasicConnect {
-        input_slot: Arc::new(input_slot),
-    }))
+    Ok(Box::new(BasicConnect::new(input_slot)))
 }
 
 impl ConnectIntoTarget for ImplicitSerialization {
     fn connect_into_target(
         &mut self,
         output: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         self.implicit_serialize(output, ctx)
-    }
-
-    fn infer_input_type(
-        &self,
-        _ctx: &DiagramContext,
-        _visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
-        let infer = Arc::clone(self.serialized_input_slot());
-        Ok(Some(infer))
     }
 }
 
@@ -1106,43 +926,81 @@ impl ConnectIntoTarget for ImplicitDeserialization {
     fn connect_into_target(
         &mut self,
         output: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         self.implicit_deserialize(output, ctx)
     }
-
-    fn infer_input_type(
-        &self,
-        _ctx: &DiagramContext,
-        _visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
-        let infer = Arc::clone(self.deserialized_input_slot());
-        Ok(Some(infer))
-    }
 }
 
-struct BasicConnect {
-    input_slot: Arc<DynInputSlot>,
+pub(crate) struct BasicConnect {
+    incoming_types: HashMap<TypeInfo, DynInputSlot>,
+    pub(crate) input_slot: Arc<DynInputSlot>,
+}
+
+impl BasicConnect {
+    pub(crate) fn is_compatible(
+        &self,
+        incoming: &TypeInfo,
+        ctx: &BuilderContext,
+    ) -> Result<bool, DiagramErrorCode> {
+        let incoming_index = ctx.registry.messages.registration.get_index_dyn(incoming)?;
+        let r = ctx
+            .registry
+            .messages
+            .get_operations(self.input_slot.message_info())?
+            .from_impls
+            .contains_key(&incoming_index);
+
+        Ok(r)
+    }
+
+    pub(crate) fn new(input_slot: DynInputSlot) -> Self {
+        Self {
+            input_slot: Arc::new(input_slot),
+            incoming_types: Default::default(),
+        }
+    }
 }
 
 impl ConnectIntoTarget for BasicConnect {
     fn connect_into_target(
         &mut self,
         output: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
-        output
-            .connect_to(&self.input_slot, ctx.builder)
-            .map_err(Into::into)
-    }
+        if output.message_info() == self.input_slot.message_info() {
+            return Ok(output.connect_to(&self.input_slot, ctx.builder)?);
+        }
 
-    fn infer_input_type(
-        &self,
-        _ctx: &DiagramContext,
-        _visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
-        let infer = Arc::clone(&self.input_slot);
-        Ok(Some(infer))
+        if let Some(conversion) = self.incoming_types.get(output.message_info()) {
+            return Ok(output.connect_to(conversion, ctx.builder)?);
+        }
+
+        let incoming_type = *output.message_info();
+        let incoming_type_index = ctx
+            .registry
+            .messages
+            .registration
+            .get_index_dyn(&incoming_type)?;
+        let convert = ctx
+            .registry
+            .messages
+            .get_dyn(self.input_slot.message_info())?
+            .get_operations()?
+            .from_impls
+            .get(&incoming_type_index)
+            .ok_or_else(|| {
+                DiagramErrorCode::TypeMismatch(TypeMismatch {
+                    source_type: incoming_type,
+                    target_type: *self.input_slot.message_info(),
+                })
+            })?;
+
+        let (conversion_input, converted_output) = (*convert)(ctx.builder);
+        converted_output.connect_to(&self.input_slot, ctx.builder)?;
+        output.connect_to(&conversion_input, ctx.builder)?;
+        self.incoming_types.insert(incoming_type, conversion_input);
+        Ok(())
     }
 }
 
@@ -1170,7 +1028,7 @@ impl ConnectIntoTarget for ConnectToCancel {
     fn connect_into_target(
         &mut self,
         output: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         let Err(output) = self
             .implicit_stringify
@@ -1210,20 +1068,6 @@ impl ConnectIntoTarget for ConnectToCancel {
 
         Ok(())
     }
-
-    fn infer_input_type(
-        &self,
-        ctx: &DiagramContext,
-        visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
-        self.implicit_serialization.infer_input_type(ctx, visited)
-    }
-}
-
-impl InferMessageType for DynInputSlot {
-    fn preferred_input_type(&self) -> Option<TypeInfo> {
-        Some(*self.message_info())
-    }
 }
 
 #[derive(Debug)]
@@ -1247,7 +1091,7 @@ impl ConnectIntoTarget for RedirectConnection {
     fn connect_into_target(
         &mut self,
         output: DynOutput,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
         if self.redirected.insert(output.id()) {
             // This DynOutput has not been redirected by this connector yet, so
@@ -1263,17 +1107,9 @@ impl ConnectIntoTarget for RedirectConnection {
         }
         Ok(())
     }
-
-    fn infer_input_type(
-        &self,
-        ctx: &DiagramContext,
-        visited: &mut HashSet<OperationRef>,
-    ) -> Result<Option<Arc<dyn InferMessageType>>, DiagramErrorCode> {
-        ctx.redirect_infer_input_type(&self.redirect_to, visited)
-    }
 }
 
-impl<'a, 'c, 'w, 's, 'b> std::fmt::Debug for DiagramContext<'a, 'c, 'w, 's, 'b> {
+impl<'a, 'c, 'w, 's, 'b> std::fmt::Debug for BuilderContext<'a, 'c, 'w, 's, 'b> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DiagramContext")
             .field("construction", &DebugDiagramConstruction(self))
@@ -1281,12 +1117,11 @@ impl<'a, 'c, 'w, 's, 'b> std::fmt::Debug for DiagramContext<'a, 'c, 'w, 's, 'b> 
     }
 }
 
-struct DebugDiagramConstruction<'a, 'c, 'w, 's, 'b, 'd>(&'d DiagramContext<'a, 'c, 'w, 's, 'b>);
+struct DebugDiagramConstruction<'a, 'c, 'w, 's, 'b, 'd>(&'d BuilderContext<'a, 'c, 'w, 's, 'b>);
 
 impl<'a, 'c, 'w, 's, 'b, 'd> std::fmt::Debug for DebugDiagramConstruction<'a, 'c, 'w, 's, 'b, 'd> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DiagramConstruction")
-            .field("connect_into_target", &DebugConnections(self.0))
             .field(
                 "outputs_into_target",
                 &self.0.construction.outputs_into_target,
@@ -1297,48 +1132,6 @@ impl<'a, 'c, 'w, 's, 'b, 'd> std::fmt::Debug for DebugDiagramConstruction<'a, 'c
                 &self.0.construction.generated_operations,
             )
             .finish()
-    }
-}
-
-struct DebugConnections<'a, 'c, 'w, 's, 'b, 'd>(&'d DiagramContext<'a, 'c, 'w, 's, 'b>);
-
-impl<'a, 'c, 'w, 's, 'b, 'd> std::fmt::Debug for DebugConnections<'a, 'c, 'w, 's, 'b, 'd> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut debug = f.debug_map();
-        for (op, target) in &self.0.construction.connect_into_target {
-            debug.entry(
-                op,
-                &DebugConnection {
-                    connect: &target.connector,
-                    context: self.0,
-                },
-            );
-        }
-
-        debug.finish()
-    }
-}
-
-struct DebugConnection<'a, 'c, 'w, 's, 'b, 'd> {
-    connect: &'d Box<dyn ConnectIntoTarget>,
-    context: &'d DiagramContext<'a, 'c, 'w, 's, 'b>,
-}
-
-impl<'a, 'c, 'w, 's, 'b, 'd> std::fmt::Debug for DebugConnection<'a, 'c, 'w, 's, 'b, 'd> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut visited = HashSet::new();
-        let mut debug = f.debug_struct("ConnectIntoTarget");
-        match self.connect.infer_input_type(self.context, &mut visited) {
-            Ok(ok) => {
-                let inferred = ok.map(|infer| infer.preferred_input_type()).flatten();
-                debug.field("inferred type", &inferred);
-            }
-            Err(err) => {
-                debug.field("infered type error", &err);
-            }
-        }
-
-        debug.finish()
     }
 }
 
@@ -1357,12 +1150,65 @@ impl TraceInfo {
         trace: Option<TraceToggle>,
     ) -> Result<Self, DiagramErrorCode> {
         let construction = Some(Arc::new(
-            serde_json::to_value(construction).map_err(DiagramErrorCode::TraceInfoError)?,
+            serde_json::to_value(construction)
+                .map_err(|err| DiagramErrorCode::TraceInfoError(Arc::new(err)))?,
         ));
 
         Ok(Self {
             construction,
             trace,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{diagram::testing::*, prelude::*};
+    use serde_json::json;
+
+    #[test]
+    fn test_implicit_conversion() {
+        let mut fixture = DiagramTestFixture::new();
+
+        fixture.registry.register_node_builder(
+            NodeBuilderOptions::new("low_res_add"),
+            |builder, config: i8| builder.create_map_block(move |request: i8| request + config),
+        );
+
+        fixture.registry.register_node_builder(
+            NodeBuilderOptions::new("mid_res_add"),
+            |builder, config: i32| builder.create_map_block(move |request: i32| request + config),
+        );
+
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "start": "low_res",
+            "ops": {
+                "low_res": {
+                    "type": "node",
+                    "builder": "low_res_add",
+                    "config": 1,
+                    "next": "mid_res"
+                },
+                "mid_res": {
+                    "type": "node",
+                    "builder": "mid_res_add",
+                    "config": 2,
+                    "next": "hi_res"
+                },
+                "hi_res": {
+                    "type": "node",
+                    "builder": "add_to",
+                    "config": 3,
+                    "next": { "builtin": "terminate" }
+                }
+            }
+        }))
+        .unwrap();
+
+        let r: JsonMessage = fixture
+            .spawn_and_run(&diagram, JsonMessage::from(1))
+            .unwrap();
+        assert_eq!(r.as_i64().unwrap(), 7);
     }
 }

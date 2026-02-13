@@ -18,6 +18,7 @@
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
+    hash::Hash,
 };
 
 use thiserror::Error as ThisError;
@@ -32,6 +33,9 @@ use crate::{
     Gate, GateState, Joining, Node, OperationError, OperationResult, OperationRoster, TypeInfo,
     add_listener_to_source,
 };
+
+#[cfg(feature = "diagram")]
+use crate::MessageRegistry;
 
 pub use crossflow_derive::{Accessor, Joined};
 
@@ -65,6 +69,16 @@ impl<'a> BufferIdentifier<'a> {
 
     pub fn is_index(&self) -> bool {
         matches!(self, Self::Index(_))
+    }
+
+    pub fn to_owned(&self) -> BufferIdentifier<'static> {
+        match self {
+            Self::Index(index) => BufferIdentifier::Index(*index),
+            Self::Name(name) => match name {
+                Cow::Borrowed(name) => BufferIdentifier::Name(Cow::Owned((*name).into())),
+                Cow::Owned(name) => BufferIdentifier::Name(Cow::Owned(name.clone())),
+            },
+        }
     }
 }
 
@@ -350,55 +364,155 @@ pub trait BufferMapLayout: Sized + Clone + 'static + Send + Sync {
     fn get_buffer_message_type_hints(
         identifiers: HashSet<BufferIdentifier<'static>>,
     ) -> Result<MessageTypeHintMap, IncompatibleLayout>;
+
+    fn get_layout_hints() -> BufferMapLayoutHints;
 }
 
 /// This hint is used by the diagram builder to assign types to buffers who do
 /// not have any messages pushed into them directly as input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum MessageTypeHint {
+#[cfg_attr(
+    feature = "diagram",
+    derive(Serialize, Deserialize, JsonSchema),
+    serde(rename_all = "snake_case")
+)]
+pub enum MessageTypeHint<TypeRepr = TypeInfo> {
     /// An accessor is asking specifically for this type T via `BufferKey<T>`
-    Exact(TypeInfo),
+    Exact(TypeRepr),
     /// An accessor is using a generalized buffer, e.g. JsonBuffer or AnyBuffer,
     /// which can be represented by this type, but an exact type should be used
     /// if any other accessor has one.
-    Fallback(TypeInfo),
+    Fallback(TypeRepr),
 }
 
-impl std::fmt::Display for MessageTypeHint {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MessageTypeHint::Exact(info) => write!(f, "Exact({})", info.type_name),
-            MessageTypeHint::Fallback(info) => write!(f, "Fallback({})", info.type_name),
-        }
-    }
-}
-
-impl MessageTypeHint {
-    pub fn exact<T: 'static>() -> Self {
-        Self::Exact(TypeInfo::of::<T>())
-    }
-
+impl<TypeRepr> MessageTypeHint<TypeRepr> {
     pub fn is_exact(&self) -> bool {
         matches!(self, Self::Exact(_))
     }
 
-    pub fn as_exact(&self) -> Option<TypeInfo> {
+    pub fn as_exact(&self) -> Option<TypeRepr>
+    where
+        TypeRepr: Copy,
+    {
         match self {
             Self::Exact(info) => Some(*info),
             _ => None,
         }
     }
 
+    pub fn is_fallback(&self) -> bool {
+        matches!(self, Self::Fallback(_))
+    }
+
+    fn inner(&self) -> &TypeRepr {
+        match self {
+            Self::Exact(inner) => inner,
+            Self::Fallback(inner) => inner,
+        }
+    }
+}
+
+impl<TypeRepr: std::fmt::Display> std::fmt::Display for MessageTypeHint<TypeRepr> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MessageTypeHint::Exact(info) => write!(f, "Exact({})", info),
+            MessageTypeHint::Fallback(info) => write!(f, "Fallback({})", info),
+        }
+    }
+}
+
+impl MessageTypeHint<TypeInfo> {
+    pub fn exact<T: 'static>() -> Self {
+        Self::Exact(TypeInfo::of::<T>())
+    }
+
     pub fn fallback<T: 'static>() -> Self {
         Self::Fallback(TypeInfo::of::<T>())
     }
 
-    pub fn is_fallback(&self) -> bool {
-        matches!(self, Self::Fallback(_))
+    #[cfg(feature = "diagram")]
+    pub fn export(&self, messages: &mut MessageRegistry) -> MessageTypeHint<usize> {
+        let index = messages
+            .registration
+            .get_index_or_insert_placeholder(*self.inner());
+
+        match self {
+            Self::Exact(_) => MessageTypeHint::Exact(index),
+            Self::Fallback(_) => MessageTypeHint::Fallback(index),
+        }
     }
 }
 
-pub type MessageTypeHintMap = HashMap<BufferIdentifier<'static>, MessageTypeHint>;
+pub type MessageTypeHintMap<TypeRepr = TypeInfo> =
+    HashMap<BufferIdentifier<'static>, MessageTypeHint<TypeRepr>>;
+
+/// Hints for how a buffer map might be laid out.
+///
+/// This can be thought of as a schema for the buffer map.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "diagram",
+    derive(Serialize, Deserialize, JsonSchema),
+    serde(rename_all = "snake_case")
+)]
+pub enum BufferMapLayoutHints<TypeRepr = TypeInfo> {
+    /// The buffers in this map and their message types are not necessarily known in advance.
+    Dynamic(DynamicBufferMapLayoutHints<TypeRepr>),
+    /// The buffer identifiers and their message types are fixed in advance.
+    Static(MessageTypeHintMap<TypeRepr>),
+}
+
+impl BufferMapLayoutHints<TypeInfo> {
+    #[cfg(feature = "diagram")]
+    pub fn export(&self, messages: &mut MessageRegistry) -> BufferMapLayoutHints<usize> {
+        match self {
+            Self::Dynamic(hints) => BufferMapLayoutHints::Dynamic(hints.export(messages)),
+            Self::Static(hints) => {
+                let exported_hints = hints
+                    .into_iter()
+                    .map(|(k, h)| (k.clone(), h.export(messages)))
+                    .collect();
+
+                BufferMapLayoutHints::Static(exported_hints)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "diagram",
+    derive(Serialize, Deserialize, JsonSchema),
+    serde(rename_all = "snake_case")
+)]
+pub struct DynamicBufferMapLayoutHints<TypeRepr> {
+    /// The buffer identifiers can include indices.
+    pub indices: bool,
+    /// The buffer identifiers can include names.
+    pub names: bool,
+    /// Constraints for the message types of the buffers.
+    pub hint: Option<MessageTypeHint<TypeRepr>>,
+}
+
+impl DynamicBufferMapLayoutHints<TypeInfo> {
+    #[cfg(feature = "diagram")]
+    pub fn export(&self, messages: &mut MessageRegistry) -> DynamicBufferMapLayoutHints<usize> {
+        DynamicBufferMapLayoutHints {
+            indices: self.indices,
+            names: self.names,
+            hint: self.hint.as_ref().map(|h| h.export(messages)),
+        }
+    }
+}
+
+impl<TypeRepr> DynamicBufferMapLayoutHints<TypeRepr> {
+    pub fn is_compatible(&self, id: &BufferIdentifier) -> bool {
+        match id {
+            BufferIdentifier::Index(_) => self.indices,
+            BufferIdentifier::Name(_) => self.names,
+        }
+    }
+}
 
 /// This trait helps auto-generated buffer map structs to implement the Buffering
 /// trait.
@@ -662,6 +776,14 @@ impl BufferMapLayout for BufferMap {
 
         evaluation.evaluate()
     }
+
+    fn get_layout_hints() -> BufferMapLayoutHints {
+        BufferMapLayoutHints::Dynamic(DynamicBufferMapLayoutHints {
+            indices: true,
+            names: true,
+            hint: None,
+        })
+    }
 }
 
 impl BufferMapStruct for BufferMap {
@@ -756,6 +878,16 @@ impl<T: 'static + Send + Sync> BufferMapLayout for Buffer<T> {
         evaluation.exact::<T>(0);
         evaluation.evaluate()
     }
+
+    fn get_layout_hints() -> BufferMapLayoutHints {
+        BufferMapLayoutHints::Static(
+            [(
+                BufferIdentifier::Index(0),
+                MessageTypeHint::Exact(TypeInfo::of::<T>()),
+            )]
+            .into(),
+        )
+    }
 }
 
 impl<T: 'static + Send + Sync + Clone> BufferMapLayout for CloneFromBuffer<T> {
@@ -776,6 +908,10 @@ impl<T: 'static + Send + Sync + Clone> BufferMapLayout for CloneFromBuffer<T> {
     ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
         Buffer::<T>::get_buffer_message_type_hints(identifiers)
     }
+
+    fn get_layout_hints() -> BufferMapLayoutHints {
+        Buffer::<T>::get_layout_hints()
+    }
 }
 
 impl<T: 'static + Send + Sync> BufferMapLayout for FetchFromBuffer<T> {
@@ -795,6 +931,10 @@ impl<T: 'static + Send + Sync> BufferMapLayout for FetchFromBuffer<T> {
         identifiers: HashSet<BufferIdentifier<'static>>,
     ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
         Buffer::<T>::get_buffer_message_type_hints(identifiers)
+    }
+
+    fn get_layout_hints() -> BufferMapLayoutHints {
+        Buffer::<T>::get_layout_hints()
     }
 }
 
@@ -821,6 +961,14 @@ impl<B: 'static + Send + Sync + AsAnyBuffer + Clone> BufferMapLayout for Vec<B> 
         }
         evaluation.evaluate()
     }
+
+    fn get_layout_hints() -> BufferMapLayoutHints {
+        BufferMapLayoutHints::Dynamic(DynamicBufferMapLayoutHints {
+            indices: true,
+            names: false,
+            hint: Some(B::message_type_hint()),
+        })
+    }
 }
 
 impl<T: 'static + Send + Sync, const N: usize> Joined for SmallVec<[T; N]> {
@@ -846,11 +994,11 @@ impl<B: 'static + Send + Sync + AsAnyBuffer + Clone, const N: usize> BufferMapLa
     fn get_buffer_message_type_hints(
         identifiers: HashSet<BufferIdentifier<'static>>,
     ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
-        let mut evaluation = MessageTypeHintEvaluation::new(identifiers);
-        while let Some(identifier) = evaluation.next_index_required() {
-            evaluation.set_hint(identifier, B::message_type_hint());
-        }
-        evaluation.evaluate()
+        Vec::<B>::get_buffer_message_type_hints(identifiers)
+    }
+
+    fn get_layout_hints() -> BufferMapLayoutHints {
+        Vec::<B>::get_layout_hints()
     }
 }
 

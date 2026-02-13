@@ -8,6 +8,9 @@ pub fn get_registry() -> JsValue {
     let executor_state = globals::executor_state();
     executor_state
         .registry
+        .lock()
+        .unwrap()
+        .metadata()
         .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
         .expect("failed to serialize registry")
 }

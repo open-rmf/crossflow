@@ -187,83 +187,89 @@ impl DiagramElementRegistry {
         };
         let create_querier = create_querier.into_async_callback();
 
-        self.register_node_builder_fallible(
-            NodeBuilderOptions::new("zenoh_querier").with_default_display_text("Zenoh Querier"),
-            move |builder, mut config: ZenohQuerierConfig| {
-                builder.commands().queue(ensure_session.clone());
+        self.opt_out()
+            .no_serializing()
+            .no_deserializing()
+            .register_node_builder_fallible(
+                NodeBuilderOptions::new("zenoh_querier").with_default_display_text("Zenoh Querier"),
+                move |builder, mut config: ZenohQuerierConfig| {
+                    builder.commands().queue(ensure_session.clone());
 
-                let encoder: Codec = (&config.encoder).try_into()?;
-                let decoder: Codec = (&config.decoder).try_into()?;
-                let parameters = std::mem::replace(&mut config.parameters, Default::default());
-                let parameters: Arc<Parameters> = Arc::new(parameters.into());
-                let wait_choice = config.wait_for_matching;
+                    let encoder: Codec = (&config.encoder).try_into()?;
+                    let decoder: Codec = (&config.decoder).try_into()?;
+                    let parameters = std::mem::replace(&mut config.parameters, Default::default());
+                    let parameters: Arc<Parameters> = Arc::new(parameters.into());
+                    let wait_choice = config.wait_for_matching;
 
-                let querier = builder
-                    .commands()
-                    .request(config, create_querier.clone())
-                    .outcome()
-                    .shared();
+                    let querier = builder
+                        .commands()
+                        .request(config, create_querier.clone())
+                        .outcome()
+                        .shared();
 
-                let node =
-                    builder.create_map(move |input: AsyncMap<JsonMessage, ZenohNodeStreams>| {
-                        let querier = querier.clone();
-                        let parameters = Arc::clone(&parameters);
-                        let encoder = encoder.clone();
-                        let decoder = decoder.clone();
-                        let (sender, mut cancellation_receiver) = unbounded_channel();
-                        input.streams.canceller.send(sender);
+                    let node = builder.create_map(
+                        move |input: AsyncMap<JsonMessage, ZenohNodeStreams>| {
+                            let querier = querier.clone();
+                            let parameters = Arc::clone(&parameters);
+                            let encoder = encoder.clone();
+                            let decoder = decoder.clone();
+                            let (sender, mut cancellation_receiver) = unbounded_channel();
+                            input.streams.canceller.send(sender);
 
-                        async move {
-                            let querying = async move {
-                                let payload = encoder
-                                    .encode(&input.request)
-                                    .map_err(ZenohQuerierError::EncodingError)?;
+                            async move {
+                                let querying = async move {
+                                    let payload = encoder
+                                        .encode(&input.request)
+                                        .map_err(ZenohQuerierError::EncodingError)?;
 
-                                let querier = querier.await.map_err(|err| {
-                                    ZenohQuerierError::CreationFailed(ArcError(err.into()))
-                                })??;
-                                if wait_choice.always() {
-                                    wait_for_matching(&querier).await?;
-                                }
+                                    let querier = querier.await.map_err(|err| {
+                                        ZenohQuerierError::CreationFailed(ArcError(err.into()))
+                                    })??;
+                                    if wait_choice.always() {
+                                        wait_for_matching(&querier).await?;
+                                    }
 
-                                let replies = querier
-                                    .get()
-                                    .parameters(parameters.as_ref().clone())
-                                    .encoding(encoder.encoding())
-                                    .payload(payload)
-                                    .await
-                                    .map_err(ArcError::new)?;
+                                    let replies = querier
+                                        .get()
+                                        .parameters(parameters.as_ref().clone())
+                                        .encoding(encoder.encoding())
+                                        .payload(payload)
+                                        .await
+                                        .map_err(ArcError::new)?;
 
-                                while let Ok(reply) = replies.recv_async().await {
-                                    let next_sample = match reply.result() {
-                                        Ok(sample) => sample,
-                                        Err(err) => {
-                                            input.streams.out_error.send(format!("{err}"));
-                                            continue;
-                                        }
-                                    };
+                                    while let Ok(reply) = replies.recv_async().await {
+                                        let next_sample = match reply.result() {
+                                            Ok(sample) => sample,
+                                            Err(err) => {
+                                                input.streams.out_error.send(format!("{err}"));
+                                                continue;
+                                            }
+                                        };
 
-                                    match decoder.decode(next_sample) {
-                                        Ok(msg) => {
-                                            input.streams.out.send(msg);
-                                        }
-                                        Err(msg) => {
-                                            input.streams.out_error.send(msg);
+                                        match decoder.decode(next_sample) {
+                                            Ok(msg) => {
+                                                input.streams.out.send(msg);
+                                            }
+                                            Err(msg) => {
+                                                input.streams.out_error.send(msg);
+                                            }
                                         }
                                     }
-                                }
 
-                                Ok::<_, ZenohQuerierError>(JsonMessage::default())
-                            };
-                            let cancel = cancellation_receiver.recv();
-                            race(querying, receive_cancel(cancel)).await
-                        }
-                    });
+                                    Ok::<_, ZenohQuerierError>(JsonMessage::default())
+                                };
+                                let cancel = cancellation_receiver.recv();
+                                race(querying, receive_cancel(cancel)).await
+                            }
+                        },
+                    );
 
-                Ok(node)
-            },
-        )
-        .with_result();
+                    Ok(node)
+                },
+            )
+            .with_common_request()
+            .with_common_response()
+            .with_result();
     }
 }
 

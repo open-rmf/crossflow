@@ -42,6 +42,33 @@ export type TraceToggle = 'off' | 'on' | 'messages';
 export type BufferIdentifier = string | number;
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "BufferMapLayoutHints".
+ */
+export type BufferMapLayoutHints =
+  | {
+      dynamic: DynamicBufferMapLayoutHints;
+    }
+  | {
+      static: {
+        [k: string]: MessageTypeHint;
+      };
+    };
+/**
+ * This interface was referenced by `undefined`'s JSON-Schema definition
+ * via the `patternProperty` "^\d+$".
+ *
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "MessageTypeHint".
+ */
+export type MessageTypeHint =
+  | {
+      exact: number;
+    }
+  | {
+      fallback: number;
+    };
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "RetentionPolicy".
  */
 export type RetentionPolicy =
@@ -156,7 +183,7 @@ export type SectionSchema = (
   };
   /**
    * Override for text that should be displayed for an operation within an
-   *  editor.
+   * editor.
    */
   display_text?: string | null;
   /**
@@ -193,50 +220,50 @@ export interface DiagramEditorApi {
 /**
  * Zip a message together with access to one or more buffers.
  *
- *  The receiving node must have an input type of `(Message, Keys)`
- *  where `Keys` implements the [`Accessor`][1] trait.
+ * The receiving node must have an input type of `(Message, Keys)`
+ * where `Keys` implements the [`Accessor`][1] trait.
  *
- *  [1]: crate::Accessor
+ * [1]: crate::Accessor
  *
- *  # Examples
- *  ```
- *  # crossflow::Diagram::from_json_str(r#"
- *  {
- *      "version": "0.1.0",
- *      "start": "fork_clone",
- *      "ops": {
- *          "fork_clone": {
- *              "type": "fork_clone",
- *              "next": ["num_output", "string_output"]
- *          },
- *          "num_output": {
- *              "type": "node",
- *              "builder": "num_output",
- *              "next": "buffer_access"
- *          },
- *          "string_output": {
- *              "type": "node",
- *              "builder": "string_output",
- *              "next": "string_buffer"
- *          },
- *          "string_buffer": {
- *              "type": "buffer"
- *          },
- *          "buffer_access": {
- *              "type": "buffer_access",
- *              "buffers": ["string_buffer"],
- *              "next": "with_buffer_access"
- *          },
- *          "with_buffer_access": {
- *              "type": "node",
- *              "builder": "with_buffer_access",
- *              "next": { "builtin": "terminate" }
- *          }
- *      }
- *  }
- *  # "#)?;
- *  # Ok::<_, serde_json::Error>(())
- *  ```
+ * # Examples
+ * ```
+ * # crossflow::Diagram::from_json_str(r#"
+ * {
+ *     "version": "0.1.0",
+ *     "start": "fork_clone",
+ *     "ops": {
+ *         "fork_clone": {
+ *             "type": "fork_clone",
+ *             "next": ["num_output", "string_output"]
+ *         },
+ *         "num_output": {
+ *             "type": "node",
+ *             "builder": "num_output",
+ *             "next": "buffer_access"
+ *         },
+ *         "string_output": {
+ *             "type": "node",
+ *             "builder": "string_output",
+ *             "next": "string_buffer"
+ *         },
+ *         "string_buffer": {
+ *             "type": "buffer"
+ *         },
+ *         "buffer_access": {
+ *             "type": "buffer_access",
+ *             "buffers": ["string_buffer"],
+ *             "next": "with_buffer_access"
+ *         },
+ *         "with_buffer_access": {
+ *             "type": "node",
+ *             "builder": "with_buffer_access",
+ *             "next": { "builtin": "terminate" }
+ *         }
+ *     }
+ * }
+ * # "#)?;
+ * # Ok::<_, serde_json::Error>(())
+ * ```
  *
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "BufferAccessSchema".
@@ -245,7 +272,7 @@ export interface BufferAccessSchema {
   buffers: BufferSelection;
   /**
    * Override for text that should be displayed for an operation within an
-   *  editor.
+   * editor.
    */
   display_text?: string | null;
   /**
@@ -268,75 +295,91 @@ export interface NamespacedOperation {
   [k: string]: string;
 }
 /**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "DynamicBufferMapLayoutHints".
+ */
+export interface DynamicBufferMapLayoutHints {
+  hint?: MessageTypeHint | null;
+  /**
+   * The buffer identifiers can include indices.
+   */
+  indices: boolean;
+  /**
+   * The buffer identifiers can include names.
+   */
+  names: boolean;
+  [k: string]: unknown;
+}
+/**
  * Create a [`Buffer`][1] which can be used to store and pull data within
- *  a scope.
+ * a scope.
  *
- *  By default the [`BufferSettings`][2] will keep the single last message
- *  pushed to the buffer. You can change that with the optional `settings`
- *  property.
+ * By default the [`BufferSettings`][2] will keep the single last message
+ * pushed to the buffer. You can change that with the optional `settings`
+ * property.
  *
- *  Use the `"serialize": true` option to serialize the messages into
- *  [`JsonMessage`] before they are inserted into the buffer. This
- *  allows any serializable message type to be pushed into the buffer. If
- *  left unspecified, the buffer will store the specific data type that gets
- *  pushed into it. If the buffer inputs are not being serialized, then all
- *  incoming messages being pushed into the buffer must have the same type.
+ * Use the `"serialize": true` option to serialize the messages into
+ * [`JsonMessage`] before they are inserted into the buffer. This
+ * allows any serializable message type to be pushed into the buffer. If
+ * left unspecified, the buffer will store the specific data type that gets
+ * pushed into it. If the buffer inputs are not being serialized, then all
+ * incoming messages being pushed into the buffer must have the same type.
  *
- *  [1]: crate::Buffer
- *  [2]: crate::BufferSettings
+ * [1]: crate::Buffer
+ * [2]: crate::BufferSettings
  *
- *  # Examples
- *  ```
- *  # crossflow::Diagram::from_json_str(r#"
- *  {
- *      "version": "0.1.0",
- *      "start": "fork_clone",
- *      "ops": {
- *          "fork_clone": {
- *              "type": "fork_clone",
- *              "next": ["num_output", "string_output", "all_num_buffer", "serialized_num_buffer"]
- *          },
- *          "num_output": {
- *              "type": "node",
- *              "builder": "num_output",
- *              "next": "buffer_access"
- *          },
- *          "string_output": {
- *              "type": "node",
- *              "builder": "string_output",
- *              "next": "string_buffer"
- *          },
- *          "string_buffer": {
- *              "type": "buffer",
- *              "settings": {
- *                  "retention": { "keep_last": 10 }
- *              }
- *          },
- *          "all_num_buffer": {
- *              "type": "buffer",
- *              "settings": {
- *                  "retention": "keep_all"
- *              }
- *          },
- *          "serialized_num_buffer": {
- *              "type": "buffer",
- *              "serialize": true
- *          },
- *          "buffer_access": {
- *              "type": "buffer_access",
- *              "buffers": ["string_buffer"],
- *              "next": "with_buffer_access"
- *          },
- *          "with_buffer_access": {
- *              "type": "node",
- *              "builder": "with_buffer_access",
- *              "next": { "builtin": "terminate" }
- *          }
- *      }
- *  }
- *  # "#)?;
- *  # Ok::<_, serde_json::Error>(())
- *  ```
+ * # Examples
+ * ```
+ * # crossflow::Diagram::from_json_str(r#"
+ * {
+ *     "version": "0.1.0",
+ *     "start": "fork_clone",
+ *     "ops": {
+ *         "fork_clone": {
+ *             "type": "fork_clone",
+ *             "next": ["num_output", "string_output", "all_num_buffer", "serialized_num_buffer"]
+ *         },
+ *         "num_output": {
+ *             "type": "node",
+ *             "builder": "num_output",
+ *             "next": "buffer_access"
+ *         },
+ *         "string_output": {
+ *             "type": "node",
+ *             "builder": "string_output",
+ *             "next": "string_buffer"
+ *         },
+ *         "string_buffer": {
+ *             "type": "buffer",
+ *             "settings": {
+ *                 "retention": { "keep_last": 10 }
+ *             }
+ *         },
+ *         "all_num_buffer": {
+ *             "type": "buffer",
+ *             "settings": {
+ *                 "retention": "keep_all"
+ *             }
+ *         },
+ *         "serialized_num_buffer": {
+ *             "type": "buffer",
+ *             "serialize": true
+ *         },
+ *         "buffer_access": {
+ *             "type": "buffer_access",
+ *             "buffers": ["string_buffer"],
+ *             "next": "with_buffer_access"
+ *         },
+ *         "with_buffer_access": {
+ *             "type": "node",
+ *             "builder": "with_buffer_access",
+ *             "next": { "builtin": "terminate" }
+ *         }
+ *     }
+ * }
+ * # "#)?;
+ * # Ok::<_, serde_json::Error>(())
+ * ```
  *
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "BufferSchema".
@@ -344,7 +387,7 @@ export interface NamespacedOperation {
 export interface BufferSchema {
   /**
    * Override for text that should be displayed for an operation within an
-   *  editor.
+   * editor.
    */
   display_text?: string | null;
   /**
@@ -356,7 +399,7 @@ export interface BufferSchema {
   /**
    * If true, messages will be serialized before sending into the buffer.
    */
-  serialize?: boolean | null;
+  serialize?: boolean;
   settings?: BufferSettings;
   trace?: TraceToggle | null;
   [k: string]: unknown;
@@ -399,15 +442,15 @@ export interface Diagram {
    */
   description?: string;
   /**
-   * Examples of inputs that can be used with this workflow.
-   */
-  input_examples?: ExampleInput[];
-  /**
    * Settings for each extension.
    */
   extensions?: {
     [k: string]: unknown;
   };
+  /**
+   * Examples of inputs that can be used with this workflow.
+   */
+  input_examples?: InputExample[];
   on_implicit_error?: NextOperation | null;
   /**
    * Operations that define the workflow
@@ -427,56 +470,56 @@ export interface Diagram {
 }
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "ExampleInput".
+ * via the `definition` "InputExample".
  */
-export interface ExampleInput {
+export interface InputExample {
   description: string;
   value: unknown;
   [k: string]: unknown;
 }
 /**
  * Create an operation that that takes an input message and produces an
- *  output message.
+ * output message.
  *
- *  The behavior is determined by the choice of node `builder` and
- *  optionally the `config` that you provide. Each type of node builder has
- *  its own schema for the config.
+ * The behavior is determined by the choice of node `builder` and
+ * optionally the `config` that you provide. Each type of node builder has
+ * its own schema for the config.
  *
- *  The output message will be sent to the operation specified by `next`.
+ * The output message will be sent to the operation specified by `next`.
  *
- *  TODO(@mxgrey): [Support stream outputs](https://github.com/open-rmf/crossflow/issues/43)
+ * TODO(@mxgrey): [Support stream outputs](https://github.com/open-rmf/crossflow/issues/43)
  *
- *  # Examples
- *  ```
- *  # crossflow::Diagram::from_json_str(r#"
- *  {
- *      "version": "0.1.0",
- *      "start": "cutting_board",
- *      "ops": {
- *          "cutting_board": {
- *              "type": "node",
- *              "builder": "chop",
- *              "config": "diced",
- *              "next": "bowl"
- *          },
- *          "bowl": {
- *              "type": "node",
- *              "builder": "stir",
- *              "next": "oven"
- *          },
- *          "oven": {
- *              "type": "node",
- *              "builder": "bake",
- *              "config": {
- *                  "temperature": 200,
- *                  "duration": 120
- *              },
- *              "next": { "builtin": "terminate" }
- *          }
- *      }
- *  }
- *  # "#)?;
- *  # Ok::<_, serde_json::Error>(())
+ * # Examples
+ * ```
+ * # crossflow::Diagram::from_json_str(r#"
+ * {
+ *     "version": "0.1.0",
+ *     "start": "cutting_board",
+ *     "ops": {
+ *         "cutting_board": {
+ *             "type": "node",
+ *             "builder": "chop",
+ *             "config": "diced",
+ *             "next": "bowl"
+ *         },
+ *         "bowl": {
+ *             "type": "node",
+ *             "builder": "stir",
+ *             "next": "oven"
+ *         },
+ *         "oven": {
+ *             "type": "node",
+ *             "builder": "bake",
+ *             "config": {
+ *                 "temperature": 200,
+ *                 "duration": 120
+ *             },
+ *             "next": { "builtin": "terminate" }
+ *         }
+ *     }
+ * }
+ * # "#)?;
+ * # Ok::<_, serde_json::Error>(())
  *
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "NodeSchema".
@@ -486,7 +529,7 @@ export interface NodeSchema {
   config?: unknown;
   /**
    * Override for text that should be displayed for an operation within an
-   *  editor.
+   * editor.
    */
   display_text?: string | null;
   /**
@@ -504,66 +547,66 @@ export interface NodeSchema {
 }
 /**
  * Create a scope which will function like its own encapsulated workflow
- *  within the paren workflow. Each message that enters a scope will trigger
- *  a new independent session for that scope to begin running with the incoming
- *  message itself being the input message of the scope. When multiple sessions
- *  for the same scope are running, they cannot see or interfere with each other.
+ * within the paren workflow. Each message that enters a scope will trigger
+ * a new independent session for that scope to begin running with the incoming
+ * message itself being the input message of the scope. When multiple sessions
+ * for the same scope are running, they cannot see or interfere with each other.
  *
- *  Once a session terminates, the scope will send the terminating message as
- *  its output. Scopes can use the `stream_out` operation to stream messages out
- *  to the parent workflow while running.
+ * Once a session terminates, the scope will send the terminating message as
+ * its output. Scopes can use the `stream_out` operation to stream messages out
+ * to the parent workflow while running.
  *
- *  Scopes have two common uses:
- *  * isolate - Prevent simultaneous runs of the same workflow components
- *    (especially buffers) from interfering with each other.
- *  * race - Run multiple branches simultaneously inside the scope and race
- *    them against each ohter. The first branch that reaches the scope's
- *    terminate operation "wins" the race, and only its output will continue
- *    on in the parent workflow. All other branches will be disposed.
+ * Scopes have two common uses:
+ * * isolate - Prevent simultaneous runs of the same workflow components
+ *   (especially buffers) from interfering with each other.
+ * * race - Run multiple branches simultaneously inside the scope and race
+ *   them against each ohter. The first branch that reaches the scope's
+ *   terminate operation "wins" the race, and only its output will continue
+ *   on in the parent workflow. All other branches will be disposed.
  *
- *  # Examples
- *  ```
- *  # crossflow::Diagram::from_json_str(r#"
- *  {
- *      "version": "0.1.0",
- *      "start": "approach_door",
- *      "ops": {
- *          "approach_door": {
- *              "type": "scope",
- *              "start": "begin",
- *              "ops": {
- *                  "begin": {
- *                      "type": "fork_clone",
- *                      "next": [
- *                          "move_to_door",
- *                          "detect_door_proximity"
- *                      ]
- *                  },
- *                  "move_to_door": {
- *                      "type": "node",
- *                      "builder": "move",
- *                      "config": {
- *                          "place": "L1_north_lobby_outside"
- *                      },
- *                      "next": { "builtin" : "terminate" }
- *                  },
- *                  "detect_proximity": {
- *                      "type": "node",
- *                      "builder": "detect_proximity",
- *                      "config": {
- *                          "type": "door",
- *                          "name": "L1_north_lobby"
- *                      },
- *                      "next": { "builtin" : "terminate" }
- *                  }
- *              },
- *              "next": { "builtin" : "try_open_door" }
- *          }
- *      }
- *  }
- *  # "#)?;
- *  # Ok::<_, serde_json::Error>(())
- *  ```
+ * # Examples
+ * ```
+ * # crossflow::Diagram::from_json_str(r#"
+ * {
+ *     "version": "0.1.0",
+ *     "start": "approach_door",
+ *     "ops": {
+ *         "approach_door": {
+ *             "type": "scope",
+ *             "start": "begin",
+ *             "ops": {
+ *                 "begin": {
+ *                     "type": "fork_clone",
+ *                     "next": [
+ *                         "move_to_door",
+ *                         "detect_door_proximity"
+ *                     ]
+ *                 },
+ *                 "move_to_door": {
+ *                     "type": "node",
+ *                     "builder": "move",
+ *                     "config": {
+ *                         "place": "L1_north_lobby_outside"
+ *                     },
+ *                     "next": { "builtin" : "terminate" }
+ *                 },
+ *                 "detect_proximity": {
+ *                     "type": "node",
+ *                     "builder": "detect_proximity",
+ *                     "config": {
+ *                         "type": "door",
+ *                         "name": "L1_north_lobby"
+ *                     },
+ *                     "next": { "builtin" : "terminate" }
+ *                 }
+ *             },
+ *             "next": { "builtin" : "try_open_door" }
+ *         }
+ *     }
+ * }
+ * # "#)?;
+ * # Ok::<_, serde_json::Error>(())
+ * ```
  *
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "ScopeSchema".
@@ -571,7 +614,7 @@ export interface NodeSchema {
 export interface ScopeSchema {
   /**
    * Override for text that should be displayed for an operation within an
-   *  editor.
+   * editor.
    */
   display_text?: string | null;
   /**
@@ -608,53 +651,53 @@ export interface ScopeSchema {
 export interface ScopeSettings {
   /**
    * Should we prevent the scope from being interrupted (e.g. cancelled)?
-   *  False by default, meaning by default scopes can be cancelled or
-   *  interrupted.
+   * False by default, meaning by default scopes can be cancelled or
+   * interrupted.
    */
   uninterruptible: boolean;
   [k: string]: unknown;
 }
 /**
  * Declare a stream output for the current scope. Outputs that you connect
- *  to this operation will be streamed out of the scope that this operation
- *  is declared in.
+ * to this operation will be streamed out of the scope that this operation
+ * is declared in.
  *
- *  For the root-level scope, make sure you use a stream pack that is
- *  compatible with all stream out operations that you declare, otherwise
- *  you may get a connection error at runtime.
+ * For the root-level scope, make sure you use a stream pack that is
+ * compatible with all stream out operations that you declare, otherwise
+ * you may get a connection error at runtime.
  *
- *  # Examples
- *  ```
- *  # crossflow::Diagram::from_json_str(r#"
- *  {
- *      "version": "0.1.0",
- *      "start": "plan",
- *      "ops": {
- *          "progress_stream": {
- *              "type": "stream_out",
- *              "name": "progress"
- *          },
- *          "plan": {
- *              "type": "node",
- *              "builder": "planner",
- *              "next": "drive",
- *              "stream_out" : {
- *                  "progress": "progress_stream"
- *              }
- *          },
- *          "drive": {
- *              "type": "node",
- *              "builder": "navigation",
- *              "next": { "builtin": "terminate" },
- *              "stream_out": {
- *                  "progress": "progress_stream"
- *              }
- *          }
- *      }
- *  }
- *  # "#)?;
- *  # Ok::<_, serde_json::Error>(())
- *  ```
+ * # Examples
+ * ```
+ * # crossflow::Diagram::from_json_str(r#"
+ * {
+ *     "version": "0.1.0",
+ *     "start": "plan",
+ *     "ops": {
+ *         "progress_stream": {
+ *             "type": "stream_out",
+ *             "name": "progress"
+ *         },
+ *         "plan": {
+ *             "type": "node",
+ *             "builder": "planner",
+ *             "next": "drive",
+ *             "stream_out" : {
+ *                 "progress": "progress_stream"
+ *             }
+ *         },
+ *         "drive": {
+ *             "type": "node",
+ *             "builder": "navigation",
+ *             "next": { "builtin": "terminate" },
+ *             "stream_out": {
+ *                 "progress": "progress_stream"
+ *             }
+ *         }
+ *     }
+ * }
+ * # "#)?;
+ * # Ok::<_, serde_json::Error>(())
+ * ```
  *
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "StreamOutSchema".
@@ -662,7 +705,7 @@ export interface ScopeSettings {
 export interface StreamOutSchema {
   /**
    * Override for text that should be displayed for an operation within an
-   *  editor.
+   * editor.
    */
   display_text?: string | null;
   /**
@@ -680,46 +723,46 @@ export interface StreamOutSchema {
 }
 /**
  * If the request is cloneable, clone it into multiple responses that can
- *  each be sent to a different operation. The `next` property is an array.
+ * each be sent to a different operation. The `next` property is an array.
  *
- *  This creates multiple simultaneous branches of execution within the
- *  workflow. Usually when you have multiple branches you will either
- *  * race - connect all branches to `terminate` and the first branch to
- *    finish "wins" the race and gets to the be output
- *  * join - connect each branch into a buffer and then use the `join`
- *    operation to reunite them
- *  * collect - TODO(@mxgrey): [add the collect operation](https://github.com/open-rmf/crossflow/issues/59)
+ * This creates multiple simultaneous branches of execution within the
+ * workflow. Usually when you have multiple branches you will either
+ * * race - connect all branches to `terminate` and the first branch to
+ *   finish "wins" the race and gets to the be output
+ * * join - connect each branch into a buffer and then use the `join`
+ *   operation to reunite them
+ * * collect - TODO(@mxgrey): [add the collect operation](https://github.com/open-rmf/crossflow/issues/59)
  *
- *  # Examples
- *  ```
- *  # crossflow::Diagram::from_json_str(r#"
- *  {
- *      "version": "0.1.0",
- *      "start": "begin_race",
- *      "ops": {
- *          "begin_race": {
- *              "type": "fork_clone",
- *              "next": [
- *                  "ferrari",
- *                  "mustang"
- *              ]
- *          },
- *          "ferrari": {
- *              "type": "node",
- *              "builder": "drive",
- *              "config": "ferrari",
- *              "next": { "builtin": "terminate" }
- *          },
- *          "mustang": {
- *              "type": "node",
- *              "builder": "drive",
- *              "config": "mustang",
- *              "next": { "builtin": "terminate" }
- *          }
- *      }
- *  }
- *  # "#)?;
- *  # Ok::<_, serde_json::Error>(())
+ * # Examples
+ * ```
+ * # crossflow::Diagram::from_json_str(r#"
+ * {
+ *     "version": "0.1.0",
+ *     "start": "begin_race",
+ *     "ops": {
+ *         "begin_race": {
+ *             "type": "fork_clone",
+ *             "next": [
+ *                 "ferrari",
+ *                 "mustang"
+ *             ]
+ *         },
+ *         "ferrari": {
+ *             "type": "node",
+ *             "builder": "drive",
+ *             "config": "ferrari",
+ *             "next": { "builtin": "terminate" }
+ *         },
+ *         "mustang": {
+ *             "type": "node",
+ *             "builder": "drive",
+ *             "config": "mustang",
+ *             "next": { "builtin": "terminate" }
+ *         }
+ *     }
+ * }
+ * # "#)?;
+ * # Ok::<_, serde_json::Error>(())
  *
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "ForkCloneSchema".
@@ -727,7 +770,7 @@ export interface StreamOutSchema {
 export interface ForkCloneSchema {
   /**
    * Override for text that should be displayed for an operation within an
-   *  editor.
+   * editor.
    */
   display_text?: string | null;
   /**
@@ -742,60 +785,62 @@ export interface ForkCloneSchema {
 }
 /**
  * If the input message is a tuple of (T1, T2, T3, ...), unzip it into
- *  multiple output messages of T1, T2, T3, ...
+ * multiple output messages of T1, T2, T3, ...
  *
- *  Each output message may have a different type and can be sent to a
- *  different operation. This creates multiple simultaneous branches of
- *  execution within the workflow. See [`DiagramOperation::ForkClone`] for
- *  more information on parallel branches.
+ * Each output message may have a different type and can be sent to a
+ * different operation. This creates multiple simultaneous branches of
+ * execution within the workflow. See [`DiagramOperation::ForkClone`] for
+ * more information on parallel branches.
  *
- *  # Examples
- *  ```
- *  # crossflow::Diagram::from_json_str(r#"
- *  {
- *      "version": "0.1.0",
- *      "start": "name_phone_address",
- *      "ops": {
- *          "name_phone_address": {
- *              "type": "unzip",
- *              "next": [
- *                  "process_name",
- *                  "process_phone_number",
- *                  "process_address"
- *              ]
- *          },
- *          "process_name": {
- *              "type": "node",
- *              "builder": "process_name",
- *              "next": "name_processed"
- *          },
- *          "process_phone_number": {
- *              "type": "node",
- *              "builder": "process_phone_number",
- *              "next": "phone_number_processed"
- *          },
- *          "process_address": {
- *              "type": "node",
- *              "builder": "process_address",
- *              "next": "address_processed"
- *          },
- *          "name_processed": { "type": "buffer" },
- *          "phone_number_processed": { "type": "buffer" },
- *          "address_processed": { "type": "buffer" },
- *          "finished": {
- *              "type": "join",
- *              "buffers": [
- *                  "name_processed",
- *                  "phone_number_processed",
- *                  "address_processed"
- *              ],
- *              "next": { "builtin": "terminate" }
- *          }
- *      }
- *  }
- *  # "#)?;
- *  # Ok::<_, serde_json::Error>(())
- *  ```
+ * # Examples
+ * ```
+ * # crossflow::Diagram::from_json_str(r#"
+ * {
+ *     "version": "0.1.0",
+ *     "start": "name_phone_address",
+ *     "ops": {
+ *         "name_phone_address": {
+ *             "type": "unzip",
+ *             "next": [
+ *                 "process_name",
+ *                 "process_phone_number",
+ *                 "process_address"
+ *             ]
+ *         },
+ *         "process_name": {
+ *             "type": "node",
+ *             "builder": "process_name",
+ *             "next": "name_processed"
+ *         },
+ *         "process_phone_number": {
+ *             "type": "node",
+ *             "builder": "process_phone_number",
+ *             "next": "phone_number_processed"
+ *         },
+ *         "process_address": {
+ *             "type": "node",
+ *             "builder": "process_address",
+ *             "next": "address_processed"
+ *         },
+ *         "name_processed": { "type": "buffer" },
+ *         "phone_number_processed": { "type": "buffer" },
+ *         "address_processed": { "type": "buffer" },
+ *         "finished": {
+ *             "type": "join",
+ *             "buffers": [
+ *                 "name_processed",
+ *                 "phone_number_processed",
+ *                 "address_processed"
+ *             ],
+ *             "next": { "builtin": "terminate" }
+ *         }
+ *     }
+ * }
+ * # "#)?;
+ * # Ok::<_, serde_json::Error>(())
+ * ```
+ *
+ * [`DiagramOperation::ForkClone`]: super::DiagramOperation::ForkClone
  *
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "UnzipSchema".
@@ -803,7 +848,7 @@ export interface ForkCloneSchema {
 export interface UnzipSchema {
   /**
    * Override for text that should be displayed for an operation within an
-   *  editor.
+   * editor.
    */
   display_text?: string | null;
   /**
@@ -818,30 +863,30 @@ export interface UnzipSchema {
 }
 /**
  * If the request is a [`Result<T, E>`], send the output message down an
- *  `ok` branch or down an `err` branch depending on whether the result has
- *  an [`Ok`] or [`Err`] value. The `ok` branch will receive a `T` while the
- *  `err` branch will receive an `E`.
+ * `ok` branch or down an `err` branch depending on whether the result has
+ * an [`Ok`] or [`Err`] value. The `ok` branch will receive a `T` while the
+ * `err` branch will receive an `E`.
  *
- *  Only one branch will be activated by each input message that enters the
- *  operation.
+ * Only one branch will be activated by each input message that enters the
+ * operation.
  *
- *  # Examples
- *  ```
- *  # crossflow::Diagram::from_json_str(r#"
- *  {
- *      "version": "0.1.0",
- *      "start": "fork_result",
- *      "ops": {
- *          "fork_result": {
- *              "type": "fork_result",
- *              "ok": { "builtin": "terminate" },
- *              "err": { "builtin": "dispose" }
- *          }
- *      }
- *  }
- *  # "#)?;
- *  # Ok::<_, serde_json::Error>(())
- *  ```
+ * # Examples
+ * ```
+ * # crossflow::Diagram::from_json_str(r#"
+ * {
+ *     "version": "0.1.0",
+ *     "start": "fork_result",
+ *     "ops": {
+ *         "fork_result": {
+ *             "type": "fork_result",
+ *             "ok": { "builtin": "terminate" },
+ *             "err": { "builtin": "dispose" }
+ *         }
+ *     }
+ * }
+ * # "#)?;
+ * # Ok::<_, serde_json::Error>(())
+ * ```
  *
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "ForkResultSchema".
@@ -849,7 +894,7 @@ export interface UnzipSchema {
 export interface ForkResultSchema {
   /**
    * Override for text that should be displayed for an operation within an
-   *  editor.
+   * editor.
    */
   display_text?: string | null;
   err: NextOperation;
@@ -865,70 +910,70 @@ export interface ForkResultSchema {
 }
 /**
  * If the input message is a list-like or map-like object, split it into
- *  multiple output messages.
+ * multiple output messages.
  *
- *  Note that the type of output message from the split depends on how the
- *  input message implements the [`Splittable`][1] trait. In many cases this
- *  will be a tuple of `(key, value)`.
+ * Note that the type of output message from the split depends on how the
+ * input message implements the [`Splittable`][1] trait. In many cases this
+ * will be a tuple of `(key, value)`.
  *
- *  There are three ways to specify where the split output messages should
- *  go, and all can be used at the same time:
- *  * `sequential` - For array-like collections, send the "first" element of
- *    the collection to the first operation listed in the `sequential` array.
- *    The "second" element of the collection goes to the second operation
- *    listed in the `sequential` array. And so on for all elements in the
- *    collection. If one of the elements in the collection is mentioned in
- *    the `keyed` set, then the sequence will pass over it as if the element
- *    does not exist at all.
- *  * `keyed` - For map-like collections, send the split element associated
- *    with the specified key to its associated output.
- *  * `remaining` - Any elements that are were not captured by `sequential`
- *    or by `keyed` will be sent to this.
+ * There are three ways to specify where the split output messages should
+ * go, and all can be used at the same time:
+ * * `sequential` - For array-like collections, send the "first" element of
+ *   the collection to the first operation listed in the `sequential` array.
+ *   The "second" element of the collection goes to the second operation
+ *   listed in the `sequential` array. And so on for all elements in the
+ *   collection. If one of the elements in the collection is mentioned in
+ *   the `keyed` set, then the sequence will pass over it as if the element
+ *   does not exist at all.
+ * * `keyed` - For map-like collections, send the split element associated
+ *   with the specified key to its associated output.
+ * * `remaining` - Any elements that are were not captured by `sequential`
+ *   or by `keyed` will be sent to this.
  *
- *  [1]: crate::Splittable
+ * [1]: crate::Splittable
  *
- *  # Examples
+ * # Examples
  *
- *  Suppose I am an animal rescuer sorting through a new collection of
- *  animals that need recuing. My home has space for three exotic animals
- *  plus any number of dogs and cats.
+ * Suppose I am an animal rescuer sorting through a new collection of
+ * animals that need recuing. My home has space for three exotic animals
+ * plus any number of dogs and cats.
  *
- *  I have a custom `SpeciesCollection` data structure that implements
- *  [`Splittable`][1] by allowing you to key on the type of animal.
+ * I have a custom `SpeciesCollection` data structure that implements
+ * [`Splittable`][1] by allowing you to key on the type of animal.
  *
- *  In the workflow below, we send all cats and dogs to `home`, and we also
- *  send the first three non-dog and non-cat species to `home`. All
- *  remaining animals go to the zoo.
+ * In the workflow below, we send all cats and dogs to `home`, and we also
+ * send the first three non-dog and non-cat species to `home`. All
+ * remaining animals go to the zoo.
  *
- *  ```
- *  # crossflow::Diagram::from_json_str(r#"
- *  {
- *      "version": "0.1.0",
- *      "start": "select_animals",
- *      "ops": {
- *          "select_animals": {
- *              "type": "split",
- *              "sequential": [
- *                  "home",
- *                  "home",
- *                  "home"
- *              ],
- *              "keyed": {
- *                  "cat": "home",
- *                  "dog": "home"
- *              },
- *              "remaining": "zoo"
- *          }
- *      }
- *  }
- *  # "#)?;
- *  # Ok::<_, serde_json::Error>(())
- *  ```
+ * ```
+ * # crossflow::Diagram::from_json_str(r#"
+ * {
+ *     "version": "0.1.0",
+ *     "start": "select_animals",
+ *     "ops": {
+ *         "select_animals": {
+ *             "type": "split",
+ *             "sequential": [
+ *                 "home",
+ *                 "home",
+ *                 "home"
+ *             ],
+ *             "keyed": {
+ *                 "cat": "home",
+ *                 "dog": "home"
+ *             },
+ *             "remaining": "zoo"
+ *         }
+ *     }
+ * }
+ * # "#)?;
+ * # Ok::<_, serde_json::Error>(())
+ * ```
  *
- *  If we input `["frog", "cat", "bear", "beaver", "dog", "rabbit", "dog", "monkey"]`
- *  then `frog`, `bear`, and `beaver` will be sent to `home` since those are
- *  the first three animals that are not `dog` or `cat`, and we will also
- *  send one `cat` and two `dog` home. `rabbit` and `monkey` will be sent to the zoo.
+ * If we input `["frog", "cat", "bear", "beaver", "dog", "rabbit", "dog", "monkey"]`
+ * then `frog`, `bear`, and `beaver` will be sent to `home` since those are
+ * the first three animals that are not `dog` or `cat`, and we will also
+ * send one `cat` and two `dog` home. `rabbit` and `monkey` will be sent to the zoo.
  *
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "SplitSchema".
@@ -936,7 +981,7 @@ export interface ForkResultSchema {
 export interface SplitSchema {
   /**
    * Override for text that should be displayed for an operation within an
-   *  editor.
+   * editor.
    */
   display_text?: string | null;
   /**
@@ -955,55 +1000,55 @@ export interface SplitSchema {
 }
 /**
  * Wait for exactly one item to be available in each buffer listed in
- *  `buffers`, then join each of those items into a single output message
- *  that gets sent to `next`.
+ * `buffers`, then join each of those items into a single output message
+ * that gets sent to `next`.
  *
- *  If the `next` operation is not a `node` type (e.g. `fork_clone`) then
- *  you must specify a `target_node` so that the diagram knows what data
- *  structure to join the values into.
+ * If the `next` operation is not a `node` type (e.g. `fork_clone`) then
+ * you must specify a `target_node` so that the diagram knows what data
+ * structure to join the values into.
  *
- *  # Examples
- *  ```
- *  # crossflow::Diagram::from_json_str(r#"
- *  {
- *      "version": "0.1.0",
- *      "start": "begin_measuring",
- *      "ops": {
- *          "begin_measuring": {
- *              "type": "fork_clone",
- *              "next": ["localize", "imu"]
- *          },
- *          "localize": {
- *              "type": "node",
- *              "builder": "localize",
- *              "next": "estimated_position"
- *          },
- *          "imu": {
- *              "type": "node",
- *              "builder": "imu",
- *              "config": "velocity",
- *              "next": "estimated_velocity"
- *          },
- *          "estimated_position": { "type": "buffer" },
- *          "estimated_velocity": { "type": "buffer" },
- *          "gather_state": {
- *              "type": "join",
- *              "buffers": {
- *                  "position": "estimate_position",
- *                  "velocity": "estimate_velocity"
- *              },
- *              "next": "report_state"
- *          },
- *          "report_state": {
- *              "type": "node",
- *              "builder": "publish_state",
- *              "next": { "builtin": "terminate" }
- *          }
- *      }
- *  }
- *  # "#)?;
- *  # Ok::<_, serde_json::Error>(())
- *  ```
+ * # Examples
+ * ```
+ * # crossflow::Diagram::from_json_str(r#"
+ * {
+ *     "version": "0.1.0",
+ *     "start": "begin_measuring",
+ *     "ops": {
+ *         "begin_measuring": {
+ *             "type": "fork_clone",
+ *             "next": ["localize", "imu"]
+ *         },
+ *         "localize": {
+ *             "type": "node",
+ *             "builder": "localize",
+ *             "next": "estimated_position"
+ *         },
+ *         "imu": {
+ *             "type": "node",
+ *             "builder": "imu",
+ *             "config": "velocity",
+ *             "next": "estimated_velocity"
+ *         },
+ *         "estimated_position": { "type": "buffer" },
+ *         "estimated_velocity": { "type": "buffer" },
+ *         "gather_state": {
+ *             "type": "join",
+ *             "buffers": {
+ *                 "position": "estimate_position",
+ *                 "velocity": "estimate_velocity"
+ *             },
+ *             "next": "report_state"
+ *         },
+ *         "report_state": {
+ *             "type": "node",
+ *             "builder": "publish_state",
+ *             "next": { "builtin": "terminate" }
+ *         }
+ *     }
+ * }
+ * # "#)?;
+ * # Ok::<_, serde_json::Error>(())
+ * ```
  *
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "JoinSchema".
@@ -1012,14 +1057,14 @@ export interface JoinSchema {
   buffers: BufferSelection;
   /**
    * List of the keys in the `buffers` dictionary whose value should be cloned
-   *  instead of removed from the buffer (pulled) when the join occurs. Cloning
-   *  the value will leave the buffer unchanged after the join operation takes
-   *  place.
+   * instead of removed from the buffer (pulled) when the join occurs. Cloning
+   * the value will leave the buffer unchanged after the join operation takes
+   * place.
    */
   clone?: BufferIdentifier[];
   /**
    * Override for text that should be displayed for an operation within an
-   *  editor.
+   * editor.
    */
   display_text?: string | null;
   /**
@@ -1031,8 +1076,8 @@ export interface JoinSchema {
   next: NextOperation;
   /**
    * Whether or not to automatically serialize the inputs into a single JsonMessage.
-   *  This will only work if all input types are serializable, otherwise you will
-   *  get a [`DiagramError`][super::DiagramError].
+   * This will only work if all input types are serializable, otherwise you will
+   * get a [`DiagramError`][super::DiagramError].
    */
   serialize?: boolean;
   trace?: TraceToggle | null;
@@ -1040,47 +1085,47 @@ export interface JoinSchema {
 }
 /**
  * If the request is serializable, transform it by running it through a [CEL](https://cel.dev/) program.
- *  The context includes a "request" variable which contains the input message.
+ * The context includes a "request" variable which contains the input message.
  *
- *  # Examples
- *  ```
- *  # crossflow::Diagram::from_json_str(r#"
- *  {
- *      "version": "0.1.0",
- *      "start": "transform",
- *      "ops": {
- *          "transform": {
- *              "type": "transform",
- *              "cel": "request.name",
- *              "next": { "builtin": "terminate" }
- *          }
- *      }
- *  }
- *  # "#)?;
- *  # Ok::<_, serde_json::Error>(())
- *  ```
+ * # Examples
+ * ```
+ * # crossflow::Diagram::from_json_str(r#"
+ * {
+ *     "version": "0.1.0",
+ *     "start": "transform",
+ *     "ops": {
+ *         "transform": {
+ *             "type": "transform",
+ *             "cel": "request.name",
+ *             "next": { "builtin": "terminate" }
+ *         }
+ *     }
+ * }
+ * # "#)?;
+ * # Ok::<_, serde_json::Error>(())
+ * ```
  *
- *  Note that due to how `serde_json` performs serialization, positive integers are always
- *  serialized as unsigned. In CEL, You can't do an operation between unsigned and signed so
- *  it is recommended to always perform explicit casts.
+ * Note that due to how `serde_json` performs serialization, positive integers are always
+ * serialized as unsigned. In CEL, You can't do an operation between unsigned and signed so
+ * it is recommended to always perform explicit casts.
  *
- *  # Examples
- *  ```
- *  # crossflow::Diagram::from_json_str(r#"
- *  {
- *      "version": "0.1.0",
- *      "start": "transform",
- *      "ops": {
- *          "transform": {
- *              "type": "transform",
- *              "cel": "int(request.score) * 3",
- *              "next": { "builtin": "terminate" }
- *          }
- *      }
- *  }
- *  # "#)?;
- *  # Ok::<_, serde_json::Error>(())
- *  ```
+ * # Examples
+ * ```
+ * # crossflow::Diagram::from_json_str(r#"
+ * {
+ *     "version": "0.1.0",
+ *     "start": "transform",
+ *     "ops": {
+ *         "transform": {
+ *             "type": "transform",
+ *             "cel": "int(request.score) * 3",
+ *             "next": { "builtin": "terminate" }
+ *         }
+ *     }
+ * }
+ * # "#)?;
+ * # Ok::<_, serde_json::Error>(())
+ * ```
  *
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "TransformSchema".
@@ -1089,7 +1134,7 @@ export interface TransformSchema {
   cel: string;
   /**
    * Override for text that should be displayed for an operation within an
-   *  editor.
+   * editor.
    */
   display_text?: string | null;
   /**
@@ -1106,35 +1151,35 @@ export interface TransformSchema {
 /**
  * Listen on a buffer.
  *
- *  # Examples
- *  ```
- *  # crossflow::Diagram::from_json_str(r#"
- *  {
- *      "version": "0.1.0",
- *      "start": "num_output",
- *      "ops": {
- *          "buffer": {
- *              "type": "buffer"
- *          },
- *          "num_output": {
- *              "type": "node",
- *              "builder": "num_output",
- *              "next": "buffer"
- *          },
- *          "listen": {
- *              "type": "listen",
- *              "buffers": ["buffer"],
- *              "next": "listen_buffer"
- *          },
- *          "listen_buffer": {
- *              "type": "node",
- *              "builder": "listen_buffer",
- *              "next": { "builtin": "terminate" }
- *          }
- *      }
- *  }
- *  # "#)?;
- *  # Ok::<_, serde_json::Error>(())
+ * # Examples
+ * ```
+ * # crossflow::Diagram::from_json_str(r#"
+ * {
+ *     "version": "0.1.0",
+ *     "start": "num_output",
+ *     "ops": {
+ *         "buffer": {
+ *             "type": "buffer"
+ *         },
+ *         "num_output": {
+ *             "type": "node",
+ *             "builder": "num_output",
+ *             "next": "buffer"
+ *         },
+ *         "listen": {
+ *             "type": "listen",
+ *             "buffers": ["buffer"],
+ *             "next": "listen_buffer"
+ *         },
+ *         "listen_buffer": {
+ *             "type": "node",
+ *             "builder": "listen_buffer",
+ *             "next": { "builtin": "terminate" }
+ *         }
+ *     }
+ * }
+ * # "#)?;
+ * # Ok::<_, serde_json::Error>(())
  *
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "ListenSchema".
@@ -1143,7 +1188,7 @@ export interface ListenSchema {
   buffers: BufferSelection;
   /**
    * Override for text that should be displayed for an operation within an
-   *  editor.
+   * editor.
    */
   display_text?: string | null;
   /**
@@ -1171,97 +1216,112 @@ export interface SectionTemplate {
   };
   /**
    * These are the outputs that the section is exposing so you can connect
-   *  them into siblings of the section.
+   * them into siblings of the section.
    */
   outputs?: string[];
   [k: string]: unknown;
 }
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "DiagramElementRegistry".
+ * via the `definition` "DiagramElementMetadata".
  */
-export interface DiagramElementRegistry {
-  messages: {
-    [k: string]: MessageRegistration;
-  };
+export interface DiagramElementMetadata {
+  messages: MessageMetadata[];
   nodes: {
-    [k: string]: NodeRegistration;
+    [k: string]: NodeMetadata;
   };
+  reverse_message_lookup: ReverseMessageLookup;
   schemas: {
     [k: string]: unknown;
   };
   sections: {
-    [k: string]: SectionRegistration;
+    [k: string]: SectionMetadata;
   };
   trace_supported: boolean;
   [k: string]: unknown;
 }
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "MessageRegistration".
+ * via the `definition` "MessageMetadata".
  */
-export interface MessageRegistration {
-  operations: MessageOperation;
+export interface MessageMetadata {
+  operations?: MessageOperationsMetadata | null;
   schema?: Schema | null;
   type_name: string;
   [k: string]: unknown;
 }
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "MessageOperation".
+ * via the `definition` "MessageOperationsMetadata".
  */
-export interface MessageOperation {
+export interface MessageOperationsMetadata {
   deserialize?: {
     [k: string]: unknown;
   } | null;
   fork_clone?: {
     [k: string]: unknown;
   } | null;
-  fork_result?: {
-    [k: string]: unknown;
-  } | null;
-  join?: {
-    [k: string]: unknown;
-  } | null;
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  fork_result?: [number, number] | null;
+  from: number[];
+  into: number[];
+  join?: BufferMapLayoutHints | null;
   serialize?: {
     [k: string]: unknown;
   } | null;
   split?: {
     [k: string]: unknown;
   } | null;
-  unzip?: string[] | null;
+  try_from: number[];
+  try_into: number[];
+  unzip?: number[] | null;
   [k: string]: unknown;
 }
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "NodeRegistration".
+ * via the `definition` "NodeMetadata".
  */
-export interface NodeRegistration {
+export interface NodeMetadata {
+  config_examples: ConfigExample[];
   config_schema: Schema;
   /**
    * If the user does not specify a default display text, the node ID will
-   *  be used here.
+   * be used here.
    */
   default_display_text: string;
   description?: string | null;
-  config_examples: ConfigExample[];
-  request: string;
-  response: string;
+  request: number;
+  response: number;
   streams: {
-    [k: string]: string;
+    [k: string]: number;
   };
   [k: string]: unknown;
 }
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "SectionRegistration".
+ * via the `definition` "ReverseMessageLookup".
  */
-export interface SectionRegistration {
-  config_schema: Schema;
-  default_display_text: string;
-  description?: string | null;
-  config_examples: ConfigExample[];
-  metadata: SectionMetadata;
+export interface ReverseMessageLookup {
+  /**
+   * The index where the [`JsonMessage`] type is registered.
+   */
+  json_message?: number | null;
+  /**
+   * Map from [T, E] output registrations to Result<T, E> registration.
+   */
+  result: [unknown, unknown][];
+  /**
+   * Map from the message type of the item that comes out of a split to all
+   * message types that can be split into it.
+   */
+  split: [unknown, unknown][];
+  /**
+   * Map from the unzipped types to the original zipped type.
+   */
+  unzip: [unknown, unknown][];
   [k: string]: unknown;
 }
 /**
@@ -1269,6 +1329,18 @@ export interface SectionRegistration {
  * via the `definition` "SectionMetadata".
  */
 export interface SectionMetadata {
+  config_examples: ConfigExample[];
+  config_schema: Schema;
+  default_display_text: string;
+  description?: string | null;
+  interface: SectionInterface;
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "SectionInterface".
+ */
+export interface SectionInterface {
   buffers: {
     [k: string]: SectionBuffer;
   };
@@ -1285,7 +1357,7 @@ export interface SectionMetadata {
  * via the `definition` "SectionBuffer".
  */
 export interface SectionBuffer {
-  item_type?: string | null;
+  message_type?: number | null;
   [k: string]: unknown;
 }
 /**
@@ -1293,7 +1365,7 @@ export interface SectionBuffer {
  * via the `definition` "SectionInput".
  */
 export interface SectionInput {
-  message_type: string;
+  message_type: number;
   [k: string]: unknown;
 }
 /**
@@ -1301,7 +1373,7 @@ export interface SectionInput {
  * via the `definition` "SectionOutput".
  */
 export interface SectionOutput {
-  message_type: string;
+  message_type: number;
   [k: string]: unknown;
 }
 /**

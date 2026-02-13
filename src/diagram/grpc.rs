@@ -79,13 +79,6 @@ pub struct GrpcStreams {
     canceller: UnboundedSender<Option<String>>,
 }
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum NameOrIndex {
-    Name(Arc<str>),
-    Index(usize),
-}
-
 /// A wrapper struct that will have a tokio task get aborted when dropped.
 #[derive(Debug, Deref, DerefMut)]
 pub struct AbortOnDrop<T>(pub JoinHandle<T>);
@@ -149,56 +142,62 @@ impl DiagramElementRegistry {
     /// ```
     pub fn enable_grpc(&mut self, runtime: Arc<Runtime>) {
         let rt = Arc::clone(&runtime);
-        self.register_node_builder_fallible(
-            NodeBuilderOptions::new("grpc_request").with_default_display_text("gRPC Request"),
-            move |builder, config: GrpcConfig| {
-                let GrpcDescriptions {
-                    method,
-                    codec,
-                    path,
-                } = get_descriptions(&config)?;
+        self.opt_out()
+            .no_serializing()
+            .no_deserializing()
+            .register_node_builder_fallible(
+                NodeBuilderOptions::new("grpc_request").with_default_display_text("gRPC Request"),
+                move |builder, config: GrpcConfig| {
+                    let GrpcDescriptions {
+                        method,
+                        codec,
+                        path,
+                    } = get_descriptions(&config)?;
 
-                let uri: Box<[u8]> = config.uri.as_bytes().into();
-                let client = make_client(uri).shared();
-                let is_server_streaming = method.is_server_streaming();
-                let path = PathAndQuery::from_maybe_shared(path.clone())?;
+                    let uri: Box<[u8]> = config.uri.as_bytes().into();
+                    let client = make_client(uri).shared();
+                    let is_server_streaming = method.is_server_streaming();
+                    let path = PathAndQuery::from_maybe_shared(path.clone())?;
 
-                let rt = Arc::clone(&rt);
-                let node = builder.create_map(move |input: AsyncMap<JsonMessage, GrpcStreams>| {
-                    let client = client.clone();
-                    let codec = codec.clone();
-                    let path = path.clone();
+                    let rt = Arc::clone(&rt);
+                    let node =
+                        builder.create_map(move |input: AsyncMap<JsonMessage, GrpcStreams>| {
+                            let client = client.clone();
+                            let codec = codec.clone();
+                            let path = path.clone();
 
-                    // The tonic gRPC client needs to be run inside a tokio
-                    // async runtime, so we spawn a tokio task here and use the
-                    // JoinHandle to pass its result through the workflow.
-                    let task = rt
-                        .spawn(async move {
-                            let client = client.await?;
+                            // The tonic gRPC client needs to be run inside a tokio
+                            // async runtime, so we spawn a tokio task here and use the
+                            // JoinHandle to pass its result through the workflow.
+                            let task = rt
+                                .spawn(async move {
+                                    let client = client.await?;
 
-                            // Convert the request message into a stream of a single dynamic message
-                            let request = input.request;
-                            let request = Request::new(once(async move { request }));
-                            execute(
-                                request,
-                                client,
-                                codec,
-                                path,
-                                config.timeout,
-                                input.streams,
-                                is_server_streaming,
-                            )
-                            .await
-                        })
-                        .abort_on_drop();
+                                    // Convert the request message into a stream of a single dynamic message
+                                    let request = input.request;
+                                    let request = Request::new(once(async move { request }));
+                                    execute(
+                                        request,
+                                        client,
+                                        codec,
+                                        path,
+                                        config.timeout,
+                                        input.streams,
+                                        is_server_streaming,
+                                    )
+                                    .await
+                                })
+                                .abort_on_drop();
 
-                    async move { task.await.map_err(|e| format!("{e}")).flatten() }
-                });
+                            async move { task.await.map_err(|e| format!("{e}")).flatten() }
+                        });
 
-                Ok(node)
-            },
-        )
-        .with_result();
+                    Ok(node)
+                },
+            )
+            .with_common_request()
+            .with_common_response()
+            .with_result();
 
         let rt = runtime;
         self.opt_out()
@@ -255,7 +254,10 @@ impl DiagramElementRegistry {
                     Ok(node)
                 },
             )
+            .with_common_response()
             .with_result();
+
+        self.register_message::<Option<String>>();
 
         // TODO(@mxgrey): Support dynamic gRPC requests whose configurations are
         // decided within the workflow and passed into the node as input.
@@ -682,13 +684,13 @@ mod tests {
 
         fixture
             .registry
+            .opt_out()
+            .minimal()
             .register_node_builder(NodeBuilderOptions::new("guide"), create_guide_to_goal);
         fixture
             .registry
             .opt_out()
-            .no_serializing()
-            .no_deserializing()
-            .no_cloning()
+            .minimal()
             .register_message::<GoalTracker>();
 
         let reached_listener = fixture

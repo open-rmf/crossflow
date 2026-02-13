@@ -34,7 +34,7 @@ pub(crate) fn impl_derive_stream(stream_struct: &ItemStruct) -> Result<TokenStre
             type StreamReceivers = #from_anonymous_stream_pack::StreamReceivers;
             type StreamChannels = #from_anonymous_stream_pack::StreamChannels;
             type StreamBuffers = #from_anonymous_stream_pack::StreamBuffers;
-
+            type StreamTypes = (Self,);
 
             fn spawn_scope_streams(
                 in_scope: ::crossflow::re_exports::Entity,

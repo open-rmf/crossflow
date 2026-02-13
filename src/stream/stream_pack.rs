@@ -49,6 +49,12 @@ pub trait StreamPack: 'static + Send + Sync {
     type StreamReceivers: Send + Sync;
     type StreamChannels: Send;
     type StreamBuffers: Clone;
+    /// A tuple of all the stream types contained in the pack. This is used to
+    /// help the diagram registry perform message registration for messages in
+    /// the stream pack.
+    ///
+    /// This will not be implemented correctly for nested tuple stream packs.
+    type StreamTypes;
 
     fn spawn_scope_streams(
         in_scope: Entity,
@@ -115,6 +121,7 @@ impl StreamPack for () {
     type StreamReceivers = ();
     type StreamChannels = ();
     type StreamBuffers = ();
+    type StreamTypes = ();
 
     fn spawn_scope_streams(
         _: Entity,
@@ -195,6 +202,7 @@ macro_rules! impl_streampack_for_tuple {
             type StreamReceivers = ($($T::StreamReceivers,)*);
             type StreamChannels = ($($T::StreamChannels,)*);
             type StreamBuffers = ($($T::StreamBuffers,)*);
+            type StreamTypes = ($($T,)*);
 
             fn spawn_scope_streams(
                 in_scope: Entity,

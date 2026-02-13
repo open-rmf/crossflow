@@ -16,11 +16,14 @@
 */
 
 mod buffer_schema;
+mod diagram_context;
 mod fork_clone_schema;
 mod fork_result_schema;
+mod inference;
 mod join_schema;
 mod node_schema;
 mod operation_ref;
+mod output_ref;
 mod registration;
 mod scope_schema;
 mod section_schema;
@@ -40,12 +43,15 @@ pub mod zenoh;
 
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::system::Commands;
-pub use buffer_schema::{BufferAccessSchema, BufferSchema, ListenSchema};
+pub use buffer_schema::*;
+pub use diagram_context::*;
 pub use fork_clone_schema::{DynForkClone, ForkCloneSchema, RegisterClone};
 pub use fork_result_schema::{DynForkResult, ForkResultSchema};
-pub use join_schema::JoinSchema;
+pub use inference::*;
+pub use join_schema::{JoinRegistration, JoinSchema};
 pub use node_schema::NodeSchema;
 pub use operation_ref::*;
+pub use output_ref::*;
 pub use registration::*;
 pub use scope_schema::*;
 pub use section_schema::*;
@@ -117,6 +123,11 @@ impl NextOperation {
         NextOperation::Builtin {
             builtin: BuiltinTarget::Terminate,
         }
+    }
+
+    pub fn in_namespace(&self, namespace: &OperationName) -> OperationRef {
+        let op: OperationRef = self.into();
+        op.in_namespaces(&[Arc::clone(namespace)])
     }
 }
 
@@ -218,16 +229,42 @@ impl JsonSchema for NamespacedOperation {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", untagged)]
-pub enum BufferSelection {
-    Dict(HashMap<String, NextOperation>),
-    Array(Vec<NextOperation>),
+pub enum BufferSelection<Identifier = NextOperation> {
+    Dict(HashMap<String, Identifier>),
+    Array(Vec<Identifier>),
 }
 
-impl BufferSelection {
+impl<Identifier> BufferSelection<Identifier> {
     pub fn is_empty(&self) -> bool {
         match self {
             Self::Dict(d) => d.is_empty(),
             Self::Array(a) => a.is_empty(),
+        }
+    }
+
+    pub fn iter(&self) -> BufferSelectionIter<'_, Identifier> {
+        match self {
+            Self::Dict(dict) => BufferSelectionIter::Dict(dict.iter()),
+            Self::Array(array) => BufferSelectionIter::Array(array.iter().enumerate()),
+        }
+    }
+}
+
+pub enum BufferSelectionIter<'a, Identifier> {
+    Dict(std::collections::hash_map::Iter<'a, String, Identifier>),
+    Array(std::iter::Enumerate<std::slice::Iter<'a, Identifier>>),
+}
+
+impl<'a, Identifier> Iterator for BufferSelectionIter<'a, Identifier> {
+    type Item = (BufferIdentifier<'a>, &'a Identifier);
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Dict(dict) => dict
+                .next()
+                .map(|(name, id)| (BufferIdentifier::Name(Cow::Borrowed(name.as_str())), id)),
+            Self::Array(array) => array
+                .next()
+                .map(|(index, id)| (BufferIdentifier::Index(index), id)),
         }
     }
 }
@@ -307,7 +344,7 @@ impl BuildDiagramOperation for DiagramOperation {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         match self {
             Self::Buffer(op) => op.build_diagram_operation(id, ctx),
@@ -323,6 +360,28 @@ impl BuildDiagramOperation for DiagramOperation {
             Self::StreamOut(op) => op.build_diagram_operation(id, ctx),
             Self::Transform(op) => op.build_diagram_operation(id, ctx),
             Self::Unzip(op) => op.build_diagram_operation(id, ctx),
+        }
+    }
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        match self {
+            Self::Buffer(op) => op.apply_message_type_constraints(id, ctx),
+            Self::BufferAccess(op) => op.apply_message_type_constraints(id, ctx),
+            Self::ForkClone(op) => op.apply_message_type_constraints(id, ctx),
+            Self::ForkResult(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Join(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Listen(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Node(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Scope(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Section(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Split(op) => op.apply_message_type_constraints(id, ctx),
+            Self::StreamOut(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Transform(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Unzip(op) => op.apply_message_type_constraints(id, ctx),
         }
     }
 }
@@ -641,6 +700,15 @@ impl Diagram {
 
         Ok(())
     }
+
+    /// Get how implicit errors will be handled in the root scope of this diagram.
+    pub fn on_implicit_error(&self) -> NextOperation {
+        self.on_implicit_error
+            .clone()
+            .unwrap_or(NextOperation::Builtin {
+                builtin: BuiltinTarget::Cancel,
+            })
+    }
 }
 
 #[derive(Debug, Clone, Default, JsonSchema, Serialize, Deserialize, Deref, DerefMut)]
@@ -779,40 +847,61 @@ pub struct DiagramError {
 }
 
 impl DiagramError {
-    pub fn in_operation(op_id: impl Into<OperationRef>, code: DiagramErrorCode) -> Self {
+    pub fn in_port(port_id: impl Into<PortRef>, code: DiagramErrorCode) -> Self {
         Self {
             context: DiagramErrorContext {
-                op_id: Some(op_id.into()),
+                port_id: Some(port_id.into()),
             },
             code,
         }
     }
 }
 
-#[derive(Debug)]
+pub trait WithContext {
+    type Ok;
+    fn in_port<P: Into<PortRef>, F: FnOnce() -> P>(self, f: F) -> Result<Self::Ok, DiagramError>;
+}
+
+impl<T> WithContext for Result<T, DiagramErrorCode> {
+    type Ok = T;
+    fn in_port<P: Into<PortRef>, F: FnOnce() -> P>(self, f: F) -> Result<T, DiagramError> {
+        match self {
+            Ok(ok) => Ok(ok),
+            Err(err) => Err(err.in_port(f().into())),
+        }
+    }
+}
+
+#[derive(Default, Debug)]
 pub struct DiagramErrorContext {
-    op_id: Option<OperationRef>,
+    port_id: Option<PortRef>,
 }
 
 impl Display for DiagramErrorContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(op_id) = &self.op_id {
+        if let Some(op_id) = &self.port_id {
             write!(f, "in operation [{}],", op_id)?;
         }
         Ok(())
     }
 }
 
-#[derive(ThisError, Debug)]
+#[derive(Clone, ThisError, Debug)]
 pub enum DiagramErrorCode {
     #[error("node builder [{0}] is not registered")]
     BuilderNotFound(BuilderId),
 
     #[error("node builder [{builder}] encountered an error: {error}")]
-    NodeBuildingError { builder: BuilderId, error: Anyhow },
+    NodeBuildingError {
+        builder: BuilderId,
+        error: Arc<Anyhow>,
+    },
 
     #[error("section builder [{builder}] encountered an error: {error}")]
-    SectionBuildingError { builder: BuilderId, error: Anyhow },
+    SectionBuildingError {
+        builder: BuilderId,
+        error: Arc<Anyhow>,
+    },
 
     #[error("operation [{0}] not found")]
     OperationNotFound(NextOperation),
@@ -837,6 +926,12 @@ pub enum DiagramErrorCode {
     )]
     MissingStartOrTerminate,
 
+    #[error("Operation [{0}] has no connections")]
+    NoConnection(OperationRef),
+
+    #[error("Cannot select message type. Choices: {}", format_list(.0))]
+    AmbiguousMessageType(Vec<Cow<'static, str>>),
+
     #[error("Serialization was not registered for the target message type.")]
     NotSerializable(TypeInfo),
 
@@ -844,34 +939,31 @@ pub enum DiagramErrorCode {
     NotDeserializable(TypeInfo),
 
     #[error("Cloning was not registered for the target message type. Type: {0}")]
-    NotCloneable(TypeInfo),
+    NotCloneable(Cow<'static, str>),
 
     #[error("The target message type does not support unzipping. Type: {0}")]
-    NotUnzippable(TypeInfo),
+    NotUnzippable(Cow<'static, str>),
 
-    #[error(
-        "The number of elements in the unzip expected by the diagram [{expected}] is different from the real number [{actual}]"
-    )]
-    UnzipMismatch {
-        expected: usize,
-        actual: usize,
-        elements: Vec<TypeInfo>,
+    #[error("The unzipped message [{message}] does not have the requested element [{element}]")]
+    InvalidUnzip {
+        message: Cow<'static, str>,
+        element: usize,
     },
 
     #[error(
         "Call .with_result() on your node to be able to fork its Result-type output. Type: {0}"
     )]
-    CannotForkResult(TypeInfo),
+    CannotForkResult(Cow<'static, str>),
 
     #[error(
         "Response cannot be split. Make sure to use .with_split() when building the node. Type: {0}"
     )]
-    NotSplittable(TypeInfo),
+    NotSplittable(Cow<'static, str>),
 
     #[error(
         "Message cannot be joined. Make sure to use .with_join() when building the target node. Type: {0}"
     )]
-    NotJoinable(TypeInfo),
+    NotJoinable(Cow<'static, str>),
 
     #[error("Empty join is not allowed.")]
     EmptyJoin,
@@ -882,16 +974,25 @@ pub enum DiagramErrorCode {
         available: Vec<BufferIdentifier<'static>>,
     },
 
-    #[error(
-        "Target type cannot be determined from [next] and [target_node] is not provided or cannot be inferred from."
-    )]
-    UnknownTarget,
-
     #[error("There was an attempt to connect to an unknown operation: [{0}]")]
     UnknownOperation(OperationRef),
 
     #[error("There was an attempt to use an unknown section template: [{0}]")]
     UnknownTemplate(OperationName),
+
+    #[error("Could not find port in inference graph: [{0}]")]
+    UnknownPort(PortRef),
+
+    #[error("There is no valid message type for port [{0}]")]
+    CannotInferType(PortRef),
+
+    #[error("Unknown message type index: {index}. Limit: {limit}")]
+    UnknownMessageTypeIndex { index: usize, limit: usize },
+
+    #[error(
+        "The message type for port [{0}] was never inferred. This suggests an implementation error in an operation."
+    )]
+    MessageTypeNotInferred(PortRef),
 
     #[error("There was an attempt to use an operation in an invalid way: [{0}]")]
     InvalidOperation(OperationRef),
@@ -903,10 +1004,10 @@ pub enum DiagramErrorCode {
     CannotBoxOrUnbox,
 
     #[error("buffer access is not registered for {0}")]
-    CannotAccessBuffers(TypeInfo),
+    CannotAccessBuffers(Cow<'static, str>),
 
     #[error("listening is not registered for {0}")]
-    CannotListen(TypeInfo),
+    CannotListen(Cow<'static, str>),
 
     #[error(transparent)]
     IncompatibleBuffers(#[from] IncompatibleLayout),
@@ -926,21 +1027,21 @@ pub enum DiagramErrorCode {
     IncompleteDiagram,
 
     #[error("the config of the operation has an error: {0}")]
-    ConfigError(serde_json::Error),
+    ConfigError(Arc<serde_json::Error>),
 
     #[error("failed to create trace info for the operation: {0}")]
-    TraceInfoError(serde_json::Error),
+    TraceInfoError(Arc<serde_json::Error>),
 
     #[error(transparent)]
     ConnectionError(#[from] SplitConnectionError),
 
-    #[error("a type being used in the diagram was not registered {0}")]
-    UnregisteredType(TypeInfo),
+    #[error("a type being used in the diagram was not registered: {}", format_list(&.0))]
+    UnregisteredTypes(Vec<Cow<'static, str>>),
 
     #[error("The build of the workflow came to a halt, reasons:\n{reasons:?}")]
     BuildHalted {
         /// Reasons that operations were unable to make progress building
-        reasons: HashMap<OperationRef, Cow<'static, str>>,
+        reasons: HashMap<OperationRef, DiagramErrorCode>,
     },
 
     #[error(
@@ -953,7 +1054,7 @@ pub enum DiagramErrorCode {
     InvalidUseOfReservedName(&'static str),
 
     #[error("an error happened while building a nested diagram: {0}")]
-    NestedError(Box<DiagramError>),
+    NestedError(Arc<DiagramError>),
 
     #[error("A circular redirection exists between operations: {}", format_list(&.0))]
     CircularRedirect(Vec<OperationRef>),
@@ -966,6 +1067,9 @@ pub enum DiagramErrorCode {
 
     #[error("An error occurred while creating a scope: {0}")]
     IncrementalScopeError(#[from] IncrementalScopeError),
+
+    #[error("Unable to infer message types within the diagram: {0}")]
+    MessageTypeInferenceFailure(MessageTypeInferenceFailure),
 }
 
 fn format_list<T: std::fmt::Display>(list: &[T]) -> String {
@@ -980,7 +1084,7 @@ fn format_list<T: std::fmt::Display>(list: &[T]) -> String {
 impl From<DiagramErrorCode> for DiagramError {
     fn from(code: DiagramErrorCode) -> Self {
         DiagramError {
-            context: DiagramErrorContext { op_id: None },
+            context: DiagramErrorContext::default(),
             code,
         }
     }
@@ -991,22 +1095,67 @@ impl DiagramErrorCode {
         DiagramErrorCode::OperationNotFound(NextOperation::Name(name))
     }
 
-    pub fn in_operation(self, op_id: OperationRef) -> DiagramError {
-        DiagramError::in_operation(op_id, self)
+    pub fn in_port(self, port_id: impl Into<PortRef>) -> DiagramError {
+        DiagramError::in_port(port_id, self)
+    }
+}
+
+// TODO(@mxgrey): Add explainability to this error. E.g. say in plain words why
+// there was no valid choice.
+#[derive(Clone, ThisError, Default)]
+pub struct MessageTypeInferenceFailure {
+    pub no_valid_choice: Vec<PortRef>,
+    pub ambiguous_choice: Vec<(PortRef, Vec<Arc<str>>)>,
+    pub constraints: HashMap<PortRef, Option<Arc<dyn MessageTypeConstraint>>>,
+}
+
+impl std::fmt::Debug for MessageTypeInferenceFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MessageTypeInferenceFailure")
+            .field("no_valid_choice", &self.no_valid_choice)
+            .field("ambiguous_choice", &self.ambiguous_choice)
+            .finish()
+    }
+}
+
+impl MessageTypeInferenceFailure {
+    pub fn is_failed(&self) -> bool {
+        !self.no_valid_choice.is_empty() || !self.ambiguous_choice.is_empty()
+    }
+}
+
+impl std::fmt::Display for MessageTypeInferenceFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !self.no_valid_choice.is_empty() {
+            write!(
+                f,
+                "No valid message type choices for {}. ",
+                format_list(&self.no_valid_choice)
+            )?;
+        }
+
+        if !self.ambiguous_choice.is_empty() {
+            write!(f, "Ambiguous message type choices:")?;
+            for (port, choices) in &self.ambiguous_choice {
+                write!(f, "\n -- {port}: {}", format_list(choices))?;
+            }
+        }
+
+        Ok(())
     }
 }
 
 /// An error that occurs when a diagram description expects a node to provide a
 /// named output stream, but the node does not provide any output stream that
 /// matches the expected name.
-#[derive(ThisError, Debug)]
+#[derive(Clone, ThisError, Debug)]
 #[error("An expected stream is not provided by this node: {missing_name}. Available stream names: {}", format_list(&available_names))]
 pub struct MissingStream {
     pub missing_name: OperationName,
     pub available_names: Vec<OperationName>,
 }
 
-#[derive(ThisError, Debug, Default)]
+#[derive(Clone, ThisError, Debug, Default)]
 pub struct FinishingErrors {
     pub errors: HashMap<OperationRef, DiagramErrorCode>,
 }
@@ -1028,6 +1177,21 @@ impl std::fmt::Display for FinishingErrors {
         }
 
         Ok(())
+    }
+}
+
+#[derive(
+    Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(untagged)]
+pub enum NameOrIndex {
+    Name(Arc<str>),
+    Index(usize),
+}
+
+impl<T: std::borrow::Borrow<str>> From<T> for NameOrIndex {
+    fn from(value: T) -> Self {
+        NameOrIndex::Name(value.borrow().into())
     }
 }
 

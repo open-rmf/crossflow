@@ -17,13 +17,12 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 use crate::TraceSettings;
 
 use super::{
-    BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode, OperationName,
-    RedirectConnection, StreamOutRef,
+    BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, InferenceContext,
+    OperationName, OperationRef, RedirectConnection,
 };
 
 /// Declare a stream output for the current scope. Outputs that you connect
@@ -80,12 +79,20 @@ impl BuildDiagramOperation for StreamOutSchema {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
-        let redirect_to =
-            ctx.into_operation_ref(StreamOutRef::new_for_root(Arc::clone(&self.name)));
+        let redirect_to = ctx.into_operation_ref(OperationRef::stream_out(&self.name));
         ctx.set_connect_into_target(id, RedirectConnection::new(redirect_to))?;
 
         Ok(BuildStatus::Finished)
+    }
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        ctx.stream_out(id, &self.name);
+        Ok(())
     }
 }

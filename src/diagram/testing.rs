@@ -100,6 +100,7 @@ impl DiagramTestFixture {
         Streams: StreamPack,
     {
         let workflow = self.spawn_workflow::<_, _, Streams>(diagram)?;
+
         let mut capture = self
             .context
             .command(|cmds| cmds.request(request, workflow).capture());

@@ -1,4 +1,4 @@
-use crossflow::{Diagram, DiagramElementRegistry};
+use crossflow::{Diagram, DiagramElementMetadata};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let schema = schemars::schema_for!(Diagram);
@@ -10,7 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
     serde_json::to_writer_pretty(f, &schema)?;
 
-    let schema = schemars::schema_for!(DiagramElementRegistry);
+    let schema = schemars::schema_for!(DiagramElementMetadata);
     let f = std::fs::OpenOptions::new()
         .write(true)
         .truncate(true)
@@ -49,7 +49,7 @@ mod diagram {
         #[test]
         fn check_registry_schema_changes() -> Result<(), String> {
             let cur_schema_json = std::fs::read("registry.schema.json").unwrap();
-            let schema = schemars::schema_for!(DiagramElementRegistry);
+            let schema = schemars::schema_for!(DiagramElementMetadata);
             let new_schema_json = serde_json::to_vec_pretty(&schema).unwrap();
 
             if cur_schema_json.len() != new_schema_json.len()

@@ -17,13 +17,14 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 use crate::{Builder, CloneFromBuffer, ForkCloneOutput};
 
 use super::{
-    BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode, DynInputSlot, DynOutput,
-    MessageOperation, NextOperation, OperationName, TraceInfo, TraceSettings, TypeInfo,
-    supported::*,
+    BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
+    InferenceContext, MessageOperations, NextOperation, OperationName, TraceInfo, TraceSettings,
+    TypeInfo, supported::*,
 };
 
 /// If the request is cloneable, clone it into multiple responses that can
@@ -79,24 +80,9 @@ impl BuildDiagramOperation for ForkCloneSchema {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
-        let inferred_type = 'inferred: {
-            match ctx.infer_input_type_into_target(id)? {
-                Some(inferred_type) => break 'inferred inferred_type,
-                None => {
-                    for target in &self.next {
-                        if let Some(inferred_type) = ctx.infer_input_type_into_target(target)? {
-                            break 'inferred inferred_type;
-                        }
-                    }
-
-                    // There are no outputs or input slots ready for this target,
-                    // so we can't do anything yet. The builder should try again later.
-                    return Ok(BuildStatus::defer("waiting for an input"));
-                }
-            }
-        };
+        let inferred_type = ctx.inferred_message_type(id)?;
 
         let fork = ctx
             .registry
@@ -111,19 +97,32 @@ impl BuildDiagramOperation for ForkCloneSchema {
 
         Ok(BuildStatus::Finished)
     }
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        ctx.fork_clone(id, &self.next);
+        Ok(())
+    }
 }
 
 pub trait RegisterClone<T> {
     const CLONEABLE: bool;
 
-    fn register_clone(ops: &mut MessageOperation);
+    fn register_clone(ops: &mut MessageOperations);
 }
 
 impl<T: 'static> RegisterClone<T> for NotSupported {
     const CLONEABLE: bool = false;
 
-    fn register_clone(ops: &mut MessageOperation) {
-        ops.fork_clone_impl = Some(|_| Err(DiagramErrorCode::NotCloneable(TypeInfo::of::<T>())));
+    fn register_clone(ops: &mut MessageOperations) {
+        ops.fork_clone = Some(|_| {
+            Err(DiagramErrorCode::NotCloneable(Cow::Borrowed(
+                TypeInfo::of::<T>().type_name,
+            )))
+        });
     }
 }
 
@@ -133,9 +132,9 @@ where
 {
     const CLONEABLE: bool = true;
 
-    fn register_clone(ops: &mut MessageOperation) {
+    fn register_clone(ops: &mut MessageOperations) {
         CloneFromBuffer::<T>::register_clone_for_join();
-        ops.fork_clone_impl = Some(|builder| {
+        ops.fork_clone = Some(|builder| {
             let (input, outputs) = builder.create_fork_clone::<T>();
 
             Ok(DynForkClone {

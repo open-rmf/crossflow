@@ -46,11 +46,11 @@ impl OperationRef {
         match self {
             Self::Named(named) => Self::Named(named.in_namespaces(parent_namespaces)),
             Self::Terminate(namespaces) => {
-                Self::Terminate(with_parent_namespaces(parent_namespaces, namespaces))
+                Self::Terminate(namespaces.with_parent_namespaces(parent_namespaces))
             }
             Self::Dispose => Self::Dispose,
             Self::Cancel(namespaces) => {
-                Self::Cancel(with_parent_namespaces(parent_namespaces, namespaces))
+                Self::Cancel(namespaces.with_parent_namespaces(parent_namespaces))
             }
             Self::StreamOut(stream_out) => {
                 Self::StreamOut(stream_out.in_namespaces(parent_namespaces))
@@ -58,8 +58,34 @@ impl OperationRef {
         }
     }
 
-    pub fn terminate_for(namespace: Arc<str>) -> Self {
-        Self::Terminate(NamespaceList::for_child_of(namespace))
+    pub fn in_namespace(self, parent_namespace: &Arc<str>) -> Self {
+        self.in_namespaces(&[Arc::clone(parent_namespace)])
+    }
+
+    pub fn scope_stream_out(scope_name: &OperationName, stream_name: &OperationName) -> Self {
+        Self::StreamOut(StreamOutRef {
+            namespaces: NamespaceList::for_child_of(Arc::clone(scope_name)),
+            name: Arc::clone(stream_name),
+        })
+    }
+
+    pub fn stream_out(stream_name: &OperationName) -> Self {
+        Self::StreamOut(StreamOutRef {
+            namespaces: Default::default(),
+            name: Arc::clone(stream_name),
+        })
+    }
+
+    pub fn terminate_for(namespace: &OperationName) -> Self {
+        Self::Terminate(NamespaceList::for_child_of(Arc::clone(namespace)))
+    }
+
+    pub fn exposed_input(section_id: &OperationName, input_id: &OperationName) -> Self {
+        Self::Named(NamedOperationRef {
+            namespaces: Default::default(),
+            exposed_namespace: Some(Arc::clone(section_id)),
+            name: Arc::clone(input_id),
+        })
     }
 }
 
@@ -149,7 +175,7 @@ pub struct NamedOperationRef {
 
 impl NamedOperationRef {
     pub fn in_namespaces(mut self, parent_namespaces: &[Arc<str>]) -> Self {
-        apply_parent_namespaces(parent_namespaces, &mut self.namespaces);
+        self.namespaces.apply_parent_namespaces(parent_namespaces);
         self
     }
 }
@@ -217,25 +243,8 @@ pub struct StreamOutRef {
 }
 
 impl StreamOutRef {
-    pub fn new_for_root(stream_name: impl Into<Arc<str>>) -> Self {
-        Self {
-            namespaces: NamespaceList::default(),
-            name: stream_name.into(),
-        }
-    }
-
-    pub fn new_for_scope(
-        scope_name: impl Into<Arc<str>>,
-        stream_name: impl Into<Arc<str>>,
-    ) -> Self {
-        Self {
-            namespaces: NamespaceList::for_child_of(scope_name.into()),
-            name: stream_name.into(),
-        }
-    }
-
     fn in_namespaces(mut self, parent_namespaces: &[Arc<str>]) -> Self {
-        apply_parent_namespaces(parent_namespaces, &mut self.namespaces);
+        self.namespaces.apply_parent_namespaces(parent_namespaces);
         self
     }
 }
@@ -256,28 +265,6 @@ impl From<StreamOutRef> for OperationRef {
     }
 }
 
-fn apply_parent_namespaces(parent_namespaces: &[Arc<str>], namespaces: &mut NamespaceList) {
-    // Put the parent namespaces at the front and append the operation's
-    // existing namespaces at the back.
-    let new_namespaces = NamespaceList(
-        parent_namespaces
-            .iter()
-            .cloned()
-            .chain(namespaces.drain(..))
-            .collect(),
-    );
-
-    *namespaces = new_namespaces;
-}
-
-fn with_parent_namespaces(
-    parent_namespaces: &[Arc<str>],
-    mut namespaces: NamespaceList,
-) -> NamespaceList {
-    apply_parent_namespaces(parent_namespaces, &mut namespaces);
-    namespaces
-}
-
 #[derive(
     Debug,
     Default,
@@ -294,6 +281,27 @@ fn with_parent_namespaces(
 )]
 #[serde(transparent)]
 pub struct NamespaceList(pub SmallVec<[OperationName; 4]>);
+
+impl NamespaceList {
+    pub(crate) fn apply_parent_namespaces(&mut self, parent_namespaces: &[Arc<str>]) {
+        // Put the parent namespaces at the front and append the operation's
+        // existing namespaces at the back.
+        let new_namespaces = NamespaceList(
+            parent_namespaces
+                .iter()
+                .cloned()
+                .chain(self.drain(..))
+                .collect(),
+        );
+
+        *self = new_namespaces;
+    }
+
+    pub(crate) fn with_parent_namespaces(mut self, parent_namespaces: &[Arc<str>]) -> Self {
+        self.apply_parent_namespaces(parent_namespaces);
+        self
+    }
+}
 
 impl NamespaceList {
     pub fn for_child_of(parent: Arc<str>) -> Self {

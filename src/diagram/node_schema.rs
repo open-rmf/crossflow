@@ -20,8 +20,9 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
 
 use super::{
-    BuildDiagramOperation, BuildStatus, BuilderId, DiagramContext, DiagramErrorCode, JsonMessage,
-    MissingStream, NextOperation, OperationName, TraceInfo, TraceSettings, is_default,
+    BuildDiagramOperation, BuildStatus, BuilderContext, BuilderId, DiagramErrorCode,
+    InferenceContext, JsonMessage, MissingStream, NextOperation, OperationName, TraceInfo,
+    TraceSettings, is_default,
 };
 
 /// Create an operation that that takes an input message and produces an
@@ -83,7 +84,7 @@ impl BuildDiagramOperation for NodeSchema {
     fn build_diagram_operation(
         &self,
         id: &OperationName,
-        ctx: &mut DiagramContext,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         let node_registration = ctx.registry.get_node_registration(&self.builder)?;
         let mut node = node_registration.create_node(ctx.builder, (*self.config).clone())?;
@@ -110,6 +111,15 @@ impl BuildDiagramOperation for NodeSchema {
         }
 
         Ok(BuildStatus::Finished)
+    }
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        ctx.node(id, self)?;
+        Ok(())
     }
 }
 

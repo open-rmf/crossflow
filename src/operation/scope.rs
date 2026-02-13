@@ -700,7 +700,7 @@ pub(crate) struct IncrementalScopeBuilder {
 }
 
 #[cfg(feature = "diagram")]
-#[derive(ThisError, Debug)]
+#[derive(Clone, ThisError, Debug)]
 #[error("An error happened while building a dynamic scope")]
 pub enum IncrementalScopeError {
     #[error("This request type for this scope has already been set to a different message type")]
@@ -878,6 +878,7 @@ impl IncrementalScopeBuilder {
         Ok(response)
     }
 
+    #[allow(unused)]
     pub(crate) fn is_finished(&self) -> Result<(), IncrementalScopeError> {
         let inner = self.inner.lock().unwrap();
         if inner.begin_scope_not_sent || inner.external_output_not_sent {

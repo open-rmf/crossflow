@@ -17,12 +17,17 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 use super::{
-    BufferSelection, BuildDiagramOperation, BuildStatus, DiagramContext, DiagramErrorCode,
+    BufferSelection, BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode,
     JsonMessage, NextOperation, OperationName,
 };
-use crate::{BufferIdentifier, TraceSettings, default_as_false, is_default, is_false};
+use crate::{
+    BufferIdentifier, BufferMap, BufferMapLayout, BufferMapLayoutHints, Builder, DynOutput,
+    InferenceContext, Joined, MessageRegistry, TraceSettings, default_as_false, is_default,
+    is_false, output_ref,
+};
 
 /// Wait for exactly one item to be available in each buffer listed in
 /// `buffers`, then join each of those items into a single output message
@@ -103,8 +108,8 @@ pub struct JoinSchema {
 impl BuildDiagramOperation for JoinSchema {
     fn build_diagram_operation(
         &self,
-        _: &OperationName,
-        ctx: &mut DiagramContext,
+        id: &OperationName,
+        ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         if self.buffers.is_empty() {
             return Err(DiagramErrorCode::EmptyJoin);
@@ -123,20 +128,16 @@ impl BuildDiagramOperation for JoinSchema {
                 });
             };
 
-            *buffer = (*buffer)
-                .join_by_cloning()
-                .ok_or_else(|| DiagramErrorCode::NotCloneable(buffer.message_type()))?;
+            *buffer = (*buffer).join_by_cloning().ok_or_else(|| {
+                DiagramErrorCode::NotCloneable(Cow::Borrowed(buffer.message_type().type_name))
+            })?;
         }
 
         if self.serialize {
             let output = ctx.builder.try_join::<JsonMessage>(&buffer_map)?.output();
             ctx.add_output_into_target(&self.next, output.into());
         } else {
-            let Some(target_type) = ctx.infer_input_type_into_target(&self.next)? else {
-                return Ok(BuildStatus::defer(
-                    "waiting to find out target message type",
-                ));
-            };
+            let target_type = ctx.inferred_message_type(output_ref(id).next())?;
 
             let output = ctx
                 .registry
@@ -145,6 +146,34 @@ impl BuildDiagramOperation for JoinSchema {
             ctx.add_output_into_target(&self.next, output);
         }
         Ok(BuildStatus::Finished)
+    }
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        ctx.join(id, &self.buffers, &self.next, self.serialize)?;
+        Ok(())
+    }
+}
+
+type CreateJoinFn = fn(&BufferMap, &mut Builder) -> Result<DynOutput, DiagramErrorCode>;
+
+pub struct JoinRegistration {
+    pub create: CreateJoinFn,
+    pub layout: BufferMapLayoutHints<usize>,
+}
+
+impl JoinRegistration {
+    pub fn new<T: Joined>(messages: &mut MessageRegistry) -> Self {
+        let create =
+            |buffers: &BufferMap, builder: &mut Builder| -> Result<DynOutput, DiagramErrorCode> {
+                Ok(builder.try_join::<T>(buffers)?.output().into())
+            };
+        let layout = <T::Buffers as BufferMapLayout>::get_layout_hints().export(messages);
+
+        Self { create, layout }
     }
 }
 
