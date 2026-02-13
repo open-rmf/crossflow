@@ -320,7 +320,7 @@ impl DiagramElementRegistry {
         let k = id.borrow();
         self.nodes
             .get(k)
-            .ok_or(DiagramErrorCode::BuilderNotFound(k.to_string().into()))
+            .ok_or(DiagramErrorCode::BuilderNotFound(k.into()))
     }
 
     pub fn get_section_registration<Q>(
@@ -332,7 +332,7 @@ impl DiagramElementRegistry {
     {
         self.sections
             .get(id.borrow())
-            .ok_or_else(|| DiagramErrorCode::BuilderNotFound(id.borrow().to_string().into()))
+            .ok_or_else(|| DiagramErrorCode::BuilderNotFound(id.borrow().into()))
     }
 
     pub fn get_message_registration<T>(&self) -> Option<&MessageRegistration>

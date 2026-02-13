@@ -24,7 +24,7 @@ use std::{
 
 pub use crate::dyn_node::*;
 use crate::{AnyBuffer, AsAnyBuffer, BufferSettings, Builder, JoinRegistration, BufferMapLayoutHints, SplitRegistration,
-    BufferAccessRegistration, ListenRegistration,
+    BufferAccessRegistration, ListenRegistration, BufferAccessMetadata,
 };
 
 use super::*;
@@ -104,8 +104,10 @@ pub struct MessageOperationsMetadata {
     fork_clone: Option<JsEmptyObject>,
     unzip: Option<Vec<usize>>,
     fork_result: Option<[usize; 2]>,
-    split: Option<JsEmptyObject>,
+    split: Option<usize>,
     join: Option<BufferMapLayoutHints<usize>>,
+    buffer_access: Option<BufferAccessMetadata>,
+    listen: Option<BufferMapLayoutHints<usize>>,
     into: HashSet<usize>,
     try_into: HashSet<usize>,
     from: HashSet<usize>,
@@ -120,8 +122,10 @@ impl MessageOperationsMetadata {
             fork_clone: ops.fork_clone.is_some().then(|| JsEmptyObject),
             unzip: ops.unzip.as_ref().map(|unzip| unzip.output_types.clone()),
             fork_result: ops.fork_result.as_ref().map(|r| r.output_types),
-            split: ops.split.is_some().then(|| JsEmptyObject),
+            split: ops.split.as_ref().map(|op| op.output_type),
             join: ops.join.as_ref().map(|op| op.layout.clone()),
+            buffer_access: ops.buffer_access.as_ref().map(|op| op.metadata.clone()),
+            listen: ops.listen.as_ref().map(|op| op.layout.clone()),
             into: ops.into_impls.keys().copied().collect(),
             try_into: ops.try_into_impls.keys().copied().collect(),
             from: ops.from_impls.keys().copied().collect(),
@@ -151,12 +155,20 @@ impl MessageOperationsMetadata {
         &self.fork_result
     }
 
-    pub fn can_split(&self) -> bool {
-        self.split.is_some()
+    pub fn split_output(&self) -> &Option<usize> {
+        &self.split
     }
 
     pub fn join(&self) -> &Option<BufferMapLayoutHints<usize>> {
         &self.join
+    }
+
+    pub fn buffer_access(&self) -> &Option<BufferAccessMetadata> {
+        &self.buffer_access
+    }
+
+    pub fn listen(&self) -> &Option<BufferMapLayoutHints<usize>> {
+        &self.listen
     }
 
     pub fn into_messages(&self) -> &HashSet<usize> {

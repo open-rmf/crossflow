@@ -95,6 +95,29 @@ impl DiagramElementMetadata {
             trace_supported: crate::trace_supported(),
         }
     }
+
+    pub fn message(
+        &self,
+        message_index: usize,
+    ) -> Result<&MessageMetadata, DiagramErrorCode> {
+        self.messages.get(message_index).ok_or_else(|| DiagramErrorCode::UnknownMessageTypeIndex {
+            index: message_index,
+            limit: self.messages.len(),
+        })
+    }
+
+    pub fn message_operations_for(
+        &self,
+        message_index: usize,
+    ) -> Result<&MessageOperationsMetadata, DiagramErrorCode> {
+        let msg = self.message(message_index)?;
+        msg
+            .operations()
+            .as_ref()
+            .ok_or_else(|| DiagramErrorCode::UnregisteredTypes(vec![
+                msg.type_name().clone()
+            ]))
+    }
 }
 
 /// A trait used to generalize [`DiagramElementRegistry`] and [`DiagramElementMetadata`]
@@ -138,7 +161,9 @@ pub trait MetadataAccess {
 impl MetadataAccess for DiagramElementRegistry {
     fn json_message_index(&self) -> Result<usize, DiagramErrorCode> {
         self.messages.registration.reverse_lookup.json_message
-            .ok_or_else(|| DiagramErrorCode::UnregisteredTypes(vec![TypeInfo::of::<JsonMessage>()]))
+            .ok_or_else(|| DiagramErrorCode::UnregisteredTypes(
+                vec![Cow::Borrowed(TypeInfo::of::<JsonMessage>().type_name)]
+            ))
     }
 
     fn node_metadata(&self, builder: &str) -> Result<&NodeMetadata, DiagramErrorCode> {
@@ -170,7 +195,7 @@ impl MetadataAccess for DiagramElementRegistry {
             ));
         };
 
-        Ok(access.request_message)
+        Ok(access.metadata.request_message)
     }
 
     fn buffer_access_layout(&self, message_index: usize) -> Result<&BufferMapLayoutHints<usize>, DiagramErrorCode> {
@@ -180,7 +205,7 @@ impl MetadataAccess for DiagramElementRegistry {
             ));
         };
 
-        Ok(&access.layout)
+        Ok(&access.metadata.layout)
     }
 
     fn listen_layout(&self, message_index: usize) -> Result<&BufferMapLayoutHints<usize>, DiagramErrorCode> {
@@ -245,5 +270,121 @@ impl MetadataAccess for DiagramElementRegistry {
 
     fn reverse_lookup(&self) -> &ReverseMessageLookup {
         &self.messages.registration.reverse_lookup
+    }
+}
+
+impl MetadataAccess for DiagramElementMetadata {
+    fn json_message_index(&self) -> Result<usize, DiagramErrorCode> {
+        self.reverse_message_lookup.json_message.ok_or_else(||
+            DiagramErrorCode::UnregisteredTypes(
+                vec![Cow::Borrowed(TypeInfo::of::<JsonMessage>().type_name)]
+            )
+        )
+    }
+
+    fn node_metadata(&self, builder: &str) -> Result<&NodeMetadata, DiagramErrorCode> {
+        self.nodes.get(builder).ok_or_else(|| DiagramErrorCode::BuilderNotFound(builder.into()))
+    }
+
+    fn section_metadata(&self, builder: &str) -> Result<&SectionMetadata, DiagramErrorCode> {
+        self.sections.get(builder).ok_or_else(|| DiagramErrorCode::BuilderNotFound(builder.into()))
+    }
+
+    fn message_type_name(&self, message_index: usize) -> Result<&str, DiagramErrorCode> {
+        Ok(self.message(message_index)?.type_name().as_ref())
+    }
+
+    fn join_layout(&self, message_index: usize) -> Result<&BufferMapLayoutHints<usize>, DiagramErrorCode> {
+        let Some(layout) = self.message_operations_for(message_index)?.join().as_ref() else {
+            return Err(DiagramErrorCode::NotJoinable(
+                self.message_type_name(message_index)?.to_owned().into()
+            ));
+        };
+
+        Ok(layout)
+    }
+
+    fn buffer_access_request_type(&self, message_index: usize) -> Result<usize, DiagramErrorCode> {
+        let Some(access) = &self.message_operations_for(message_index)?.buffer_access().as_ref() else {
+            return Err(DiagramErrorCode::CannotAccessBuffers(
+                self.message_type_name(message_index)?.to_owned().into()
+            ));
+        };
+
+        Ok(access.request_message)
+    }
+
+    fn buffer_access_layout(&self, message_index: usize) -> Result<&BufferMapLayoutHints<usize>, DiagramErrorCode> {
+        let Some(access) = &self.message_operations_for(message_index)?.buffer_access().as_ref() else {
+            return Err(DiagramErrorCode::CannotAccessBuffers(
+                self.message_type_name(message_index)?.to_owned().into()
+            ));
+        };
+
+        Ok(&access.layout)
+    }
+
+    fn listen_layout(&self, message_index: usize) -> Result<&BufferMapLayoutHints<usize>, DiagramErrorCode> {
+        let Some(listen) = &self.message_operations_for(message_index)?.listen().as_ref() else {
+            return Err(DiagramErrorCode::CannotListen(
+                self.message_type_name(message_index)?.to_owned().into()
+            ));
+        };
+
+        Ok(listen)
+    }
+
+    fn can_convert(&self, from_message_index: usize, to_message_index: usize) -> Result<bool, DiagramErrorCode> {
+        Ok(self.message_operations_for(from_message_index)?.into_messages().contains(&to_message_index))
+    }
+
+    fn can_clone(&self, message_index: usize) -> Result<bool, DiagramErrorCode> {
+        Ok(self.message_operations_for(message_index)?.can_fork_clone())
+    }
+
+    fn can_seralize(&self, message_index: usize) -> Result<bool, DiagramErrorCode> {
+        Ok(self.message_operations_for(message_index)?.can_serialize())
+    }
+
+    fn can_deserialize(&self, message_index: usize) -> Result<bool, DiagramErrorCode> {
+        Ok(self.message_operations_for(message_index)?.can_deserialize())
+    }
+
+    fn fork_result_output_types(&self, message_index: usize) -> Result<[usize; 2], DiagramErrorCode> {
+        let Some(r) = self.message_operations_for(message_index)?.fork_result().as_ref() else {
+            return Err(DiagramErrorCode::CannotForkResult(
+                self.message_type_name(message_index)?.to_owned().into()
+            ));
+        };
+
+        Ok(*r)
+    }
+
+    fn unzip_output_types(&self, message_index: usize) -> Result<&Vec<usize>, DiagramErrorCode> {
+        let Some(unzip) = self.message_operations_for(message_index)?.unzip().as_ref() else {
+            return Err(DiagramErrorCode::NotUnzippable(
+                self.message_type_name(message_index)?.to_owned().into()
+            ));
+        };
+
+        Ok(unzip)
+    }
+
+    fn split_output_type(&self, message_index: usize) -> Result<usize, DiagramErrorCode> {
+        let Some(split) = self.message_operations_for(message_index)?.split_output() else {
+            return Err(DiagramErrorCode::NotSplittable(
+                self.message_type_name(message_index)?.to_owned().into()
+            ));
+        };
+
+        Ok(*split)
+    }
+
+    fn can_split(&self, message_index: usize) -> Result<bool, DiagramErrorCode> {
+        Ok(self.message_operations_for(message_index)?.split_output().is_some())
+    }
+
+    fn reverse_lookup(&self) -> &ReverseMessageLookup {
+        &self.reverse_message_lookup
     }
 }

@@ -1045,7 +1045,7 @@ pub enum DiagramErrorCode {
     ConnectionError(#[from] SplitConnectionError),
 
     #[error("a type being used in the diagram was not registered: {}", format_list(&.0))]
-    UnregisteredTypes(Vec<TypeInfo>),
+    UnregisteredTypes(Vec<Cow<'static, str>>),
 
     #[error("The build of the workflow came to a halt, reasons:\n{reasons:?}")]
     BuildHalted {

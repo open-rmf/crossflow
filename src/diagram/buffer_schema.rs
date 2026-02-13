@@ -253,6 +253,11 @@ pub type BufferAccessFn = fn(&BufferMap, &mut Builder) -> Result<DynNode, Diagra
 
 pub struct BufferAccessRegistration {
     pub create: BufferAccessFn,
+    pub metadata: BufferAccessMetadata,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct BufferAccessMetadata {
     /// The underlying request message type, excluding the buffer access
     pub request_message: usize,
     pub layout: BufferMapLayoutHints<usize>,
@@ -269,7 +274,10 @@ impl BufferAccessRegistration {
         let layout = <<T::BufferKeys as Accessor>::Buffers as BufferMapLayout>::get_layout_hints()
             .export(messages);
 
-        Self { create, request_message, layout }
+        Self {
+            create,
+            metadata: BufferAccessMetadata { request_message, layout },
+        }
     }
 }
 

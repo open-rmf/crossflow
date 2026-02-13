@@ -41,6 +41,24 @@
     "trace_supported"
   ],
   "$defs": {
+    "BufferAccessMetadata": {
+      "type": "object",
+      "properties": {
+        "layout": {
+          "$ref": "#/$defs/BufferMapLayoutHints"
+        },
+        "request_message": {
+          "description": "The underlying request message type, excluding the buffer access",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "request_message",
+        "layout"
+      ]
+    },
     "BufferMapLayoutHints": {
       "description": "Hints for how a buffer map might be laid out.\n\nThis can be thought of as a schema for the buffer map.",
       "oneOf": [
@@ -158,6 +176,16 @@
     "MessageOperationsMetadata": {
       "type": "object",
       "properties": {
+        "buffer_access": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BufferAccessMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "deserialize": {
           "type": [
             "object",
@@ -211,6 +239,16 @@
             }
           ]
         },
+        "listen": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BufferMapLayoutHints"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "serialize": {
           "type": [
             "object",
@@ -219,9 +257,11 @@
         },
         "split": {
           "type": [
-            "object",
+            "integer",
             "null"
-          ]
+          ],
+          "format": "uint",
+          "minimum": 0
         },
         "try_from": {
           "type": "array",

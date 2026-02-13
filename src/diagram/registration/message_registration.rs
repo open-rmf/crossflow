@@ -349,7 +349,7 @@ impl MessageRegistration {
         self
         .operations
         .as_ref()
-        .ok_or_else(|| DiagramErrorCode::UnregisteredTypes(vec![self.type_info]))
+        .ok_or_else(|| DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(self.type_info.type_name)]))
     }
 }
 
@@ -373,7 +373,7 @@ impl MessageRegistry {
         self.registration
             .get_dyn(target_type)
             .ok_or_else(|| DiagramErrorCode::UnregisteredTypes(
-            vec![*target_type]
+            vec![Cow::Borrowed(target_type.type_name)]
         ))
     }
 
@@ -730,7 +730,9 @@ impl MessageRegistry {
         self.get_dyn(message_info)?
             .operations
             .as_ref()
-            .ok_or_else(|| DiagramErrorCode::UnregisteredTypes(vec![*message_info]))
+            .ok_or_else(|| DiagramErrorCode::UnregisteredTypes(vec![
+                Cow::Borrowed(message_info.type_name)
+            ]))
     }
 }
 
@@ -840,7 +842,7 @@ impl MessageRegistrations {
 
     pub(crate) fn get_index_dyn(&self, target_type: &TypeInfo) -> Result<usize, DiagramErrorCode> {
         self.indices.get(target_type).cloned().ok_or_else(
-            || DiagramErrorCode::UnregisteredTypes(vec![*target_type])
+            || DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(target_type.type_name)])
         )
     }
 
@@ -852,7 +854,7 @@ impl MessageRegistrations {
     {
         let type_info = TypeInfo::of::<T>();
         self.indices.get(&type_info).cloned().ok_or_else(
-            || DiagramErrorCode::UnregisteredTypes(vec![type_info])
+            || DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(type_info.type_name)])
         )
     }
 

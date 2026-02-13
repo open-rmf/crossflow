@@ -1672,8 +1672,9 @@ impl MessageTypeConstraint for SplitOutput {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use super::InferenceBoundaryConditions;
-    use crate::{prelude::*, diagram::testing::*};
+    use crate::{prelude::*, diagram::testing::*, PortRef, output_ref, MessageRegistrations, OutputRef, OperationRef, NextOperation};
     use serde_json::json;
 
     #[test]
@@ -1735,12 +1736,94 @@ mod tests {
             &fixture.registry,
             InferenceBoundaryConditions::json_messages(&fixture.registry, []).unwrap(),
         ).unwrap();
-        dbg!(inference);
+        validate_spit_type_inference(inference, &fixture.registry.messages.registration);
 
-        for (i, r) in fixture.registry.messages.registration.iter().enumerate() {
-            println!("\n - {i}. {}", r.type_info.type_name);
-        }
+        let inference = diagram.infer_message_types(
+            &fixture.registry.metadata(),
+            InferenceBoundaryConditions::json_messages(&fixture.registry.metadata(), []).unwrap(),
+        ).unwrap();
+        validate_spit_type_inference(inference, &fixture.registry.messages.registration);
+    }
 
+    fn validate_spit_type_inference(
+        inference: HashMap<PortRef, usize>,
+        registration: &MessageRegistrations,
+    ) {
+        let op = |name: &str| -> PortRef {
+            (&NextOperation::Name(name.into())).into()
+        };
+        let json_index = registration.get_index::<JsonMessage>().unwrap();
+        let f64_index = registration.get_index::<f64>().unwrap();
+
+        assert_eq!(
+            inference[&op("x10-buffer")],
+            f64_index,
+        );
+
+        assert_eq!(
+            inference[&op("x100-buffer")],
+            f64_index,
+        );
+
+        assert_eq!(
+            inference[&output_ref(&"split".into()).next_index(0).into()],
+            json_index,
+        );
+
+        assert_eq!(
+            inference[&output_ref(&"split".into()).next_index(1).into()],
+            json_index,
+        );
+
+        assert_eq!(
+            inference[&op("sum")],
+            json_index,
+        );
+
+        assert_eq!(
+            inference[&op("x10")],
+            json_index,
+        );
+
+        assert_eq!(
+            inference[&op("x100")],
+            json_index,
+        );
+
+        assert_eq!(
+            inference[&op("split")],
+            json_index,
+        );
+
+        assert_eq!(
+            inference[&output_ref(&"join".into()).next().into()],
+            json_index,
+        );
+
+        assert_eq!(
+            inference[&output_ref(&"sum".into()).next().into()],
+            f64_index,
+        );
+
+        assert_eq!(
+            inference[&output_ref(&"x10".into()).next().into()],
+            f64_index,
+        );
+
+        assert_eq!(
+            inference[&output_ref(&"x100".into()).next().into()],
+            f64_index,
+        );
+
+        assert_eq!(
+            inference[&OutputRef::start().into()],
+            json_index,
+        );
+
+        assert_eq!(
+            inference[&OperationRef::Terminate(Default::default()).into()],
+            json_index,
+        );
     }
 
     #[test]
@@ -1790,7 +1873,92 @@ mod tests {
             &fixture.registry,
             InferenceBoundaryConditions::json_messages(&fixture.registry, []).unwrap(),
         ).unwrap();
-        dbg!(inference);
+        validate_fork_clone_type_inference(inference, &fixture.registry.messages.registration);
+
+        let inference = diagram.infer_message_types(
+            &fixture.registry.metadata(),
+            InferenceBoundaryConditions::json_messages(&fixture.registry.metadata(), []).unwrap(),
+        ).unwrap();
+        validate_fork_clone_type_inference(inference, &fixture.registry.messages.registration);
     }
 
+    fn validate_fork_clone_type_inference(
+        inference: HashMap<PortRef, usize>,
+        registration: &MessageRegistrations,
+    ) {
+        let op = |name: &str| -> PortRef {
+            (&NextOperation::Name(name.into())).into()
+        };
+        let json_index = registration.get_index::<JsonMessage>().unwrap();
+        let i64_index = registration.get_index::<i64>().unwrap();
+        let f64_index = registration.get_index::<f64>().unwrap();
+
+        assert_eq!(
+            inference[&op("fork_clone")],
+            json_index,
+        );
+
+        assert_eq!(
+            inference[&output_ref(&"fork_clone".into()).next_index(0).into()],
+            json_index,
+        );
+
+        assert_eq!(
+            inference[&output_ref(&"fork_clone".into()).next_index(1).into()],
+            json_index,
+        );
+
+        assert_eq!(
+            inference[&op("add_one")],
+            i64_index,
+        );
+
+        assert_eq!(
+            inference[&output_ref(&"add_one".into()).next().into()],
+            i64_index,
+        );
+
+        assert_eq!(
+            inference[&op("add_two")],
+            i64_index,
+        );
+
+        assert_eq!(
+            inference[&output_ref(&"add_two".into()).next().into()],
+            i64_index,
+        );
+
+        assert_eq!(
+            inference[&op("multiply")],
+            json_index,
+        );
+
+        assert_eq!(
+            inference[&output_ref(&"multiply".into()).next().into()],
+            f64_index,
+        );
+
+        assert_eq!(
+            inference[&op("buffer_one")],
+            i64_index,
+        );
+
+        assert_eq!(
+            inference[&op("buffer_two")],
+            i64_index,
+        );
+
+        assert_eq!(
+            inference[&OutputRef::start().into()],
+            json_index,
+        );
+
+        assert_eq!(
+            inference[&OperationRef::Terminate(Default::default()).into()],
+            json_index,
+        );
+    }
+
+    // TODO(@mxgrey): Add tests with sections and scopes to validate type inference
+    // inside namespaces.
 }
