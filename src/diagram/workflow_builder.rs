@@ -33,7 +33,7 @@ use super::{
     BufferSelection, Diagram, DiagramContext, DiagramElementRegistry, DiagramError, DiagramErrorCode, DynInputSlot,
     DynOutput, FinishingErrors, ImplicitDeserialization, ImplicitSerialization, ImplicitStringify,
     NamedOperationRef, NamespaceList, NextOperation, OperationName, OperationRef,
-    Operations, TraceToggle, TypeInfo, InferenceContext, InferenceBoundaryConditions,
+    Operations, TraceToggle, TypeInfo, InferenceContext, InferenceBoundaryConditions, TypeMismatch,
 };
 
 use bevy_ecs::prelude::Entity;
@@ -895,6 +895,8 @@ pub fn standard_input_connection(
     input_slot: DynInputSlot,
     registry: &DiagramElementRegistry,
 ) -> Result<Box<dyn ConnectIntoTarget + 'static>, DiagramErrorCode> {
+
+
     if input_slot.message_info() == &TypeInfo::of::<JsonMessage>() {
         return Ok(Box::new(ImplicitSerialization::new(input_slot)?));
     }
@@ -906,9 +908,7 @@ pub fn standard_input_connection(
         return Ok(Box::new(deserialization));
     }
 
-    Ok(Box::new(BasicConnect {
-        input_slot: Arc::new(input_slot),
-    }))
+    Ok(Box::new(BasicConnect::new(input_slot)))
 }
 
 impl ConnectIntoTarget for ImplicitSerialization {
@@ -932,7 +932,17 @@ impl ConnectIntoTarget for ImplicitDeserialization {
 }
 
 struct BasicConnect {
+    incoming_types: HashMap<TypeInfo, DynInputSlot>,
     input_slot: Arc<DynInputSlot>,
+}
+
+impl BasicConnect {
+    fn new(input_slot: DynInputSlot) -> Self {
+        Self {
+            input_slot: Arc::new(input_slot),
+            incoming_types: Default::default(),
+        }
+    }
 }
 
 impl ConnectIntoTarget for BasicConnect {
@@ -941,9 +951,33 @@ impl ConnectIntoTarget for BasicConnect {
         output: DynOutput,
         ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
-        output
-            .connect_to(&self.input_slot, ctx.builder)
-            .map_err(Into::into)
+        if output.message_info() == self.input_slot.message_info() {
+            return Ok(output.connect_to(&self.input_slot, ctx.builder)?);
+        }
+
+        if let Some(conversion) = self.incoming_types.get(output.message_info()) {
+            return Ok(output.connect_to(conversion, ctx.builder)?);
+        }
+
+        let incoming_type = *output.message_info();
+        let incoming_type_index = ctx.registry.messages.registration.get_index_dyn(&incoming_type)?;
+        let convert = ctx
+            .registry
+            .messages
+            .get_dyn(self.input_slot.message_info())?
+            .get_operations()?
+            .from_impls
+            .get(&incoming_type_index)
+            .ok_or_else(|| DiagramErrorCode::TypeMismatch(TypeMismatch {
+                source_type: incoming_type,
+                target_type: *self.input_slot.message_info(),
+            }))?;
+
+        let (conversion_input, converted_output) = (*convert)(ctx.builder);
+        converted_output.connect_to(&self.input_slot, ctx.builder)?;
+        output.connect_to(&conversion_input, ctx.builder)?;
+        self.incoming_types.insert(incoming_type, conversion_input);
+        Ok(())
     }
 }
 

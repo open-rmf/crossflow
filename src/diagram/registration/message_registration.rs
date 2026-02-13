@@ -369,8 +369,12 @@ impl MessageRegistry {
         }
     }
 
-    pub(crate) fn get_dyn(&self, target_type: &TypeInfo) -> Option<&MessageRegistration> {
-        self.registration.get_dyn(target_type)
+    pub(crate) fn get_dyn(&self, target_type: &TypeInfo) -> Result<&MessageRegistration, DiagramErrorCode> {
+        self.registration
+            .get_dyn(target_type)
+            .ok_or_else(|| DiagramErrorCode::UnregisteredTypes(
+            vec![*target_type]
+        ))
     }
 
     pub fn deserialize(
@@ -723,9 +727,9 @@ impl MessageRegistry {
         &self,
         message_info: &TypeInfo,
     ) -> Result<&MessageOperations, DiagramErrorCode> {
-        self.get_dyn(message_info)
-            .map(|r| r.operations.as_ref())
-            .flatten()
+        self.get_dyn(message_info)?
+            .operations
+            .as_ref()
             .ok_or_else(|| DiagramErrorCode::UnregisteredTypes(vec![*message_info]))
     }
 }
