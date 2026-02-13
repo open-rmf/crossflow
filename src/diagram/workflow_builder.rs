@@ -895,8 +895,6 @@ pub fn standard_input_connection(
     input_slot: DynInputSlot,
     registry: &DiagramElementRegistry,
 ) -> Result<Box<dyn ConnectIntoTarget + 'static>, DiagramErrorCode> {
-
-
     if input_slot.message_info() == &TypeInfo::of::<JsonMessage>() {
         return Ok(Box::new(ImplicitSerialization::new(input_slot)?));
     }
@@ -931,13 +929,28 @@ impl ConnectIntoTarget for ImplicitDeserialization {
     }
 }
 
-struct BasicConnect {
+pub(crate) struct BasicConnect {
     incoming_types: HashMap<TypeInfo, DynInputSlot>,
-    input_slot: Arc<DynInputSlot>,
+    pub(crate) input_slot: Arc<DynInputSlot>,
 }
 
 impl BasicConnect {
-    fn new(input_slot: DynInputSlot) -> Self {
+    pub(crate) fn is_compatible(
+        &self,
+        incoming: &TypeInfo,
+        ctx: &BuilderContext,
+    ) -> Result<bool, DiagramErrorCode> {
+        let incoming_index = ctx.registry.messages.registration.get_index_dyn(incoming)?;
+        let r = ctx
+            .registry
+            .messages
+            .get_operations(self.input_slot.message_info())?
+            .from_impls.contains_key(&incoming_index);
+
+        Ok(r)
+    }
+
+    pub(crate) fn new(input_slot: DynInputSlot) -> Self {
         Self {
             input_slot: Arc::new(input_slot),
             incoming_types: Default::default(),
@@ -1136,5 +1149,63 @@ impl TraceInfo {
             construction,
             trace,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{prelude::*, diagram::testing::*};
+    use serde_json::json;
+
+    #[test]
+    fn test_implicit_conversion() {
+        let mut fixture = DiagramTestFixture::new();
+
+        fixture.registry.register_node_builder(
+            NodeBuilderOptions::new("low_res_add"),
+            |builder, config: i8| {
+                builder.create_map_block(move |request: i8| {
+                    request + config
+                })
+            }
+        );
+
+        fixture.registry.register_node_builder(
+            NodeBuilderOptions::new("mid_res_add"),
+            |builder, config: i32| {
+                builder.create_map_block(move |request: i32| {
+                    request + config
+                })
+            }
+        );
+
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "start": "low_res",
+            "ops": {
+                "low_res": {
+                    "type": "node",
+                    "builder": "low_res_add",
+                    "config": 1,
+                    "next": "mid_res"
+                },
+                "mid_res": {
+                    "type": "node",
+                    "builder": "mid_res_add",
+                    "config": 2,
+                    "next": "hi_res"
+                },
+                "hi_res": {
+                    "type": "node",
+                    "builder": "add_to",
+                    "config": 3,
+                    "next": { "builtin": "terminate" }
+                }
+            }
+        }))
+        .unwrap();
+
+        let r: JsonMessage = fixture.spawn_and_run(&diagram, JsonMessage::from(1)).unwrap();
+        assert_eq!(r.as_i64().unwrap(), 7);
     }
 }

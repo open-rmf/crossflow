@@ -371,17 +371,46 @@ impl DiagramElementRegistry {
             .with_to_string();
 
         self.register_message::<String>();
-        self.register_message::<u8>();
-        self.register_message::<u16>();
-        self.register_message::<u32>();
+
+        self.register_message::<u8>()
+            .with_into::<u16>()
+            .with_into::<u32>()
+            .with_into::<u64>()
+            .with_into::<usize>();
+
+        self.register_message::<u16>()
+            .with_into::<u32>()
+            .with_into::<u64>()
+            .with_into::<usize>();
+
+        self.register_message::<u32>()
+            .with_into::<u64>();
+
         self.register_message::<u64>();
+
         self.register_message::<usize>();
-        self.register_message::<i8>();
-        self.register_message::<i16>();
-        self.register_message::<i32>();
+
+        self.register_message::<i8>()
+            .with_into::<i16>()
+            .with_into::<i32>()
+            .with_into::<i64>()
+            .with_into::<isize>();
+
+        self.register_message::<i16>()
+            .with_into::<i32>()
+            .with_into::<i64>()
+            .with_into::<isize>();
+
+        self.register_message::<i32>()
+            .with_into::<i64>();
+
         self.register_message::<i64>();
+
         self.register_message::<isize>();
-        self.register_message::<f32>();
+
+        self.register_message::<f32>()
+            .with_into::<f64>();
+
         self.register_message::<f64>();
         self.register_message::<bool>();
         self.register_message::<char>();
