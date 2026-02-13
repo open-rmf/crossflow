@@ -16,7 +16,7 @@
 */
 
 use crate::{ServerOptions, new_router};
-use bevy_app;
+use bevy_app::App;
 use clap::Parser;
 use crossflow::{
     CrossflowExecutorApp, Diagram, DiagramError, Outcome, RequestExt, RunCommandsOnWorldExt,
@@ -66,8 +66,11 @@ pub struct ServeArgs {
     port: u16,
 }
 
-pub fn headless(args: RunArgs, registry: DiagramElementRegistry) -> Result<(), Box<dyn Error>> {
-    let mut app = bevy_app::App::new();
+pub fn headless(
+    args: RunArgs,
+    setup: impl FnOnce() -> BasicExecutorSetup + 'static,
+) -> Result<(), Box<dyn Error>> {
+    let BasicExecutorSetup { mut app, registry } = setup();
     app.add_plugins(CrossflowExecutorApp::default());
     let file = File::open(args.diagram).unwrap();
     let diagram = Diagram::from_reader(file)?;
@@ -93,7 +96,7 @@ pub fn headless(args: RunArgs, registry: DiagramElementRegistry) -> Result<(), B
 
 pub async fn serve(
     args: ServeArgs,
-    registry: DiagramElementRegistry,
+    setup: impl FnOnce() -> BasicExecutorSetup + Send + 'static,
 ) -> Result<(), Box<dyn Error>> {
     println!("Serving diagram editor at http://localhost:{}", args.port);
 
@@ -101,7 +104,7 @@ pub async fn serve(
     thread::spawn(move || {
         // The App needs to be created in the same thread that it gets run in,
         // because App does not implement Send.
-        let mut app = bevy_app::App::new();
+        let BasicExecutorSetup { mut app, registry } = setup();
         app.add_plugins(CrossflowExecutorApp::default());
         let router = new_router(&mut app, registry, ServerOptions::default());
         let _ = router_sender.send(router);
@@ -136,7 +139,69 @@ pub async fn run_async_with_args(
 ) -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt::init();
     match args.command {
-        Commands::Run(args) => headless(args, registry),
-        Commands::Serve(args) => serve(args, registry).await,
+        Commands::Run(args) => headless(args, move || BasicExecutorSetup::minimal(registry)),
+        Commands::Serve(args) => serve(args, move || BasicExecutorSetup::minimal(registry)).await,
+    }
+}
+
+/// This struct describes how the basic executor app should be set up. You can
+/// use this to add arbitrary systems and plugins to your executor app.
+///
+/// Inside the `setup` closure of `run_custom_setup`, create your app using
+///
+/// ```
+/// # use bevy_app::App;
+/// let mut app = App::new();
+/// ```
+///
+/// Then use `App::add_plugins` or `App::add_systems` or any other Bevy App setup
+/// methods you need before creating this data structure. Return this data
+/// structure from your `setup` closure after you have finished setting it up.
+pub struct BasicExecutorSetup {
+    /// The app, initialized with everything the executor needs.
+    pub app: App,
+    /// The registry with all necessary node builders, section builders, and
+    /// messages registered.
+    pub registry: DiagramElementRegistry,
+}
+
+impl BasicExecutorSetup {
+    /// Use a minimal setup.
+    pub fn minimal(registry: DiagramElementRegistry) -> Self {
+        Self {
+            app: App::new(),
+            registry,
+        }
+    }
+}
+
+/// Run a custom setup of a basic executor. Unlike the simpler run functions,
+/// this gives you the opportunity to create a custom [`App`], adding whatever
+/// systems and plugins to it that you would like.
+///
+/// # Arguments
+/// * `args` - Custom arguments for running the basic executor.
+///   If `args` is set to [`None`], we will use the environment variable arguments.
+/// * `setup` - A closure used to set up the app in-place because the [`App`] data
+///   structure cannot be moved between threads. This closure will be moved between
+///   threads so it must have the Send trait.
+pub fn run_custom_setup(
+    args: Option<Args>,
+    setup: impl FnOnce() -> BasicExecutorSetup + Send + 'static,
+) -> Result<(), Box<dyn Error>> {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(run_custom_setup_async(args, setup))
+}
+
+/// Run a custom setup of a basic executor asynchronously. For more information,
+/// see [`run_custom_setup`].
+pub async fn run_custom_setup_async(
+    args: Option<Args>,
+    setup: impl FnOnce() -> BasicExecutorSetup + Send + 'static,
+) -> Result<(), Box<dyn Error>> {
+    let args = args.unwrap_or_else(|| Args::parse());
+    match args.command {
+        Commands::Run(args) => headless(args, setup),
+        Commands::Serve(args) => serve(args, setup).await,
     }
 }
