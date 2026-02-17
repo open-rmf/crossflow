@@ -400,7 +400,7 @@ fn impl_buffer_map_layout(
             }
 
             fn get_buffer_message_type_hints(
-                identifiers: ::std::collections::HashSet<::crossflow::BufferIdentifier<'static>>,
+                identifiers: ::std::collections::HashSet<::crossflow::IdentifierRef<'static>>,
             ) -> ::std::result::Result<::crossflow::MessageTypeHintMap, ::crossflow::IncompatibleLayout> {
                 let mut evaluation = ::crossflow::MessageTypeHintEvaluation::new(identifiers);
                 #(

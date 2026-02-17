@@ -34,7 +34,7 @@ use thiserror::Error as ThisError;
 use smallvec::SmallVec;
 
 use crate::{
-    Accessing, Accessor, Buffer, BufferAccessMut, BufferAccessors, BufferError, BufferIdentifier,
+    Accessing, Accessor, Buffer, BufferAccessMut, BufferAccessors, BufferError, IdentifierRef,
     BufferKey, BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferMap,
     BufferMapLayout, BufferMapLayoutHints, BufferStorage, Bufferable, Buffering, Builder,
     CloneFromBuffer, DrainBuffer, FetchFromBuffer, Gate, GateState, IncompatibleLayout,
@@ -339,7 +339,7 @@ impl BufferMapLayout for AnyBuffer {
     }
 
     fn get_buffer_message_type_hints(
-        identifiers: HashSet<BufferIdentifier<'static>>,
+        identifiers: HashSet<IdentifierRef<'static>>,
     ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
         let mut evaluation = MessageTypeHintEvaluation::new(identifiers);
         evaluation.fallback::<AnyMessageBox>(0);
@@ -349,7 +349,7 @@ impl BufferMapLayout for AnyBuffer {
     fn get_layout_hints() -> BufferMapLayoutHints {
         BufferMapLayoutHints::Static(
             [(
-                BufferIdentifier::Index(0),
+                IdentifierRef::Index(0),
                 MessageTypeHint::Fallback(TypeInfo::of::<AnyMessageBox>()),
             )]
             .into(),

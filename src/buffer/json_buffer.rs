@@ -37,7 +37,7 @@ use smallvec::SmallVec;
 
 use crate::{
     Accessing, Accessor, AnyBuffer, AnyBufferAccessInterface, AnyBufferKey, AnyRange, AsAnyBuffer,
-    Buffer, BufferAccessMut, BufferAccessors, BufferError, BufferIdentifier, BufferKey,
+    Buffer, BufferAccessMut, BufferAccessors, BufferError, IdentifierRef, BufferKey,
     BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferMap, BufferMapLayout,
     BufferMapLayoutHints, BufferMapStruct, BufferStorage, Bufferable, Buffering, Builder,
     CloneFromBuffer, DrainBuffer, DynamicBufferMapLayoutHints, Gate, GateState, IncompatibleLayout,
@@ -1200,7 +1200,7 @@ impl BufferMapLayout for JsonBuffer {
     }
 
     fn get_buffer_message_type_hints(
-        identifiers: HashSet<BufferIdentifier<'static>>,
+        identifiers: HashSet<IdentifierRef<'static>>,
     ) -> Result<super::MessageTypeHintMap, IncompatibleLayout> {
         let mut evaluation = MessageTypeHintEvaluation::new(identifiers);
         evaluation.fallback::<JsonMessage>(0);
@@ -1210,7 +1210,7 @@ impl BufferMapLayout for JsonBuffer {
     fn get_layout_hints() -> BufferMapLayoutHints {
         BufferMapLayoutHints::Static(
             [(
-                BufferIdentifier::Index(0),
+                IdentifierRef::Index(0),
                 MessageTypeHint::Fallback(TypeInfo::of::<JsonMessage>()),
             )]
             .into(),
@@ -1228,17 +1228,17 @@ impl BufferMapLayout for HashMap<String, JsonBuffer> {
         let mut compatibility = IncompatibleLayout::default();
         for identifier in buffers.keys() {
             match identifier {
-                BufferIdentifier::Name(name) => {
+                IdentifierRef::Name(name) => {
                     if let Ok(downcast) =
                         compatibility.require_buffer_for_borrowed_name::<JsonBuffer>(&name, buffers)
                     {
                         downcast_buffers.insert(name.clone().into_owned(), downcast);
                     }
                 }
-                BufferIdentifier::Index(index) => {
+                IdentifierRef::Index(index) => {
                     compatibility
                         .forbidden_buffers
-                        .push(BufferIdentifier::Index(*index));
+                        .push(IdentifierRef::Index(*index));
                 }
             }
         }
@@ -1248,7 +1248,7 @@ impl BufferMapLayout for HashMap<String, JsonBuffer> {
     }
 
     fn get_buffer_message_type_hints(
-        identifiers: HashSet<BufferIdentifier<'static>>,
+        identifiers: HashSet<IdentifierRef<'static>>,
     ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
         let mut evaluation = MessageTypeHintEvaluation::new(identifiers);
         while let Some(identifier) = evaluation.next_name_required() {
@@ -1290,10 +1290,10 @@ impl Joining for HashMap<String, JsonBuffer> {
 }
 
 impl Joined for JsonMessage {
-    type Buffers = HashMap<BufferIdentifier<'static>, JsonBuffer>;
+    type Buffers = HashMap<IdentifierRef<'static>, JsonBuffer>;
 }
 
-impl BufferMapLayout for HashMap<BufferIdentifier<'static>, JsonBuffer> {
+impl BufferMapLayout for HashMap<IdentifierRef<'static>, JsonBuffer> {
     fn try_from_buffer_map(buffers: &BufferMap) -> Result<Self, IncompatibleLayout> {
         let mut downcast_buffers = HashMap::new();
         let mut compatibility = IncompatibleLayout::default();
@@ -1310,7 +1310,7 @@ impl BufferMapLayout for HashMap<BufferIdentifier<'static>, JsonBuffer> {
     }
 
     fn get_buffer_message_type_hints(
-        identifiers: HashSet<BufferIdentifier<'static>>,
+        identifiers: HashSet<IdentifierRef<'static>>,
     ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
         let mut evaluation = MessageTypeHintEvaluation::new(identifiers);
         while let Some(identifier) = evaluation.next_unevaluated() {
@@ -1328,13 +1328,13 @@ impl BufferMapLayout for HashMap<BufferIdentifier<'static>, JsonBuffer> {
     }
 }
 
-impl BufferMapStruct for HashMap<BufferIdentifier<'static>, JsonBuffer> {
+impl BufferMapStruct for HashMap<IdentifierRef<'static>, JsonBuffer> {
     fn buffer_list(&self) -> SmallVec<[AnyBuffer; 8]> {
         self.values().map(|b| b.as_any_buffer()).collect()
     }
 }
 
-impl Joining for HashMap<BufferIdentifier<'static>, JsonBuffer> {
+impl Joining for HashMap<IdentifierRef<'static>, JsonBuffer> {
     type Item = JsonMessage;
     fn fetch_for_join(
         &self,
@@ -1346,7 +1346,7 @@ impl Joining for HashMap<BufferIdentifier<'static>, JsonBuffer> {
 
         for (identifier, buffer) in self.iter() {
             match identifier {
-                BufferIdentifier::Index(index) => {
+                IdentifierRef::Index(index) => {
                     if *index >= array.len() {
                         // Ensure we have enough items in the array to reach the
                         // specified index.
@@ -1355,7 +1355,7 @@ impl Joining for HashMap<BufferIdentifier<'static>, JsonBuffer> {
 
                     array[*index] = buffer.fetch_for_join(session, world)?;
                 }
-                BufferIdentifier::Name(name) => {
+                IdentifierRef::Name(name) => {
                     object.insert(
                         name.as_ref().to_owned(),
                         buffer.fetch_for_join(session, world)?,

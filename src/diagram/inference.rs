@@ -27,7 +27,7 @@ use std::{
 };
 
 use crate::{
-    BufferIdentifier, BufferMapLayoutHints, BufferSelection, BuildDiagramOperation, Diagram,
+    IdentifierRef, BufferMapLayoutHints, BufferSelection, BuildDiagramOperation, Diagram,
     DiagramContext, DiagramElementRegistry, DiagramError, DiagramErrorCode, IncompatibleLayout,
     MetadataAccess, NamedOutputRef, NamespaceList, NamespacedOperation, NextOperation, NodeSchema,
     OperationName, OperationRef, Operations, OutputRef, ScopeSchema, SectionError, SectionProvider,
@@ -582,7 +582,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     ) -> Result<(), DiagramErrorCode> {
         let output = self.into_output_ref(output_ref(operation_name).next());
         let target = self.into_operation_ref(next);
-        let evaluate = |context: &ConstraintContext, msg: usize, member: &BufferIdentifier| {
+        let evaluate = |context: &ConstraintContext, msg: usize, member: &IdentifierRef| {
             let layout = &context.metadata.join_layout(msg)?;
             evaluate_buffer_hint(layout, member)
         };
@@ -626,7 +626,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         let operation = self.into_operation_ref(operation_name);
         let output = self.into_output_ref(output_ref(operation_name).next());
         let target = self.into_operation_ref(next);
-        let evaluate = |context: &ConstraintContext, msg: usize, member: &BufferIdentifier| {
+        let evaluate = |context: &ConstraintContext, msg: usize, member: &IdentifierRef| {
             let layout = context.metadata.buffer_access_layout(msg)?;
             evaluate_buffer_hint(layout, member)
         };
@@ -657,7 +657,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     ) {
         let output = self.into_output_ref(output_ref(operation_name).next());
         let target = self.into_operation_ref(next);
-        let evaluate = |context: &ConstraintContext, msg: usize, member: &BufferIdentifier| {
+        let evaluate = |context: &ConstraintContext, msg: usize, member: &IdentifierRef| {
             let layout = context.metadata.listen_layout(msg)?;
             evaluate_buffer_hint(layout, member)
         };
@@ -1179,7 +1179,7 @@ impl<'a> ConstraintContext<'a> {
 
 fn evaluate_buffer_hint(
     layout: &BufferMapLayoutHints<usize>,
-    member: &BufferIdentifier,
+    member: &IdentifierRef,
 ) -> MessageTypeEvaluation {
     match layout {
         BufferMapLayoutHints::Dynamic(dynamic) => {
@@ -1340,7 +1340,7 @@ struct Inferences {
 
 struct BufferInference {
     used_by: PortRef,
-    member: BufferIdentifier<'static>,
+    member: IdentifierRef<'static>,
     evaluate: EvaluateBufferLayoutHintFn,
 }
 
@@ -1364,7 +1364,7 @@ impl std::fmt::Debug for BufferInference {
 }
 
 type EvaluateBufferLayoutHintFn =
-    fn(&ConstraintContext, usize, &BufferIdentifier) -> MessageTypeEvaluation;
+    fn(&ConstraintContext, usize, &IdentifierRef) -> MessageTypeEvaluation;
 
 impl Inferences {
     fn evaluation(&mut self, key: impl Into<PortRef>) -> &mut MessageTypeInference {

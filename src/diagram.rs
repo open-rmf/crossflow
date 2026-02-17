@@ -75,7 +75,7 @@ use std::{
 
 pub use crate::type_info::TypeInfo;
 use crate::{
-    BufferIdentifier, Builder, IncompatibleLayout, IncrementalScopeError, JsonMessage,
+    IdentifierRef, Builder, IncompatibleLayout, IncrementalScopeError, JsonMessage,
     MessageTypeHint, Scope, Service, SpawnWorkflowExt, SplitConnectionError, StreamPack,
     is_default,
 };
@@ -229,12 +229,12 @@ impl JsonSchema for NamespacedOperation {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", untagged)]
-pub enum BufferSelection<Identifier = NextOperation> {
-    Dict(HashMap<String, Identifier>),
-    Array(Vec<Identifier>),
+pub enum BufferSelection<Selection = NextOperation> {
+    Dict(HashMap<String, Selection>),
+    Array(Vec<Selection>),
 }
 
-impl<Identifier> BufferSelection<Identifier> {
+impl<Selection> BufferSelection<Selection> {
     pub fn is_empty(&self) -> bool {
         match self {
             Self::Dict(d) => d.is_empty(),
@@ -242,7 +242,7 @@ impl<Identifier> BufferSelection<Identifier> {
         }
     }
 
-    pub fn iter(&self) -> BufferSelectionIter<'_, Identifier> {
+    pub fn iter(&self) -> BufferSelectionIter<'_, Selection> {
         match self {
             Self::Dict(dict) => BufferSelectionIter::Dict(dict.iter()),
             Self::Array(array) => BufferSelectionIter::Array(array.iter().enumerate()),
@@ -250,21 +250,21 @@ impl<Identifier> BufferSelection<Identifier> {
     }
 }
 
-pub enum BufferSelectionIter<'a, Identifier> {
-    Dict(std::collections::hash_map::Iter<'a, String, Identifier>),
-    Array(std::iter::Enumerate<std::slice::Iter<'a, Identifier>>),
+pub enum BufferSelectionIter<'a, Selection> {
+    Dict(std::collections::hash_map::Iter<'a, String, Selection>),
+    Array(std::iter::Enumerate<std::slice::Iter<'a, Selection>>),
 }
 
-impl<'a, Identifier> Iterator for BufferSelectionIter<'a, Identifier> {
-    type Item = (BufferIdentifier<'a>, &'a Identifier);
+impl<'a, Selection> Iterator for BufferSelectionIter<'a, Selection> {
+    type Item = (IdentifierRef<'a>, &'a Selection);
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             Self::Dict(dict) => dict
                 .next()
-                .map(|(name, id)| (BufferIdentifier::Name(Cow::Borrowed(name.as_str())), id)),
+                .map(|(name, id)| (IdentifierRef::Name(Cow::Borrowed(name.as_str())), id)),
             Self::Array(array) => array
                 .next()
-                .map(|(index, id)| (BufferIdentifier::Index(index), id)),
+                .map(|(index, id)| (IdentifierRef::Index(index), id)),
         }
     }
 }
@@ -970,8 +970,8 @@ pub enum DiagramErrorCode {
 
     #[error("Unknown buffer identifier [{unknown}] used for join containing {}", format_list(.available))]
     UnknownJoinField {
-        unknown: BufferIdentifier<'static>,
-        available: Vec<BufferIdentifier<'static>>,
+        unknown: IdentifierRef<'static>,
+        available: Vec<IdentifierRef<'static>>,
     },
 
     #[error("There was an attempt to connect to an unknown operation: [{0}]")]
@@ -1018,7 +1018,7 @@ pub enum DiagramErrorCode {
     #[error(
         "This error should not happen, it means the implementation of buffer hints is broken. Identifier of missing hint: {0}"
     )]
-    BrokenBufferMessageTypeHint(BufferIdentifier<'static>),
+    BrokenBufferMessageTypeHint(IdentifierRef<'static>),
 
     #[error(transparent)]
     SectionError(#[from] SectionError),
@@ -1177,21 +1177,6 @@ impl std::fmt::Display for FinishingErrors {
         }
 
         Ok(())
-    }
-}
-
-#[derive(
-    Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
-)]
-#[serde(untagged)]
-pub enum NameOrIndex {
-    Name(Arc<str>),
-    Index(usize),
-}
-
-impl<T: std::borrow::Borrow<str>> From<T> for NameOrIndex {
-    fn from(value: T) -> Self {
-        NameOrIndex::Name(value.borrow().into())
     }
 }
 

@@ -16,7 +16,7 @@
 */
 
 use super::*;
-use crate::{AsyncMap, NeverFinish};
+use crate::{AsyncMap, NeverFinish, Identifier};
 
 use bevy_derive::{Deref, DerefMut};
 
@@ -64,7 +64,7 @@ pub struct GrpcConfig {
     /// that the client should call.
     pub service: Arc<str>,
     /// Name of the method within the chosen service.
-    pub method: Option<NameOrIndex>,
+    pub method: Option<Identifier>,
     /// URI of where the service should be accessed.
     pub uri: Arc<str>,
     /// A timeout (in seconds) for how long to wait for the service to finish before
@@ -309,11 +309,11 @@ fn get_descriptions(config: &GrpcConfig) -> Result<GrpcDescriptions, Anyhow> {
         .get_service_by_name(&service_name)
         .ok_or_else(|| anyhow!("could not find service name [{}]", config.service))?;
 
-    let method = match config.method.as_ref().unwrap_or(&NameOrIndex::Index(0)) {
-        NameOrIndex::Index(index) => service.methods().skip(*index).next().ok_or_else(|| {
+    let method = match config.method.as_ref().unwrap_or(&Identifier::Index(0)) {
+        Identifier::Index(index) => service.methods().skip(*index).next().ok_or_else(|| {
             anyhow!("service [{service_name}] does not have a method with index [{index}]")
         })?,
-        NameOrIndex::Name(name) => {
+        Identifier::Name(name) => {
             service
                 .methods()
                 .find(|m| m.name() == &**name)
