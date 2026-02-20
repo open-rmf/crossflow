@@ -70,6 +70,7 @@ where
         let Input {
             session,
             data: (request, service),
+            seq,
         } = source_mut
             .take_input::<(Request, ServiceInstructions<Request, Response, Streams>)>()?;
 

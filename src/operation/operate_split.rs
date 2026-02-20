@@ -67,8 +67,8 @@ impl<T: 'static + Splittable + Send + Sync> Operation for OperateSplit<T> {
             roster,
         }: OperationRequest,
     ) -> OperationResult {
+        let Input { session, data, seq } = world.take_input::<T>(source)?;
         let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { session, data } = source_mut.take_input::<T>()?;
         let targets = source_mut.get::<ForkTargetStorage>().or_broken()?.0.clone();
 
         let mut split = source_mut.get_mut::<OperateSplit<T>>().or_broken()?;

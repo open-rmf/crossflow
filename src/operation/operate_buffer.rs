@@ -26,7 +26,7 @@ use crate::{
     Gate, GateActionStorage, Input, InputBundle, InspectBuffer, ManageBuffer, ManageInput,
     Operation, OperationCleanup, OperationError, OperationReachability, OperationRequest,
     OperationResult, OperationRoster, OperationSetup, OrBroken, ReachabilityResult,
-    SingleInputStorage, UnhandledErrors,
+    SingleInputStorage, UnhandledErrors, MessageRoute, output_port,
 };
 
 #[derive(Bundle)]
@@ -70,10 +70,10 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
+        let Input { session, data, seq } = world.take_input::<T>(source)?;
         let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { session, data } = source_mut.take_input::<T>()?;
         let mut buffer = source_mut.get_mut::<BufferStorage<T>>().or_broken()?;
-        buffer.force_push(session, data);
+        buffer.force_push(session, seq, data);
 
         if source_mut
             .get::<GateState>()
@@ -84,11 +84,16 @@ where
         }
 
         let targets = source_mut.get::<ForkTargetStorage>().or_broken()?.0.clone();
+        let port = output_port::listen();
         for target in targets {
-            world
-                .get_entity_mut(target)
-                .or_broken()?
-                .give_input(session, (), roster)?;
+            let route = MessageRoute {
+                session,
+                source,
+                seq,
+                port: &port,
+                target,
+            };
+            world.give_input(route, (), roster)?;
         }
 
         Ok(())

@@ -225,6 +225,11 @@ pub struct BlockingService<Request, Streams: StreamPack = ()> {
     pub provider: Entity,
     /// The node in a workflow or series that asked for the service
     pub source: Entity,
+    /// The sequence number of the request into this service. Each request that
+    /// comes to the service has a unique sequence number, even if they are in
+    /// the same session. These numbers will eventually wrap around if the
+    /// service is called enough times.
+    pub seq: Seq,
     /// The unique session ID for the workflow
     pub session: Entity,
 }
@@ -253,6 +258,11 @@ pub struct AsyncService<Request, Streams: StreamPack = ()> {
     pub provider: Entity,
     /// The node in a workflow or series that asked for the service
     pub source: Entity,
+    /// The sequence number of the request into this service. Each request that
+    /// comes to the service has a unique sequence number, even if they are in
+    /// the same session. These numbers will eventually wrap around if the
+    /// service is called enough times.
+    pub seq: Seq,
     /// The unique session ID for the workflow
     pub session: Entity,
 }
@@ -288,6 +298,11 @@ pub struct BlockingCallback<Request, Streams: StreamPack = ()> {
     pub streams: Streams::StreamBuffers,
     /// The node in a workflow or series that asked for the callback
     pub source: Entity,
+    /// The sequence number of the request into this service. Each request that
+    /// comes to the service has a unique sequence number, even if they are in
+    /// the same session. These numbers will eventually wrap around if the
+    /// service is called enough times.
+    pub seq: Seq,
     /// The unique session ID for the workflow
     pub session: Entity,
 }
@@ -312,6 +327,11 @@ pub struct AsyncCallback<Request, Streams: StreamPack = ()> {
     pub channel: Channel,
     /// The node in a workflow or series that asked for the callback
     pub source: Entity,
+    /// The sequence number of the request into this service. Each request that
+    /// comes to the service has a unique sequence number, even if they are in
+    /// the same session. These numbers will eventually wrap around if the
+    /// service is called enough times.
+    pub seq: Seq,
     /// The unique session ID for the workflow
     pub session: Entity,
 }
@@ -330,6 +350,11 @@ pub struct BlockingMap<Request, Streams: StreamPack = ()> {
     pub streams: Streams::StreamBuffers,
     /// The node in a workflow or series that asked for the callback
     pub source: Entity,
+    /// The sequence number of the request into this service. Each request that
+    /// comes to the service has a unique sequence number, even if they are in
+    /// the same session. These numbers will eventually wrap around if the
+    /// service is called enough times.
+    pub seq: Seq,
     /// The unique session ID for the workflow
     pub session: Entity,
 }
@@ -353,8 +378,42 @@ pub struct AsyncMap<Request, Streams: StreamPack = ()> {
     pub channel: Channel,
     /// The node in a workflow or series that asked for the callback
     pub source: Entity,
+    /// The sequence number of the request into this service. Each request that
+    /// comes to the service has a unique sequence number, even if they are in
+    /// the same session. These numbers will eventually wrap around if the
+    /// service is called enough times.
+    pub seq: Seq,
     /// The unique session ID for the workflow
     pub session: Entity,
+}
+
+/// Uniquely identify a request that has been made to a node.
+pub struct RequestId {
+    /// The node in a workflow or series that asked for the callback
+    pub source: Entity,
+    /// The sequence number of the request into this service. Each request that
+    /// comes to the service has a unique sequence number, even if they are in
+    /// the same session. These numbers will eventually wrap around if the
+    /// service is called enough times.
+    pub seq: Seq,
+}
+
+impl<'a, Request, Streams: StreamPack> From<&'a BlockingService<Request, Streams>> for RequestId {
+    fn from(value: &'a BlockingService<Request, Streams>) -> Self {
+        RequestId {
+            source: value.source,
+            seq: value.seq,
+        }
+    }
+}
+
+impl<'a, Request, Streams: StreamPack> From<&'a AsyncService<Request, Streams>> for RequestId {
+    fn from(value: &'a AsyncService<Request, Streams>) -> Self {
+        RequestId {
+            source: value.source,
+            seq: value.seq,
+        }
+    }
 }
 
 /// This plugin simply adds [`flush_execution()`] to the [`Update`] schedule of your

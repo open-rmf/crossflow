@@ -23,26 +23,32 @@ use bevy_ecs::{
 #[cfg(feature = "trace")]
 use bevy_ecs::prelude::ChildOf;
 
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 
 #[cfg(feature = "trace")]
-use std::sync::Arc;
+use std::{
+    num::Wrapping,
+    sync::Arc,
+};
 
 use backtrace::Backtrace;
 
 use crate::{
     Broken, BufferStorage, Cancel, Cancellation, CancellationCause, DeferredRoster, Detached,
     MiscellaneousFailure, OperationError, OperationRoster, OrBroken, SessionStatus,
-    UnhandledErrors, UnusedTarget,
+    UnhandledErrors, UnusedTarget, OutputPort, MessageSent,
 };
 
 #[cfg(feature = "trace")]
 use crate::{OperationStarted, Trace};
 
+pub type Seq = u32;
+
 /// This contains data that has been provided as input into an operation, along
 /// with an indication of what session the data belongs to.
 pub struct Input<T> {
     pub session: Entity,
+    pub seq: Seq,
     pub data: T,
 }
 
@@ -50,18 +56,20 @@ pub struct Input<T> {
 /// This component is inserted on the source entity of the operation and will
 /// queue up inputs that have arrived for the source.
 #[derive(Component)]
-pub(crate) struct InputStorage<T> {
+pub struct InputStorage<T> {
     // Items will be inserted into this queue from the front, so we pop off the
     // back to get the oldest items out.
     // TODO(@mxgrey): Consider if it's worth implementing a Deque on top of
     // the SmallVec data structure.
     reverse_queue: SmallVec<[Input<T>; 16]>,
+    sequence: Wrapping<Seq>,
 }
 
 impl<T> InputStorage<T> {
     pub fn new() -> Self {
         Self {
             reverse_queue: Default::default(),
+            sequence: Default::default(),
         }
     }
 
@@ -69,6 +77,13 @@ impl<T> InputStorage<T> {
         self.reverse_queue
             .iter()
             .any(|input| input.session == session)
+    }
+
+    fn push(&mut self, session: Entity, data: T) -> u32 {
+        let seq = self.sequence.0;
+        self.sequence += 1;
+        self.reverse_queue.insert(0, Input { session, seq, data });
+        seq
     }
 }
 
@@ -100,9 +115,48 @@ pub struct InputBundle<T: 'static + Send + Sync> {
 
 impl<T: 'static + Send + Sync> InputBundle<T> {
     pub fn new() -> Self {
+        Self::custom(Default::default())
+    }
+
+    pub fn custom(storage: InputStorage<T>) -> Self {
         Self {
-            storage: Default::default(),
+            storage,
             indicator: InputTypeIndicator::new::<T>(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MessageRoute<'a> {
+    pub session: Entity,
+    pub source: Entity,
+    pub seq: Seq,
+    pub port: OutputPort<'a>,
+    pub target: Entity,
+}
+
+pub struct Routing<'a> {
+    pub session: Entity,
+    pub sources: SmallVec<[RouteSource<'a>; 8]>,
+    pub target: Entity,
+}
+
+pub struct RouteSource<'a> {
+    pub source: Entity,
+    pub seq: Seq,
+    pub port: OutputPort<'a>,
+}
+
+impl<'a> From<MessageRoute<'a>> for Routing<'a> {
+    fn from(route: MessageRoute<'a>) -> Self {
+        Routing {
+            session: route.session,
+            sources: smallvec![RouteSource {
+                source: route.source,
+                seq: route.seq,
+                port: route.port,
+            }],
+            target: route.target,
         }
     }
 }
@@ -113,12 +167,18 @@ impl<T: 'static + Send + Sync> Default for InputBundle<T> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct CleanInputsOf {
+    pub session: Entity,
+    pub source: Entity,
+}
+
 pub trait ManageInput {
     /// Give an input to this node. The node will be queued up to immediately
     /// process the input.
-    fn give_input<T: 'static + Send + Sync>(
+    fn give_input<'a, T: 'static + Send + Sync>(
         &mut self,
-        session: Entity,
+        route: impl Into<Routing<'a>>,
         data: T,
         roster: &mut OperationRoster,
     ) -> Result<(), OperationError>;
@@ -127,9 +187,9 @@ pub trait ManageInput {
     /// deferred until after the async updates are flushed. This is used for
     /// async task output to ensure that all async operations, such as streams,
     /// are finished being processed before the final output gets processed.
-    fn defer_input<T: 'static + Send + Sync>(
+    fn defer_input<'a, T: 'static + Send + Sync>(
         &mut self,
-        session: Entity,
+        route: impl Into<Routing<'a>>,
         data: T,
         roster: &mut OperationRoster,
     ) -> Result<(), OperationError>;
@@ -145,65 +205,80 @@ pub trait ManageInput {
     /// operation to the queue or run the operation explicitly. Failing to do
     /// one of these could mean that this input (or one that follows it) will
     /// never be processed, which could cause a workflow to hang forever.
-    unsafe fn sneak_input<T: 'static + Send + Sync>(
+    unsafe fn sneak_input<'a, T: 'static + Send + Sync>(
         &mut self,
-        session: Entity,
+        route: impl Into<Routing<'a>>,
         data: T,
         only_if_active: bool,
         roster: &mut OperationRoster,
     ) -> Result<bool, OperationError>;
 
     /// Get an input that is ready to be taken, or else produce an error.
-    fn take_input<T: 'static + Send + Sync>(&mut self) -> Result<Input<T>, OperationError>;
+    fn take_input<T: 'static + Send + Sync>(
+        &mut self,
+        source: Entity,
+    ) -> Result<Input<T>, OperationError>;
 
     /// Try to take an input if one is ready. If no input is ready this will
     /// return Ok(None). It only returns an error if the node is broken.
     fn try_take_input<T: 'static + Send + Sync>(
         &mut self,
+        source: Entity,
     ) -> Result<Option<Input<T>>, OperationError>;
 
-    fn cleanup_inputs<T: 'static + Send + Sync>(&mut self, session: Entity);
+    fn cleanup_inputs<T: 'static + Send + Sync>(
+        &mut self,
+        clean: CleanInputsOf,
+    );
 }
 
 pub trait InspectInput {
     fn has_input<T: 'static + Send + Sync>(&self, session: Entity) -> Result<bool, OperationError>;
 }
 
-impl<'w> ManageInput for EntityWorldMut<'w> {
-    fn give_input<T: 'static + Send + Sync>(
+impl ManageInput for World {
+    fn give_input<'a, T: 'static + Send + Sync>(
         &mut self,
-        session: Entity,
+        route: impl Into<Routing<'a>>,
         data: T,
         roster: &mut OperationRoster,
     ) -> Result<(), OperationError> {
-        if unsafe { self.sneak_input(session, data, true, roster)? } {
-            roster.queue(self.id());
+        let route: Routing = route.into();
+        let target = route.target;
+        if unsafe { self.sneak_input(route, data, true, roster)? } {
+            roster.queue(target);
         }
         Ok(())
     }
 
-    fn defer_input<T: 'static + Send + Sync>(
+    fn defer_input<'a, T: 'static + Send + Sync>(
         &mut self,
-        session: Entity,
+        route: impl Into<Routing<'a>>,
         data: T,
         roster: &mut OperationRoster,
     ) -> Result<(), OperationError> {
-        if unsafe { self.sneak_input(session, data, true, roster)? } {
-            roster.defer(self.id());
+        let route: Routing = route.into();
+        let target = route.target;
+        if unsafe { self.sneak_input(route, data, true, roster)? } {
+            roster.defer(target);
         }
         Ok(())
     }
 
-    unsafe fn sneak_input<T: 'static + Send + Sync>(
+    unsafe fn sneak_input<'a, T: 'static + Send + Sync>(
         &mut self,
-        session: Entity,
+        route: impl Into<Routing<'a>>,
         data: T,
         only_if_active: bool,
         roster: &mut OperationRoster,
     ) -> Result<bool, OperationError> {
+        let route: Routing = route.into();
+        let session = route.session;
+        let target = route.target;
+
         if only_if_active {
             let active_session =
-                if let Some(session_status) = self.world().get::<SessionStatus>(session) {
+                if let Some(session_status) = self.get::<SessionStatus>(session) {
                     matches!(session_status, SessionStatus::Active)
                 } else {
                     false
@@ -217,16 +292,31 @@ impl<'w> ManageInput for EntityWorldMut<'w> {
             }
         }
 
-        if let Some(mut storage) = self.get_mut::<InputStorage<T>>() {
-            storage.reverse_queue.insert(0, Input { session, data });
-        } else if !self.contains::<UnusedTarget>() {
-            let id = self.id();
-            if let Some(detached) = self.get::<Detached>() {
+        let mut serialized_msg = None;
+        #[cfg(feature = "trace")]
+        {
+            if let Some(trace) = self.get::<Trace>(target) {
+                if trace.toggle().with_messages() {
+                    serialized_msg = trace.serialize_value(&data);
+                }
+            }
+        }
+
+        if let Some(mut storage) = self.get_mut::<InputStorage<T>>(target) {
+            let target_seq = storage.push(session, data);
+
+            #[cfg(feature = "trace")]
+            {
+                MessageSent::trace(route, target_seq, serialized_msg, self);
+            }
+
+        } else if self.get::<UnusedTarget>(target).is_none() {
+            if let Some(detached) = self.get::<Detached>(target) {
                 if detached.is_detached() {
                     // The input is going to a detached series that will not
                     // react any further. We need to tell that detached series
                     // to despawn since it is no longer needed.
-                    roster.defer_despawn(id);
+                    roster.defer_despawn(target);
 
                     // No error occurred, but the caller should not queue the
                     // operation into the roster because it is being despawned.
@@ -234,7 +324,7 @@ impl<'w> ManageInput for EntityWorldMut<'w> {
                 }
             }
 
-            let expected = self.get::<InputTypeIndicator>().map(|i| i.name);
+            let expected = self.get::<InputTypeIndicator>(target).map(|i| i.name);
             // If the input is being fed to an unused target then we can
             // generally ignore it, although it may indicate a bug in the user's
             // workflow because workflow branches that end in an unused target
@@ -244,43 +334,40 @@ impl<'w> ManageInput for EntityWorldMut<'w> {
             // have the correct input storage type. This indicates a bug in
             // crossflow itself, since the API should ensure that connection
             // mismatches are impossible.
-            unsafe {
-                // SAFETY: .world_mut() is marked unsafe because we must not use
-                // it in a way that could modify the entity's current location.
-                // Since we are only modifying a resource, there should be no
-                // risk of that.
-                self.world_mut()
-                    .get_resource_or_insert_with(|| UnhandledErrors::default())
-                    .miscellaneous
-                    .push(MiscellaneousFailure {
-                        error: std::sync::Arc::new(anyhow::anyhow!(
-                            "Incorrect input type for operation [{:?}]: received [{}], expected [{}]",
-                            id,
-                            std::any::type_name::<T>(),
-                            expected.unwrap_or("<null>"),
-                        )),
-                        backtrace: Some(Backtrace::new()),
-                    });
-            }
+            self.get_resource_or_insert_with(|| UnhandledErrors::default())
+                .miscellaneous
+                .push(MiscellaneousFailure {
+                    error: std::sync::Arc::new(anyhow::anyhow!(
+                        "Incorrect input type for operation [{:?}]: received [{}], expected [{}]",
+                        target,
+                        std::any::type_name::<T>(),
+                        expected.unwrap_or("<undefined>"),
+                    )),
+                    backtrace: Some(Backtrace::new()),
+                });
             None.or_broken()?;
         }
         Ok(true)
     }
 
-    fn take_input<T: 'static + Send + Sync>(&mut self) -> Result<Input<T>, OperationError> {
-        self.try_take_input()?.or_not_ready()
+    fn take_input<T: 'static + Send + Sync>(
+        &mut self,
+        source: Entity,
+    ) -> Result<Input<T>, OperationError> {
+        self.try_take_input(source)?.or_not_ready()
     }
 
     fn try_take_input<T: 'static + Send + Sync>(
         &mut self,
+        source: Entity,
     ) -> Result<Option<Input<T>>, OperationError> {
-        let mut storage = self.get_mut::<InputStorage<T>>().or_broken()?;
+        let mut storage = self.get_mut::<InputStorage<T>>(source).or_broken()?;
         let input = storage.reverse_queue.pop();
 
         #[cfg(feature = "trace")]
         {
             if let Some(input) = &input {
-                if let Some(trace) = self.get::<Trace>() {
+                if let Some(trace) = self.get::<Trace>(source) {
                     if trace.toggle().is_on() {
                         let message = trace
                             .toggle()
@@ -292,39 +379,33 @@ impl<'w> ManageInput for EntityWorldMut<'w> {
                         let message = match message {
                             Ok(message) => message,
                             Err(err) => {
-                                self.world_scope(|world| {
-                                    world
-                                        .get_resource_or_insert_with(UnhandledErrors::default)
-                                        .miscellaneous
-                                        .push(MiscellaneousFailure {
-                                            error: Arc::new(err.into()),
-                                            backtrace: Some(Backtrace::new()),
-                                        });
-                                });
+                                self.get_resource_or_insert_with(UnhandledErrors::default)
+                                    .miscellaneous
+                                    .push(MiscellaneousFailure {
+                                        error: Arc::new(err.into()),
+                                        backtrace: Some(Backtrace::new()),
+                                    });
                                 return Err(OperationError::Broken(Some(Backtrace::new())));
                             }
                         };
 
-                        let world = self.world();
                         let mut session_stack = SmallVec::new();
                         session_stack.push(input.session);
                         let mut session = input.session;
-                        while let Some(next_session) = world.get::<ChildOf>(session) {
+                        while let Some(next_session) = self.get::<ChildOf>(session) {
                             session = next_session.parent();
                             session_stack.push(session);
                         }
                         session_stack.reverse();
 
                         let started = OperationStarted {
-                            operation: self.id(),
+                            operation: source,
                             session_stack,
                             info: Arc::clone(trace.info()),
                             message,
                         };
 
-                        self.world_scope(|world| {
-                            world.send_event(started);
-                        });
+                        self.send_event(started);
                     }
                 }
             }
@@ -333,15 +414,18 @@ impl<'w> ManageInput for EntityWorldMut<'w> {
         Ok(input)
     }
 
-    fn cleanup_inputs<T: 'static + Send + Sync>(&mut self, session: Entity) {
-        if self.contains::<BufferStorage<T>>() {
+    fn cleanup_inputs<T: 'static + Send + Sync>(
+        &mut self,
+        CleanInputsOf { session, source }: CleanInputsOf,
+    ) {
+        if self.get::<BufferStorage<T>>(source).is_some() {
             // Buffers are handled in a special way because the data of some
             // buffers will be used during cancellation. Therefore we do not
             // want to just delete their contents, but instead store them in the
             // buffer storage until the scope gives the signal to clear all
             // buffer data after all the cancellation workflows are finished.
-            if let Some(mut inputs) = self.get_mut::<InputStorage<T>>() {
-                // Pull out only the data that
+            if let Some(mut inputs) = self.get_mut::<InputStorage<T>>(source) {
+                // Pull out only the data that belongs to the specified session
                 let remaining_indices: SmallVec<[usize; 16]> = inputs
                     .reverse_queue
                     .iter()
@@ -363,7 +447,7 @@ impl<'w> ManageInput for EntityWorldMut<'w> {
                 // INVARIANT: Earlier in this function we checked that the
                 // entity contains this component, and we have not removed it
                 // since then.
-                let mut buffer = self.get_mut::<BufferStorage<T>>().unwrap();
+                let mut buffer = self.get_mut::<BufferStorage<T>>(source).unwrap();
                 for data in reverse_remaining.into_iter().rev() {
                     buffer.force_push(session, data);
                 }
@@ -372,7 +456,7 @@ impl<'w> ManageInput for EntityWorldMut<'w> {
             return;
         }
 
-        if let Some(mut inputs) = self.get_mut::<InputStorage<T>>() {
+        if let Some(mut inputs) = self.get_mut::<InputStorage<T>>(source) {
             inputs
                 .reverse_queue
                 .retain(|Input { session: r, .. }| *r != session);
@@ -404,14 +488,7 @@ impl<T: 'static + Send + Sync> Command for InputCommand<T> {
     fn apply(self, world: &mut World) {
         match world.get_mut::<InputStorage<T>>(self.target) {
             Some(mut storage) => {
-                storage.reverse_queue.insert(
-                    0,
-                    Input {
-                        session: self.session,
-                        data: self.data,
-                    },
-                );
-
+                storage.push(self.session, self.data);
                 world
                     .get_resource_or_insert_with(DeferredRoster::default)
                     .queue(self.target);

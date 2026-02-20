@@ -23,7 +23,7 @@ use crate::{
     ActiveTasksStorage, AsyncMap, BlockingMap, CallAsyncMapOnce, CallBlockingMapOnce, Channel,
     ChannelQueue, Executable, Input, InputBundle, ManageInput, OperateTask, OperationRequest,
     OperationResult, OperationSetup, OrBroken, Sendish, SingleTargetStorage, StreamPack,
-    UnusedStreams,
+    UnusedStreams, MessageRoute, output_port,
     async_execution::{spawn_task, task_cancel_sender},
     make_stream_buffers_from_world,
 };
@@ -119,10 +119,15 @@ where
         // Note: We do not need to emit a disposal for any unused streams since
         // this is only used for series, not workflows.
 
+        let trace = MessageRoute {
+            session,
+            source,
+            port: &output_port::next(),
+        };
         world
             .get_entity_mut(target)
             .or_broken()?
-            .give_input(session, response, roster)?;
+            .give_input(trace, response, roster)?;
         Ok(())
     }
 }

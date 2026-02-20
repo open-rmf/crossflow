@@ -22,7 +22,8 @@ use smallvec::SmallVec;
 
 use crate::{
     AddOperation, Builder, Chain, ForkTargetStorage, ForkUnzip, Input, ManageInput,
-    OperationRequest, OperationResult, OrBroken, Output, UnusedTarget,
+    OperationRequest, OperationResult, OrBroken, Output, UnusedTarget, MessageRoute,
+    output_port,
 };
 
 /// A trait for response types that can be unzipped
@@ -69,16 +70,19 @@ macro_rules! impl_unzippable_for_tuple {
             fn distribute_values(
                 OperationRequest { source, world, roster }: OperationRequest,
             ) -> OperationResult {
-                let Input { session, data: inputs } = world
-                    .get_entity_mut(source).or_broken()?
-                    .take_input::<Self>()?;
+                let Input { session, data: inputs, seq } = world.take_input::<Self>(source)?;
 
-                let ($($D,)*) = world.get::<ForkTargetStorage>(source).or_broken()?.0.iter().copied().next_tuple().or_broken()?;
+                let ($($D,)*) = world.get::<ForkTargetStorage>(source).or_broken()?.0.iter().copied().enumerate().next_tuple().or_broken()?;
                 let ($($T,)*) = inputs;
                 $(
-                    if let Ok(mut t_mut) = world.get_entity_mut($D) {
-                        t_mut.give_input(session, $T, roster)?;
-                    }
+                    let route = MessageRoute {
+                        session,
+                        source,
+                        seq,
+                        port: &output_port::next_index($D.0),
+                        target: $D.1,
+                    };
+                    world.give_input(route, $T, roster)?;
                 )*
                 Ok(())
             }

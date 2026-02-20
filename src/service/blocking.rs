@@ -25,7 +25,7 @@ use crate::{
     BlockingService, BlockingServiceInput, Input, IntoService, ManageDisposal, ManageInput,
     OperationError, OperationRequest, OrBroken, ServiceBundle, ServiceRequest, ServiceTrait,
     StreamPack, UnusedStreams, dispose_for_despawned_service, make_stream_buffers_from_world,
-    service::service_builder::BlockingChosen,
+    service::service_builder::BlockingChosen, MessageRoute, output_port,
 };
 
 pub struct Blocking<M>(std::marker::PhantomData<fn(M)>);
@@ -177,10 +177,15 @@ where
             );
         }
 
+        let trace = MessageRoute {
+            session,
+            source,
+            port: &output_port::next(),
+        };
         world
             .get_entity_mut(target)
             .or_broken()?
-            .give_input(session, response, roster)?;
+            .give_input(trace, response, roster)?;
         Ok(())
     }
 }

@@ -29,7 +29,7 @@ use tokio::sync::{
 use std::sync::Arc;
 
 use crate::{
-    OperationError, OperationRoster, Outcome, Promise, Provider, Reply, RequestExt, StreamPack,
+    OperationError, OperationRoster, Outcome, Promise, Provider, Reply, RequestExt, StreamPack, Seq,
 };
 
 /// Provides asynchronous access to the [`World`], allowing you to issue queries
@@ -171,6 +171,7 @@ impl Channel {
 #[derive(Clone)]
 pub struct InnerChannel {
     pub(crate) source: Entity,
+    pub(crate) seq: Seq,
     pub(crate) session: Entity,
     pub(crate) sender: TokioSender<ChannelItem>,
 }
@@ -178,6 +179,10 @@ pub struct InnerChannel {
 impl InnerChannel {
     pub fn source(&self) -> Entity {
         self.source
+    }
+
+    pub fn seq(&self) -> Seq {
+        self.seq
     }
 
     pub fn sender(&self) -> &TokioSender<ChannelItem> {

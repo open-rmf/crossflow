@@ -17,7 +17,7 @@
 
 use crate::{
     Blocker, DeliveryInstructions, DeliveryLabelId, OperationCleanup, OperationReachability,
-    OperationResult, OperationRoster, OrBroken, ProviderStorage, ReachabilityResult,
+    OperationResult, OperationRoster, OrBroken, ProviderStorage, ReachabilityResult, Seq,
 };
 
 use bevy_ecs::prelude::{Component, Entity, World};
@@ -67,6 +67,7 @@ where
 
     let DeliveryOrder {
         source,
+        seq,
         session,
         task_id,
         request,
@@ -89,6 +90,7 @@ where
     });
     Some(Deliver {
         request,
+        seq,
         task_id,
         blocker,
     })
@@ -96,6 +98,7 @@ where
 
 pub struct Deliver<Request> {
     pub request: Request,
+    pub seq: Seq,
     /// For async services this is the Entity that manages the async task.
     /// For workflows this is the scoped session Entity.
     pub task_id: Entity,
@@ -104,6 +107,7 @@ pub struct Deliver<Request> {
 
 pub(crate) struct DeliveryOrder<Request> {
     pub(crate) source: Entity,
+    pub(crate) seq: Seq,
     pub(crate) session: Entity,
     /// For async services this is the Entity that manages the async task.
     /// For workflows this is the scoped session Entity.

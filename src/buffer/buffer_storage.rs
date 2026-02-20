@@ -27,7 +27,7 @@ use std::{
     slice::{Iter, IterMut},
 };
 
-use crate::{BufferSettings, RetentionPolicy};
+use crate::{BufferSettings, RetentionPolicy, Seq};
 
 #[derive(Component)]
 pub(crate) struct BufferStorage<T> {
@@ -40,7 +40,12 @@ pub(crate) struct BufferStorage<T> {
     /// The main reason we use this as a reverse queue instead of a forward queue
     /// is because SmallVec doesn't have a version of pop that we can use on the
     /// front. We should reconsider whether this is really a sensible choice.
-    reverse_queues: HashMap<Entity, SmallVec<[T; 16]>>,
+    reverse_queues: HashMap<Entity, SmallVec<[BufferEntry<T>; 16]>>,
+}
+
+pub(crate) struct BufferEntry<T> {
+    pub(crate) seq: Seq,
+    pub(crate) message: T,
 }
 
 impl<T> BufferStorage<T> {
@@ -56,16 +61,17 @@ impl<T> BufferStorage<T> {
     }
 
     fn impl_push(
-        reverse_queue: &mut SmallVec<[T; 16]>,
+        reverse_queue: &mut SmallVec<[BufferEntry<T>; 16]>,
         retention: RetentionPolicy,
-        value: T,
-    ) -> Option<T> {
+        seq: Seq,
+        message: T,
+    ) -> Option<BufferEntry<T>> {
         let replaced = match retention {
             RetentionPolicy::KeepFirst(n) => {
                 if reverse_queue.len() >= n {
                     // We're at the limit for inputs in this queue so just send
                     // this back
-                    return Some(value);
+                    return Some(message);
                 }
 
                 None
@@ -75,7 +81,7 @@ impl<T> BufferStorage<T> {
                     reverse_queue.pop()
                 } else if n == 0 {
                     // This can never store any number of entries
-                    return Some(value);
+                    return Some(message);
                 } else {
                     None
                 }
@@ -83,24 +89,25 @@ impl<T> BufferStorage<T> {
             RetentionPolicy::KeepAll => None,
         };
 
-        reverse_queue.insert(0, value);
+        reverse_queue.insert(0, BufferEntry { seq, message });
         replaced
     }
 
-    pub(crate) fn force_push(&mut self, session: Entity, value: T) -> Option<T> {
+    pub(crate) fn force_push(&mut self, session: Entity, seq: Seq, value: T) -> Option<BufferEntry<T>> {
         Self::impl_push(
             self.reverse_queues.entry(session).or_default(),
             self.settings.retention(),
+            seq,
             value,
         )
     }
 
-    pub(crate) fn push(&mut self, session: Entity, value: T) -> Option<T> {
+    pub(crate) fn push(&mut self, session: Entity, seq: Seq, message: T) -> Option<BufferEntry<T>> {
         let Some(reverse_queue) = self.reverse_queues.get_mut(&session) else {
-            return Some(value);
+            return Some(BufferEntry { seq, message });
         };
 
-        Self::impl_push(reverse_queue, self.settings.retention(), value)
+        Self::impl_push(reverse_queue, self.settings.retention(), seq, message)
     }
 
     pub(crate) fn push_as_oldest(&mut self, session: Entity, value: T) -> Option<T> {

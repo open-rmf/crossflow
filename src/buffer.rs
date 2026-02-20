@@ -31,7 +31,7 @@ use std::{
 
 use thiserror::Error as ThisError;
 
-use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError};
+use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError, Seq, RequestId};
 
 mod any_buffer;
 pub use any_buffer::*;
@@ -384,6 +384,7 @@ impl<T> std::fmt::Debug for BufferKey<T> {
 pub struct BufferKeyTag {
     pub buffer: Entity,
     pub session: Entity,
+    /// Which buffer listener operation was this key originally sent to
     pub accessor: Entity,
     pub lifecycle: Option<Arc<BufferAccessLifecycle>>,
 }
@@ -555,14 +556,16 @@ where
 
     pub fn get_mut<'a>(
         &'a mut self,
+        req: impl Into<RequestId>,
         key: &BufferKey<T>,
     ) -> Result<BufferMut<'w, 's, 'a, T>, QueryEntityError> {
+        let RequestId { source, seq } = req.into();
         let buffer = key.buffer();
         let session = key.session();
         let accessor = key.tag.accessor;
         self.query
             .get_mut(key.buffer())
-            .map(|storage| BufferMut::new(storage, buffer, session, accessor, &mut self.commands))
+            .map(|storage| BufferMut::new(storage, buffer, session, accessor, source, seq, &mut self.commands))
     }
 }
 
@@ -588,6 +591,7 @@ pub trait BufferWorldAccess {
     /// and modify the contents of the buffer.
     fn buffer_mut<T, U>(
         &mut self,
+        req: impl Into<RequestId>,
         key: &BufferKey<T>,
         f: impl FnOnce(BufferMut<T>) -> U,
     ) -> Result<U, BufferError>
@@ -600,6 +604,7 @@ pub trait BufferWorldAccess {
     /// view and modify the gate of the buffer.
     fn buffer_gate_mut<U>(
         &mut self,
+        req: impl Into<RequestId>,
         key: impl Into<AnyBufferKey>,
         f: impl FnOnce(BufferGateMut) -> U,
     ) -> Result<U, BufferError>;
@@ -641,6 +646,7 @@ impl BufferWorldAccess for World {
 
     fn buffer_mut<T, U>(
         &mut self,
+        req: impl Into<RequestId>,
         key: &BufferKey<T>,
         f: impl FnOnce(BufferMut<T>) -> U,
     ) -> Result<U, BufferError>
@@ -650,13 +656,14 @@ impl BufferWorldAccess for World {
         let mut state = SystemState::<BufferAccessMut<T>>::new(self);
         let mut buffer_access_mut = state.get_mut(self);
         let buffer_mut = buffer_access_mut
-            .get_mut(key)
+            .get_mut(req, key)
             .map_err(|_| BufferError::BufferMissing)?;
         Ok(f(buffer_mut))
     }
 
     fn buffer_gate_mut<U>(
         &mut self,
+        req: impl Into<RequestId>,
         key: impl Into<AnyBufferKey>,
         f: impl FnOnce(BufferGateMut) -> U,
     ) -> Result<U, BufferError> {
@@ -723,6 +730,8 @@ where
     buffer: Entity,
     session: Entity,
     accessor: Option<Entity>,
+    source: Entity,
+    seq: Seq,
     commands: &'a mut Commands<'w, 's>,
     modified: bool,
 }
@@ -854,7 +863,7 @@ where
     /// will return the value that needed to be removed.
     pub fn push(&mut self, value: T) -> Option<T> {
         self.modified = true;
-        self.storage.push(self.session, value)
+        self.storage.push(self.session, self.seq, value).map(|e| e.message)
     }
 
     /// Push a value into the buffer as if it is the oldest value of the buffer.
@@ -877,6 +886,8 @@ where
         buffer: Entity,
         session: Entity,
         accessor: Entity,
+        source: Entity,
+        seq: Seq,
         commands: &'a mut Commands<'w, 's>,
     ) -> Self {
         Self {
@@ -885,6 +896,8 @@ where
             session,
             accessor: Some(accessor),
             commands,
+            source,
+            seq,
             modified: false,
         }
     }

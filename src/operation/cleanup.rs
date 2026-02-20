@@ -18,6 +18,7 @@
 use crate::{
     Accessing, BufferAccessStorage, ManageDisposal, ManageInput, MiscellaneousFailure,
     OperationError, OperationResult, OperationRoster, OrBroken, ScopeStorage, UnhandledErrors,
+    CleanInputsOf,
 };
 
 use bevy_ecs::prelude::{Component, Entity, World};
@@ -78,10 +79,10 @@ impl<'a> OperationCleanup<'a> {
     }
 
     pub fn cleanup_inputs<T: 'static + Send + Sync>(&mut self) -> OperationResult {
-        self.world
-            .get_entity_mut(self.source)
-            .or_broken()?
-            .cleanup_inputs::<T>(self.cleanup.session);
+        self.world.cleanup_inputs::<T>(CleanInputsOf {
+            session: self.cleanup.session,
+            source: self.source
+        });
         Ok(())
     }
 

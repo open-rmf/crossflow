@@ -15,13 +15,20 @@
  *
 */
 
-use crate::{JsonMessage, OperationRef, TraceToggle, TypeInfo};
+use crate::{JsonMessage, OperationRef, TraceToggle, TypeInfo, OutputPort, Seq, OutputRef, Routing, OutputKey};
 
-use bevy_ecs::prelude::{Component, Entity, Event};
+use bevy_ecs::{
+    prelude::{Component, Entity, Event, In, IntoSystem, EventWriter, World, ChildOf, Resource},
+    system::BoxedSystem,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
-use std::{any::Any, borrow::Cow, sync::Arc};
+use std::{
+    any::Any,
+    borrow::Cow,
+    sync::Arc,
+};
 use thiserror::Error as ThisError;
 
 /// A component attached to workflow operation entities in order to trace their
@@ -78,10 +85,10 @@ fn get_serialize_value<T: Any + Serialize>(value: &dyn Any) -> Result<JsonMessag
         });
     };
 
-    serde_json::to_value(value_ref).map_err(GetValueError::FailedSerialization)
+    serde_json::to_value(value_ref).map_err(|err| GetValueError::FailedSerialization(Arc::new(err)))
 }
 
-#[derive(ThisError, Debug)]
+#[derive(ThisError, Debug, Clone)]
 pub enum GetValueError {
     #[error("The downcast was incompatible. Expected {expected:?}, received {received:?}")]
     FailedDowncast {
@@ -89,7 +96,7 @@ pub enum GetValueError {
         received: std::any::TypeId,
     },
     #[error("The serialization into json failed: {0}")]
-    FailedSerialization(serde_json::Error),
+    FailedSerialization(Arc<serde_json::Error>),
 }
 
 /// An event that gets transmitted whenever an operation receives an input or is
@@ -115,6 +122,164 @@ pub struct OperationStarted {
     /// The message that triggered the operation, if serialization is enabled
     /// for it.
     pub message: Option<JsonMessage>,
+}
+
+#[derive(Debug, Clone, Component)]
+pub struct OperationLabels {
+    input: Arc<Vec<OperationRef>>,
+    outputs: Vec<(OutputKey, Arc<Vec<OutputRef>>)>,
+}
+
+impl OperationLabels {
+    pub fn input(&self) -> Arc<Vec<OperationRef>> {
+        Arc::clone(&self.input)
+    }
+
+    pub fn outputs(&self, port: OutputPort) -> Option<Arc<Vec<OutputRef>>> {
+        for (key, labels) in &self.outputs {
+            if port.len() != key.len() {
+                continue;
+            }
+
+            let mut is_match = true;
+            for (lhs, rhs) in port.iter().zip(key.iter()) {
+                is_match = lhs == rhs;
+            }
+
+            if is_match {
+                return Some(Arc::clone(labels));
+            }
+        }
+
+        None
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TraceOutput {
+    pub source: Entity,
+    pub seq: Seq,
+    pub labels: Option<Arc<Vec<OutputRef>>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TraceInput {
+    pub target: Entity,
+    pub seq: Seq,
+    pub labels: Option<Arc<Vec<OperationRef>>>,
+}
+
+/// An event that tracks when each message is sent for a request or within a
+/// workflow.
+///
+/// Set up [`TraceHandler`] to have a custom system handle these messages.
+/// Otherwise if you use the default [`TraceHandler`] then you can add a system
+/// to the App schedule to read this event.
+#[derive(Debug, Clone, Event)]
+pub struct MessageSent {
+    /// The stack of session IDs that sent the message. The first entry
+    /// is the root session. Each subsequent entry is a child session of the
+    /// previous. There are two common ways to get a child session:
+    /// * In a series, earlier sessions in the chain are children of later
+    ///   sessions in the chain, so the last session of the chain is the root of
+    ///   the entire chain.
+    /// * When a scope operation is triggered, a new session is created. Its parent
+    ///   is the session of the message that triggered the scope operation. Every
+    ///   time a workflow is triggered it creates a new scope, and therefore also
+    ///   creates a child session.
+    pub session_stack: SmallVec<[Entity; 8]>,
+    /// Information about what output(s) the message is coming from. For most
+    /// operations this will be a single output, but it may be multiple for
+    /// operations where messages are converging, such as collect and join.
+    pub output: SmallVec<[TraceOutput; 8]>,
+    /// Information about what input slot the message is going to.
+    pub input: TraceInput,
+    /// The message itself, if message tracing is turned on and the message
+    /// could be serialized.
+    pub message: Option<Result<JsonMessage, GetValueError>>,
+}
+
+impl MessageSent {
+    pub(crate) fn trace(
+        route: Routing,
+        target_seq: Seq,
+        message: Option<Result<JsonMessage, GetValueError>>,
+        world: &mut World,
+    ) {
+        let mut session_stack = SmallVec::new();
+        let mut session = route.session;
+        session_stack.push(session);
+        while let Some(child_of) = world.get::<ChildOf>(session) {
+            session = child_of.parent();
+            session_stack.push(session);
+        }
+        session_stack.reverse();
+
+        let mut output = SmallVec::new();
+        for out in route.sources {
+            let output_port = out.port;
+            let trace = TraceOutput {
+                source: out.source,
+                seq: out.seq,
+                labels: world.get::<OperationLabels>(out.source)
+                    .map(move |labels| labels.outputs(output_port))
+                    .flatten(),
+            };
+            output.push(trace);
+        }
+
+        let input = TraceInput {
+            target: route.target,
+            seq: target_seq,
+            labels: world.get::<OperationLabels>(route.target)
+                .map(|labels| labels.input()),
+        };
+
+        world.resource_scope::<TraceHandler, _>(move |world, mut handler| {
+            let event = MessageSent { session_stack, output, input, message };
+            handler.sent(event, world);
+        })
+    }
+}
+
+#[derive(Resource)]
+pub struct TraceHandler {
+    system: BoxedSystem<In<MessageSent>>,
+    initialized: bool,
+}
+
+impl TraceHandler {
+    pub fn new<Sys, M>(system: Sys) -> Self
+    where
+        Sys: IntoSystem<In<MessageSent>, (), M>,
+    {
+        Self {
+            system: Box::new(IntoSystem::into_system(system)),
+            initialized: false,
+        }
+    }
+
+    fn sent(&mut self, event: MessageSent, world: &mut World) {
+        if !self.initialized {
+            self.system.initialize(world);
+            self.initialized = true;
+        }
+
+        self.system.run(event, world);
+    }
+}
+
+impl Default for TraceHandler {
+    fn default() -> Self {
+        Self::new(write_message_sent_event)
+    }
+}
+
+fn write_message_sent_event(
+    In(event): In<MessageSent>,
+    mut writer: EventWriter<MessageSent>,
+) {
+    writer.write(event);
 }
 
 /// Information about an operation.

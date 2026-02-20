@@ -20,7 +20,7 @@ use bevy_ecs::prelude::{Component, Entity};
 use crate::{
     FunnelInputStorage, Input, InputBundle, Joining, ManageInput, Operation, OperationCleanup,
     OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ReachabilityResult, SingleInputStorage, SingleTargetStorage,
+    ReachabilityResult, SingleInputStorage, SingleTargetStorage, Routing, output_port,
 };
 
 pub(crate) struct Join<Buffers> {
@@ -65,10 +65,10 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { session, .. } = source_mut.take_input::<()>()?;
-        let target = source_mut.get::<SingleTargetStorage>().or_broken()?.get();
-        let buffers = source_mut
+        let Input { session, seq, .. } = world.take_input::<()>(source)?;
+        let source_ref = world.get_entity(source).or_broken()?;
+        let target = source_ref.get::<SingleTargetStorage>().or_broken()?.get();
+        let buffers = source_ref
             .get::<BufferStorage<Buffers>>()
             .or_broken()?
             .0
@@ -80,10 +80,14 @@ where
             }
 
             let output = buffers.fetch_for_join(session, world)?;
-            world
-                .get_entity_mut(target)
-                .or_broken()?
-                .give_input(session, output, roster)?;
+            let route = MessageRoute {
+                session,
+                source,
+                seq,
+                port: &output_port::next(),
+                target,
+            };
+            world.give_input(route, output, roster)?;
         }
     }
 

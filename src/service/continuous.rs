@@ -34,7 +34,7 @@ use crate::{
     OperationResult, OperationRoster, OrBroken, ProviderStorage, ReachabilityResult, ScopeStorage,
     ServiceBuilder, ServiceBundle, ServiceRequest, ServiceTrait, SingleTargetStorage, StreamOf,
     StreamPack, StreamTargetMap, UnhandledErrors, dispose_for_despawned_service, emit_disposal,
-    insert_new_order, pop_next_delivery,
+    insert_new_order, pop_next_delivery, MessageRoute, output_port, Seq,
 };
 
 pub use bevy_ecs::schedule::ScheduleConfigs;
@@ -415,6 +415,7 @@ where
             DeliverResponse {
                 provider: self.provider,
                 source: self.request.source,
+                seq: self.request.seq,
                 session: self.request.session,
                 task_id: self.request.task_id,
                 data: response,
@@ -576,6 +577,7 @@ struct ContinuousOrder<Request> {
     data: Request,
     session: Entity,
     source: Entity,
+    seq: Seq,
     task_id: Entity,
     unblock: Option<Blocker>,
 }
@@ -598,6 +600,7 @@ struct DeliverResponses<Request, Response, Streams> {
 struct DeliverResponse<Response> {
     provider: Entity,
     source: Entity,
+    seq: Seq,
     session: Entity,
     task_id: Entity,
     data: Response,
@@ -617,6 +620,7 @@ where
             for DeliverResponse {
                 provider,
                 source,
+                seq,
                 session,
                 data,
                 index,
@@ -624,7 +628,7 @@ where
             } in self.responses
             {
                 remove.push((index, provider));
-                let r = try_give_response(source, session, data, world, &mut deferred);
+                let r = try_give_response(source, seq, session, data, world, &mut deferred);
                 if let Err(OperationError::Broken(backtrace)) = r {
                     world
                         .get_resource_or_insert_with(UnhandledErrors::default)
@@ -678,16 +682,23 @@ where
 
 fn try_give_response<Response: 'static + Send + Sync>(
     source: Entity,
+    seq: Seq,
     session: Entity,
     data: Response,
     world: &mut World,
     roster: &mut OperationRoster,
 ) -> OperationResult {
     let target = world.get::<SingleTargetStorage>(source).or_broken()?.get();
-    world
-        .get_entity_mut(target)
-        .or_broken()?
-        .give_input(session, data, roster)
+
+    let route = MessageRoute {
+        session,
+        source,
+        seq,
+        port: &output_port::next(),
+        target,
+    };
+
+    world.give_input(route, data, roster)
 }
 
 fn try_retire_request<Request: 'static + Send + Sync>(
@@ -733,11 +744,12 @@ where
                 },
         }: ServiceRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
         let Input {
             session,
+            seq,
             data: request,
-        } = source_mut.take_input::<Request>()?;
+        } = world.take_input::<Request>(source)?;
+        // TODO(@mxgrey): Consider if we still need task_id now that we have seq.
         let task_id = world.spawn(()).insert(ChildOf(source)).id();
 
         let Some(mut delivery) = world.get_mut::<Delivery<Request>>(provider) else {
@@ -749,6 +761,7 @@ where
             delivery.as_mut(),
             DeliveryOrder {
                 source,
+                seq,
                 session,
                 task_id,
                 request,
@@ -827,6 +840,7 @@ where
             blocker,
             session,
             task_id,
+            seq,
             ServiceRequest {
                 provider,
                 target,
@@ -846,6 +860,7 @@ fn serve_continuous_request<Request>(
     blocker: Option<Blocker>,
     session: Entity,
     task_id: Entity,
+    seq: Seq,
     ServiceRequest {
         provider,
         operation: OperationRequest { source, world, .. },
@@ -863,6 +878,7 @@ where
         data: request,
         session,
         source,
+        seq,
         task_id,
         unblock: blocker,
     });
@@ -885,6 +901,7 @@ fn serve_next_continuous_request<Request, Response, Streams>(
     loop {
         let Some(Deliver {
             request,
+            seq,
             task_id,
             blocker,
         }) = pop_next_delivery::<Request>(
@@ -913,6 +930,7 @@ fn serve_next_continuous_request<Request, Response, Streams>(
             Some(blocker),
             session,
             task_id,
+            seq,
             ServiceRequest {
                 provider,
                 target,

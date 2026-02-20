@@ -18,7 +18,7 @@
 use crate::{
     AddOperation, AsyncCallback, BlockingCallback, Channel, ChannelQueue, Input, ManageDisposal,
     ManageInput, OperateCallback, OperateTask, OperationError, OperationRoster, OrBroken,
-    ProvideOnce, Provider, Sendish, StreamPack, UnusedStreams,
+    ProvideOnce, Provider, Sendish, StreamPack, UnusedStreams, MessageRoute, output_port,
     async_execution::{spawn_task, task_cancel_sender},
     make_stream_buffers_from_world,
 };
@@ -188,10 +188,15 @@ impl<'a> CallbackRequest<'a> {
                 .emit_disposal(session, unused_streams.into(), self.roster);
         }
 
+        let trace = MessageRoute {
+            session,
+            source: self.source,
+            port: &output_port::next(),
+        };
         self.world
             .get_entity_mut(self.target)
             .or_broken()?
-            .give_input(session, response, self.roster)?;
+            .give_input(trace, response, self.roster)?;
 
         Ok(())
     }

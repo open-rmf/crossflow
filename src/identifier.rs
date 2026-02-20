@@ -71,6 +71,10 @@ pub enum IdentifierRef<'a> {
 }
 
 impl<'a> IdentifierRef<'a> {
+    pub const fn name_str(name: &'a str) -> Self {
+        Self::Name(Cow::Borrowed(name))
+    }
+
     pub fn is_name(&self) -> bool {
         matches!(self, Self::Name(_))
     }
@@ -149,5 +153,95 @@ impl<'a> From<&'a Identifier> for IdentifierRef<'a> {
             Identifier::Name(name) => Self::Name(Cow::Borrowed(name.as_ref())),
             Identifier::Index(index) => Self::Index(*index),
         }
+    }
+}
+
+impl<'a> PartialEq<IdentifierRef<'a>> for Identifier {
+    fn eq(&self, other: &IdentifierRef<'a>) -> bool {
+        match self {
+            Self::Name(lhs) => {
+                match other {
+                    IdentifierRef::Name(rhs) => {
+                        lhs.as_ref().eq(rhs.as_ref())
+                    }
+                    IdentifierRef::Index(_) => false,
+                }
+            }
+            Self::Index(lhs) => {
+                match other {
+                    IdentifierRef::Name(_) => false,
+                    IdentifierRef::Index(rhs) => {
+                        *lhs == *rhs
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl<'a> PartialEq<Identifier> for IdentifierRef<'a> {
+    fn eq(&self, other: &Identifier) -> bool {
+        *other == *self
+    }
+}
+
+pub type OutputPort<'a> = &'a [IdentifierRef<'a>];
+
+/// The output_id module provides utility functions for easily creating [`OutputId`]
+/// instances that avoid any memory allocations.
+pub mod output_port {
+    use super::IdentifierRef;
+
+    /// Get an output key
+    pub const fn next() -> [IdentifierRef<'static>; 1] {
+        [IdentifierRef::name_str("next")]
+    }
+
+    pub const fn stream_out<'a>(stream: &'a str) -> [IdentifierRef<'a>; 2] {
+        [
+            IdentifierRef::name_str("stream_out"),
+            IdentifierRef::name_str(stream),
+        ]
+    }
+
+    pub const fn ok() -> [IdentifierRef<'static>; 1] {
+        name_str("ok")
+    }
+
+    pub const fn err() -> [IdentifierRef<'static>; 1] {
+        name_str("err")
+    }
+
+    pub const fn listen() -> [IdentifierRef<'static>; 1] {
+        name_str("listen")
+    }
+
+    pub const fn name_str(name: &'static str) -> [IdentifierRef<'static>; 1] {
+        [IdentifierRef::name_str(name)]
+    }
+
+    pub const fn next_index(index: usize) -> [IdentifierRef<'static>; 2] {
+        [
+            IdentifierRef::name_str("next"),
+            IdentifierRef::Index(index),
+        ]
+    }
+
+    pub const fn sequential(index: usize) -> [IdentifierRef<'static>; 2] {
+        [
+            IdentifierRef::name_str("sequential"),
+            IdentifierRef::Index(index),
+        ]
+    }
+
+    pub const fn keyed<'a>(key: &'a str) -> [IdentifierRef<'a>; 2] {
+        [
+            IdentifierRef::name_str("keyed"),
+            IdentifierRef::name_str(key),
+        ]
+    }
+
+    pub const fn remaining() -> [IdentifierRef<'static>; 1] {
+        name_str("remaining")
     }
 }

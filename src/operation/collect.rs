@@ -25,7 +25,7 @@ use crate::{
     Disposal, DisposalListener, DisposalUpdate, Input, InputBundle, ManageInput, Operation,
     OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationRoster,
     OperationSetup, OrBroken, ReachabilityResult, SingleInputStorage, SingleTargetStorage,
-    emit_disposal, is_downstream_of,
+    emit_disposal, is_downstream_of, output_port, Routing, RouteSource, Seq,
 };
 
 pub(crate) struct Collect<T, const N: usize> {
@@ -82,8 +82,8 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
+        let Input { session, data, seq } = world.take_input::<T>(source)?;
         let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { session, data } = source_mut.take_input::<T>()?;
         let target = source_mut.get::<SingleTargetStorage>().or_broken()?.get();
         let mut collection = source_mut
             .get_mut::<CollectionStorage<T, N>>()
@@ -91,16 +91,26 @@ where
         let min = collection.min;
         let max = collection.max;
         let progress = collection.map.entry(session).or_default();
-        progress.push(data);
+        progress.push((seq, data));
         let len = progress.len();
 
         if max.is_some_and(|max| len >= max) {
             // We have obtained enough elements to send off the collection.
-            let output: SmallVec<[T; N]> = progress.drain(..).collect();
-            world
-                .get_entity_mut(target)
-                .or_broken()?
-                .give_input(session, output, roster)?;
+            let (seqs, message): (SmallVec<[Seq; N]>, SmallVec<[T; N]>) = progress
+                .drain(..)
+                .collect();
+
+            let port = output_port::next();
+            let route = Routing {
+                session,
+                sources: seqs.into_iter().map(|seq| RouteSource {
+                    source,
+                    seq,
+                    port: &port,
+                }).collect(),
+                target,
+            };
+            world.give_input(route, message, roster)?;
             return Ok(());
         }
 
@@ -167,7 +177,7 @@ where
 
 #[derive(Component)]
 struct CollectionStorage<T, const N: usize> {
-    map: HashMap<Entity, SmallVec<[T; N]>>,
+    map: HashMap<Entity, SmallVec<[(Seq, T); N]>>,
     min: usize,
     max: Option<usize>,
 }
@@ -266,19 +276,27 @@ fn on_unreachable_collection<T: 'static + Send + Sync, const N: usize>(
 
     // The size of the collection is not smaller than the minimum length
     // which means we can go ahead and send it.
-    let mut collection = world
-        .get_mut::<CollectionStorage<T, N>>(source)
+    let mut source_mut = world.get_entity_mut(source).or_broken()?;
+    let mut collection = source_mut
+        .get_mut::<CollectionStorage<T, N>>()
         .or_broken()?;
-    let output: SmallVec<[T; N]> = collection
+    let (seqs, message): (SmallVec<[Seq; N]>, SmallVec<[T; N]>) = collection
         .map
         .entry(session)
         .or_default()
         .drain(..)
         .collect();
 
-    world
-        .get_entity_mut(target)
-        .or_broken()?
-        .give_input(session, output, roster)?;
+    let port = output_port::next();
+    let route = Routing {
+        session,
+        sources: seqs.into_iter().map(|seq| RouteSource {
+            source,
+            seq,
+            port: &port,
+        }).collect(),
+        target,
+    };
+    world.give_input(route, message, roster)?;
     Ok(())
 }
