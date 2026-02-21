@@ -16,7 +16,7 @@
 */
 
 use crate::{
-    AddOperation, AsyncCallback, BlockingCallback, Channel, ChannelQueue, Input, ManageDisposal,
+    AddOperation, Async, Blocking, Channel, ChannelQueue, Input, ManageDisposal, Seq,
     ManageInput, OperateCallback, OperateTask, OperationError, OperationRoster, OrBroken,
     ProvideOnce, Provider, Sendish, StreamPack, UnusedStreams, MessageRoute, output_port,
     async_execution::{spawn_task, task_cancel_sender},
@@ -169,16 +169,14 @@ impl<'a> CallbackRequest<'a> {
     fn get_request<Request: 'static + Send + Sync>(
         &mut self,
     ) -> Result<Input<Request>, OperationError> {
-        self.world
-            .get_entity_mut(self.source)
-            .or_broken()?
-            .take_input()
+        self.world.take_input(self.source)
     }
 
     fn give_response<Response: 'static + Send + Sync>(
         &mut self,
         session: Entity,
         response: Response,
+        seq: Seq,
         unused_streams: UnusedStreams,
     ) -> Result<(), OperationError> {
         if !unused_streams.streams.is_empty() {
@@ -188,15 +186,14 @@ impl<'a> CallbackRequest<'a> {
                 .emit_disposal(session, unused_streams.into(), self.roster);
         }
 
-        let trace = MessageRoute {
+        let route = MessageRoute {
             session,
             source: self.source,
+            seq,
             port: &output_port::next(),
+            target: self.target,
         };
-        self.world
-            .get_entity_mut(self.target)
-            .or_broken()?
-            .give_input(trace, response, self.roster)?;
+        self.world.give_input(route, response, self.roster)?;
 
         Ok(())
     }
@@ -274,7 +271,7 @@ pub trait CallbackTrait<Request, Response, Streams> {
 pub struct BlockingCallbackMarker<M>(std::marker::PhantomData<fn(M)>);
 
 struct BlockingCallbackSystem<Request, Response, Streams: StreamPack> {
-    system: BoxedSystem<In<BlockingCallback<Request, Streams>>, Response>,
+    system: BoxedSystem<Blocking<Request, Streams>, Response>,
     initialized: bool,
 }
 
@@ -289,6 +286,7 @@ where
         let Input {
             session,
             data: request,
+            seq,
         } = input.get_request()?;
 
         if !self.initialized {
@@ -299,10 +297,11 @@ where
         let streams = make_stream_buffers_from_world::<Streams>(input.source, input.world)?;
 
         let response = self.system.run(
-            BlockingCallback {
+            Blocking {
                 request,
                 streams: streams.clone(),
                 source: input.source,
+                seq,
                 session,
             },
             input.world,
@@ -319,14 +318,14 @@ where
             input.roster,
         )?;
 
-        input.give_response(session, response, unused_streams)
+        input.give_response(session, response, seq, unused_streams)
     }
 }
 
 pub struct AsyncCallbackMarker<M>(std::marker::PhantomData<fn(M)>);
 
 struct AsyncCallbackSystem<Request, Task, Streams: StreamPack> {
-    system: BoxedSystem<In<AsyncCallback<Request, Streams>>, Task>,
+    system: BoxedSystem<Async<Request, Streams>, Task>,
     initialized: bool,
 }
 
@@ -342,6 +341,7 @@ where
         let Input {
             session,
             data: request,
+            seq,
         } = input.get_request()?;
 
         let (channel, streams) = input.get_channel::<Streams>(session)?;
@@ -351,11 +351,12 @@ where
         }
 
         let task = self.system.run(
-            AsyncCallback {
+            Async {
                 request,
                 streams,
                 channel,
                 source: input.source,
+                seq,
                 session,
             },
             input.world,
@@ -396,7 +397,7 @@ pub trait AsCallback<M> {
 impl<Request, Response, Streams, M, Sys>
     AsCallback<BlockingCallbackMarker<(Request, Response, Streams, M)>> for Sys
 where
-    Sys: IntoSystem<In<BlockingCallback<Request, Streams>>, Response, M>,
+    Sys: IntoSystem<Blocking<Request, Streams>, Response, M>,
     Request: 'static + Send + Sync,
     Response: 'static + Send + Sync,
     Streams: StreamPack,
@@ -416,7 +417,7 @@ where
 impl<Request, Task, Streams, M, Sys> AsCallback<AsyncCallbackMarker<(Request, Task, Streams, M)>>
     for Sys
 where
-    Sys: IntoSystem<In<AsyncCallback<Request, Streams>>, Task, M>,
+    Sys: IntoSystem<Async<Request, Streams>, Task, M>,
     Task: Future + 'static + Sendish,
     Request: 'static + Send + Sync,
     Task::Output: 'static + Send + Sync,
@@ -437,7 +438,7 @@ where
 impl<Request, Response, Streams, F>
     AsCallback<BlockingMapCallbackMarker<(Request, Response, Streams)>> for F
 where
-    F: FnMut(BlockingCallback<Request, Streams>) -> Response + 'static + Send,
+    F: FnMut(Blocking<Request, Streams>) -> Response + 'static + Send,
     Request: 'static + Send + Sync,
     Response: 'static + Send + Sync,
     Streams: StreamPack,
@@ -451,12 +452,14 @@ where
             let Input {
                 session,
                 data: request,
+                seq,
             } = input.get_request::<Self::Request>()?;
             let streams = make_stream_buffers_from_world::<Streams>(input.source, input.world)?;
-            let response = (self)(BlockingCallback {
+            let response = (self)(Blocking {
                 request,
                 streams: streams.clone(),
                 source: input.source,
+                seq,
                 session,
             });
 
@@ -469,7 +472,7 @@ where
                 input.world,
                 input.roster,
             )?;
-            input.give_response(session, response, unused_streams)
+            input.give_response(session, response, seq, unused_streams)
         };
         Callback::new(MapCallback { callback })
     }
