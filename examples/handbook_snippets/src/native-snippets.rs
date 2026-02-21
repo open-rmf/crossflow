@@ -1777,7 +1777,7 @@ async fn page_title_callback(In(srv): AsyncCallbackInput<String>) -> Option<Stri
         .map(|title| title.inner_html())
 }
 
-let callback = page_title_callback.as_callback();
+let callback = page_title_callback.into_callback();
 let outcome = commands.request(String::from("https://example.com"), callback).outcome();
 // ANCHOR_END: async_callback_example
 

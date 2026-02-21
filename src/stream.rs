@@ -383,10 +383,10 @@ pub(crate) mod tests {
     }
 
     fn impl_formatting_streams_continuous(
-        In(ContinuousService { key }): In<ContinuousService<String, (), FormatStreams>>,
+        srv: ContinuousService<String, (), FormatStreams>,
         mut param: ContinuousQuery<String, (), FormatStreams>,
     ) {
-        param.get_mut(&key).unwrap().for_each(|order| {
+        param.get_mut(&srv.key).unwrap().for_each(|order| {
             if let Ok(value) = order.request().parse::<u32>() {
                 order.streams().0.send(value);
             }
@@ -832,10 +832,10 @@ pub(crate) mod tests {
     }
 
     fn impl_stream_pack_test_continuous(
-        In(ContinuousService { key }): In<ContinuousService<Vec<String>, (), TestStreamPack>>,
+        srv: ContinuousService<Vec<String>, (), TestStreamPack>,
         mut param: ContinuousQuery<Vec<String>, (), TestStreamPack>,
     ) {
-        param.get_mut(&key).unwrap().for_each(|order| {
+        param.get_mut(&srv.key).unwrap().for_each(|order| {
             for r in order.request().clone() {
                 if let Ok(value) = r.parse::<u32>() {
                     order.streams().stream_u32.send(value);
@@ -1198,12 +1198,10 @@ pub(crate) mod tests {
     }
 
     fn impl_dynamically_named_streams_continuous(
-        In(ContinuousService { key }): In<
-            ContinuousService<NamedInputs, (), TestDynamicNamedStreams>,
-        >,
+        srv: ContinuousService<NamedInputs, (), TestDynamicNamedStreams>,
         mut param: ContinuousQuery<NamedInputs, (), TestDynamicNamedStreams>,
     ) {
-        param.get_mut(&key).unwrap().for_each(|order| {
+        param.get_mut(&srv.key).unwrap().for_each(|order| {
             for nv in order.request().values_u32.iter() {
                 order.streams().0.send(nv.clone());
             }

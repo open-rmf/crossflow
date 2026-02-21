@@ -1023,10 +1023,10 @@ mod tests {
     }
 
     fn add_from_buffer(
-        In((lhs, key)): In<(f64, BufferKey<f64>)>,
+        Blocking { request: (lhs, key), id, .. }: Blocking<(f64, BufferKey<f64>)>,
         mut access: BufferAccessMut<f64>,
     ) -> Result<f64, f64> {
-        let rhs = access.get_mut(&key).map_err(|_| lhs)?.pull().ok_or(lhs)?;
+        let rhs = access.get_mut(id, &key).map_err(|_| lhs)?.pull().ok_or(lhs)?;
         Ok(lhs + rhs)
     }
 
@@ -1039,7 +1039,7 @@ mod tests {
     }
 
     fn add_buffers_by_pull(
-        In((key_a, key_b)): In<(BufferKey<f64>, BufferKey<f64>)>,
+        Blocking{ request: (key_a, key_b), id, .. }: Blocking<(BufferKey<f64>, BufferKey<f64>)>,
         mut access: BufferAccessMut<f64>,
     ) -> Option<f64> {
         if access.get(&key_a).unwrap().is_empty() {
@@ -1050,8 +1050,8 @@ mod tests {
             return None;
         }
 
-        let rhs = access.get_mut(&key_a).unwrap().pull().unwrap();
-        let lhs = access.get_mut(&key_b).unwrap().pull().unwrap();
+        let rhs = access.get_mut(id, &key_a).unwrap().pull().unwrap();
+        let lhs = access.get_mut(id, &key_b).unwrap().pull().unwrap();
         Some(rhs + lhs)
     }
 
@@ -1179,18 +1179,18 @@ mod tests {
     }
 
     fn pull_register_from_buffer(
-        In(key): In<BufferKey<Register>>,
+        Blocking { request: key, id, .. }: Blocking<BufferKey<Register>>,
         mut access: BufferAccessMut<Register>,
     ) -> Option<Register> {
-        access.get_mut(&key).ok()?.pull()
+        access.get_mut(id, &key).ok()?.pull()
     }
 
     fn decrement_register(
-        In((mut register, key)): In<(Register, BufferKey<Register>)>,
+        Blocking { request: (mut register, key), id, .. }: Blocking<(Register, BufferKey<Register>)>,
         mut access: BufferAccessMut<Register>,
     ) -> Register {
         if register.in_slot == 0 {
-            access.get_mut(&key).unwrap().push(register);
+            access.get_mut(id, &key).unwrap().push(register);
             return register;
         }
 
@@ -1200,11 +1200,11 @@ mod tests {
     }
 
     fn decrement_register_and_pass_keys(
-        In((mut register, key)): In<(Register, BufferKey<Register>)>,
+        Blocking { request: (mut register, key), id, .. }: Blocking<(Register, BufferKey<Register>)>,
         mut access: BufferAccessMut<Register>,
     ) -> (Register, BufferKey<Register>) {
         if register.in_slot == 0 {
-            access.get_mut(&key).unwrap().push(register);
+            access.get_mut(id, &key).unwrap().push(register);
             return (register, key);
         }
 
@@ -1266,13 +1266,13 @@ mod tests {
     /// Used to verify that when a key is used to open a buffer gate, it will not
     /// trigger the key's listener to wake up again.
     fn gate_access_test_open_loop(
-        In(BlockingService { request: key, .. }): BlockingServiceInput<BufferKey<u64>>,
+        BlockingService { request: key, id, .. }: BlockingService<BufferKey<u64>>,
         mut access: BufferAccessMut<u64>,
         mut gate_access: BufferGateAccessMut,
     ) -> (Option<u64>, Option<u64>) {
         // We should never see a spurious wake-up in this service because the
         // gate opening is done by the key of this service.
-        let mut buffer = access.get_mut(&key).unwrap();
+        let mut buffer = access.get_mut(id, &key).unwrap();
         let value = buffer.pull().unwrap();
 
         // The gate should have previously been closed before reaching this

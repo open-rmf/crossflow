@@ -958,7 +958,7 @@ fn serve_next_continuous_request<Request, Response, Streams>(
 impl<Request, Response, Streams, M, Sys> IntoContinuousService<(Request, Response, Streams, M)>
     for Sys
 where
-    Sys: IntoSystem<In<ContinuousService<Request, Response, Streams>>, (), M>,
+    Sys: IntoSystem<ContinuousService<Request, Response, Streams>, (), M>,
     Request: 'static + Send + Sync,
     Response: 'static + Send + Sync,
     Streams: StreamPack,
@@ -1004,7 +1004,7 @@ where
 
 /// Implementation for [`crate::AddContinuousServicesExt::spawn_event_streaming_service`]
 pub fn event_streaming_service<E>(
-    In(ContinuousService { key }): ContinuousServiceInput<(), (), StreamOf<E>>,
+    ContinuousService { key }: ContinuousService<(), (), StreamOf<E>>,
     mut requests: ContinuousQuery<(), (), StreamOf<E>>,
     mut events: EventReader<E>,
 ) where

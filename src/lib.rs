@@ -223,15 +223,20 @@ pub struct BlockingService<Request, Streams: StreamPack = ()> {
     pub streams: Streams::StreamBuffers,
     /// The entity providing the service
     pub provider: Entity,
-    /// The node in a workflow or series that asked for the service
-    pub source: Entity,
-    /// The sequence number of the request into this service. Each request that
-    /// comes to the service has a unique sequence number, even if they are in
-    /// the same session. These numbers will eventually wrap around if the
-    /// service is called enough times.
-    pub seq: Seq,
-    /// The unique session ID for the workflow
+    /// Unique identifier for this request
+    pub id: RequestId,
+    /// The unique session ID for the workflow scope that this request is
+    /// happening in
     pub session: Entity,
+}
+
+impl<Request, Streams: StreamPack> SystemInput for BlockingService<Request, Streams> {
+    type Param<'i> = BlockingService<Request, Streams>;
+    type Inner<'i> = BlockingService<Request, Streams>;
+
+    fn wrap(this: Self::Inner<'_>) -> Self::Param<'_> {
+        this
+    }
 }
 
 /// Use `AsyncService` to indicate that your system is an async [`Service`]. Being
@@ -253,15 +258,20 @@ pub struct AsyncService<Request, Streams: StreamPack = ()> {
     pub channel: Channel,
     /// The entity providing the service
     pub provider: Entity,
-    /// The node in a workflow or series that asked for the service
-    pub source: Entity,
-    /// The sequence number of the request into this service. Each request that
-    /// comes to the service has a unique sequence number, even if they are in
-    /// the same session. These numbers will eventually wrap around if the
-    /// service is called enough times.
-    pub seq: Seq,
-    /// The unique session ID for the workflow
+    /// Unique identifier for this request
+    pub id: RequestId,
+    /// The unique session ID for the workflow scope that this request is
+    /// happening in
     pub session: Entity,
+}
+
+impl<Request, Streams: StreamPack> SystemInput for AsyncService<Request, Streams> {
+    type Param<'i> = AsyncService<Request, Streams>;
+    type Inner<'i> = AsyncService<Request, Streams>;
+
+    fn wrap(this: Self::Inner<'_>) -> Self::Param<'_> {
+        this
+    }
 }
 
 /// Use `ContinuousService` to indicate that your system is a [`Service`] that
@@ -271,6 +281,15 @@ pub struct ContinuousService<Request, Response, Streams: StreamPack = ()> {
     /// this service. While accessing the ongoing requests, you will also be
     /// able to send streams and responses for the requests.
     pub key: ContinuousServiceKey<Request, Response, Streams>,
+}
+
+impl<Request, Response, Streams: StreamPack> SystemInput for ContinuousService<Request, Response, Streams> {
+    type Param<'i> = ContinuousService<Request, Response, Streams>;
+    type Inner<'i> = ContinuousService<Request, Response, Streams>;
+
+    fn wrap(this: Self::Inner<'_>) -> Self::Param<'_> {
+        this
+    }
 }
 
 /// Use `Blocking` as a system input to indicate that your system is meant to
@@ -285,14 +304,10 @@ pub struct Blocking<Request, Streams: StreamPack = ()> {
     pub request: Request,
     /// The buffer to hold stream output data until the function is finished
     pub streams: Streams::StreamBuffers,
-    /// The node in a workflow or series that asked for the callback
-    pub source: Entity,
-    /// The sequence number of the request into this service. Each request that
-    /// comes to the service has a unique sequence number, even if they are in
-    /// the same session. These numbers will eventually wrap around if the
-    /// service is called enough times.
-    pub seq: Seq,
-    /// The unique session ID for the workflow
+    /// Unique identifier for this request
+    pub id: RequestId,
+    /// The unique session ID for the workflow scope that this request is
+    /// happening in
     pub session: Entity,
 }
 
@@ -321,14 +336,10 @@ pub struct Async<Request, Streams: StreamPack = ()> {
     /// The channel that allows querying and syncing with the world while the
     /// callback executes asynchronously.
     pub channel: Channel,
-    /// The node in a workflow or series that asked for the callback
-    pub source: Entity,
-    /// The sequence number of the request into this service. Each request that
-    /// comes to the service has a unique sequence number, even if they are in
-    /// the same session. These numbers will eventually wrap around if the
-    /// service is called enough times.
-    pub seq: Seq,
-    /// The unique session ID for the workflow
+    /// Unique identifier for this request
+    pub id: RequestId,
+    /// The unique session ID for the workflow scope that this request is
+    /// happening in
     pub session: Entity,
 }
 
@@ -342,6 +353,7 @@ impl<Request, Streams: StreamPack> SystemInput for Async<Request, Streams> {
 }
 
 /// Uniquely identify a request that has been made to a node.
+#[derive(Debug, Clone, Copy)]
 pub struct RequestId {
     /// The node in a workflow or series that asked for the callback
     pub source: Entity,
@@ -354,19 +366,13 @@ pub struct RequestId {
 
 impl<'a, Request, Streams: StreamPack> From<&'a BlockingService<Request, Streams>> for RequestId {
     fn from(value: &'a BlockingService<Request, Streams>) -> Self {
-        RequestId {
-            source: value.source,
-            seq: value.seq,
-        }
+        value.id
     }
 }
 
 impl<'a, Request, Streams: StreamPack> From<&'a AsyncService<Request, Streams>> for RequestId {
     fn from(value: &'a AsyncService<Request, Streams>) -> Self {
-        RequestId {
-            source: value.source,
-            seq: value.seq,
-        }
+        value.id
     }
 }
 
@@ -423,7 +429,7 @@ pub mod prelude {
             Joined, RetentionPolicy,
         },
         builder::Builder,
-        callback::{AsCallback, Callback, IntoAsyncCallback, IntoBlockingCallback},
+        callback::{IntoCallback, Callback, IntoAsyncCallback, IntoBlockingCallback},
         chain::{Chain, ForkCloneBuilder, UnzipBuilder, Unzippable},
         flush::flush_execution,
         map::{AsMap, IntoAsyncMap, IntoBlockingMap},
