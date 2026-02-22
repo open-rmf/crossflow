@@ -132,7 +132,7 @@ mod tests {
             .app
             .spawn_service(exclusive_closure.into_async_service());
 
-        let exclusive_closure = |_: ContinuousServiceInput<(), ()>, _: &mut World| {};
+        let exclusive_closure = |_: ContinuousService<(), ()>, _: &mut World| {};
         let _exclusive_closure_continuous_srv = context
             .app
             .spawn_continuous_service(Update, exclusive_closure);
@@ -153,19 +153,19 @@ mod tests {
     ) {
     }
 
-    fn blocking_exclusive_service(In(_): BlockingServiceInput<i32>, _: &mut World) {}
+    fn blocking_exclusive_service(_: BlockingService<i32>, _: &mut World) {}
 
     fn blocking_exclusive_service_with_params(
-        In(_): BlockingServiceInput<i32>,
+        _: BlockingService<i32>,
         _: &mut World,
         _: &mut QueryState<&mut TestComponent>,
     ) {
     }
 
-    fn blocking_exclusive_callback(In(_): BlockingCallbackInput<i32>, _: &mut World) {}
+    fn blocking_exclusive_callback(_: Blocking<i32>, _: &mut World) {}
 
     fn blocking_exclusive_callback_with_param(
-        In(_): BlockingCallbackInput<i32>,
+        _: Blocking<i32>,
         _: &mut World,
         _: &mut QueryState<&mut TestComponent>,
     ) {
@@ -184,14 +184,14 @@ mod tests {
     }
 
     fn async_exclusive_service(
-        In(_): AsyncServiceInput<i32>,
+        _: AsyncService<i32>,
         _: &mut World,
     ) -> impl Future<Output = ()> + use<> {
         async {}
     }
 
     fn async_exclusive_service_with_param(
-        In(_): AsyncServiceInput<i32>,
+        _: AsyncService<i32>,
         _: &mut World,
         _: &mut QueryState<&mut TestComponent>,
     ) -> impl Future<Output = ()> + use<> {
@@ -199,14 +199,14 @@ mod tests {
     }
 
     fn async_exclusive_callback(
-        In(_): AsyncCallbackInput<i32>,
+        _: Async<i32>,
         _: &mut World,
     ) -> impl Future<Output = ()> + use<> {
         async {}
     }
 
     fn async_exclusive_callback_with_param(
-        In(_): AsyncCallbackInput<i32>,
+        _: Async<i32>,
         _: &mut World,
         _: &mut QueryState<&mut TestComponent>,
     ) -> impl Future<Output = ()> + use<> {
@@ -214,14 +214,14 @@ mod tests {
     }
 
     fn exclusive_continuous_service(
-        In(_): ContinuousServiceInput<i32, ()>,
+        _: ContinuousService<i32, ()>,
         _: &mut World,
         _: &mut SystemState<ContinuousQuery<i32, ()>>,
     ) {
     }
 
     fn exclusive_continuous_service_with_param(
-        In(_): ContinuousServiceInput<i32, ()>,
+        _: ContinuousService<i32, ()>,
         _: &mut World,
         _: &mut SystemState<ContinuousQuery<i32, ()>>,
         _: &mut QueryState<&mut TestComponent>,

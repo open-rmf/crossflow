@@ -320,6 +320,17 @@ impl<Request, Streams: StreamPack> SystemInput for Blocking<Request, Streams> {
     }
 }
 
+impl<Request, Streams: StreamPack> From<BlockingService<Request, Streams>> for Blocking<Request, Streams> {
+    fn from(srv: BlockingService<Request, Streams>) -> Self {
+        Self {
+            request: srv.request,
+            streams: srv.streams,
+            id: srv.id,
+            session: srv.session,
+        }
+    }
+}
+
 /// Use `Async` to indicate that your system or function is meant to define
 /// an async [`Callback`] or map. Callbacks and maps are different from services
 /// because they are not associated with any entity, An async callback or map
@@ -349,6 +360,18 @@ impl<Request, Streams: StreamPack> SystemInput for Async<Request, Streams> {
 
     fn wrap(this: Self::Inner<'_>) -> Self::Param<'_> {
         this
+    }
+}
+
+impl<Request, Streams: StreamPack> From<AsyncService<Request, Streams>> for Async<Request, Streams> {
+    fn from(srv: AsyncService<Request, Streams>) -> Self {
+        Self {
+            request: srv.request,
+            streams: srv.streams,
+            channel: srv.channel,
+            id: srv.id,
+            session: srv.session,
+        }
     }
 }
 
@@ -429,10 +452,10 @@ pub mod prelude {
             Joined, RetentionPolicy,
         },
         builder::Builder,
-        callback::{IntoCallback, Callback, IntoAsyncCallback, IntoBlockingCallback},
+        callback::{IntoCallback, Callback},
         chain::{Chain, ForkCloneBuilder, UnzipBuilder, Unzippable},
         flush::flush_execution,
-        map::{AsMap, IntoAsyncMap, IntoBlockingMap},
+        map::{IntoMap, IntoAsyncMap, IntoBlockingMap},
         map_once::{AsMapOnce, IntoAsyncMapOnce, IntoBlockingMapOnce},
         node::{ForkCloneOutput, InputSlot, Node, Output},
         promise::{Promise, PromiseState},
@@ -441,7 +464,7 @@ pub mod prelude {
         series::{Recipient, Series},
         service::{
             AddContinuousServicesExt, AddServicesExt, AsDeliveryInstructions, DeliveryInstructions,
-            DeliveryLabel, DeliveryLabelId, IntoAsyncService, IntoBlockingService, Service,
+            DeliveryLabel, DeliveryLabelId, Service,
             ServiceDiscovery, ServiceInstructions, SpawnServicesExt, traits::*,
         },
         stream::{DynamicallyNamedStream, NamedValue, Stream, StreamFilter, StreamOf, StreamPack},

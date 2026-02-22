@@ -238,6 +238,7 @@ pub enum DeliveryUpdate<Request> {
     Immediate {
         blocking: Option<Option<DeliveryLabelId>>,
         request: Request,
+        seq: Seq,
     },
     /// The new request has been placed in the queue
     Queued {
@@ -271,6 +272,7 @@ pub fn insert_new_order<Request>(
             }
             None => DeliveryUpdate::Immediate {
                 request: order.request,
+                seq: order.seq,
                 blocking: None,
             },
         },
@@ -296,6 +298,7 @@ fn insert_serial_order<Request>(
         return DeliveryUpdate::Immediate {
             blocking: Some(label),
             request: order.request,
+            seq: order.seq,
         };
     };
 

@@ -16,11 +16,11 @@
 */
 
 use crate::{
-    AsyncService, AsyncServiceInput, Blocker, Channel, ChannelQueue, ChooseAsyncServiceDelivery,
+    Async, AsyncService, Blocker, Channel, ChannelQueue, ChooseAsyncServiceDelivery,
     Deliver, Delivery, DeliveryOrder, DeliveryUpdate, Disposal, Input, IntoService, ManageInput,
     OperateTask, OperationError, OperationRequest, OperationResult, OperationRoster, OrBroken,
     Sendish, ServiceBuilder, ServiceBundle, ServiceRequest, ServiceTrait, SingleTargetStorage,
-    StopTask, StopTaskFailure, StreamPack, UnhandledErrors,
+    StopTask, StopTaskFailure, StreamPack, UnhandledErrors, RequestId, Seq,
     async_execution::{spawn_task, task_cancel_sender},
     dispose_for_despawned_service, emit_disposal, insert_new_order, pop_next_delivery,
     service::service_builder::{ParallelChosen, SerialChosen},
@@ -38,17 +38,19 @@ pub trait IsAsyncService<M> {}
 
 #[derive(Component)]
 struct AsyncServiceStorage<Request, Streams: StreamPack, Task>(
-    Option<BoxedSystem<In<AsyncService<Request, Streams>>, Task>>,
+    Option<BoxedSystem<AsyncService<Request, Streams>, Task>>,
 );
 
 #[derive(Component)]
 struct UninitAsyncServiceStorage<Request, Streams: StreamPack, Task>(
-    BoxedSystem<In<AsyncService<Request, Streams>>, Task>,
+    BoxedSystem<AsyncService<Request, Streams>, Task>,
 );
 
-impl<Request, Streams, Task, M, Sys> IntoService<(Request, Streams, Task, M)> for Sys
+pub struct AsyncServiceMarker<M>(std::marker::PhantomData<fn(M)>);
+
+impl<Request, Streams, Task, M, Sys> IntoService<AsyncServiceMarker<(Request, Streams, Task, M)>> for Sys
 where
-    Sys: IntoSystem<In<AsyncService<Request, Streams>>, Task, M>,
+    Sys: IntoSystem<AsyncService<Request, Streams>, Task, M>,
     Task: Future + 'static + Sendish,
     Request: 'static + Send + Sync,
     Task::Output: 'static + Send + Sync,
@@ -74,9 +76,9 @@ where
     }
 }
 
-impl<Request, Streams, Task, M, Sys> IsAsyncService<(Request, Streams, Task, M)> for Sys
+impl<Request, Streams, Task, M, Sys> IsAsyncService<AsyncServiceMarker<(Request, Streams, Task, M)>> for Sys
 where
-    Sys: IntoSystem<In<AsyncService<Request, Streams>>, Task, M>,
+    Sys: IntoSystem<AsyncService<Request, Streams>, Task, M>,
     Task: Future + 'static + Sendish,
     Request: 'static + Send + Sync,
     Task::Output: 'static + Send + Sync,
@@ -106,11 +108,11 @@ where
                 },
         }: ServiceRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
         let Input {
             session,
             data: request,
-        } = source_mut.take_input::<Request>()?;
+            seq,
+        } = world.take_input::<Request>(source)?;
         let task_id = world.spawn(()).id();
 
         let Some(mut delivery) = world.get_mut::<Delivery<Request>>(provider) else {
@@ -123,6 +125,7 @@ where
             delivery.as_mut(),
             DeliveryOrder {
                 source,
+                seq,
                 session,
                 task_id,
                 request,
@@ -130,8 +133,8 @@ where
             },
         );
 
-        let (request, blocker) = match update {
-            DeliveryUpdate::Immediate { blocking, request } => {
+        let (request, seq, blocker) = match update {
+            DeliveryUpdate::Immediate { blocking, request, seq } => {
                 let serve_next = serve_next_async_request::<Request, Streams, Task>;
                 let blocker = blocking.map(|label| Blocker {
                     provider,
@@ -140,7 +143,7 @@ where
                     label,
                     serve_next,
                 });
-                (request, blocker)
+                (request, seq, blocker)
             }
             DeliveryUpdate::Queued {
                 cancelled,
@@ -205,6 +208,7 @@ where
             blocker,
             session,
             task_id,
+            seq,
             ServiceRequest {
                 provider,
                 target,
@@ -224,6 +228,7 @@ fn serve_async_request<Request, Streams, Task>(
     blocker: Option<Blocker>,
     session: Entity,
     task_id: Entity,
+    seq: Seq,
     cmd: ServiceRequest,
 ) -> OperationResult
 where
@@ -289,7 +294,7 @@ where
             streams,
             channel,
             provider,
-            source,
+            id: RequestId { source, seq },
             session,
         },
         world,
@@ -342,6 +347,7 @@ pub(crate) fn serve_next_async_request<Request, Streams, Task>(
     loop {
         let Some(Deliver {
             request,
+            seq,
             task_id,
             blocker,
         }) = pop_next_delivery::<Request>(
@@ -370,6 +376,7 @@ pub(crate) fn serve_next_async_request<Request, Streams, Task>(
             Some(blocker),
             session,
             task_id,
+            seq,
             ServiceRequest {
                 provider,
                 target,
@@ -394,55 +401,38 @@ pub(crate) fn serve_next_async_request<Request, Streams, Task>(
     }
 }
 
-/// Take any system that was not decalred as a service and transform it into a
-/// blocking service that can be passed into a ServiceBuilder.
-pub struct AsAsyncService<Srv>(pub Srv);
+pub struct AsyncMarker<M>(std::marker::PhantomData<fn(M)>);
 
-pub trait IntoAsyncService<M> {
-    type Service;
-    fn into_async_service(self) -> Self::Service;
-}
-
-impl<Request, Response, M, Sys> IntoAsyncService<AsAsyncService<(Request, Response, M)>> for Sys
+impl<Request, Streams, Task, M, Sys> IntoService<AsyncMarker<(Request, Streams, Task, M)>> for Sys
 where
-    Sys: IntoSystem<In<Request>, Response, M>,
-    Request: 'static + Send,
-    Response: 'static + Send,
-{
-    type Service = AsAsyncService<Sys>;
-    fn into_async_service(self) -> AsAsyncService<Sys> {
-        AsAsyncService(self)
-    }
-}
-
-impl<Request, Task, M, Sys> IntoService<(Request, Task, M)> for AsAsyncService<Sys>
-where
-    Sys: IntoSystem<In<Request>, Task, M>,
+    Sys: IntoSystem<Async<Request, Streams>, Task, M>,
     Task: Future + 'static + Sendish,
     Request: 'static + Send + Sync,
+    Streams: StreamPack,
     Task::Output: 'static + Send + Sync,
 {
     type Request = Request;
     type Response = Task::Output;
-    type Streams = ();
+    type Streams = Streams;
     type DefaultDeliver = ();
 
     fn insert_service_commands(self, entity_commands: &mut EntityCommands) {
-        peel_async
-            .pipe(self.0)
+        peel_service_provider
+            .pipe(self)
             .insert_service_commands(entity_commands)
     }
 
     fn insert_service_mut(self, entity_mut: &mut EntityWorldMut) {
-        peel_async.pipe(self.0).insert_service_mut(entity_mut)
+        peel_service_provider.pipe(self).insert_service_mut(entity_mut)
     }
 }
 
-impl<Request, Task, M, Sys> IsAsyncService<(Request, Task, M)> for AsAsyncService<Sys>
+impl<Request, Streams, Task, M, Sys> IsAsyncService<AsyncMarker<(Request, Streams, Task, M)>> for Sys
 where
-    Sys: IntoSystem<In<Request>, Task, M>,
+    Sys: IntoSystem<Async<Request, Streams>, Task, M>,
     Task: Future + 'static + Sendish,
     Request: 'static + Send + Sync,
+    Streams: StreamPack,
     Task::Output: 'static + Send + Sync,
 {
 }
@@ -460,6 +450,8 @@ where
     }
 }
 
-fn peel_async<Request>(In(AsyncService { request, .. }): AsyncServiceInput<Request>) -> Request {
-    request
+fn peel_service_provider<Request, Streams: StreamPack>(
+    input: AsyncService<Request, Streams>
+) ->  Async<Request, Streams> {
+    input.into()
 }

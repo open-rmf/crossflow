@@ -18,7 +18,7 @@
 use super::*;
 
 use ::zenoh::query::{ConsolidationMode, Parameters, Querier, QueryConsolidation, QueryTarget};
-use bevy_ecs::prelude::{In, Res};
+use bevy_ecs::prelude::Res;
 use futures_lite::future::race;
 use std::time::Duration;
 use thiserror::Error as ThisError;
@@ -153,7 +153,7 @@ pub enum ZenohQuerierError {
 
 impl DiagramElementRegistry {
     pub(super) fn register_zenoh_querier(&mut self, ensure_session: EnsureZenohSession) {
-        let create_querier = |In(config): In<ZenohQuerierConfig>, session: Res<ZenohSession>| {
+        let create_querier = |Async { request: config, .. }: Async<ZenohQuerierConfig>, session: Res<ZenohSession>| {
             let session_outcome = session.outcome.clone();
             async move {
                 let session = session_outcome
@@ -185,7 +185,7 @@ impl DiagramElementRegistry {
                 Ok::<_, ZenohQuerierError>(Arc::new(querier))
             }
         };
-        let create_querier = create_querier.into_async_callback();
+        let create_querier = create_querier.into_callback();
 
         self.opt_out()
             .no_serializing()
@@ -208,7 +208,7 @@ impl DiagramElementRegistry {
                         .shared();
 
                     let node = builder.create_map(
-                        move |input: AsyncMap<JsonMessage, ZenohNodeStreams>| {
+                        move |input: Async<JsonMessage, ZenohNodeStreams>| {
                             let querier = querier.clone();
                             let parameters = Arc::clone(&parameters);
                             let encoder = encoder.clone();

@@ -31,7 +31,7 @@ use std::{
 
 use thiserror::Error as ThisError;
 
-use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError, Seq, RequestId};
+use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError, Seq, RequestId, InputStorage};
 
 mod any_buffer;
 pub use any_buffer::*;
@@ -535,7 +535,7 @@ pub struct BufferAccessMut<'w, 's, T>
 where
     T: 'static + Send + Sync,
 {
-    query: Query<'w, 's, &'static mut BufferStorage<T>>,
+    query: Query<'w, 's, (&'static mut BufferStorage<T>, &'static mut InputStorage<T>)>,
     commands: Commands<'w, 's>,
 }
 
@@ -547,7 +547,7 @@ where
         let session = key.session();
         self.query
             .get(key.buffer())
-            .map(|storage| BufferView { storage, session })
+            .map(|(storage, _)| BufferView { storage, session })
     }
 
     pub fn get_newest<'a>(&'a self, key: &BufferKey<T>) -> Option<&'a T> {
@@ -565,7 +565,7 @@ where
         let accessor = key.tag.accessor;
         self.query
             .get_mut(key.buffer())
-            .map(|storage| BufferMut::new(storage, buffer, session, accessor, source, seq, &mut self.commands))
+            .map(|(storage, input)| BufferMut::new(storage, input, buffer, session, accessor, source, seq, &mut self.commands))
     }
 }
 
@@ -727,6 +727,7 @@ where
     T: 'static + Send + Sync,
 {
     storage: Mut<'a, BufferStorage<T>>,
+    input: Mut<'a, InputStorage<T>>,
     buffer: Entity,
     session: Entity,
     accessor: Option<Entity>,
@@ -827,6 +828,10 @@ where
     /// expired or if the buffer capacity was zero.
     pub fn newest_mut_or_else(&mut self, f: impl FnOnce() -> T) -> Option<&mut T> {
         self.modified = true;
+        let f = move || {
+            let seq = self.input.increment_seq();
+            (seq, f())
+        };
         self.storage.newest_mut_or_else(self.session, f)
     }
 
@@ -863,7 +868,8 @@ where
     /// will return the value that needed to be removed.
     pub fn push(&mut self, value: T) -> Option<T> {
         self.modified = true;
-        self.storage.push(self.session, self.seq, value).map(|e| e.message)
+        let seq = self.input.increment_seq();
+        self.storage.push(self.session, seq, value).map(|e| e.message)
     }
 
     /// Push a value into the buffer as if it is the oldest value of the buffer.
@@ -871,7 +877,8 @@ where
     /// be removed.
     pub fn push_as_oldest(&mut self, value: T) -> Option<T> {
         self.modified = true;
-        self.storage.push_as_oldest(self.session, value)
+        let seq = self.input.increment_seq();
+        self.storage.push_as_oldest(self.session, seq, value).map(|e| e.message)
     }
 
     /// Trigger the listeners for this buffer to wake up even if nothing in the
@@ -883,6 +890,7 @@ where
 
     fn new(
         storage: Mut<'a, BufferStorage<T>>,
+        input: Mut<'a, InputStorage<T>>,
         buffer: Entity,
         session: Entity,
         accessor: Entity,
@@ -892,6 +900,7 @@ where
     ) -> Self {
         Self {
             storage,
+            input,
             buffer,
             session,
             accessor: Some(accessor),
@@ -1321,10 +1330,10 @@ mod tests {
 
     /// Used to verify that we get spurious wakeups when closed loops are allowed
     fn gate_access_test_closed_loop(
-        In(BlockingService { request: key, .. }): BlockingServiceInput<BufferKey<u64>>,
+        BlockingService { request: key, id, .. }: BlockingService<BufferKey<u64>>,
         mut access: BufferAccessMut<u64>,
     ) -> (Option<u64>, Option<u64>) {
-        let mut buffer = access.get_mut(&key).unwrap().allow_closed_loops();
+        let mut buffer = access.get_mut(id, &key).unwrap().allow_closed_loops();
         if let Some(value) = buffer.pull() {
             (Some(value + 1), None)
         } else {
@@ -1388,8 +1397,8 @@ mod tests {
         access.iter().max().cloned()
     }
 
-    fn push_values(In(input): In<(Vec<i32>, BufferKey<i32>)>, mut access: BufferAccessMut<i32>) {
-        let Ok(mut access) = access.get_mut(&input.1) else {
+    fn push_values(Blocking { request, id, .. }: Blocking<(Vec<i32>, BufferKey<i32>)>, mut access: BufferAccessMut<i32>) {
+        let Ok(mut access) = access.get_mut(id, &request.1) else {
             return;
         };
 
@@ -1407,7 +1416,7 @@ mod tests {
             builder
                 .chain(scope.start)
                 .with_access(buffer)
-                .then(push_values.into_blocking_callback())
+                .then(push_values.into_callback())
                 .with_access(buffer)
                 .then(get_largest_value.into_blocking_callback())
                 .connect(scope.terminate);

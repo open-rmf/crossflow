@@ -80,9 +80,14 @@ impl<T> InputStorage<T> {
     }
 
     fn push(&mut self, session: Entity, data: T) -> u32 {
+        let seq = self.increment_seq();
+        self.reverse_queue.insert(0, Input { session, seq, data });
+        seq
+    }
+
+    pub fn increment_seq(&mut self) -> Seq {
         let seq = self.sequence.0;
         self.sequence += 1;
-        self.reverse_queue.insert(0, Input { session, seq, data });
         seq
     }
 }
@@ -439,17 +444,17 @@ impl ManageInput for World {
                     })
                     .collect();
 
-                let mut reverse_remaining: SmallVec<[T; 16]> = SmallVec::new();
+                let mut reverse_remaining: SmallVec<[Input<T>; 16]> = SmallVec::new();
                 for i in remaining_indices.into_iter().rev() {
-                    reverse_remaining.push(inputs.reverse_queue.remove(i).data);
+                    reverse_remaining.push(inputs.reverse_queue.remove(i));
                 }
 
                 // INVARIANT: Earlier in this function we checked that the
                 // entity contains this component, and we have not removed it
                 // since then.
                 let mut buffer = self.get_mut::<BufferStorage<T>>(source).unwrap();
-                for data in reverse_remaining.into_iter().rev() {
-                    buffer.force_push(session, data);
+                for Input { data, seq, .. } in reverse_remaining.into_iter().rev() {
+                    buffer.force_push(session, seq, data);
                 }
             }
 

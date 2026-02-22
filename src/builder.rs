@@ -22,7 +22,7 @@ use std::future::Future;
 use smallvec::SmallVec;
 
 use crate::{
-    Accessible, Accessing, Accessor, AddOperation, AsMap, Buffer, BufferKeys, BufferLocation,
+    Accessible, Accessing, Accessor, AddOperation, IntoMap, Buffer, BufferKeys, BufferLocation,
     BufferMap, BufferSettings, Bufferable, Buffering, Chain, Collect, ForkClone, ForkCloneOutput,
     ForkOptionOutput, ForkResultOutput, ForkTargetStorage, Gate, GateRequest, IncompatibleLayout,
     Injection, InputSlot, IntoAsyncMap, IntoBlockingMap, Joinable, Joined, Node, OperateBuffer,
@@ -123,7 +123,7 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
     ///
     /// [1]: crate::BlockingMap
     /// [2]: crate::AsyncMap
-    pub fn create_map<M, F: AsMap<M>>(
+    pub fn create_map<M, F: IntoMap<M>>(
         &mut self,
         f: F,
     ) -> Node<RequestOfMap<M, F>, ResponseOfMap<M, F>, StreamsOfMap<M, F>>
@@ -133,7 +133,7 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
         ResponseOfMap<M, F>: 'static + Send + Sync,
         StreamsOfMap<M, F>: StreamPack,
     {
-        self.create_node(f.as_map())
+        self.create_node(f.into_map())
     }
 
     /// Create a node that takes in a `(request, service)` at runtime and then
@@ -915,7 +915,7 @@ mod tests {
                             duration: Duration::from_secs_f64(10.0 * t),
                             value: 10.0 * t,
                         })
-                        .map(|r: AsyncMap<WaitRequest<f64>>| wait(r.request))
+                        .map(|r: Async<WaitRequest<f64>>| wait(r.request))
                         .connect(scope.terminate)
                 },
                 |chain: Chain<f64>| {
@@ -924,7 +924,7 @@ mod tests {
                             duration: Duration::from_secs_f64(t / 100.0),
                             value: t / 100.0,
                         })
-                        .map(|r: AsyncMap<WaitRequest<f64>>| wait(r.request))
+                        .map(|r: Async<WaitRequest<f64>>| wait(r.request))
                         .connect(scope.terminate)
                 },
             ));
@@ -951,7 +951,7 @@ mod tests {
 
         // Test for streams from a blocking node
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            let stream_node = builder.create_map(|_: BlockingMap<(), StreamOf<u32>>| {
+            let stream_node = builder.create_map(|_: Blocking<(), StreamOf<u32>>| {
                 // Do nothing. The purpose of this node is to just return without
                 // sending off any streams.
             });
@@ -968,7 +968,7 @@ mod tests {
 
         // Test for streams from an async node
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            let stream_node = builder.create_map(|_: AsyncMap<(), StreamOf<u32>>| {
+            let stream_node = builder.create_map(|_: Async<(), StreamOf<u32>>| {
                 async { /* Do nothing */ }
             });
 
@@ -1269,13 +1269,13 @@ mod tests {
     ) -> (Output<Instant>, InputSlot<Instant>) {
         let initial_time = builder
             .commands()
-            .spawn_service(get_initial_time.into_blocking_service());
+            .spawn_service(get_initial_time);
         let finish_time = builder
             .commands()
-            .spawn_service(finish_time_range.into_blocking_service());
+            .spawn_service(finish_time_range);
         let collect_samples = builder
             .commands()
-            .spawn_service(collect_samples.into_blocking_service());
+            .spawn_service(collect_samples);
 
         let samples = builder.create_buffer(BufferSettings::keep_all());
 
@@ -1361,11 +1361,11 @@ mod tests {
         }
     }
 
-    fn get_initial_time(_: In<()>) -> Instant {
+    fn get_initial_time(_: Blocking<()>) -> Instant {
         Instant::now()
     }
 
-    fn finish_time_range(In(initial_time): In<Instant>) -> TimeRange {
+    fn finish_time_range(Blocking { request: initial_time, .. }: Blocking<Instant>) -> TimeRange {
         TimeRange {
             initial_time,
             finish_time: Instant::now(),
@@ -1373,7 +1373,7 @@ mod tests {
     }
 
     fn collect_samples(
-        In(key): In<BufferKey<TimeRange>>,
+        Blocking { request: key, .. }: Blocking<BufferKey<TimeRange>>,
         access: BufferAccess<TimeRange>,
     ) -> Option<TimeStats> {
         let samples = access.get(&key).unwrap();

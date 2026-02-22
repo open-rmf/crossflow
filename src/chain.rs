@@ -24,7 +24,7 @@ use smallvec::SmallVec;
 use std::error::Error;
 
 use crate::{
-    Accessing, AddOperation, AsMap, Buffer, BufferKey, BufferKeys, Bufferable, Buffering, Builder,
+    Accessing, AddOperation, IntoMap, Buffer, BufferKey, BufferKeys, Bufferable, Buffering, Builder,
     Collect, CreateCancelFilter, CreateDisposalFilter, ForkTargetStorage, Gate, GateRequest,
     InputSlot, IntoAsyncMap, IntoBlockingCallback, IntoBlockingMap, Node, Noop,
     OperateBufferAccess, OperateCancel, OperateDynamicGate, OperateQuietCancel, OperateSplit,
@@ -136,7 +136,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Send + Sync> Chain<'w, 's, 'a, 'b, T> {
 
     /// Apply a function whose input is [`BlockingMap<T>`](crate::BlockingMap)
     /// or [`AsyncMap<T>`](crate::AsyncMap).
-    pub fn map<M, F: AsMap<M>>(
+    pub fn map<M, F: IntoMap<M>>(
         self,
         f: F,
     ) -> Chain<'w, 's, 'a, 'b, <F::MapType as ProvideOnce>::Response>
@@ -144,12 +144,12 @@ impl<'w, 's, 'a, 'b, T: 'static + Send + Sync> Chain<'w, 's, 'a, 'b, T> {
         F::MapType: Provider<Request = T>,
         <F::MapType as ProvideOnce>::Response: 'static + Send + Sync,
     {
-        self.then(f.as_map())
+        self.then(f.into_map())
     }
 
     /// Same as [`Self::map`] but receive the new node instead of continuing a
     /// chain.
-    pub fn map_node<M, F: AsMap<M>>(
+    pub fn map_node<M, F: IntoMap<M>>(
         self,
         f: F,
     ) -> Node<T, <F::MapType as ProvideOnce>::Response, <F::MapType as ProvideOnce>::Streams>
@@ -158,7 +158,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Send + Sync> Chain<'w, 's, 'a, 'b, T> {
         <F::MapType as ProvideOnce>::Response: 'static + Send + Sync,
         <F::MapType as ProvideOnce>::Streams: StreamPack,
     {
-        self.then_node(f.as_map())
+        self.then_node(f.into_map())
     }
 
     /// Apply a function whose input is the Response of the current Chain. The

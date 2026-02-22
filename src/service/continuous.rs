@@ -28,7 +28,7 @@ use smallvec::SmallVec;
 use std::collections::HashMap;
 
 use crate::{
-    Blocker, Broken, ContinuousService, ContinuousServiceInput, DeferredRoster, Deliver, Delivery,
+    Blocker, Broken, ContinuousService, DeferredRoster, Deliver, Delivery,
     DeliveryOrder, DeliveryUpdate, Disposal, Input, IntoContinuousService, IntoServiceBuilder,
     ManageInput, OperationCleanup, OperationError, OperationReachability, OperationRequest,
     OperationResult, OperationRoster, OrBroken, ProviderStorage, ReachabilityResult, ScopeStorage,
@@ -769,8 +769,8 @@ where
             },
         );
 
-        let (request, blocker) = match update {
-            DeliveryUpdate::Immediate { blocking, request } => {
+        let (request, seq, blocker) = match update {
+            DeliveryUpdate::Immediate { blocking, request, seq } => {
                 let serve_next = serve_next_continuous_request::<Request, Response, Streams>;
                 let blocker = blocking.map(|label| Blocker {
                     provider,
@@ -779,7 +779,7 @@ where
                     label,
                     serve_next,
                 });
-                (request, blocker)
+                (request, seq, blocker)
             }
             DeliveryUpdate::Queued {
                 cancelled,

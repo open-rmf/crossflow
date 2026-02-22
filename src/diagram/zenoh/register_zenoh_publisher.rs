@@ -17,7 +17,7 @@
 
 use super::*;
 
-use bevy_ecs::prelude::{In, Res};
+use bevy_ecs::prelude::Res;
 use futures::channel::oneshot::{self, Receiver as OneShotReceiver, Sender as OneShotSender};
 use std::time::Duration;
 use thiserror::Error as ThisError;
@@ -198,12 +198,8 @@ impl DiagramElementRegistry {
         // We could examine what effect the congestion control setting may have
         // on this behavior. Perhaps we don't to funnel like this if congestion
         // control is set to Block.
-        let run_publisher = |In(PublisherSetup {
-                                 mut receiver,
-                                 config,
-                                 encoder,
-                             }): In<PublisherSetup>,
-                             session: Res<ZenohSession>| {
+        let run_publisher = |input: Async<PublisherSetup>, session: Res<ZenohSession>| {
+            let PublisherSetup { mut receiver, config, encoder } = input.request;
             let session_outcome = session.outcome.clone();
             async move {
                 let publisher = async move {
@@ -257,7 +253,7 @@ impl DiagramElementRegistry {
                 }
             }
         };
-        let run_publisher = run_publisher.into_async_callback();
+        let run_publisher = run_publisher.into_callback();
 
         self.register_node_builder_fallible(
             NodeBuilderOptions::new("zenoh_publisher").with_default_display_text("Zenoh Publisher"),

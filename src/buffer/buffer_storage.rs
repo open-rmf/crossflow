@@ -22,7 +22,7 @@ use smallvec::{Drain, SmallVec};
 use std::collections::HashMap;
 
 use std::{
-    iter::Rev,
+    iter::{Rev, Map},
     ops::RangeBounds,
     slice::{Iter, IterMut},
 };
@@ -66,12 +66,13 @@ impl<T> BufferStorage<T> {
         seq: Seq,
         message: T,
     ) -> Option<BufferEntry<T>> {
+        let entry = BufferEntry { message, seq };
         let replaced = match retention {
             RetentionPolicy::KeepFirst(n) => {
                 if reverse_queue.len() >= n {
                     // We're at the limit for inputs in this queue so just send
                     // this back
-                    return Some(message);
+                    return Some(entry);
                 }
 
                 None
@@ -81,7 +82,7 @@ impl<T> BufferStorage<T> {
                     reverse_queue.pop()
                 } else if n == 0 {
                     // This can never store any number of entries
-                    return Some(message);
+                    return Some(entry);
                 } else {
                     None
                 }
@@ -89,7 +90,7 @@ impl<T> BufferStorage<T> {
             RetentionPolicy::KeepAll => None,
         };
 
-        reverse_queue.insert(0, BufferEntry { seq, message });
+        reverse_queue.insert(0, entry);
         replaced
     }
 
@@ -110,9 +111,10 @@ impl<T> BufferStorage<T> {
         Self::impl_push(reverse_queue, self.settings.retention(), seq, message)
     }
 
-    pub(crate) fn push_as_oldest(&mut self, session: Entity, value: T) -> Option<T> {
+    pub(crate) fn push_as_oldest(&mut self, session: Entity, seq: Seq, message: T) -> Option<BufferEntry<T>> {
+        let entry = BufferEntry { message, seq };
         let Some(reverse_queue) = self.reverse_queues.get_mut(&session) else {
-            return Some(value);
+            return Some(entry);
         };
 
         let replaced = match self.settings.retention() {
@@ -125,7 +127,7 @@ impl<T> BufferStorage<T> {
             }
             RetentionPolicy::KeepLast(n) => {
                 if reverse_queue.len() >= n {
-                    return Some(value);
+                    return Some(entry);
                 }
 
                 None
@@ -133,12 +135,12 @@ impl<T> BufferStorage<T> {
             RetentionPolicy::KeepAll => None,
         };
 
-        reverse_queue.push(value);
+        reverse_queue.push(entry);
         replaced
     }
 
     pub(crate) fn pull(&mut self, session: Entity) -> Option<T> {
-        self.reverse_queues.get_mut(&session)?.pop()
+        self.reverse_queues.get_mut(&session)?.pop().map(|e| e.message)
     }
 
     pub(crate) fn pull_newest(&mut self, session: Entity) -> Option<T> {
@@ -147,7 +149,7 @@ impl<T> BufferStorage<T> {
             return None;
         }
 
-        Some(reverse_queue.remove(0))
+        Some(reverse_queue.remove(0).message)
     }
 
     pub(crate) fn consume(&mut self, session: Entity) -> SmallVec<[T; 16]> {
@@ -155,10 +157,7 @@ impl<T> BufferStorage<T> {
             return SmallVec::new();
         };
 
-        let mut result = SmallVec::new();
-        std::mem::swap(reverse_queue, &mut result);
-        result.reverse();
-        result
+        reverse_queue.drain(..).map(|e| e.message).collect()
     }
 
     pub(crate) fn clear_session(&mut self, session: Entity) {
@@ -173,11 +172,12 @@ impl<T> BufferStorage<T> {
     where
         T: 'static + Send + Sync,
     {
+        let get_msg = get_message_mut::<T> as fn(&mut BufferEntry<T>) -> &mut T;
         IterBufferMut {
             iter: self
                 .reverse_queues
                 .get_mut(&session)
-                .map(|q| q.iter_mut().rev()),
+                .map(|q| q.iter_mut().map(get_msg).rev()),
         }
     }
 
@@ -185,25 +185,28 @@ impl<T> BufferStorage<T> {
         self.reverse_queues
             .get_mut(&session)
             .and_then(|q| q.last_mut())
+            .map(|e| &mut e.message)
     }
 
     pub(crate) fn newest_mut(&mut self, session: Entity) -> Option<&mut T> {
         self.reverse_queues
             .get_mut(&session)
             .and_then(|q| q.first_mut())
+            .map(|e| &mut e.message)
     }
 
     pub(crate) fn newest_mut_or_else(
         &mut self,
         session: Entity,
-        f: impl FnOnce() -> T,
+        f: impl FnOnce() -> (Seq, T),
     ) -> Option<&mut T> {
         self.reverse_queues.get_mut(&session).and_then(|q| {
             if q.is_empty() {
-                Self::impl_push(q, self.settings.retention(), f());
+                let (seq, message) = f();
+                Self::impl_push(q, self.settings.retention(), seq, message);
             }
 
-            q.first_mut()
+            q.first_mut().map(|e| &mut e.message)
         })
     }
 
@@ -214,7 +217,7 @@ impl<T> BufferStorage<T> {
             return None;
         }
 
-        reverse_queue.get_mut(len - index - 1)
+        reverse_queue.get_mut(len - index - 1).map(|e| &mut e.message)
     }
 
     pub(crate) fn drain<R>(&mut self, session: Entity, range: R) -> DrainBuffer<'_, T>
@@ -222,11 +225,12 @@ impl<T> BufferStorage<T> {
         T: 'static + Send + Sync,
         R: RangeBounds<usize>,
     {
+        let f = entry_into_message::<T> as fn(BufferEntry<T>) -> T;
         DrainBuffer {
             drain: self
                 .reverse_queues
                 .get_mut(&session)
-                .map(|q| q.drain(range).rev()),
+                .map(|q| q.drain(range).map(f).rev()),
         }
     }
 
@@ -234,17 +238,18 @@ impl<T> BufferStorage<T> {
     where
         T: 'static + Send + Sync,
     {
+        let f = get_message_ref::<T> as fn(&BufferEntry<T>) -> &T;
         IterBufferView {
-            iter: self.reverse_queues.get(&session).map(|q| q.iter().rev()),
+            iter: self.reverse_queues.get(&session).map(|q| q.iter().map(f).rev()),
         }
     }
 
     pub(crate) fn oldest(&self, session: Entity) -> Option<&T> {
-        self.reverse_queues.get(&session).and_then(|q| q.last())
+        self.reverse_queues.get(&session).and_then(|q| q.last()).map(|e| &e.message)
     }
 
     pub(crate) fn newest(&self, session: Entity) -> Option<&T> {
-        self.reverse_queues.get(&session).and_then(|q| q.first())
+        self.reverse_queues.get(&session).and_then(|q| q.first()).map(|e| &e.message)
     }
 
     pub(crate) fn get(&self, session: Entity, index: usize) -> Option<&T> {
@@ -254,7 +259,7 @@ impl<T> BufferStorage<T> {
             return None;
         }
 
-        reverse_queue.get(len - index - 1)
+        reverse_queue.get(len - index - 1).map(|e| &e.message)
     }
 
     pub(crate) fn new(settings: BufferSettings) -> Self {
@@ -265,11 +270,23 @@ impl<T> BufferStorage<T> {
     }
 }
 
+fn get_message_ref<T>(entry: &BufferEntry<T>) -> &T {
+    &entry.message
+}
+
+fn get_message_mut<T>(entry: &mut BufferEntry<T>) -> &mut T {
+    &mut entry.message
+}
+
+fn entry_into_message<T>(entry: BufferEntry<T>) -> T {
+    entry.message
+}
+
 pub struct IterBufferView<'b, T>
 where
     T: 'static + Send + Sync,
 {
-    iter: Option<Rev<Iter<'b, T>>>,
+    iter: Option<Rev<Map<Iter<'b, BufferEntry<T>>, fn(&BufferEntry<T>) -> &T>>>,
 }
 
 impl<'b, T> Iterator for IterBufferView<'b, T>
@@ -291,7 +308,7 @@ pub struct IterBufferMut<'b, T>
 where
     T: 'static + Send + Sync,
 {
-    iter: Option<Rev<IterMut<'b, T>>>,
+    iter: Option<Rev<Map<IterMut<'b, BufferEntry<T>>, fn(&mut BufferEntry<T>) -> &mut T>>>,
 }
 
 impl<'b, T> Iterator for IterBufferMut<'b, T>
@@ -313,7 +330,7 @@ pub struct DrainBuffer<'b, T>
 where
     T: 'static + Send + Sync,
 {
-    drain: Option<Rev<Drain<'b, [T; 16]>>>,
+    drain: Option<Rev<Map<Drain<'b, [BufferEntry<T>; 16]>, fn(BufferEntry<T>) -> T>>>,
 }
 
 impl<'b, T> Iterator for DrainBuffer<'b, T>

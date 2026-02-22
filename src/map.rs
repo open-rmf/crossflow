@@ -16,8 +16,8 @@
 */
 
 use crate::{
-    AddOperation, AsyncMap, BlockingMap, OperateAsyncMap, OperateBlockingMap, ProvideOnce,
-    Provider, Sendish, StreamPack,
+    AddOperation, OperateAsyncMap, OperateBlockingMap, ProvideOnce,
+    Provider, Sendish, StreamPack, Blocking, Async,
 };
 
 use bevy_ecs::prelude::{Commands, Entity};
@@ -52,7 +52,7 @@ pub struct MapDef<F>(F);
 ///   * [`Series::map_async`](crate::Series::map_async)
 ///
 /// If you want your map to emit streams, you will need your input argument to be
-/// [`BlockingMap`] or [`AsyncMap`]. In that case you need to use one of the following:
+/// [`Blocking`] or [`Async`]. In that case you need to use one of the following:
 ///
 /// * [`Chain::map`](crate::Chain::map)
 /// * [`Builder::create_map`](crate::Builder::create_map)
@@ -70,30 +70,30 @@ pub struct MapDef<F>(F);
 /// [6]: crate::Callback
 /// [7]: bevy_tasks::AsyncComputeTaskPool
 #[allow(clippy::wrong_self_convention)]
-pub trait AsMap<M> {
+pub trait IntoMap<M> {
     type MapType;
-    /// Convert an [`FnMut`] that takes a single input of [`BlockingMap`] or
+    /// Convert an [`FnMut`] that takes a single input of [`Blocking`] or
     /// [`AsyncMap`] into a [`Provider`].
-    fn as_map(self) -> Self::MapType;
+    fn into_map(self) -> Self::MapType;
 }
 
-pub type RequestOfMap<M, F> = <<F as AsMap<M>>::MapType as ProvideOnce>::Request;
-pub type ResponseOfMap<M, F> = <<F as AsMap<M>>::MapType as ProvideOnce>::Response;
-pub type StreamsOfMap<M, F> = <<F as AsMap<M>>::MapType as ProvideOnce>::Streams;
+pub type RequestOfMap<M, F> = <<F as IntoMap<M>>::MapType as ProvideOnce>::Request;
+pub type ResponseOfMap<M, F> = <<F as IntoMap<M>>::MapType as ProvideOnce>::Response;
+pub type StreamsOfMap<M, F> = <<F as IntoMap<M>>::MapType as ProvideOnce>::Streams;
 
 /// A trait that all different ways of defining a Blocking Map must funnel into.
 pub(crate) trait CallBlockingMap<Request, Response, Streams: StreamPack> {
-    fn call(&mut self, input: BlockingMap<Request, Streams>) -> Response;
+    fn call(&mut self, input: Blocking<Request, Streams>) -> Response;
 }
 
 impl<F, Request, Response, Streams> CallBlockingMap<Request, Response, Streams> for MapDef<F>
 where
-    F: FnMut(BlockingMap<Request, Streams>) -> Response + 'static + Send + Sync,
+    F: FnMut(Blocking<Request, Streams>) -> Response + 'static + Send + Sync,
     Request: 'static + Send + Sync,
     Response: 'static + Send + Sync,
     Streams: StreamPack,
 {
-    fn call(&mut self, request: BlockingMap<Request, Streams>) -> Response {
+    fn call(&mut self, request: Blocking<Request, Streams>) -> Response {
         (self.0)(request)
     }
 }
@@ -156,15 +156,15 @@ where
 
 pub struct BlockingMapMarker;
 
-impl<F, Request, Response, Streams> AsMap<(Request, Response, Streams, BlockingMapMarker)> for F
+impl<F, Request, Response, Streams> IntoMap<(Request, Response, Streams, BlockingMapMarker)> for F
 where
-    F: FnMut(BlockingMap<Request, Streams>) -> Response + 'static + Send + Sync,
+    F: FnMut(Blocking<Request, Streams>) -> Response + 'static + Send + Sync,
     Request: 'static + Send + Sync,
     Response: 'static + Send + Sync,
     Streams: StreamPack,
 {
     type MapType = BlockingMapDef<MapDef<F>, Request, Response, Streams>;
-    fn as_map(self) -> Self::MapType {
+    fn into_map(self) -> Self::MapType {
         BlockingMapDef {
             def: MapDef(self),
             _ignore: Default::default(),
@@ -203,39 +203,39 @@ impl<F, Request, Response> CallBlockingMap<Request, Response, ()> for BlockingMa
 where
     F: FnMut(Request) -> Response,
 {
-    fn call(&mut self, BlockingMap { request, .. }: BlockingMap<Request, ()>) -> Response {
+    fn call(&mut self, Blocking { request, .. }: Blocking<Request, ()>) -> Response {
         (self.0)(request)
     }
 }
 
 pub(crate) trait CallAsyncMap<Request, Task, Streams: StreamPack> {
-    fn call(&mut self, input: AsyncMap<Request, Streams>) -> Task;
+    fn call(&mut self, input: Async<Request, Streams>) -> Task;
 }
 
 impl<F, Request, Task, Streams> CallAsyncMap<Request, Task, Streams> for MapDef<F>
 where
-    F: FnMut(AsyncMap<Request, Streams>) -> Task + 'static + Send + Sync,
+    F: FnMut(Async<Request, Streams>) -> Task + 'static + Send + Sync,
     Request: 'static + Send + Sync,
     Task: 'static + Send,
     Streams: StreamPack,
 {
-    fn call(&mut self, input: AsyncMap<Request, Streams>) -> Task {
+    fn call(&mut self, input: Async<Request, Streams>) -> Task {
         (self.0)(input)
     }
 }
 
 pub struct AsyncMapMarker;
 
-impl<F, Request, Task, Streams> AsMap<(Request, Task, Streams, AsyncMapMarker)> for F
+impl<F, Request, Task, Streams> IntoMap<(Request, Task, Streams, AsyncMapMarker)> for F
 where
-    F: FnMut(AsyncMap<Request, Streams>) -> Task + 'static + Send + Sync,
+    F: FnMut(Async<Request, Streams>) -> Task + 'static + Send + Sync,
     Task: Future + 'static + Sendish,
     Request: 'static + Send + Sync,
     Task::Output: 'static + Send + Sync,
     Streams: StreamPack,
 {
     type MapType = AsyncMapDef<MapDef<F>, Request, Task, Streams>;
-    fn as_map(self) -> Self::MapType {
+    fn into_map(self) -> Self::MapType {
         AsyncMapDef {
             def: MapDef(self),
             _ignore: Default::default(),
@@ -327,7 +327,7 @@ where
     F: FnMut(Request) -> Task + 'static + Send + Sync,
     Task: Future + 'static + Sendish,
 {
-    fn call(&mut self, AsyncMap { request, .. }: AsyncMap<Request, ()>) -> Task {
+    fn call(&mut self, Async { request, .. }: Async<Request, ()>) -> Task {
         (self.0)(request)
     }
 }

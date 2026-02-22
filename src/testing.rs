@@ -30,8 +30,8 @@ pub use std::time::{Duration, Instant};
 use smallvec::SmallVec;
 
 use crate::{
-    Accessing, AddContinuousServicesExt, AnyBuffer, AsAnyBuffer, AsyncServiceInput, BlockingMap,
-    BlockingServiceInput, Buffer, BufferKey, BufferKeyLifecycle, Bufferable, Buffering, Builder,
+    Accessing, AddContinuousServicesExt, AnyBuffer, AsAnyBuffer, AsyncService, Blocking,
+    BlockingService, Buffer, BufferKey, BufferKeyLifecycle, Bufferable, Buffering, Builder,
     Cancellation, ContinuousQuery, ContinuousQueueView, ContinuousService, CrossflowExecutorApp,
     FlushParameters, GetBufferedSessionsFn, Joining, OperationError, OperationResult,
     OperationRoster, Outcome, Promise, ProvideOnce, RequestExt, RunCommandsOnWorldExt, Scope,
@@ -258,7 +258,7 @@ impl TestingContext {
     {
         self.app.spawn_continuous_service(
             Update,
-            move |In(input): In<ContinuousService<T, U, StreamOf<()>>>,
+            move |input: ContinuousService<T, U, StreamOf<()>>,
                   mut query: ContinuousQuery<T, U, StreamOf<()>>,
                   mut timers: Local<HashMap<Entity, Instant>>| {
                 if let Some(view) = query.view(&input.key) {
@@ -296,7 +296,7 @@ impl TestingContext {
     {
         use crate::AddServicesExt;
         self.app
-            .spawn_service(move |In(input): AsyncServiceInput<T>| {
+            .spawn_service(move |input: AsyncService<T>| {
                 let f = f.clone();
                 async move {
                     let start = Instant::now();
@@ -359,7 +359,7 @@ impl FlushConditions {
 pub struct InvalidValue(pub f32);
 
 pub fn spawn_test_entities(
-    In(input): BlockingServiceInput<usize>,
+    input: BlockingService<usize>,
     mut commands: Commands,
 ) -> SmallVec<[Entity; 8]> {
     let mut entities = SmallVec::new();
@@ -436,12 +436,12 @@ pub async fn wait<Value>(request: WaitRequest<Value>) -> Value {
 
 /// Use this to add a blocking map to the chain that simply prints a debug
 /// message and then passes the data along.
-pub fn print_debug<T: std::fmt::Debug>(header: impl Into<String>) -> impl Fn(BlockingMap<T>) -> T {
+pub fn print_debug<T: std::fmt::Debug>(header: impl Into<String>) -> impl Fn(Blocking<T>) -> T {
     let header = header.into();
     move |input| {
         println!(
             "[source: {:?}, session: {:?}] {}: {:?}",
-            input.source, input.session, header, input.request,
+            input.id.source, input.session, header, input.request,
         );
         input.request
     }
@@ -478,7 +478,7 @@ pub struct Name(pub Box<str>);
 pub struct RunCount(pub usize);
 
 pub fn say_hello(
-    In(input): BlockingServiceInput<()>,
+    input: BlockingService<()>,
     salutation_query: Query<Option<&Salutation>>,
     name_query: Query<Option<&Name>>,
     mut run_count: Query<Option<&mut RunCount>>,
@@ -505,7 +505,7 @@ pub fn say_hello(
 }
 
 pub fn repeat_service(
-    In(input): AsyncServiceInput<RepeatRequest>,
+    input: AsyncService<RepeatRequest>,
     mut run_count: Query<Option<&mut RunCount>>,
 ) -> impl std::future::Future<Output = ()> + use<> + 'static + Send + Sync {
     if let Ok(Some(mut count)) = run_count.get_mut(input.provider) {

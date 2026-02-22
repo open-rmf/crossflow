@@ -382,7 +382,7 @@ mod tests {
 
     use crate::{
         Accessor, AnyBufferKey, AnyBufferWorldAccess, BufferAccess, BufferAccessMut, BufferKey,
-        BufferWorldAccess, Diagram, DiagramErrorCode, IntoBlockingCallback, JsonBufferKey,
+        BufferWorldAccess, Diagram, DiagramErrorCode, Blocking, JsonBufferKey,
         JsonBufferWorldAccess, JsonMessage, Node, NodeBuilderOptions,
         diagram::testing::DiagramTestFixture,
     };
@@ -418,8 +418,9 @@ mod tests {
                 NodeBuilderOptions::new("insert_json_buffer_entries".to_owned()),
                 |builder, config: usize| {
                     builder.create_node(
-                        (move |In((value, key)): In<(JsonMessage, JsonBufferKey)>,
+                        (move |input: Blocking<(JsonMessage, JsonBufferKey)>,
                                world: &mut World| {
+                            let (value, key) = input.request;
                             world
                                 .json_buffer_mut(&key, |mut buffer| {
                                     for _ in 0..config {
@@ -820,10 +821,10 @@ mod tests {
         let mut fixture = new_fixture();
 
         fn count_generic_buffer(
-            In(key): In<BufferKey<i64>>,
+            input: Blocking<BufferKey<i64>>,
             mut access: BufferAccessMut<i64>,
         ) -> i64 {
-            access.get_mut(&key).unwrap().pull().unwrap()
+            access.get_mut(input.id, &input.request.key).unwrap().pull().unwrap()
         }
 
         fixture
@@ -834,7 +835,7 @@ mod tests {
             .register_node_builder(
                 NodeBuilderOptions::new("pull_generic_buffer"),
                 |builder, _config: ()| {
-                    builder.create_node(count_generic_buffer.into_blocking_callback())
+                    builder.create_node(count_generic_buffer.into_callback())
                 },
             )
             .with_listen()
@@ -1234,10 +1235,11 @@ mod tests {
                 NodeBuilderOptions::new("counting"),
                 |builder, config: i64| {
                     let callback =
-                        move |In((_, keys)): In<((), TestInferAccessor)>,
+                        move |input: Blocking<((), TestInferAccessor)>,
                               string_access: BufferAccess<String>,
                               mut integer_access: BufferAccessMut<i64>| {
-                            let mut buffer = integer_access.get_mut(&keys.integer).unwrap();
+                            let keys = input.request.1;
+                            let mut buffer = integer_access.get_mut(input.id, &keys.integer).unwrap();
                             if let Some(integer) = buffer.newest_mut() {
                                 if *integer >= config {
                                     let string = string_access
@@ -1277,9 +1279,10 @@ mod tests {
                 NodeBuilderOptions::new("set_string"),
                 |builder, config: String| {
                     let callback =
-                        move |In((_, key)): In<((), BufferKey<String>)>,
+                        move |input: Blocking<((), BufferKey<String>)>,
                               mut string_access: BufferAccessMut<String>| {
-                            let mut buffer = string_access.get_mut(&key).unwrap();
+                            let key = input.request.1;
+                            let mut buffer = string_access.get_mut(input.id, &key).unwrap();
                             buffer.push(config.clone());
                         };
 
