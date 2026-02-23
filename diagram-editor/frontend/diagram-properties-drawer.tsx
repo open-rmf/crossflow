@@ -23,10 +23,10 @@ import React from 'react';
 import { useDiagramProperties } from './diagram-properties-provider';
 import { useLoadContext } from './load-context-provider';
 import { RunButton } from './run-button';
-import type { ExampleInput } from './types/api';
+import type { InputExample } from './types/api';
 
 const DrawerWidth = '20vw';
-const EmptyExampleInput: ExampleInput = {
+const EmptyInputExample: InputExample = {
   description: '',
   value: undefined,
 };
@@ -47,8 +47,8 @@ function DiagramPropertiesDrawer({
     React.useState('Copy this input example into clipboard');
   const [openAddExampleDialog, setOpenAddExampleDialog] =
     React.useState(false);
-  const [newExampleInput, setNewExampleInput] =
-    React.useState<ExampleInput>(EmptyExampleInput);
+  const [newInputExample, setNewInputExample] =
+    React.useState<InputExample>(EmptyInputExample);
 
   React.useEffect(() => {
     setDiagramProperties({
@@ -57,11 +57,11 @@ function DiagramPropertiesDrawer({
     });
   }, [loadContext]);
 
-  const exampleInputInvalid = React.useMemo(() => {
-    return newExampleInput.description === '' ||
-      newExampleInput.value === undefined ||
-      newExampleInput.value === '';
-  }, [newExampleInput]);
+  const inputExampleInvalid = React.useMemo(() => {
+    return newInputExample.description === '' ||
+      newInputExample.value === undefined ||
+      newInputExample.value === '';
+  }, [newInputExample]);
 
   return (
     <>
@@ -162,15 +162,15 @@ function DiagramPropertiesDrawer({
                                   <IconButton
                                     onClick={() => {
                                       setDiagramProperties((prev) => {
-                                        const prevExampleInputs = prev.input_examples ?? [];
-                                        if (index >= prevExampleInputs.length) {
+                                        const prevInputExamples = prev.input_examples ?? [];
+                                        if (index >= prevInputExamples.length) {
                                           return prev;
                                         }
                                         return {
                                           ...prev,
                                           input_examples: [
-                                            ...prevExampleInputs.slice(0, index),
-                                            ...prevExampleInputs.slice(index + 1),
+                                            ...prevInputExamples.slice(0, index),
+                                            ...prevInputExamples.slice(index + 1),
                                           ],
                                         };
                                       });
@@ -236,7 +236,7 @@ function DiagramPropertiesDrawer({
       <Dialog
         onClose={() => {
           setOpenAddExampleDialog(false);
-          setNewExampleInput(EmptyExampleInput);
+          setNewInputExample(EmptyInputExample);
         }}
         open={openAddExampleDialog}
         fullWidth
@@ -253,8 +253,8 @@ function DiagramPropertiesDrawer({
               multiline
               rows={6}
               variant='outlined'
-              value={newExampleInput.value}
-              onChange={(e) => setNewExampleInput((prev) =>
+              value={newInputExample.value}
+              onChange={(e) => setNewInputExample((prev) =>
                 ({ ...prev, value: e.target.value as string}))}
             />
             <Typography variant="body1">Description</Typography>
@@ -263,8 +263,8 @@ function DiagramPropertiesDrawer({
               multiline
               rows={3}
               variant='outlined'
-              value={newExampleInput.description}
-              onChange={(e) => setNewExampleInput((prev) =>
+              value={newInputExample.description}
+              onChange={(e) => setNewInputExample((prev) =>
                 ({ ...prev, description: e.target.value}))}
             />
           </Stack>
@@ -274,20 +274,20 @@ function DiagramPropertiesDrawer({
             variant='contained'
             onClick={() => {
               setDiagramProperties((prev) => {
-                const prevExampleInputs = prev.input_examples ?? [];
+                const prevInputExamples = prev.input_examples ?? [];
                 return {
                   ...prev,
                   input_examples: [
-                    ...prevExampleInputs,
-                    newExampleInput
+                    ...prevInputExamples,
+                    newInputExample
                   ],
                 };
               });
               setOpenAddExampleDialog(false);
-              setNewExampleInput(EmptyExampleInput);
+              setNewInputExample(EmptyInputExample);
             }}
             startIcon={<MaterialSymbol symbol="add" />}
-            disabled={exampleInputInvalid}
+            disabled={inputExampleInvalid}
           >
             Add
           </Button>

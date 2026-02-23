@@ -1,9 +1,9 @@
 import { createContext, PropsWithChildren, useContext, useState } from 'react';
-import type { ExampleInput } from './types/api';
+import type { InputExample } from './types/api';
 
 export interface DiagramProperties {
   description?: string;
-  input_examples?: ExampleInput[];
+  input_examples?: InputExample[];
 }
 
 export type DiagramPropertiesContext = [

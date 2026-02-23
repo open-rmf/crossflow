@@ -120,7 +120,6 @@ interface ProvidersProps {
   loadContext: LoadContext | null;
   nodeManager: NodeManager;
   edges: DiagramEditorEdge[];
-  diagramProperties: DiagramProperties;
 }
 
 function Providers({
@@ -128,7 +127,6 @@ function Providers({
   loadContext,
   nodeManager,
   edges,
-  diagramProperties,
   children,
 }: React.PropsWithChildren<ProvidersProps>) {
   return (
@@ -136,7 +134,7 @@ function Providers({
       <LoadContextProvider value={loadContext}>
         <NodeManagerProvider value={nodeManager}>
           <EdgesProvider value={edges}>
-            <DiagramPropertiesProvider value={diagramProperties}>
+            <DiagramPropertiesProvider>
               {children}
             </DiagramPropertiesProvider>
           </EdgesProvider>
@@ -619,7 +617,6 @@ function DiagramEditor() {
       loadContext={loadContext}
       nodeManager={nodeManager}
       edges={edges}
-      diagramProperties={diagramProperties}
     >
       <ReactFlow
         nodes={nodes}
