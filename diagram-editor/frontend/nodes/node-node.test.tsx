@@ -72,18 +72,23 @@ describe('NodeNode', () => {
     );
     const nodeProps = createOperationNodeProps(nodeNode);
     const registry: DiagramElementMetadata = {
-      messages: {},
+      messages: [],
       nodes: {
         test_builder: {
           config_schema: true,
           default_display_text: 'test',
-          request: 'request',
-          response: 'response',
+          request: 0,
+          response: 1,
           streams: {
-            test_stream: 'stream_type',
+            test_stream: 3,
           },
           config_examples: [],
         },
+      },
+      reverse_message_lookup: {
+        result: [],
+        split: [],
+        unzip: [],
       },
       schemas: {},
       sections: {},
