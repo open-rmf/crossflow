@@ -138,7 +138,9 @@ function syncBufferSelection(
       if (!isArrayBufferSelection(bufferSelection)) {
         const edges = useEdges();
         getConnectedEdges([targetNode], edges)
-          .filter((edge) => edge.target === targetNode.id)
+          .filter(
+            (edge) => edge.type === 'buffer' && edge.target === targetNode.id
+          )
           .forEach((edge) => {
             markEdgeError(edge);
           });
@@ -154,7 +156,9 @@ function syncBufferSelection(
       if (!isKeyedBufferSelection(bufferSelection)) {
         const edges = useEdges();
         getConnectedEdges([targetNode], edges)
-          .filter((edge) => edge.target === targetNode.id)
+          .filter(
+            (edge) => edge.type === 'buffer' && edge.target === targetNode.id
+          )
           .forEach((edge) => {
             markEdgeError(edge);
           });
