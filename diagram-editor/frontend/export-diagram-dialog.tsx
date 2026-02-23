@@ -27,6 +27,7 @@ export interface ExportDiagramDialogProps {
   suggestedFilename: string | null;
   onExportedFilename: (filename: string) => void;
   onClose: () => void;
+  onError: (errorMessage: string) => void;
 }
 
 interface DialogData {
@@ -39,6 +40,7 @@ function ExportDiagramDialogInternal({
   suggestedFilename,
   onExportedFilename,
   onClose,
+  onError,
 }: ExportDiagramDialogProps) {
   const nodeManager = useNodeManager();
   const edges = useEdges();
@@ -49,34 +51,39 @@ function ExportDiagramDialogInternal({
   const theme = useTheme();
 
   const dialogDataPromise = useMemo(async () => {
-    const diagram = exportDiagram(registry, nodeManager, edges, templates, diagramProperties ?? {});
-    if (loadContext?.diagram.extensions) {
-      diagram.extensions = loadContext.diagram.extensions;
+    try {
+      const diagram = exportDiagram(registry, nodeManager, edges, templates, diagramProperties ?? {});
+      if (loadContext?.diagram.extensions) {
+        diagram.extensions = loadContext.diagram.extensions;
+      }
+      await saveState(diagram, {
+        nodes: [...nodeManager.nodes],
+        edges: [...edges],
+      });
+      const diagramJsonMin = JSON.stringify(diagram);
+      // Compress the JSON string to Uint8Array
+      const compressedData = deflateSync(strToU8(diagramJsonMin));
+      // Convert Uint8Array to a binary string for btoa
+      let binaryString = '';
+      for (let i = 0; i < compressedData.length; i++) {
+        binaryString += String.fromCharCode(compressedData[i]);
+      }
+      const base64Diagram = btoa(binaryString);
+
+      const shareLink = `${window.location.origin}${window.location.pathname}?diagram=${encodeURIComponent(base64Diagram)}`;
+
+      const diagramJsonPretty = JSON.stringify(diagram, null, 2);
+
+      const dialogData = {
+        shareLink,
+        diagramJson: diagramJsonPretty,
+      } satisfies DialogData;
+
+      return dialogData;
+    } catch (e) {
+      onError(`failed to export diagram: ${e}`);
+      return null;
     }
-    await saveState(diagram, {
-      nodes: [...nodeManager.nodes],
-      edges: [...edges],
-    });
-    const diagramJsonMin = JSON.stringify(diagram);
-    // Compress the JSON string to Uint8Array
-    const compressedData = deflateSync(strToU8(diagramJsonMin));
-    // Convert Uint8Array to a binary string for btoa
-    let binaryString = '';
-    for (let i = 0; i < compressedData.length; i++) {
-      binaryString += String.fromCharCode(compressedData[i]);
-    }
-    const base64Diagram = btoa(binaryString);
-
-    const shareLink = `${window.location.origin}${window.location.pathname}?diagram=${encodeURIComponent(base64Diagram)}`;
-
-    const diagramJsonPretty = JSON.stringify(diagram, null, 2);
-
-    const dialogData = {
-      shareLink,
-      diagramJson: diagramJsonPretty,
-    } satisfies DialogData;
-
-    return dialogData;
   }, [registry, nodeManager, edges, templates, loadContext, diagramProperties]);
 
   const dialogData = use(dialogDataPromise);

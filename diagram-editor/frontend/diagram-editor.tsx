@@ -1,5 +1,9 @@
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
+  AlertTitle,
   alpha,
   darken,
   Fab,
@@ -841,6 +845,7 @@ function DiagramEditor() {
               (filename: string) => setRecentlyUsedFilename(filename)
             }
             onClose={() => setOpenExportDiagramDialog(false)}
+            onError={showErrorToast}
           />
         </Suspense>
       </ReactFlow>
