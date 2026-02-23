@@ -7,6 +7,33 @@
 
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "BufferMapLayoutHints".
+ */
+export type BufferMapLayoutHints =
+  | {
+      dynamic: DynamicBufferMapLayoutHints;
+    }
+  | {
+      static: {
+        [k: string]: MessageTypeHint;
+      };
+    };
+/**
+ * This interface was referenced by `undefined`'s JSON-Schema definition
+ * via the `patternProperty` "^\d+$".
+ *
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "MessageTypeHint".
+ */
+export type MessageTypeHint =
+  | {
+      exact: number;
+    }
+  | {
+      fallback: number;
+    };
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "BufferSelection".
  */
 export type BufferSelection =
@@ -40,33 +67,6 @@ export type TraceToggle = 'off' | 'on' | 'messages';
  * via the `definition` "BufferIdentifier".
  */
 export type BufferIdentifier = string | number;
-/**
- * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "BufferMapLayoutHints".
- */
-export type BufferMapLayoutHints =
-  | {
-      dynamic: DynamicBufferMapLayoutHints;
-    }
-  | {
-      static: {
-        [k: string]: MessageTypeHint;
-      };
-    };
-/**
- * This interface was referenced by `undefined`'s JSON-Schema definition
- * via the `patternProperty` "^\d+$".
- *
- * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "MessageTypeHint".
- */
-export type MessageTypeHint =
-  | {
-      exact: number;
-    }
-  | {
-      fallback: number;
-    };
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "RetentionPolicy".
@@ -218,6 +218,34 @@ export interface DiagramEditorApi {
   [k: string]: unknown;
 }
 /**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "BufferAccessMetadata".
+ */
+export interface BufferAccessMetadata {
+  layout: BufferMapLayoutHints;
+  /**
+   * The underlying request message type, excluding the buffer access
+   */
+  request_message: number;
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "DynamicBufferMapLayoutHints".
+ */
+export interface DynamicBufferMapLayoutHints {
+  hint?: MessageTypeHint | null;
+  /**
+   * The buffer identifiers can include indices.
+   */
+  indices: boolean;
+  /**
+   * The buffer identifiers can include names.
+   */
+  names: boolean;
+  [k: string]: unknown;
+}
+/**
  * Zip a message together with access to one or more buffers.
  *
  * The receiving node must have an input type of `(Message, Keys)`
@@ -293,22 +321,6 @@ export interface BufferAccessSchema {
  */
 export interface NamespacedOperation {
   [k: string]: string;
-}
-/**
- * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "DynamicBufferMapLayoutHints".
- */
-export interface DynamicBufferMapLayoutHints {
-  hint?: MessageTypeHint | null;
-  /**
-   * The buffer identifiers can include indices.
-   */
-  indices: boolean;
-  /**
-   * The buffer identifiers can include names.
-   */
-  names: boolean;
-  [k: string]: unknown;
 }
 /**
  * Create a [`Buffer`][1] which can be used to store and pull data within
@@ -1255,6 +1267,7 @@ export interface MessageMetadata {
  * via the `definition` "MessageOperationsMetadata".
  */
 export interface MessageOperationsMetadata {
+  buffer_access?: BufferAccessMetadata | null;
   deserialize?: {
     [k: string]: unknown;
   } | null;
@@ -1269,12 +1282,11 @@ export interface MessageOperationsMetadata {
   from: number[];
   into: number[];
   join?: BufferMapLayoutHints | null;
+  listen?: BufferMapLayoutHints | null;
   serialize?: {
     [k: string]: unknown;
   } | null;
-  split?: {
-    [k: string]: unknown;
-  } | null;
+  split?: number | null;
   try_from: number[];
   try_into: number[];
   unzip?: number[] | null;
