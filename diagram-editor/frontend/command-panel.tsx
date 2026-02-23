@@ -13,6 +13,7 @@ export interface CommandPanelProps {
   onNodeChanges: (changes: NodeChange<DiagramEditorNode>[]) => void;
   onExportClick: () => void;
   onLoadDiagram: (jsonStr: string, filename: string) => void;
+  enableExport: boolean;
 }
 
 const VisuallyHiddenInput = styled('input')({
@@ -31,6 +32,7 @@ function CommandPanel({
   onNodeChanges,
   onExportClick,
   onLoadDiagram,
+  enableExport,
 }: CommandPanelProps) {
   const theme = useTheme();
   const [openEditTemplatesDialog, setOpenEditTemplatesDialog] =
@@ -69,8 +71,13 @@ function CommandPanel({
           )}
           <AutoLayoutButton onNodeChanges={onNodeChanges} />
           {editorMode.mode === EditorMode.Normal && (
-            <Tooltip title="Export Diagram">
-              <Button onClick={onExportClick}>
+            <Tooltip
+              title={
+                enableExport
+                ? 'Export Diagram'
+                : 'Export Diagram (disabled)'}
+            >
+              <Button onClick={onExportClick} disabled={!enableExport}>
                 <MaterialSymbol symbol="download" />
               </Button>
             </Tooltip>

@@ -27,7 +27,7 @@ export interface ExportDiagramDialogProps {
   suggestedFilename: string | null;
   onExportedFilename: (filename: string) => void;
   onClose: () => void;
-  onError: (errorMessage: string) => void;
+  onValidDiagram: (valid: boolean, errorMessage?: string) => void;
 }
 
 interface DialogData {
@@ -40,7 +40,7 @@ function ExportDiagramDialogInternal({
   suggestedFilename,
   onExportedFilename,
   onClose,
-  onError,
+  onValidDiagram,
 }: ExportDiagramDialogProps) {
   const nodeManager = useNodeManager();
   const edges = useEdges();
@@ -79,9 +79,10 @@ function ExportDiagramDialogInternal({
         diagramJson: diagramJsonPretty,
       } satisfies DialogData;
 
+      onValidDiagram(true);
       return dialogData;
     } catch (e) {
-      onError(`failed to export diagram: ${e}`);
+      onValidDiagram(false, `failed to export diagram: ${e}`);
       return null;
     }
   }, [registry, nodeManager, edges, templates, loadContext, diagramProperties]);

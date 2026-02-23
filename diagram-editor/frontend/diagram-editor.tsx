@@ -512,6 +512,7 @@ function DiagramEditor() {
   const showErrorToast = React.useCallback((message: string) => {
     setErrorToast(message);
     setOpenErrorToast(true);
+    setEnableExport(false);
   }, []);
   const [loadContext, setLoadContext] = React.useState<LoadContext | null>(
     null,
@@ -612,6 +613,8 @@ function DiagramEditor() {
     },
     [showErrorToast, nodeManager, edges],
   );
+
+  const [enableExport, setEnableExport] = React.useState(true);
 
   return (
     <Providers
@@ -751,6 +754,7 @@ function DiagramEditor() {
             [],
           )}
           onLoadDiagram={loadDiagram}
+          enableExport={enableExport}
         />
         {editorMode.mode === EditorMode.Template && (
           <Fab
@@ -841,7 +845,12 @@ function DiagramEditor() {
               (filename: string) => setRecentlyUsedFilename(filename)
             }
             onClose={() => setOpenExportDiagramDialog(false)}
-            onError={showErrorToast}
+            onValidDiagram={(valid: boolean, errorMessage?: string) => {
+              setEnableExport(valid);
+              if (errorMessage) {
+                showErrorToast(errorMessage);
+              }
+            }}
           />
         </Suspense>
       </ReactFlow>
