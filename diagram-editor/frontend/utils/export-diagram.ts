@@ -26,11 +26,11 @@ import type { DiagramProperties } from '../diagram-properties-provider';
 import { useEdges } from '../use-edges';
 import { getConnectedEdges } from '@xyflow/react';
 
-function makeErrorEdge(edge: DiagramEditorEdge) {
+function markEdgeError(edge: DiagramEditorEdge) {
   edge.style = { ...edge.style, stroke: 'red' };
 }
 
-function makeNormalEdge(edge: DiagramEditorEdge) {
+function markEdgeNormal(edge: DiagramEditorEdge) {
   edge.style = { ...edge.style, stroke: undefined };
 }
 
@@ -145,7 +145,7 @@ function syncBufferSelection(
         if (connectedEdge.target !== targetNode.id) {
           continue;
         }
-        makeErrorEdge(connectedEdge);
+        markEdgeError(connectedEdge);
       }
       throw new Error(
         'A sequential buffer edge must be assigned to an array of buffers. \
@@ -163,7 +163,7 @@ function syncBufferSelection(
         if (connectedEdge.target !== targetNode.id) {
           continue;
         }
-        makeErrorEdge(connectedEdge);
+        markEdgeError(connectedEdge);
       }
       throw new Error(
         'A keyed buffer edge must be assigned to a keyed buffer selection. \
@@ -188,7 +188,7 @@ function syncBufferSelection(
     }
   }
 
-  makeNormalEdge(edge);
+  markEdgeNormal(edge);
 }
 
 function setSequentialKey(

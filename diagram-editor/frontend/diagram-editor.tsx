@@ -1,9 +1,5 @@
 import {
-  Accordion,
-  AccordionDetails,
-  AccordionSummary,
   Alert,
-  AlertTitle,
   alpha,
   darken,
   Fab,
