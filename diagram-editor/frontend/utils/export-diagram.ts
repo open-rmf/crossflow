@@ -99,92 +99,90 @@ function syncBufferSelection(
   nodeManager: NodeManager,
   edge: DiagramEditorEdge,
 ) {
-  if (edge.type !== 'buffer') {
-    return;
-  }
-
-  const targetNode = nodeManager.getNode(edge.target);
-  if (!isOperationNode(targetNode)) {
-    throw new Error('expected operation node');
-  }
-  const targetOp = targetNode.data.op;
-  if (!targetOp) {
-    throw new Error(`target operation "${edge.target}" not found`);
-  }
-  let bufferSelection = getBufferSelection(targetOp);
-
-  if (
-    edge.data.input?.type === 'bufferKey' &&
-    Array.isArray(bufferSelection) &&
-    bufferSelection.length === 0
-  ) {
-    // the array is empty so it is safe to change it to a keyed buffer selection
-    bufferSelection = {};
-    setBufferSelection(targetOp, bufferSelection);
-  } else if (
-    edge.data.input?.type === 'bufferSeq' &&
-    typeof bufferSelection === 'object' &&
-    !Array.isArray(bufferSelection) &&
-    Object.keys(bufferSelection).length === 0
-  ) {
-    // the dict is empty so it is safe to change it to an array of buffers
-    bufferSelection = [];
-    setBufferSelection(targetOp, bufferSelection);
-  }
-
-  const sourceNode = nodeManager.getNode(edge.source);
-  if (sourceNode.type !== 'buffer') {
-    throw new Error('expected source to be a buffer node');
-  }
-  // check that the buffer selection is compatible
-  if (edge.type === 'buffer' && edge.data.input?.type === 'bufferSeq') {
-    if (!isArrayBufferSelection(bufferSelection)) {
-      const edges = useEdges();
-      getConnectedEdges([targetNode], edges)
-        .filter((edge) => edge.target === targetNode.id)
-        .forEach((edge) => {
-          markEdgeError(edge);
-        });
-      throw new Error(
-        'A sequential buffer edge must be assigned to an array of buffers. \
-        Ensure that other buffer edges connected to the same target node have \
-        the same slot type.',
-      );
+  if (edge.type === 'buffer') {
+    const targetNode = nodeManager.getNode(edge.target);
+    if (!isOperationNode(targetNode)) {
+      throw new Error('expected operation node');
     }
-    bufferSelection[edge.data.input.seq] = sourceNode.data.opId;
-  }
-  if (edge.type === 'buffer' && edge.data.input?.type === 'bufferKey') {
-    if (!isKeyedBufferSelection(bufferSelection)) {
-      const edges = useEdges();
-      getConnectedEdges([targetNode], edges)
-        .filter((edge) => edge.target === targetNode.id)
-        .forEach((edge) => {
-          markEdgeError(edge);
-        });
-      throw new Error(
-        'A keyed buffer edge must be assigned to a keyed buffer selection. \
-        Ensure that other buffer edges connected to the same target node have \
-        the same slot type.',
-      );
+    const targetOp = targetNode.data.op;
+    if (!targetOp) {
+      throw new Error(`target operation "${edge.target}" not found`);
     }
-    bufferSelection[edge.data.input.key] = sourceNode.data.opId;
-  }
+    let bufferSelection = getBufferSelection(targetOp);
 
-  if (targetOp.type === 'join') {
-    if (edge.data.input.fetchType === BufferFetchType.Clone) {
-      if (!targetOp.clone) {
-        targetOp.clone = [];
+    if (
+      edge.data.input?.type === 'bufferKey' &&
+      Array.isArray(bufferSelection) &&
+      bufferSelection.length === 0
+    ) {
+      // the array is empty so it is safe to change it to a keyed buffer selection
+      bufferSelection = {};
+      setBufferSelection(targetOp, bufferSelection);
+    } else if (
+      edge.data.input?.type === 'bufferSeq' &&
+      typeof bufferSelection === 'object' &&
+      !Array.isArray(bufferSelection) &&
+      Object.keys(bufferSelection).length === 0
+    ) {
+      // the dict is empty so it is safe to change it to an array of buffers
+      bufferSelection = [];
+      setBufferSelection(targetOp, bufferSelection);
+    }
+
+    const sourceNode = nodeManager.getNode(edge.source);
+    if (sourceNode.type !== 'buffer') {
+      throw new Error('expected source to be a buffer node');
+    }
+    // check that the buffer selection is compatible
+    if (edge.type === 'buffer' && edge.data.input?.type === 'bufferSeq') {
+      if (!isArrayBufferSelection(bufferSelection)) {
+        const edges = useEdges();
+        getConnectedEdges([targetNode], edges)
+          .filter((edge) => edge.target === targetNode.id)
+          .forEach((edge) => {
+            markEdgeError(edge);
+          });
+        throw new Error(
+          'A sequential buffer edge must be assigned to an array of buffers. \
+          Ensure that other buffer edges connected to the same target node have \
+          the same slot type.',
+        );
       }
-      if (edge.data.input?.type === 'bufferSeq') {
-        targetOp.clone.push(edge.data.input.seq);
+      bufferSelection[edge.data.input.seq] = sourceNode.data.opId;
+    }
+    if (edge.type === 'buffer' && edge.data.input?.type === 'bufferKey') {
+      if (!isKeyedBufferSelection(bufferSelection)) {
+        const edges = useEdges();
+        getConnectedEdges([targetNode], edges)
+          .filter((edge) => edge.target === targetNode.id)
+          .forEach((edge) => {
+            markEdgeError(edge);
+          });
+        throw new Error(
+          'A keyed buffer edge must be assigned to a keyed buffer selection. \
+          Ensure that other buffer edges connected to the same target node have \
+          the same slot type.',
+        );
       }
-      if (edge.data.input?.type === 'bufferKey') {
-        targetOp.clone.push(edge.data.input.key);
+      bufferSelection[edge.data.input.key] = sourceNode.data.opId;
+    }
+
+    if (targetOp.type === 'join') {
+      if (edge.data.input.fetchType === BufferFetchType.Clone) {
+        if (!targetOp.clone) {
+          targetOp.clone = [];
+        }
+        if (edge.data.input?.type === 'bufferSeq') {
+          targetOp.clone.push(edge.data.input.seq);
+        }
+        if (edge.data.input?.type === 'bufferKey') {
+          targetOp.clone.push(edge.data.input.key);
+        }
       }
     }
-  }
 
-  markEdgeNormal(edge);
+    markEdgeNormal(edge);
+  }
 }
 
 function setSequentialKey(
