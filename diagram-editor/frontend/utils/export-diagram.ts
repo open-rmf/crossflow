@@ -140,13 +140,11 @@ function syncBufferSelection(
   if (edge.type === 'buffer' && edge.data.input?.type === 'bufferSeq') {
     if (!isArrayBufferSelection(bufferSelection)) {
       const edges = useEdges();
-      const connectedEdges = getConnectedEdges([targetNode], edges);
-      for (const connectedEdge of connectedEdges) {
-        if (connectedEdge.target !== targetNode.id) {
-          continue;
-        }
-        markEdgeError(connectedEdge);
-      }
+      getConnectedEdges([targetNode], edges)
+        .filter((edge) => edge.target === targetNode.id)
+        .forEach((edge) => {
+          markEdgeError(edge);
+        });
       throw new Error(
         'A sequential buffer edge must be assigned to an array of buffers. \
         Ensure that other buffer edges connected to the same target node have \
@@ -158,13 +156,11 @@ function syncBufferSelection(
   if (edge.type === 'buffer' && edge.data.input?.type === 'bufferKey') {
     if (!isKeyedBufferSelection(bufferSelection)) {
       const edges = useEdges();
-      const connectedEdges = getConnectedEdges([targetNode], edges);
-      for (const connectedEdge of connectedEdges) {
-        if (connectedEdge.target !== targetNode.id) {
-          continue;
-        }
-        markEdgeError(connectedEdge);
-      }
+      getConnectedEdges([targetNode], edges)
+        .filter((edge) => edge.target === targetNode.id)
+        .forEach((edge) => {
+          markEdgeError(edge);
+        });
       throw new Error(
         'A keyed buffer edge must be assigned to a keyed buffer selection. \
         Ensure that other buffer edges connected to the same target node have \
