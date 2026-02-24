@@ -27,6 +27,11 @@ import type { DiagramProperties } from '../diagram-properties-provider';
 import { useEdges } from '../use-edges';
 import { getConnectedEdges } from '@xyflow/react';
 
+/**
+ * Marks a diagram editor edge visibly to signify that there is an error. This
+ * function must be called from a react component as it uses the theme palette.
+ * @param edge A diagram editor edge.
+ */
 function markEdgeError(edge: DiagramEditorEdge) {
   const theme = useTheme();
   edge.style = { ...edge.style, stroke: theme.palette.error.main };
