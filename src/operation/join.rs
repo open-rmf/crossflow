@@ -20,7 +20,7 @@ use bevy_ecs::prelude::{Component, Entity};
 use crate::{
     FunnelInputStorage, Input, InputBundle, Joining, ManageInput, Operation, OperationCleanup,
     OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ReachabilityResult, SingleInputStorage, SingleTargetStorage, Routing, output_port,
+    ReachabilityResult, SingleInputStorage, SingleTargetStorage, MessageRoute, output_port,
 };
 
 pub(crate) struct Join<Buffers> {
@@ -137,7 +137,7 @@ mod tests {
         let mut context = TestingContext::minimal_plugins();
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
-            let node = builder.create_map(|input: AsyncMap<f64, StreamOf<f64>>| async move {
+            let node = builder.create_map(|input: Async<f64, StreamOf<f64>>| async move {
                 input.streams.send(input.request);
                 let never = async_std::future::pending::<()>();
                 let _ = async_std::future::timeout(Duration::from_millis(1), never).await;
@@ -170,14 +170,14 @@ mod tests {
             let left_buffer = builder.create_buffer(BufferSettings::keep_all());
             let right_buffer = builder.create_buffer(BufferSettings::keep_all());
 
-            let set_buffer = |In(input): In<(u64, BufferKey<u64>)>,
+            let set_buffer = |input: Blocking<(u64, BufferKey<u64>)>,
                               mut access: BufferAccessMut<u64>| {
-                let mut buffer = access.get_mut(&input.1).unwrap();
+                let mut buffer = access.get_mut(input.id, &input.1).unwrap();
                 for i in 1..=input.0 {
                     buffer.push(i);
                 }
             };
-            let set_buffer = set_buffer.into_blocking_callback();
+            let set_buffer = set_buffer.into_callback();
 
             builder.chain(scope.start).fork_clone((
                 |chain: Chain<_>| {

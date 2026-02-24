@@ -17,10 +17,7 @@
 
 use crate::{JsonMessage, OperationRef, TraceToggle, TypeInfo, OutputPort, Seq, OutputRef, Routing, OutputKey};
 
-use bevy_ecs::{
-    prelude::{Component, Entity, Event, In, IntoSystem, EventWriter, World, ChildOf, Resource},
-    system::BoxedSystem,
-};
+use bevy_ecs::prelude::{Component, Entity, Event, World, ChildOf};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -156,14 +153,14 @@ impl OperationLabels {
 }
 
 #[derive(Debug, Clone)]
-pub struct TraceOutput {
+pub struct TraceSource {
     pub source: Entity,
     pub seq: Seq,
     pub labels: Option<Arc<Vec<OutputRef>>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct TraceInput {
+pub struct TraceTarget {
     pub target: Entity,
     pub seq: Seq,
     pub labels: Option<Arc<Vec<OperationRef>>>,
@@ -191,9 +188,9 @@ pub struct MessageSent {
     /// Information about what output(s) the message is coming from. For most
     /// operations this will be a single output, but it may be multiple for
     /// operations where messages are converging, such as collect and join.
-    pub output: SmallVec<[TraceOutput; 8]>,
+    pub output: SmallVec<[TraceSource; 8]>,
     /// Information about what input slot the message is going to.
-    pub input: TraceInput,
+    pub input: TraceTarget,
     /// The message itself, if message tracing is turned on and the message
     /// could be serialized.
     pub message: Option<Result<JsonMessage, GetValueError>>,
@@ -218,7 +215,7 @@ impl MessageSent {
         let mut output = SmallVec::new();
         for out in route.sources {
             let output_port = out.port;
-            let trace = TraceOutput {
+            let trace = TraceSource {
                 source: out.source,
                 seq: out.seq,
                 labels: world.get::<OperationLabels>(out.source)
@@ -228,58 +225,34 @@ impl MessageSent {
             output.push(trace);
         }
 
-        let input = TraceInput {
+        let input = TraceTarget {
             target: route.target,
             seq: target_seq,
             labels: world.get::<OperationLabels>(route.target)
                 .map(|labels| labels.input()),
         };
 
-        world.resource_scope::<TraceHandler, _>(move |world, mut handler| {
-            let event = MessageSent { session_stack, output, input, message };
-            handler.sent(event, world);
-        })
+        let event = MessageSent { session_stack, output, input, message };
+        world.trigger(TracedEvent::MessageSent(event));
     }
 }
 
-#[derive(Resource)]
-pub struct TraceHandler {
-    system: BoxedSystem<In<MessageSent>>,
-    initialized: bool,
+#[derive(Debug, Clone, Event)]
+pub struct BufferChanged {
+    pub modifier: TraceSource,
+    pub buffer: TraceTarget,
+    pub change: BufferChange,
 }
 
-impl TraceHandler {
-    pub fn new<Sys, M>(system: Sys) -> Self
-    where
-        Sys: IntoSystem<In<MessageSent>, (), M>,
-    {
-        Self {
-            system: Box::new(IntoSystem::into_system(system)),
-            initialized: false,
-        }
-    }
-
-    fn sent(&mut self, event: MessageSent, world: &mut World) {
-        if !self.initialized {
-            self.system.initialize(world);
-            self.initialized = true;
-        }
-
-        self.system.run(event, world);
-    }
+#[derive(Debug, Clone)]
+pub enum BufferChange {
+    Mutated {}
 }
 
-impl Default for TraceHandler {
-    fn default() -> Self {
-        Self::new(write_message_sent_event)
-    }
-}
-
-fn write_message_sent_event(
-    In(event): In<MessageSent>,
-    mut writer: EventWriter<MessageSent>,
-) {
-    writer.write(event);
+#[derive(Debug, Clone, Event)]
+pub enum TracedEvent {
+    MessageSent(MessageSent),
+    BufferChanged(BufferChanged),
 }
 
 /// Information about an operation.

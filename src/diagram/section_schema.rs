@@ -833,10 +833,10 @@ mod tests {
                 |builder: &mut Builder, _config: ()| -> Node<Vec<BufferKey<i64>>, usize, ()> {
                     {
                         builder.create_node(
-                            (|In(request): In<Vec<BufferKey<i64>>>, access: BufferAccess<i64>| {
+                            (|Blocking { request, .. }: Blocking<Vec<BufferKey<i64>>>, access: BufferAccess<i64>| {
                                 access.get(&request[0]).unwrap().len()
                             })
-                            .into_blocking_callback(),
+                            .into_callback(),
                         )
                     }
                 },
@@ -876,7 +876,7 @@ mod tests {
             .no_serializing()
             .no_deserializing()
             .register_node_builder(NodeBuilderOptions::new("pull"), |builder, _: ()| {
-                builder.create_node(pull_from_buffer.into_blocking_callback())
+                builder.create_node(pull_from_buffer.into_callback())
             })
             .with_listen();
 
@@ -924,8 +924,8 @@ mod tests {
         assert_eq!(result, 20);
     }
 
-    fn pull_from_buffer(In(key): In<BufferKey<i64>>, mut access: BufferAccessMut<i64>) -> i64 {
-        access.get_mut(&key).unwrap().pull().unwrap()
+    fn pull_from_buffer(Blocking { request: key, id, .. }: Blocking<BufferKey<i64>>, mut access: BufferAccessMut<i64>) -> i64 {
+        access.get_mut(id, &key).unwrap().pull().unwrap()
     }
 
     #[test]

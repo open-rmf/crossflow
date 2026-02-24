@@ -25,8 +25,9 @@ use crate::{
     Broken, BufferAccessors, BufferSettings, BufferStorage, DeferredRoster, ForkTargetStorage,
     Gate, GateActionStorage, Input, InputBundle, InspectBuffer, ManageBuffer, ManageInput,
     Operation, OperationCleanup, OperationError, OperationReachability, OperationRequest,
-    OperationResult, OperationRoster, OperationSetup, OrBroken, ReachabilityResult,
-    SingleInputStorage, UnhandledErrors, MessageRoute, output_port,
+    OperationResult, OperationRoster, OperationSetup, OrBroken, ReachabilityResult, RequestId,
+    SingleInputStorage, UnhandledErrors, MessageRoute, output_port, BufferWorldAccess,
+    BufferKeyTag,
 };
 
 #[derive(Bundle)]
@@ -67,36 +68,28 @@ where
         OperationRequest {
             source,
             world,
-            roster,
+            ..,
         }: OperationRequest,
     ) -> OperationResult {
         let Input { session, data, seq } = world.take_input::<T>(source)?;
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let mut buffer = source_mut.get_mut::<BufferStorage<T>>().or_broken()?;
-        buffer.force_push(session, seq, data);
-
-        if source_mut
-            .get::<GateState>()
-            .or_broken()?
-            .is_closed(session)
-        {
-            return Ok(());
+        unsafe {
+            // SAFETY: This operation is accessing its own buffer and therefore
+            // must know the correct type of the buffer.
+            world.unchecked_buffer_mut(
+                RequestId{ source, seq },
+                &BufferKeyTag {
+                    buffer: source,
+                    session,
+                    accessor: source,
+                    lifecycle: None,
+                },
+                |mut buffer| {
+                    // TODO(@mxgrey): Consider whether the implementation of
+                    // force_push should really be given to push
+                    buffer.force_push(data);
+                },
+            ).or_broken()
         }
-
-        let targets = source_mut.get::<ForkTargetStorage>().or_broken()?.0.clone();
-        let port = output_port::listen();
-        for target in targets {
-            let route = MessageRoute {
-                session,
-                source,
-                seq,
-                port: &port,
-                target,
-            };
-            world.give_input(route, (), roster)?;
-        }
-
-        Ok(())
     }
 
     fn cleanup(mut clean: OperationCleanup) -> OperationResult {
@@ -328,8 +321,16 @@ impl Command for NotifyBufferUpdate {
                         .cloned()
                         .collect();
 
+                    let route = MessageRoute {
+                        session,
+                        source: self.buffer,
+                        seq,
+                        port: &port,
+                        target,
+                    };
+
                     for target in targets {
-                        world.get_entity_mut(target).or_broken()?.give_input(
+                        world.give_input(
                             self.session,
                             (),
                             &mut deferred.0,

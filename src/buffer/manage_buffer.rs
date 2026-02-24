@@ -22,7 +22,7 @@ use bevy_ecs::{
 
 use smallvec::SmallVec;
 
-use crate::{BufferStorage, OperationError, OperationResult, OrBroken};
+use crate::{BufferStorage, OperationError, OperationResult, OrBroken, BufferEntry};
 
 pub trait InspectBuffer {
     fn buffered_count<T: 'static + Send + Sync>(

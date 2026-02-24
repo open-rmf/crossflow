@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use crate::{
     Builder, InnerChannel, OperationError, OperationResult, OperationRoster, StreamAvailability,
-    StreamTargetMap, UnusedStreams,
+    StreamTargetMap, UnusedStreams, Seq,
     dyn_node::{DynStreamInputPack, DynStreamOutputPack},
 };
 
@@ -90,6 +90,7 @@ pub trait StreamPack: 'static + Send + Sync {
     fn process_stream_buffers(
         buffer: Self::StreamBuffers,
         source: Entity,
+        seq: Seq,
         session: Entity,
         unused: &mut UnusedStreams,
         world: &mut World,
@@ -99,6 +100,7 @@ pub trait StreamPack: 'static + Send + Sync {
     fn defer_buffers(
         buffer: Self::StreamBuffers,
         source: Entity,
+        seq: Seq,
         session: Entity,
         commands: &mut Commands,
     );
@@ -162,6 +164,7 @@ impl StreamPack for () {
     fn process_stream_buffers(
         _: Self::StreamBuffers,
         _: Entity,
+        _: Seq,
         _: Entity,
         _: &mut UnusedStreams,
         _: &mut World,
@@ -170,7 +173,7 @@ impl StreamPack for () {
         Ok(())
     }
 
-    fn defer_buffers(_: Self::StreamBuffers, _: Entity, _: Entity, _: &mut Commands) {}
+    fn defer_buffers(_: Self::StreamBuffers, _: Entity, _: Seq, _: Entity, _: &mut Commands) {}
 
     fn set_stream_availability(_: &mut StreamAvailability) {
         // Do nothing
@@ -295,6 +298,7 @@ macro_rules! impl_streampack_for_tuple {
             fn process_stream_buffers(
                 buffer: Self::StreamBuffers,
                 source: Entity,
+                seq: Seq,
                 session: Entity,
                 unused: &mut UnusedStreams,
                 world: &mut World,
@@ -302,7 +306,7 @@ macro_rules! impl_streampack_for_tuple {
             ) -> OperationResult {
                 let ($($T,)*) = buffer;
                 $(
-                    $T::process_stream_buffers($T, source, session, unused, world, roster)?;
+                    $T::process_stream_buffers($T, source, seq, session, unused, world, roster)?;
                 )*
                 Ok(())
             }
@@ -310,12 +314,13 @@ macro_rules! impl_streampack_for_tuple {
             fn defer_buffers(
                 buffer: Self::StreamBuffers,
                 source: Entity,
+                seq: Seq,
                 session: Entity,
                 commands: &mut Commands,
             ) {
                 let ($($T,)*) = buffer;
                 $(
-                    $T::defer_buffers($T, source, session, commands);
+                    $T::defer_buffers($T, source, seq, session, commands);
                 )*
             }
 

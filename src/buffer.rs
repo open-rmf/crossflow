@@ -16,7 +16,6 @@
 */
 
 use bevy_ecs::{
-    change_detection::Mut,
     prelude::{Commands, Entity, EntityRef, Query, World},
     query::QueryEntityError,
     system::{SystemParam, SystemState},
@@ -31,7 +30,7 @@ use std::{
 
 use thiserror::Error as ThisError;
 
-use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError, Seq, RequestId, InputStorage};
+use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError, RequestId, InputStorage};
 
 mod any_buffer;
 pub use any_buffer::*;
@@ -49,8 +48,8 @@ pub use buffer_gate::*;
 mod buffer_map;
 pub use buffer_map::*;
 
-mod buffer_storage;
-pub(crate) use buffer_storage::*;
+mod buffer_manager;
+pub(crate) use buffer_manager::*;
 
 mod buffering;
 pub use buffering::*;
@@ -535,7 +534,7 @@ pub struct BufferAccessMut<'w, 's, T>
 where
     T: 'static + Send + Sync,
 {
-    query: Query<'w, 's, (&'static mut BufferStorage<T>, &'static mut InputStorage<T>)>,
+    inner: BufferMutQuery<'w, 's, T>,
     commands: Commands<'w, 's>,
 }
 
@@ -544,10 +543,7 @@ where
     T: 'static + Send + Sync,
 {
     pub fn get<'a>(&'a self, key: &BufferKey<T>) -> Result<BufferView<'a, T>, QueryEntityError> {
-        let session = key.session();
-        self.query
-            .get(key.buffer())
-            .map(|(storage, _)| BufferView { storage, session })
+        self.inner.get_view(key.tag())
     }
 
     pub fn get_newest<'a>(&'a self, key: &BufferKey<T>) -> Option<&'a T> {
@@ -559,13 +555,18 @@ where
         req: impl Into<RequestId>,
         key: &BufferKey<T>,
     ) -> Result<BufferMut<'w, 's, 'a, T>, QueryEntityError> {
-        let RequestId { source, seq } = req.into();
-        let buffer = key.buffer();
-        let session = key.session();
-        let accessor = key.tag.accessor;
-        self.query
-            .get_mut(key.buffer())
-            .map(|(storage, input)| BufferMut::new(storage, input, buffer, session, accessor, source, seq, &mut self.commands))
+        self.unchecked_get_mut(req.into(), key.tag())
+    }
+
+    pub(crate) fn unchecked_get_mut<'a>(
+        &'a mut self,
+        req: RequestId,
+        key: &BufferKeyTag,
+    ) -> Result<BufferMut<'w, 's, 'a, T>, QueryEntityError> {
+        let buffer = key.buffer;
+        let accessor = key.accessor;
+        let manager = self.inner.get_manager(req.into(), key)?;
+        Ok(BufferMut::new(manager, buffer, accessor))
     }
 }
 
@@ -593,6 +594,15 @@ pub trait BufferWorldAccess {
         &mut self,
         req: impl Into<RequestId>,
         key: &BufferKey<T>,
+        f: impl FnOnce(BufferMut<T>) -> U,
+    ) -> Result<U, BufferError>
+    where
+        T: 'static + Send + Sync;
+
+    unsafe fn unchecked_buffer_mut<T, U>(
+        &mut self,
+        req: RequestId,
+        key: &BufferKeyTag,
         f: impl FnOnce(BufferMut<T>) -> U,
     ) -> Result<U, BufferError>
     where
@@ -653,12 +663,30 @@ impl BufferWorldAccess for World {
     where
         T: 'static + Send + Sync,
     {
+        unsafe {
+            // SAFETY: We have already ensured that the key type matches the
+            // message access type.
+            self.unchecked_buffer_mut(req.into(), key.tag(), f)
+        }
+    }
+
+    unsafe fn unchecked_buffer_mut<T, U>(
+        &mut self,
+        req: RequestId,
+        key: &BufferKeyTag,
+        f: impl FnOnce(BufferMut<T>) -> U,
+    ) -> Result<U, BufferError>
+    where
+        T: 'static + Send + Sync,
+    {
         let mut state = SystemState::<BufferAccessMut<T>>::new(self);
         let mut buffer_access_mut = state.get_mut(self);
         let buffer_mut = buffer_access_mut
-            .get_mut(req, key)
+            .unchecked_get_mut(req, key)
             .map_err(|_| BufferError::BufferMissing)?;
-        Ok(f(buffer_mut))
+        let r = f(buffer_mut);
+        state.apply(self);
+        Ok(r)
     }
 
     fn buffer_gate_mut<U>(
@@ -670,9 +698,11 @@ impl BufferWorldAccess for World {
         let mut state = SystemState::<BufferGateAccessMut>::new(self);
         let mut buffer_gate_access_mut = state.get_mut(self);
         let buffer_mut = buffer_gate_access_mut
-            .get_mut(key)
+            .get_mut(req, key)
             .map_err(|_| BufferError::BufferMissing)?;
-        Ok(f(buffer_mut))
+        let r = f(buffer_mut);
+        state.apply(self);
+        Ok(r)
     }
 }
 
@@ -726,14 +756,9 @@ pub struct BufferMut<'w, 's, 'a, T>
 where
     T: 'static + Send + Sync,
 {
-    storage: Mut<'a, BufferStorage<T>>,
-    input: Mut<'a, InputStorage<T>>,
+    manager: BufferManager<'w, 's, 'a, T>,
     buffer: Entity,
-    session: Entity,
     accessor: Option<Entity>,
-    source: Entity,
-    seq: Seq,
-    commands: &'a mut Commands<'w, 's>,
     modified: bool,
 }
 
@@ -762,28 +787,28 @@ where
 
     /// Iterate over the contents in the buffer.
     pub fn iter(&self) -> IterBufferView<'_, T> {
-        self.storage.iter(self.session)
+        self.manager.iter()
     }
 
     /// Look at the oldest item in the buffer.
     pub fn oldest(&self) -> Option<&T> {
-        self.storage.oldest(self.session)
+        self.manager.oldest()
     }
 
     /// Look at the newest item in the buffer.
     pub fn newest(&self) -> Option<&T> {
-        self.storage.newest(self.session)
+        self.manager.newest()
     }
 
     /// Borrow an item from the buffer. Index 0 is the oldest item in the buffer
     /// with the highest index being the newest item in the buffer.
     pub fn get(&self, index: usize) -> Option<&T> {
-        self.storage.get(self.session, index)
+        self.manager.get(index)
     }
 
     /// How many items are in the buffer?
     pub fn len(&self) -> usize {
-        self.storage.count(self.session)
+        self.manager.len()
     }
 
     /// Check if the buffer is empty.
@@ -794,19 +819,19 @@ where
     /// Iterate over mutable borrows of the contents in the buffer.
     pub fn iter_mut(&mut self) -> IterBufferMut<'_, T> {
         self.modified = true;
-        self.storage.iter_mut(self.session)
+        self.manager.iter_mut()
     }
 
     /// Modify the oldest item in the buffer.
     pub fn oldest_mut(&mut self) -> Option<&mut T> {
         self.modified = true;
-        self.storage.oldest_mut(self.session)
+        self.manager.oldest_mut()
     }
 
     /// Modify the newest item in the buffer.
     pub fn newest_mut(&mut self) -> Option<&mut T> {
         self.modified = true;
-        self.storage.newest_mut(self.session)
+        self.manager.newest_mut()
     }
 
     /// Modify the newest item in the buffer or create a default-initialized
@@ -828,18 +853,14 @@ where
     /// expired or if the buffer capacity was zero.
     pub fn newest_mut_or_else(&mut self, f: impl FnOnce() -> T) -> Option<&mut T> {
         self.modified = true;
-        let f = move || {
-            let seq = self.input.increment_seq();
-            (seq, f())
-        };
-        self.storage.newest_mut_or_else(self.session, f)
+        self.manager.newest_mut_or_else(f)
     }
 
     /// Modify an item in the buffer. Index 0 is the oldest item in the buffer
     /// with the highest index being the newest item in the buffer.
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         self.modified = true;
-        self.storage.get_mut(self.session, index)
+        self.manager.get_mut(index)
     }
 
     /// Drain items out of the buffer
@@ -848,28 +869,27 @@ where
         R: RangeBounds<usize>,
     {
         self.modified = true;
-        self.storage.drain(self.session, range)
+        self.manager.drain(range)
     }
 
     /// Pull the oldest item from the buffer.
     pub fn pull(&mut self) -> Option<T> {
         self.modified = true;
-        self.storage.pull(self.session)
+        self.manager.pull()
     }
 
     /// Pull the item that was most recently put into the buffer (instead of
     /// the oldest, which is what [`Self::pull`] gives).
     pub fn pull_newest(&mut self) -> Option<T> {
         self.modified = true;
-        self.storage.pull_newest(self.session)
+        self.manager.pull_newest()
     }
 
     /// Push a new value into the buffer. If the buffer is at its limit, this
     /// will return the value that needed to be removed.
     pub fn push(&mut self, value: T) -> Option<T> {
         self.modified = true;
-        let seq = self.input.increment_seq();
-        self.storage.push(self.session, seq, value).map(|e| e.message)
+        self.manager.push(value)
     }
 
     /// Push a value into the buffer as if it is the oldest value of the buffer.
@@ -877,8 +897,7 @@ where
     /// be removed.
     pub fn push_as_oldest(&mut self, value: T) -> Option<T> {
         self.modified = true;
-        let seq = self.input.increment_seq();
-        self.storage.push_as_oldest(self.session, seq, value).map(|e| e.message)
+        self.manager.push_as_oldest(value)
     }
 
     /// Trigger the listeners for this buffer to wake up even if nothing in the
@@ -888,25 +907,27 @@ where
         self.modified = true;
     }
 
+    /// Push a value into this buffer session even if the session does not
+    /// already exist. This is only meant to be used by OperateBuffer.
+    ///
+    /// All other pushers should be using the regular push method. They should
+    /// have created this BufferMut using a BufferKey, and the listener that
+    /// provided the BufferKey will ensure that the session is active for the
+    /// buffer.
+    pub(crate) fn force_push(&mut self, value: T) -> Option<T> {
+        self.modified = true;
+        self.manager.force_push(value)
+    }
+
     fn new(
-        storage: Mut<'a, BufferStorage<T>>,
-        input: Mut<'a, InputStorage<T>>,
+        manager: BufferManager<'w, 's, 'a, T>,
         buffer: Entity,
-        session: Entity,
         accessor: Entity,
-        source: Entity,
-        seq: Seq,
-        commands: &'a mut Commands<'w, 's>,
     ) -> Self {
         Self {
-            storage,
-            input,
+            manager,
             buffer,
-            session,
             accessor: Some(accessor),
-            commands,
-            source,
-            seq,
             modified: false,
         }
     }
@@ -918,9 +939,9 @@ where
 {
     fn drop(&mut self) {
         if self.modified {
-            self.commands.queue(NotifyBufferUpdate::new(
+            self.manager.commands.queue(NotifyBufferUpdate::new(
                 self.buffer,
-                self.session,
+                self.manager.session,
                 self.accessor,
             ));
         }
@@ -942,9 +963,9 @@ mod tests {
     fn test_buffer_key_access() {
         let mut context = TestingContext::minimal_plugins();
 
-        let add_buffers_by_pull_cb = add_buffers_by_pull.into_blocking_callback();
-        let add_from_buffer_cb = add_from_buffer.into_blocking_callback();
-        let multiply_buffers_by_copy_cb = multiply_buffers_by_copy.into_blocking_callback();
+        let add_buffers_by_pull_cb = add_buffers_by_pull.into_callback();
+        let add_from_buffer_cb = add_from_buffer.into_callback();
+        let multiply_buffers_by_copy_cb = multiply_buffers_by_copy.into_callback();
 
         let workflow = context.spawn_io_workflow(|scope: Scope<(f64, f64), f64>, builder| {
             builder
@@ -1040,7 +1061,7 @@ mod tests {
     }
 
     fn multiply_buffers_by_copy(
-        In((key_a, key_b)): In<(BufferKey<f64>, BufferKey<f64>)>,
+        Blocking { request: (key_a, key_b), .. }: Blocking<(BufferKey<f64>, BufferKey<f64>)>,
         access: BufferAccess<f64>,
     ) -> f64 {
         *access.get(&key_a).unwrap().oldest().unwrap()
@@ -1076,12 +1097,12 @@ mod tests {
             // The only path to termination is from listening to the buffer.
             builder
                 .listen(buffer)
-                .then(pull_register_from_buffer.into_blocking_callback())
+                .then(pull_register_from_buffer.into_callback())
                 .dispose_on_none()
                 .connect(scope.terminate);
 
-            let decrement_register_cb = decrement_register.into_blocking_callback();
-            let async_decrement_register_cb = async_decrement_register.as_callback();
+            let decrement_register_cb = decrement_register.into_callback();
+            let async_decrement_register_cb = async_decrement_register.into_callback();
             builder
                 .chain(scope.start)
                 .with_access(buffer)
@@ -1113,14 +1134,14 @@ mod tests {
             // The only path to termination is from listening to the buffer.
             builder
                 .listen(buffer)
-                .then(pull_register_from_buffer.into_blocking_callback())
+                .then(pull_register_from_buffer.into_callback())
                 .dispose_on_none()
                 .connect(scope.terminate);
 
             let decrement_register_and_pass_keys_cb =
-                decrement_register_and_pass_keys.into_blocking_callback();
+                decrement_register_and_pass_keys.into_callback();
             let async_decrement_register_and_pass_keys_cb =
-                async_decrement_register_and_pass_keys.as_callback();
+                async_decrement_register_and_pass_keys.into_callback();
             let (loose_end, dead_end): (_, Output<Option<Register>>) = builder
                 .chain(scope.start)
                 .with_access(buffer)
@@ -1223,26 +1244,26 @@ mod tests {
     }
 
     fn async_decrement_register(
-        In(input): In<AsyncCallback<(Register, BufferKey<Register>)>>,
+        input: Async<(Register, BufferKey<Register>)>,
     ) -> impl Future<Output = Option<Register>> + use<> {
         async move {
             input
                 .channel
-                .request_outcome(input.request, decrement_register.into_blocking_callback())
+                .request_outcome(input.request, decrement_register.into_callback())
                 .await
                 .ok()
         }
     }
 
     fn async_decrement_register_and_pass_keys(
-        In(input): In<AsyncCallback<(Register, BufferKey<Register>)>>,
+        input: Async<(Register, BufferKey<Register>)>,
     ) -> impl Future<Output = Option<(Register, BufferKey<Register>)>> + use<> {
         async move {
             input
                 .channel
                 .request_outcome(
                     input.request,
-                    decrement_register_and_pass_keys.into_blocking_callback(),
+                    decrement_register_and_pass_keys.into_callback(),
                 )
                 .await
                 .ok()
@@ -1286,7 +1307,7 @@ mod tests {
 
         // The gate should have previously been closed before reaching this
         // service
-        let mut gate = gate_access.get_mut(key).unwrap();
+        let mut gate = gate_access.get_mut(id, key).unwrap();
         assert_eq!(gate.get(), Gate::Closed);
         // Open the gate, which would normally trigger a notice, but the notice
         // should not come to this service because we're using the key without
@@ -1390,10 +1411,10 @@ mod tests {
     }
 
     fn get_largest_value(
-        In(input): In<((), BufferKey<i32>)>,
+        input: Blocking<((), BufferKey<i32>)>,
         access: BufferAccess<i32>,
     ) -> Option<i32> {
-        let access = access.get(&input.1).ok()?;
+        let access = access.get(&input.request.1).ok()?;
         access.iter().max().cloned()
     }
 
@@ -1402,7 +1423,7 @@ mod tests {
             return;
         };
 
-        for value in input.0 {
+        for value in request.0 {
             access.push(value);
         }
     }
@@ -1418,7 +1439,7 @@ mod tests {
                 .with_access(buffer)
                 .then(push_values.into_callback())
                 .with_access(buffer)
-                .then(get_largest_value.into_blocking_callback())
+                .then(get_largest_value.into_callback())
                 .connect(scope.terminate);
         });
 

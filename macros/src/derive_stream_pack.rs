@@ -207,6 +207,7 @@ pub(crate) fn impl_stream_pack(pack_struct: &ItemStruct) -> Result<TokenStream, 
             fn process_stream_buffers(
                 buffer: Self::StreamBuffers,
                 source: ::crossflow::re_exports::Entity,
+                seq: ::crossflow::Seq,
                 session: ::crossflow::re_exports::Entity,
                 unused: &mut ::crossflow::UnusedStreams,
                 world: &mut ::crossflow::re_exports::World,
@@ -214,7 +215,7 @@ pub(crate) fn impl_stream_pack(pack_struct: &ItemStruct) -> Result<TokenStream, 
             ) -> ::crossflow::OperationResult {
                 #(
                     ::crossflow::NamedStream::< #stream_effects >::process_stream_buffer(
-                        #field_names_str, buffer.#field_idents, source, session, unused, world, roster,
+                        #field_names_str, buffer.#field_idents, source, seq, session, unused, world, roster,
                     )?;
                 )*
                 Ok(())
@@ -223,12 +224,13 @@ pub(crate) fn impl_stream_pack(pack_struct: &ItemStruct) -> Result<TokenStream, 
             fn defer_buffers(
                 buffer: Self::StreamBuffers,
                 source: ::crossflow::re_exports::Entity,
+                seq: ::crossflow::Seq,
                 session: ::crossflow::re_exports::Entity,
                 commands: &mut ::crossflow::re_exports::Commands,
             ) {
                 #(
                     ::crossflow::NamedStream::< #stream_effects >::defer_buffer(
-                        #field_names_str, buffer.#field_idents, source, session, commands,
+                        #field_names_str, buffer.#field_idents, source, seq, session, commands,
                     );
                 )*
             }

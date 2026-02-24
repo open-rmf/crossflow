@@ -19,7 +19,7 @@ use bevy_ecs::prelude::{Entity, World};
 
 use std::sync::OnceLock;
 
-use crate::{ManageInput, OperationError, OperationResult, OperationRoster, OrBroken, RequestId, MessageRoute, OutputPort};
+use crate::{ManageInput, OperationError, OperationResult, OperationRoster, RequestId, MessageRoute, OutputPort};
 
 mod anonymous_stream;
 pub use anonymous_stream::*;
@@ -35,9 +35,6 @@ pub use stream_availability::*;
 
 mod stream_buffer;
 pub use stream_buffer::*;
-
-mod stream_channel;
-pub use stream_channel::*;
 
 mod stream_filter;
 pub use stream_filter::*;
@@ -196,7 +193,7 @@ pub(crate) mod tests {
             }
             return input.request;
         })
-        .as_callback();
+        .into_callback();
 
         test_counting_stream(count_blocking_callback, &mut context);
 
@@ -207,7 +204,7 @@ pub(crate) mod tests {
                 }
                 return input.request;
             })
-            .as_callback();
+            .into_callback();
 
         test_counting_stream(count_async_callback, &mut context);
 

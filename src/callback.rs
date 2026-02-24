@@ -24,7 +24,7 @@ use crate::{
 };
 
 use bevy_ecs::{
-    prelude::{Commands, Entity, In, World},
+    prelude::{Commands, Entity, World},
     system::{BoxedSystem, IntoSystem},
 };
 
@@ -231,6 +231,7 @@ impl<'a> CallbackRequest<'a> {
 
     fn get_channel<Streams: StreamPack>(
         &mut self,
+        seq: Seq,
         session: Entity,
     ) -> Result<(Channel, Streams::StreamChannels), OperationError> {
         let sender = self
@@ -238,7 +239,7 @@ impl<'a> CallbackRequest<'a> {
             .get_resource_or_insert_with(ChannelQueue::new)
             .sender
             .clone();
-        let channel = Channel::new(self.source, session, sender);
+        let channel = Channel::new(self.source, seq, session, sender);
         let streams = channel.for_streams::<Streams>(self.world)?;
         Ok((channel, streams))
     }
@@ -311,6 +312,7 @@ where
         Streams::process_stream_buffers(
             streams,
             input.source,
+            seq,
             session,
             &mut unused_streams,
             input.world,
@@ -343,7 +345,7 @@ where
             seq,
         } = input.get_request()?;
 
-        let (channel, streams) = input.get_channel::<Streams>(session)?;
+        let (channel, streams) = input.get_channel::<Streams>(seq, session)?;
 
         if !self.initialized {
             self.system.initialize(input.world);

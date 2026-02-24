@@ -16,7 +16,7 @@
 */
 
 use super::*;
-use crate::{AsyncMap, NeverFinish, Identifier};
+use crate::{Async, NeverFinish, Identifier};
 
 use bevy_derive::{Deref, DerefMut};
 
@@ -161,7 +161,7 @@ impl DiagramElementRegistry {
 
                     let rt = Arc::clone(&rt);
                     let node =
-                        builder.create_map(move |input: AsyncMap<JsonMessage, GrpcStreams>| {
+                        builder.create_map(move |input: Async<JsonMessage, GrpcStreams>| {
                             let client = client.clone();
                             let codec = codec.clone();
                             let path = path.clone();
@@ -220,7 +220,7 @@ impl DiagramElementRegistry {
 
                     let rt = Arc::clone(&rt);
                     let node = builder.create_map(
-                        move |input: AsyncMap<UnboundedReceiver<JsonMessage>, GrpcStreams>| {
+                        move |input: Async<UnboundedReceiver<JsonMessage>, GrpcStreams>| {
                             let client = client.clone();
                             let codec = codec.clone();
                             let path = path.clone();
@@ -481,7 +481,7 @@ impl Decoder for DynamicMessageCodec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{diagram::testing::*, prelude::*, testing::*, utils::*};
+    use crate::{diagram::testing::*, prelude::*, utils::*};
     use futures::channel::oneshot::{self, Sender as OneShotSender};
     use prost_reflect::Kind;
     use protos::{
@@ -696,7 +696,7 @@ mod tests {
         let reached_listener = fixture
             .context
             .app
-            .spawn_service(check_if_reached.into_blocking_service());
+            .spawn_service(check_if_reached);
         fixture
             .registry
             .opt_out()
@@ -849,7 +849,7 @@ mod tests {
         builder: &mut Builder,
         config: GuideThroughGoals,
     ) -> Node<(), (), GuideStreams> {
-        builder.create_map(move |input: AsyncMap<(), GuideStreams>| {
+        builder.create_map(move |input: Async<(), GuideStreams>| {
             let goals = config.goals.clone();
             async move {
                 let (goal_sender, goal_receiver) = unbounded_channel::<JsonMessage>();
@@ -890,7 +890,7 @@ mod tests {
     }
 
     fn check_if_reached(
-        In(keys): In<ReachedKeys>,
+        Blocking { request: keys, id, .. }: Blocking<ReachedKeys>,
         update_buffer: BufferAccess<JsonMessage>,
         mut goal_buffer: BufferAccessMut<GoalTracker>,
     ) {
@@ -898,7 +898,7 @@ mod tests {
             return;
         };
 
-        let mut tracker_buffer = goal_buffer.get_mut(&keys.goal_tracker).unwrap();
+        let mut tracker_buffer = goal_buffer.get_mut(id, &keys.goal_tracker).unwrap();
         let Some(tracker) = tracker_buffer.newest_mut() else {
             return;
         };

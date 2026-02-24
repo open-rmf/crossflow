@@ -204,6 +204,13 @@ pub mod output_port {
         ]
     }
 
+    pub const fn anonymous_stream<'a>(type_name: &'a str) -> [IdentifierRef<'a>; 2] {
+        [
+            IdentifierRef::name_str("anonymous_stream"),
+            IdentifierRef::name_str(type_name),
+        ]
+    }
+
     pub const fn ok() -> [IdentifierRef<'static>; 1] {
         name_str("ok")
     }

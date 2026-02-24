@@ -131,7 +131,7 @@ mod tests {
     fn test_discovery() {
         let mut context = TestingContext::minimal_plugins();
         let doubling_service = context.command(|commands| {
-            commands.spawn_service(|In(input): BlockingServiceInput<f64, NumberStreams>| {
+            commands.spawn_service(|input: Blocking<f64, NumberStreams>| {
                 let double = 2.0 * input.request;
                 input.streams.0.send(double as u32);
                 input.streams.1.send(double as i32);
@@ -142,7 +142,7 @@ mod tests {
 
         let service_finder = context.command(|commands| {
             commands.spawn_service(
-                |_: BlockingServiceInput<()>, discover: ServiceDiscovery<f64, f64, ()>| {
+                |_: Blocking<()>, discover: ServiceDiscovery<f64, f64, ()>| {
                     discover.iter().next()
                 },
             )
@@ -153,7 +153,7 @@ mod tests {
 
         let service_finder = context.command(|commands| {
             commands.spawn_service(
-                |_: BlockingServiceInput<()>,
+                |_: Blocking<()>,
                  discover: ServiceDiscovery<f64, f64, Require<NumberStreams>>| {
                     discover.iter().next()
                 },
@@ -165,7 +165,7 @@ mod tests {
 
         let service_finder = context.command(|commands| {
             commands.spawn_service(
-                |_: BlockingServiceInput<()>,
+                |_: Blocking<()>,
                  discover: ServiceDiscovery<f64, f64, Option<NumberStreams>>| {
                     discover.iter().next()
                 },
@@ -177,7 +177,7 @@ mod tests {
 
         let service_finder = context.command(|commands| {
             commands.spawn_service(
-                |_: BlockingServiceInput<()>,
+                |_: Blocking<()>,
                  discover: ServiceDiscovery<f64, f64, Require<StreamOf<String>>>| {
                     discover.iter().next()
                 },
@@ -189,7 +189,7 @@ mod tests {
 
         let service_finder = context.command(|commands| {
             commands.spawn_service(
-                |_: BlockingServiceInput<()>,
+                |_: Blocking<()>,
                  discover: ServiceDiscovery<
                     f64,
                     f64,
@@ -203,7 +203,7 @@ mod tests {
 
         let service_finder = context.command(|commands| {
             commands.spawn_service(
-                |_: BlockingServiceInput<()>,
+                |_: Blocking<()>,
                  discover: ServiceDiscovery<
                     f64,
                     f64,

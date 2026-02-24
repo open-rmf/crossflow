@@ -1130,7 +1130,7 @@ mod tests {
 
             builder
                 .listen(buffers)
-                .then(join_via_listen.into_blocking_callback())
+                .then(join_via_listen.into_callback())
                 .dispose_on_none()
                 .connect(scope.terminate);
         });
@@ -1175,7 +1175,7 @@ mod tests {
             builder
                 .try_listen(&buffer_map)
                 .unwrap()
-                .then(join_via_listen.into_blocking_callback())
+                .then(join_via_listen.into_callback())
                 .dispose_on_none()
                 .connect(scope.terminate);
         });
@@ -1192,12 +1192,12 @@ mod tests {
         assert!(context.no_unhandled_errors());
     }
 
-    /// This macro is a manual implementation of the join operation that uses
+    /// This service is a manual implementation of the join operation that uses
     /// the buffer listening mechanism. There isn't any reason to reimplement
     /// join here except so we can test that listening is working correctly for
     /// Accessor.
     fn join_via_listen(
-        In(keys): In<TestKeys<&'static str>>,
+        Blocking { request: keys, id, .. }: Blocking<TestKeys<&'static str>>,
         world: &mut World,
     ) -> Option<TestJoinedValue<&'static str>> {
         if world.buffer_view(&keys.integer).ok()?.is_empty() {
@@ -1217,23 +1217,23 @@ mod tests {
         }
 
         let integer = world
-            .buffer_mut(&keys.integer, |mut buffer| buffer.pull())
+            .buffer_mut(id, &keys.integer, |mut buffer| buffer.pull())
             .unwrap()
             .unwrap();
         let float = world
-            .buffer_mut(&keys.float, |mut buffer| buffer.pull())
+            .buffer_mut(id, &keys.float, |mut buffer| buffer.pull())
             .unwrap()
             .unwrap();
         let string = world
-            .buffer_mut(&keys.string, |mut buffer| buffer.pull())
+            .buffer_mut(id, &keys.string, |mut buffer| buffer.pull())
             .unwrap()
             .unwrap();
         let generic = world
-            .buffer_mut(&keys.generic, |mut buffer| buffer.pull())
+            .buffer_mut(id, &keys.generic, |mut buffer| buffer.pull())
             .unwrap()
             .unwrap();
         let any = world
-            .any_buffer_mut(&keys.any, |mut buffer| buffer.pull())
+            .any_buffer_mut(id, &keys.any, |mut buffer| buffer.pull())
             .unwrap()
             .unwrap();
 

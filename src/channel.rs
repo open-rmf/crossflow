@@ -157,10 +157,11 @@ impl Channel {
         Ok(Streams::make_stream_channels(&self.inner, world))
     }
 
-    pub(crate) fn new(source: Entity, session: Entity, sender: TokioSender<ChannelItem>) -> Self {
+    pub(crate) fn new(source: Entity, seq: Seq, session: Entity, sender: TokioSender<ChannelItem>) -> Self {
         Self {
             inner: Arc::new(InnerChannel {
                 source,
+                seq,
                 session,
                 sender,
             }),

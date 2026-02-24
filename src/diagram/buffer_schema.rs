@@ -444,7 +444,7 @@ mod tests {
             .register_node_builder(
                 NodeBuilderOptions::new("count_json_buffer_entries".to_owned()),
                 |builder, _config: ()| {
-                    builder.create_node(count_json_buffer_entries.into_blocking_callback())
+                    builder.create_node(count_json_buffer_entries.into_callback())
                 },
             )
             .with_buffer_access()
@@ -458,7 +458,7 @@ mod tests {
             .register_node_builder(
                 NodeBuilderOptions::new("listen_count_json_buffer_entries".to_owned()),
                 |builder, _config: ()| {
-                    builder.create_node(listen_count_json_buffer_entries.into_blocking_callback())
+                    builder.create_node(listen_count_json_buffer_entries.into_callback())
                 },
             )
             .with_listen()
@@ -472,7 +472,7 @@ mod tests {
             .register_node_builder(
                 NodeBuilderOptions::new("count_any_buffer_entries".to_owned()),
                 |builder, _config: ()| {
-                    builder.create_node(count_any_buffer_entries.into_blocking_callback())
+                    builder.create_node(count_any_buffer_entries.into_callback())
                 },
             )
             .with_buffer_access()
@@ -486,7 +486,7 @@ mod tests {
             .register_node_builder(
                 NodeBuilderOptions::new("listen_count_any_buffer_entries".to_owned()),
                 |builder, _config: ()| {
-                    builder.create_node(listen_count_any_buffer_entries.into_blocking_callback())
+                    builder.create_node(listen_count_any_buffer_entries.into_callback())
                 },
             )
             .with_listen()
@@ -602,7 +602,7 @@ mod tests {
                                 Some("hello world".to_string())
                             }
                         })
-                        .into_blocking_callback(),
+                        .into_callback(),
                     );
                     let output = builder.chain(n.output).dispose_on_none().output();
                     Node::<Vec<BufferKey<String>>, String> {
