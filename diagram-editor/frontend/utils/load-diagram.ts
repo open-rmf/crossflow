@@ -151,13 +151,18 @@ const validate = getSchema<Diagram>('Diagram');
 
 export function loadTemplate(template: SectionTemplate): Graph {
   const stubRegistry: DiagramElementMetadata = {
-    messages: {},
+    messages: [],
     nodes: {},
+    reverse_message_lookup: {
+      result: [],
+      split: [],
+      unzip: [],
+    },
     schemas: {},
     sections: {},
     trace_supported: false,
   };
-  const stubDiagram = exportDiagram(stubRegistry, new NodeManager([]), [], {});
+  const stubDiagram = exportDiagram(stubRegistry, new NodeManager([]), [], {}, {});
   stubDiagram.ops = template.ops;
   const initialNodes: DiagramEditorNode[] = [];
 
