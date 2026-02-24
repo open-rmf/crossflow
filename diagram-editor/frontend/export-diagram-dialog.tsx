@@ -20,6 +20,7 @@ import { useRegistry } from './registry-provider';
 import { useTemplates } from './templates-provider';
 import { useEdges } from './use-edges';
 import { exportDiagram } from './utils/export-diagram';
+import { MaybeValid } from './diagram-editor';
 import { useDiagramProperties } from './diagram-properties-provider';
 
 export interface ExportDiagramDialogProps {
@@ -27,7 +28,7 @@ export interface ExportDiagramDialogProps {
   suggestedFilename: string | null;
   onExportedFilename: (filename: string) => void;
   onClose: () => void;
-  onValidDiagram: (valid: boolean, errorMessage?: string) => void;
+  onValidDiagram: (maybeValid: MaybeValid) => void;
 }
 
 interface DialogData {
@@ -79,10 +80,12 @@ function ExportDiagramDialogInternal({
         diagramJson: diagramJsonPretty,
       } satisfies DialogData;
 
-      onValidDiagram(true);
+      onValidDiagram({ok: true});
       return dialogData;
     } catch (e) {
-      onValidDiagram(false, `failed to export diagram: ${e}`);
+      onValidDiagram(
+        {ok: false, errorMessage: `failed to export diagram: ${e}`}
+      );
       return null;
     }
   }, [registry, nodeManager, edges, templates, loadContext, diagramProperties]);

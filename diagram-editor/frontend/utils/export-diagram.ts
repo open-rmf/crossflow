@@ -11,6 +11,7 @@ import {
   isOperationNode,
   isScopeNode,
 } from '../nodes';
+import { useTheme } from '@mui/material';
 import type {
   BufferSelection,
   Diagram,
@@ -27,7 +28,8 @@ import { useEdges } from '../use-edges';
 import { getConnectedEdges } from '@xyflow/react';
 
 function markEdgeError(edge: DiagramEditorEdge) {
-  edge.style = { ...edge.style, stroke: 'red' };
+  const theme = useTheme();
+  edge.style = { ...edge.style, stroke: theme.palette.error.main };
 }
 
 function markEdgeNormal(edge: DiagramEditorEdge) {
