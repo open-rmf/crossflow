@@ -457,6 +457,7 @@ where
             // INVARIANT: This is the only place where streams are taken
             self.streams.take().unwrap(),
             self.request.source,
+            self.request.seq,
             self.request.session,
             self.commands,
         );

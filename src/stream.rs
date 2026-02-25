@@ -19,7 +19,7 @@ use bevy_ecs::prelude::{Entity, World};
 
 use std::sync::OnceLock;
 
-use crate::{ManageInput, OperationError, OperationResult, OperationRoster, RequestId, MessageRoute, OutputPort};
+use crate::{ManageInput, OperationError, OperationResult, OperationRoster, RequestId, MessageRoute, OutputPort, Routing, RouteSource, RouteTarget};
 
 mod anonymous_stream;
 pub use anonymous_stream::*;
@@ -44,6 +44,8 @@ pub use stream_pack::*;
 
 mod stream_target_map;
 pub use stream_target_map::*;
+
+use smallvec::smallvec;
 
 // TODO(@mxgrey): Add module-level documentation for stream.rs
 
@@ -118,17 +120,22 @@ pub struct StreamRequest<'a> {
     /// The identifier for the output port of this stream
     pub port: OutputPort<'a>,
     /// The target of the stream, if a specific target exists.
-    pub target: Option<Entity>,
+    pub target: Option<StreamTarget>,
     /// The world that the stream exists inside
     pub world: &'a mut World,
     /// The roster of the stream
     pub roster: &'a mut OperationRoster,
 }
 
+pub struct StreamTarget {
+    pub id: Entity,
+    pub session: Entity,
+}
+
 impl<'a> StreamRequest<'a> {
     pub fn send_output<T: 'static + Send + Sync>(self, output: T) -> OperationResult {
         let Self {
-            request_id: RequestId { source, seq, session },
+            request_id: RequestId { source, seq, session: source_session },
             port,
             target,
             world,
@@ -136,14 +143,18 @@ impl<'a> StreamRequest<'a> {
             ..
         } = self;
         if let Some(target) = target {
-            let route = MessageRoute {
-                session,
-                source,
-                seq,
-                port,
-                target,
+            let route = Routing {
+                outputs: smallvec![RouteSource {
+                    session: source_session,
+                    source,
+                    seq,
+                    port,
+                }],
+                input: RouteTarget {
+                    session: target.session,
+                    target: target.id,
+                }
             };
-
             world.give_input(route, output, roster)?;
         }
 

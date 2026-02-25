@@ -21,11 +21,13 @@ use crate::{
     FinalizeCleanup, FinalizeCleanupRequest, Input, InputBundle, InspectDisposals,
     ManageCancellation, ManageInput, NamedTarget, NamedValue, Operation, OperationCancel,
     OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
-    OperationRoster, OperationSetup, OrBroken, ReachabilityResult, ScopeSettings,
+    OperationRoster, OperationSetup, OrBroken, ReachabilityResult, ScopeSettings, CleanInputsOf,
     SingleInputStorage, SingleTargetStorage, StreamEffect, StreamRequest, StreamTargetMap,
     UnhandledErrors, Unreachability, UnusedTarget, check_reachability, execute_operation,
-    is_downstream_of,
+    is_downstream_of, Routing, RouteSource, RouteTarget, output_port, MessageRoute, RequestId,
 };
+
+use smallvec::smallvec;
 
 #[cfg(feature = "diagram")]
 use crate::{
@@ -369,10 +371,7 @@ fn dyn_begin_scope<Request: 'static + Send + Sync>(
         roster,
     }: OperationRequest,
 ) -> OperationResult {
-    let input = world
-        .get_entity_mut(source)
-        .or_broken()?
-        .take_input::<Request>()?;
+    let input = world.take_input::<Request>(source)?;
 
     let scoped_session = world
         .spawn((ParentSession(input.session), SessionStatus::Active))
@@ -400,9 +399,9 @@ fn dyn_cleanup<Request: 'static + Send + Sync>(
 ) -> OperationResult {
     let parent_session = cleanup.session;
 
-    let mut source_mut = world.get_entity_mut(source).or_broken()?;
-    source_mut.cleanup_inputs::<Request>(cleanup.session);
+    world.cleanup_inputs::<Request>(CleanInputsOf { session: cleanup.session, source });
 
+    let mut source_mut = world.get_entity_mut(source).or_broken()?;
     let uninterruptible = source_mut
         .get::<ScopeSettingsStorage>()
         .or_broken()?
@@ -600,6 +599,7 @@ fn begin_scope_impl<Request>(
     Input {
         session: parent_session,
         data,
+        seq,
     }: Input<Request>,
     scoped_session: Entity,
     OperationRequest {
@@ -620,10 +620,20 @@ where
         .0
         .push(ScopedSession::ongoing(parent_session, scoped_session));
 
-    world
-        .get_entity_mut(enter_scope)
-        .or_broken()?
-        .give_input(scoped_session, data, roster)?;
+    let start_port = output_port::start();
+    let route = Routing {
+        outputs: smallvec![RouteSource {
+            session: parent_session,
+            source,
+            seq,
+            port: &start_port,
+        }],
+        input: RouteTarget {
+            session: scoped_session,
+            target: enter_scope,
+        }
+    };
+    world.give_input(route, data, roster)?;
 
     Ok(())
 }
@@ -1130,6 +1140,7 @@ fn begin_cleanup_workflows<Response: 'static + Send + Sync>(
         .or_broken()?;
     let awaiting = awaiting_storage.get(scoped_session).or_broken()?;
     awaiting.cleanup_workflow_sessions = Some(Default::default());
+    let request_id = awaiting.request_id;
 
     let is_terminated = awaiting.info.status.is_terminated();
 
@@ -1147,6 +1158,14 @@ fn begin_cleanup_workflows<Response: 'static + Send + Sync>(
         let execute = unsafe {
             // INVARIANT: We can use sneak_input here because we execute the
             // recipient node immediately after giving the input.
+            let route = MessageRoute {
+                session: request_id.session,
+                source: request_id.source,
+                seq: request_id.seq,
+
+            };
+            world.sneak_input(route, data, only_if_active, roster)
+
             world
                 .get_entity_mut(begin.source)
                 .or_broken()?
@@ -1235,6 +1254,7 @@ impl<T> Terminate<T> {
 }
 
 fn cleanup_entire_scope(
+    request_id: RequestId,
     scope: Entity,
     cleanup: Cleanup,
     status: FinishStatus,
@@ -1263,6 +1283,7 @@ fn cleanup_entire_scope(
             .or_broken()?
             .0
             .push(AwaitingCleanup::new(
+                request_id,
                 scoped_session,
                 CleanupInfo {
                     parent_session,
@@ -1957,6 +1978,7 @@ impl AwaitingCleanupStorage {
 }
 
 struct AwaitingCleanup {
+    request_id: RequestId,
     scoped_session: Entity,
     info: CleanupInfo,
     /// When this is None, that means the cleanup workflows have not started
@@ -1969,8 +1991,9 @@ struct AwaitingCleanup {
 }
 
 impl AwaitingCleanup {
-    fn new(scoped_session: Entity, info: CleanupInfo) -> Self {
+    fn new(request_id: RequestId, scoped_session: Entity, info: CleanupInfo) -> Self {
         Self {
+            request_id,
             scoped_session,
             info,
             cleanup_workflow_sessions: None,
@@ -2036,6 +2059,7 @@ impl<S: StreamEffect> Operation for RedirectScopeStream<S> {
         let Input {
             session: scoped_session,
             data,
+            seq,
         } = source_mut.take_input::<S::Input>()?;
         let parent_session = world
             .get::<ParentSession>(scoped_session)

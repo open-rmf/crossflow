@@ -223,6 +223,10 @@ pub mod output_port {
         name_str("listen")
     }
 
+    pub const fn start() -> [IdentifierRef<'static>; 1] {
+        name_str("start")
+    }
+
     pub const fn name_str(name: &'static str) -> [IdentifierRef<'static>; 1] {
         [IdentifierRef::name_str(name)]
     }

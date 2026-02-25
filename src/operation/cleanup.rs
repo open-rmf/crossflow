@@ -178,6 +178,7 @@ impl FinalizeCleanup {
 /// Notify the scope manager that the request may be finished with cleanup
 #[derive(Clone, Copy, Debug)]
 pub struct Cleanup {
+    /// This is the ID of the scope operation that is being cleaned up.
     pub cleaner: Entity,
     /// This is the operation node that the Cleanup request was sent to. The
     /// request might need to move across other operation nodes while it is

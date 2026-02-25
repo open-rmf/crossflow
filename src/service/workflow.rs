@@ -18,7 +18,7 @@
 use crate::{
     Blocker, Cancel, Cancellation, Deliver, Delivery, DeliveryOrder, DeliveryUpdate, Disposal,
     ExitTarget, ExitTargetStorage, Input, ManageInput, OperationCleanup, OperationError,
-    OperationReachability, OperationRequest, OperationResult, OperationRoster, OrBroken,
+    OperationReachability, OperationRequest, OperationResult, OperationRoster, OrBroken, Seq,
     ParentSession, ProviderStorage, ReachabilityResult, Service, ServiceRequest, ServiceTrait,
     SessionStatus, SingleTargetStorage, StreamPack, begin_scope, dispose_for_despawned_service,
     emit_disposal, insert_new_order, pop_next_delivery,
@@ -112,11 +112,11 @@ where
                 },
         }: ServiceRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
         let Input {
             session,
             data: request,
-        } = source_mut.take_input::<Request>()?;
+            seq,
+        } = world.take_input::<Request>(source)?;
         let scoped_session = world
             .spawn((ParentSession::new(session), SessionStatus::Active))
             .insert(ChildOf(session))
@@ -126,6 +126,7 @@ where
             request,
             session,
             scoped_session,
+            seq,
             ServiceRequest {
                 provider,
                 target,
@@ -152,6 +153,7 @@ fn serve_workflow_impl<Request, Response, Streams>(
     request: Request,
     parent_session: Entity,
     scoped_session: Entity,
+    seq: Seq,
     ServiceRequest {
         provider,
         target,
@@ -181,6 +183,7 @@ where
         delivery.as_mut(),
         DeliveryOrder {
             source,
+            seq,
             session: parent_session,
             task_id: scoped_session,
             request,
@@ -188,8 +191,8 @@ where
         },
     );
 
-    let (request, blocker) = match update {
-        DeliveryUpdate::Immediate { blocking, request } => {
+    let (request, blocker, seq) = match update {
+        DeliveryUpdate::Immediate { blocking, request, seq } => {
             let serve_next = serve_next_workflow_request::<Request, Response, Streams>;
             let blocker = blocking.map(|label| Blocker {
                 provider,
@@ -198,7 +201,7 @@ where
                 label,
                 serve_next,
             });
-            (request, blocker)
+            (request, blocker, seq)
         }
         DeliveryUpdate::Queued {
             cancelled, stop, ..
@@ -226,6 +229,7 @@ where
     let input = Input {
         session: parent_session,
         data: request,
+        seq,
     };
     begin_workflow::<Request, Response, Streams>(
         input,
@@ -299,6 +303,7 @@ fn serve_next_workflow_request<Request, Response, Streams>(
             request,
             task_id: scoped_session,
             blocker,
+            seq,
         }) = pop_next_delivery::<Request>(
             provider,
             label.clone(),
@@ -324,6 +329,7 @@ fn serve_next_workflow_request<Request, Response, Streams>(
             Input {
                 session: parent_session,
                 data: request,
+                seq,
             },
             source,
             target,

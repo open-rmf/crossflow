@@ -58,9 +58,9 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { session, data } = source_mut.take_input::<T>().or_broken()?;
+        let Input { session, data, seq } = world.take_input::<T>(source).or_broken()?;
 
+        let mut source_mut = world.get_entity_mut(source).or_broken()?;
         let cancellation = Cancellation::triggered(source, Some(data.to_string()));
         source_mut.emit_cancel(session, cancellation, roster);
         Ok(())

@@ -30,7 +30,7 @@ use std::{
 
 use thiserror::Error as ThisError;
 
-use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError, RequestId};
+use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError, RequestId, OrBroken};
 
 #[cfg(feature = "trace")]
 use crate::{BufferTracer, BufferAccessRecord};
@@ -227,8 +227,12 @@ fn clone_for_any_join<T: 'static + Send + Sync + Clone>(
     // be operating on the oldest data or the newest, by default. Also allow
     // the join operations themselves override this, e.g. putting a setting
     // into BufferLocation to change which side is being pulled from.
-    entity_ref
-        .clone_from_buffer::<T>(session)
+    world
+        .unchecked_buffer_view::<T>(request_id, key)
+        .or_broken()?
+        .oldest()
+        .or_broken()
+        .cloned()
         .map(to_any_message)
 }
 
@@ -615,7 +619,32 @@ pub trait BufferWorldAccess {
     ///
     /// Alternatively you can use [`BufferAccess`] as a regular bevy system parameter,
     /// which does not need direct world access.
-    fn buffer_view<T>(&self, key: &BufferKey<T>) -> Result<BufferView<'_, T>, BufferError>
+    fn buffer_view<T>(
+        &mut self,
+        req: impl Into<RequestId>,
+        key: &BufferKey<T>,
+    ) -> Result<BufferView<'_, T>, BufferError>
+    where
+        T: 'static + Send + Sync;
+
+
+    fn unchecked_buffer_view<T>(
+        &mut self,
+        req: RequestId,
+        key: &BufferKeyTag,
+    ) -> Result<BufferView<'_, T>, BufferError>
+    where
+        T: 'static + Send + Sync;
+
+    /// Call this to get read-only access to a buffer from a [`World`].
+    ///
+    /// This does not track the fact that the buffer is accessed, even if
+    /// tracing is turned on. You should only use this if you are certain that
+    /// you do not want to know that the buffer was accessed.
+    fn untracked_buffer_view<T>(
+        &self,
+        key: &BufferKeyTag,
+    ) -> Result<BufferView<'_, T>, BufferError>
     where
         T: 'static + Send + Sync;
 
@@ -665,19 +694,51 @@ pub trait BufferWorldAccess {
 }
 
 impl BufferWorldAccess for World {
-    fn buffer_view<T>(&self, key: &BufferKey<T>) -> Result<BufferView<'_, T>, BufferError>
+    fn buffer_view<T>(
+        &mut self,
+        req: impl Into<RequestId>,
+        key: &BufferKey<T>,
+    ) -> Result<BufferView<'_, T>, BufferError>
     where
         T: 'static + Send + Sync,
     {
+        self.unchecked_buffer_view(req.into(), key.tag())
+    }
+
+    fn unchecked_buffer_view<T>(
+        &mut self,
+        req: RequestId,
+        key: &BufferKeyTag,
+    ) -> Result<BufferView<'_, T>, BufferError>
+    where
+        T: 'static + Send + Sync,
+    {
+        #[cfg(feature = "trace")]
+        {
+            let mut tracer_state: SystemState<BufferTracer> = SystemState::new(self);
+            let mut tracer = tracer_state.get_mut(self);
+            tracer.trace(req.into(), key, BufferAccessRecord::Viewed);
+        }
+
+        self.untracked_buffer_view(key)
+    }
+
+    fn untracked_buffer_view<T>(
+        &self,
+        key: &BufferKeyTag,
+    ) -> Result<BufferView<'_, T>, BufferError>
+    where
+        T: 'static + Send + Sync
+    {
         let buffer_ref = self
-            .get_entity(key.tag.buffer)
+            .get_entity(key.buffer)
             .map_err(|_| BufferError::BufferMissing)?;
         let storage = buffer_ref
             .get::<BufferStorage<T>>()
             .ok_or(BufferError::BufferMissing)?;
         Ok(BufferView {
             storage,
-            session: key.tag.session,
+            session: key.session,
         })
     }
 

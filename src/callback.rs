@@ -301,8 +301,7 @@ where
             Blocking {
                 request,
                 streams: streams.clone(),
-                id: RequestId { source: input.source, seq },
-                session,
+                id: RequestId { source: input.source, seq, session },
             },
             input.world,
         );
@@ -356,8 +355,7 @@ where
                 request,
                 streams,
                 channel,
-                id: RequestId { source: input.source, seq },
-                session,
+                id: RequestId { source: input.source, seq, session },
             },
             input.world,
         );

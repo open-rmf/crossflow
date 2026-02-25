@@ -29,7 +29,7 @@ use crate::{
     AddExecution, AddOperation, AnonymousStreamRedirect, Builder, DefaultStreamBufferContainer,
     DeferredRoster, InnerChannel, InputSlot, OperationError, OperationResult, OperationRoster,
     OrBroken, Output, Push, RedirectScopeStream, RedirectWorkflowStream, ReportUnhandled,
-    SingleInputStorage, StreamAvailability, StreamBuffer, StreamEffect, StreamPack,
+    SingleInputStorage, StreamAvailability, StreamBuffer, StreamEffect, StreamPack, StreamTarget,
     StreamRequest, StreamTargetMap, TakenStream, UnusedStreams, UnusedTarget, RequestId, Seq, output_port,
     dyn_node::{DynStreamInputPack, DynStreamOutputPack},
 };
@@ -173,10 +173,9 @@ impl<S: StreamEffect> StreamPack for AnonymousStream<S> {
             was_unused = false;
             let port = output_port::anonymous_stream(std::any::type_name::<S>());
             let mut request = StreamRequest {
-                request_id: RequestId { source, seq },
-                session,
+                request_id: RequestId { source, seq, session },
                 port: &port,
-                target,
+                target: target.map(|id| StreamTarget { id, session }),
                 world,
                 roster,
             };
@@ -266,15 +265,18 @@ where
     Container: 'static + Send + Sync + IntoIterator<Item = S::Input>,
 {
     fn apply(self, world: &mut World) {
+        let session = self.session;
+        let source = self.source;
+        let seq = self.seq;
+
         world.get_resource_or_insert_with(DeferredRoster::default);
         world.resource_scope::<DeferredRoster, _>(|world, mut deferred| {
             let port = output_port::anonymous_stream(std::any::type_name::<S>());
             for data in self.container {
                 let mut request = StreamRequest {
-                    request_id: RequestId { source: self.source, seq: self.seq },
-                    session: self.session,
+                    request_id: RequestId { source, seq, session },
                     port: &port,
-                    target: self.target,
+                    target: self.target.map(|id| StreamTarget { id, session }),
                     world,
                     roster: &mut deferred,
                 };
@@ -307,10 +309,9 @@ impl<S: StreamEffect> AnonymousStreamChannel<S> {
                 move |world: &mut World, roster: &mut OperationRoster| {
                     let port = output_port::anonymous_stream(std::any::type_name::<S>());
                     let mut request = StreamRequest {
-                        request_id: RequestId { source, seq },
-                        session,
+                        request_id: RequestId { source, seq, session },
                         port: &port,
-                        target,
+                        target: target.map(|id| StreamTarget { id, session }),
                         world,
                         roster,
                     };

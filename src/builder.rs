@@ -1373,10 +1373,10 @@ mod tests {
     }
 
     fn collect_samples(
-        Blocking { request: key, .. }: Blocking<BufferKey<TimeRange>>,
-        access: BufferAccess<TimeRange>,
+        Blocking { request: key, id, .. }: Blocking<BufferKey<TimeRange>>,
+        mut access: BufferAccess<TimeRange>,
     ) -> Option<TimeStats> {
-        let samples = access.get(&key).unwrap();
+        let samples = access.get(id, &key).unwrap();
         if samples.len() >= 1000 {
             Some(TimeStats::new(samples.iter().copied()))
         } else {
