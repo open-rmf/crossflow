@@ -165,8 +165,7 @@ where
                 request,
                 streams: streams.clone(),
                 provider,
-                id: RequestId { source, seq },
-                session,
+                id: RequestId { source, seq, session },
             },
             world,
         );
@@ -176,6 +175,7 @@ where
         Streams::process_stream_buffers(
             streams,
             source,
+            seq,
             session,
             &mut unused_streams,
             world,

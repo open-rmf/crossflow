@@ -15,9 +15,12 @@
  *
 */
 
-use crate::{JsonMessage, OperationRef, TraceToggle, TypeInfo, OutputPort, Seq, OutputRef, Routing, OutputKey};
+use crate::{JsonMessage, OperationRef, TraceToggle, TypeInfo, OutputPort, Seq, OutputRef, Routing, OutputKey, RequestId, BufferKeyTag};
 
-use bevy_ecs::prelude::{Component, Entity, Event, World, ChildOf};
+use bevy_ecs::{
+    prelude::{Component, Entity, Event, World, ChildOf, Query, Commands},
+    system::SystemParam,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -25,6 +28,7 @@ use std::{
     any::Any,
     borrow::Cow,
     sync::Arc,
+    time::{Instant, SystemTime},
 };
 use thiserror::Error as ThisError;
 
@@ -154,6 +158,17 @@ impl OperationLabels {
 
 #[derive(Debug, Clone)]
 pub struct TraceSource {
+    /// The stack of session IDs that sent the message was sent from. The first
+    /// entry is the root session. Each subsequent entry is a child session of
+    /// the previous. There are two common ways to get a child session:
+    /// * In a series, earlier sessions in the chain are children of later
+    ///   sessions in the chain, so the last session of the chain is the root of
+    ///   the entire chain.
+    /// * When a scope operation is triggered, a new session is created. Its parent
+    ///   is the session of the message that triggered the scope operation. Every
+    ///   time a workflow is triggered it creates a new scope, and therefore also
+    ///   creates a child session.
+    pub session_stack: SmallVec<[Entity; 8]>,
     pub source: Entity,
     pub seq: Seq,
     pub labels: Option<Arc<Vec<OutputRef>>>,
@@ -161,8 +176,37 @@ pub struct TraceSource {
 
 #[derive(Debug, Clone)]
 pub struct TraceTarget {
+    /// The stack of session IDs that sent the message was sent into. The first
+    /// entry is the root session. Each subsequent entry is a child session of
+    /// the previous. There are two common ways to get a child session:
+    /// * In a series, earlier sessions in the chain are children of later
+    ///   sessions in the chain, so the last session of the chain is the root of
+    ///   the entire chain.
+    /// * When a scope operation is triggered, a new session is created. Its parent
+    ///   is the session of the message that triggered the scope operation. Every
+    ///   time a workflow is triggered it creates a new scope, and therefore also
+    ///   creates a child session.
+    pub session_stack: SmallVec<[Entity; 8]>,
     pub target: Entity,
     pub seq: Seq,
+    pub labels: Option<Arc<Vec<OperationRef>>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TraceBuffer {
+    /// The stack of session IDs of the buffer that's being accessed. The first
+    /// entry is the root session. Each subsequent entry is a child session of
+    /// the previous. There are two common ways to get a child session:
+    /// * In a series, earlier sessions in the chain are children of later
+    ///   sessions in the chain, so the last session of the chain is the root of
+    ///   the entire chain.
+    /// * When a scope operation is triggered, a new session is created. Its parent
+    ///   is the session of the message that triggered the scope operation. Every
+    ///   time a workflow is triggered it creates a new scope, and therefore also
+    ///   creates a child session.
+    pub session_stack: SmallVec<[Entity; 8]>,
+    /// The unique ID of the buffer.
+    pub id: Entity,
     pub labels: Option<Arc<Vec<OperationRef>>>,
 }
 
@@ -174,17 +218,6 @@ pub struct TraceTarget {
 /// to the App schedule to read this event.
 #[derive(Debug, Clone, Event)]
 pub struct MessageSent {
-    /// The stack of session IDs that sent the message. The first entry
-    /// is the root session. Each subsequent entry is a child session of the
-    /// previous. There are two common ways to get a child session:
-    /// * In a series, earlier sessions in the chain are children of later
-    ///   sessions in the chain, so the last session of the chain is the root of
-    ///   the entire chain.
-    /// * When a scope operation is triggered, a new session is created. Its parent
-    ///   is the session of the message that triggered the scope operation. Every
-    ///   time a workflow is triggered it creates a new scope, and therefore also
-    ///   creates a child session.
-    pub session_stack: SmallVec<[Entity; 8]>,
     /// Information about what output(s) the message is coming from. For most
     /// operations this will be a single output, but it may be multiple for
     /// operations where messages are converging, such as collect and join.
@@ -203,19 +236,21 @@ impl MessageSent {
         message: Option<Result<JsonMessage, GetValueError>>,
         world: &mut World,
     ) {
-        let mut session_stack = SmallVec::new();
-        let mut session = route.session;
-        session_stack.push(session);
-        while let Some(child_of) = world.get::<ChildOf>(session) {
-            session = child_of.parent();
-            session_stack.push(session);
-        }
-        session_stack.reverse();
+        let mut child_of_state = world.query::<&ChildOf>();
+        let child_of = child_of_state.query(world);
+        let input_session_stack = get_session_stack(route.input.session, &child_of);
 
         let mut output = SmallVec::new();
-        for out in route.sources {
+        for out in route.outputs {
             let output_port = out.port;
+            let session_stack = if out.session == route.input.session {
+                input_session_stack.clone()
+            } else {
+                get_session_stack(out.session, &child_of)
+            };
+
             let trace = TraceSource {
+                session_stack,
                 source: out.source,
                 seq: out.seq,
                 labels: world.get::<OperationLabels>(out.source)
@@ -226,33 +261,88 @@ impl MessageSent {
         }
 
         let input = TraceTarget {
-            target: route.target,
+            session_stack: input_session_stack.clone(),
+            target: route.input.target,
             seq: target_seq,
-            labels: world.get::<OperationLabels>(route.target)
+            labels: world.get::<OperationLabels>(route.input.target)
                 .map(|labels| labels.input()),
         };
 
-        let event = MessageSent { session_stack, output, input, message };
-        world.trigger(TracedEvent::MessageSent(event));
+        let event = MessageSent { output, input, message };
+        world.trigger(TracedEvent {
+            event: TracedEventKind::MessageSent(event),
+            instant: Instant::now(),
+            time: SystemTime::now(),
+        });
     }
 }
 
 #[derive(Debug, Clone, Event)]
-pub struct BufferChanged {
-    pub modifier: TraceSource,
-    pub buffer: TraceTarget,
-    pub change: BufferChange,
+pub struct BufferEvent {
+    /// The stack of session IDs in which the buffer was accessed. The first entry
+    /// is the root session. Each subsequent entry is a child session of the
+    /// previous. There are two common ways to get a child session:
+    /// * In a series, earlier sessions in the chain are children of later
+    ///   sessions in the chain, so the last session of the chain is the root of
+    ///   the entire chain.
+    /// * When a scope operation is triggered, a new session is created. Its parent
+    ///   is the session of the message that triggered the scope operation. Every
+    ///   time a workflow is triggered it creates a new scope, and therefore also
+    ///   creates a child session.
+    pub accessor: TraceSource,
+    pub buffer: TraceBuffer,
+    pub access: BufferAccessRecord,
 }
 
 #[derive(Debug, Clone)]
-pub enum BufferChange {
-    Mutated {}
+pub enum BufferAccessRecord {
+    Viewed,
+    Modified,
+}
+
+#[derive(SystemParam)]
+pub(crate) struct BufferTracer<'w, 's> {
+    trace: Query<'w, 's, &'static Trace>,
+    child_of: Query<'w, 's, &'static ChildOf>,
+    commands: Commands<'w, 's>,
+}
+
+impl<'w, 's> BufferTracer<'w, 's> {
+    pub(crate) fn trace(
+        &mut self,
+        req: RequestId,
+        key: &BufferKeyTag,
+        access: BufferAccessRecord,
+    ) {
+        let accessor_session_stack = get_session_stack(req.session, &self.child_of);
+        let buffer_session_stack = if key.session == req.session {
+            accessor_session_stack.clone()
+        } else {
+            get_session_stack(key.session, &self.child_of)
+        };
+
+        BufferEvent {
+            accessor: TraceSource {
+                session_stack: accessor_session_stack,
+                source: req.source,
+                seq: req.seq,
+                labels:
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum TracedEventKind {
+    MessageSent(MessageSent),
+    BufferEvent(BufferEvent),
 }
 
 #[derive(Debug, Clone, Event)]
-pub enum TracedEvent {
-    MessageSent(MessageSent),
-    BufferChanged(BufferChanged),
+pub struct TracedEvent {
+    pub event: TracedEventKind,
+    pub instant: Instant,
+    pub time: SystemTime,
 }
 
 /// Information about an operation.
@@ -298,6 +388,20 @@ impl OperationInfo {
     pub fn construction(&self) -> &Option<Arc<JsonMessage>> {
         &self.construction
     }
+}
+
+fn get_session_stack(
+    mut session: Entity,
+    child_of: &Query<&ChildOf>,
+) -> SmallVec<[Entity; 8]> {
+    let mut session_stack = SmallVec::new();
+    session_stack.push(session);
+    while let Ok(child_of) = child_of.get(session) {
+        session = child_of.parent();
+        session_stack.push(session);
+    }
+    session_stack.reverse();
+    session_stack
 }
 
 #[cfg(test)]

@@ -40,8 +40,8 @@ use crate::{
     CloneFromBuffer, DrainBuffer, FetchFromBuffer, Gate, GateState, IncompatibleLayout,
     InspectBuffer, Joining, ManageBuffer, MessageTypeHint, MessageTypeHintEvaluation,
     MessageTypeHintMap, NotifyBufferUpdate, OperationError, OperationResult, OperationRoster,
-    OrBroken, TypeInfo, add_listener_to_source, RequestId, InputStorage, BufferManager,
-    BufferView,
+    OrBroken, TypeInfo, add_listener_to_source, RequestId, BufferManager,
+    BufferView, BufferWorldAccess,
 };
 
 /// A [`Buffer`] whose message type has been anonymized. Joining with this buffer
@@ -931,14 +931,16 @@ pub trait AnyBufferAccessInterface {
 
     fn pull(
         &self,
-        entity_mut: &mut EntityWorldMut,
-        session: Entity,
+        req: RequestId,
+        key: &BufferKeyTag,
+        world: &mut World,
     ) -> Result<AnyMessageBox, OperationError>;
 
     fn clone_from_buffer(
         &self,
-        entity_reft: &EntityRef,
-        session: Entity,
+        req: RequestId,
+        key: &BufferKeyTag,
+        world: &mut World,
     ) -> Result<AnyMessageBox, OperationError>;
 
     fn clone_for_join_fn(&self) -> Option<&'static (dyn Any + Send + Sync)>;
@@ -961,7 +963,7 @@ pub type BufferDowncastBox = Box<dyn Fn(AnyBuffer) -> AnyMessageResult + Send + 
 pub type BufferDowncastRef = &'static (dyn Fn(AnyBuffer) -> AnyMessageResult + Send + Sync);
 pub type KeyDowncastBox = Box<dyn Fn(BufferKeyTag) -> AnyMessageBox + Send + Sync>;
 pub type KeyDowncastRef = &'static (dyn Fn(BufferKeyTag) -> AnyMessageBox + Send + Sync);
-pub type CloneForAnyFn = fn(&EntityRef, Entity) -> AnyMessageResult;
+pub type CloneForAnyFn = fn(RequestId, &BufferKeyTag, &mut World) -> AnyMessageResult;
 
 struct AnyBufferAccessImpl<T> {
     buffer_downcasts: Mutex<HashMap<TypeId, BufferDowncastRef>>,
@@ -1098,18 +1100,23 @@ impl<T: 'static + Send + Sync + Any> AnyBufferAccessInterface for AnyBufferAcces
 
     fn pull(
         &self,
-        entity_mut: &mut EntityWorldMut,
-        session: Entity,
+        req: RequestId,
+        key: &BufferKeyTag,
+        world: &mut World,
     ) -> Result<AnyMessageBox, OperationError> {
-        entity_mut
-            .pull_from_buffer::<T>(session)
+        world.unchecked_buffer_mut::<T, _>(req, key, |mut buffer| {
+            buffer.pull()
+        })
+            .or_broken()?
             .map(to_any_message)
+            .or_broken()
     }
 
     fn clone_from_buffer(
         &self,
-        entity_ref: &EntityRef,
-        session: Entity,
+        req: RequestId,
+        key: &BufferKeyTag,
+        world: &mut World,
     ) -> Result<AnyMessageBox, OperationError> {
         let f = self
             .cloning
@@ -1118,7 +1125,7 @@ impl<T: 'static + Send + Sync + Any> AnyBufferAccessInterface for AnyBufferAcces
             .as_ref()
             .or_broken()?
             .clone_for_any_join;
-        f(entity_ref, session)
+        f(req, key, world)
     }
 
     fn clone_for_join_fn(&self) -> Option<&'static (dyn Any + Send + Sync)> {
@@ -1245,17 +1252,16 @@ impl Joining for AnyBuffer {
     type Item = AnyMessageBox;
     fn fetch_for_join(
         &self,
-        session: Entity,
+        req: RequestId,
+        key: &BufferKeyTag,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
         match self.join_behavior {
             JoinBehavior::Pull => {
-                let mut buffer_mut = world.get_entity_mut(self.id()).or_broken()?;
-                self.interface.pull(&mut buffer_mut, session)
+                self.interface.pull(req, key, world)
             }
             JoinBehavior::Clone => {
-                let buffer_ref = world.get_entity(self.id()).or_broken()?;
-                self.interface.clone_from_buffer(&buffer_ref, session)
+                self.interface.clone_from_buffer(req, key, world)
             }
         }
     }

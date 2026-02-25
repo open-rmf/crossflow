@@ -194,10 +194,6 @@ impl<'w, 's, 'a, T> BufferManager<'w, 's, 'a, T> {
         reverse_queue.drain(..).map(|e| e.message).collect()
     }
 
-    pub(crate) fn clear_session(&mut self) {
-        self.storage.reverse_queues.remove(&self.session);
-    }
-
     pub(crate) fn iter_mut(&mut self) -> IterBufferMut<'_, T>
     where
         T: 'static + Send + Sync,
@@ -377,6 +373,10 @@ impl<T> BufferStorage<T> {
 
     pub(crate) fn ensure_session(&mut self, session: Entity) {
         self.reverse_queues.entry(session).or_default();
+    }
+
+    pub(crate) fn remove_session(&mut self, session: Entity) {
+        self.reverse_queues.remove(&session);
     }
 }
 

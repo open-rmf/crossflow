@@ -41,7 +41,7 @@ use crate::{
     BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferMap, BufferMapLayout,
     BufferMapLayoutHints, BufferMapStruct, BufferStorage, Bufferable, Buffering, Builder,
     CloneFromBuffer, DrainBuffer, DynamicBufferMapLayoutHints, Gate, GateState, IncompatibleLayout,
-    InspectBuffer, JoinBehavior, Joined, Joining, ManageBuffer, MessageTypeHint, BufferManager,
+    InspectBuffer, JoinBehavior, Joined, Joining, ManageBufferSession, MessageTypeHint, BufferManager,
     MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate, OperationError,
     OperationResult, OrBroken, TypeInfo, add_listener_to_source, RequestId,
 };

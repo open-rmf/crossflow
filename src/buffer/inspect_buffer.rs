@@ -22,7 +22,7 @@ use bevy_ecs::{
 
 use smallvec::SmallVec;
 
-use crate::{BufferStorage, OperationError, OperationResult, OrBroken, BufferEntry};
+use crate::{BufferStorage, OperationError, OperationResult, OrBroken};
 
 pub trait InspectBuffer {
     fn buffered_count<T: 'static + Send + Sync>(
@@ -77,51 +77,17 @@ impl<'w> InspectBuffer for EntityRef<'w> {
     }
 }
 
-pub trait ManageBuffer {
-    fn pull_from_buffer<T: 'static + Send + Sync>(
-        &mut self,
-        session: Entity,
-    ) -> Result<T, OperationError> {
-        self.try_pull_from_buffer(session)
-            .and_then(|r| r.or_broken())
-    }
-
-    fn try_pull_from_buffer<T: 'static + Send + Sync>(
-        &mut self,
-        session: Entity,
-    ) -> Result<Option<T>, OperationError>;
-
-    fn consume_buffer<T: 'static + Send + Sync>(
-        &mut self,
-        session: Entity,
-    ) -> Result<SmallVec<[T; 16]>, OperationError>;
-
-    fn clear_buffer<T: 'static + Send + Sync>(&mut self, session: Entity) -> OperationResult;
+pub trait ManageBufferSession {
+    fn remove_buffer<T: 'static + Send + Sync>(&mut self, session: Entity) -> OperationResult;
 
     fn ensure_session<T: 'static + Send + Sync>(&mut self, session: Entity) -> OperationResult;
 }
 
-impl<'w> ManageBuffer for EntityWorldMut<'w> {
-    fn try_pull_from_buffer<T: 'static + Send + Sync>(
-        &mut self,
-        session: Entity,
-    ) -> Result<Option<T>, OperationError> {
-        let mut buffer = self.get_mut::<BufferStorage<T>>().or_broken()?;
-        Ok(buffer.pull(session))
-    }
-
-    fn consume_buffer<T: 'static + Send + Sync>(
-        &mut self,
-        session: Entity,
-    ) -> Result<SmallVec<[T; 16]>, OperationError> {
-        let mut buffer = self.get_mut::<BufferStorage<T>>().or_broken()?;
-        Ok(buffer.consume(session))
-    }
-
-    fn clear_buffer<T: 'static + Send + Sync>(&mut self, session: Entity) -> OperationResult {
+impl<'w> ManageBufferSession for EntityWorldMut<'w> {
+    fn remove_buffer<T: 'static + Send + Sync>(&mut self, session: Entity) -> OperationResult {
         self.get_mut::<BufferStorage<T>>()
             .or_broken()?
-            .clear_session(session);
+            .remove_session(session);
         Ok(())
     }
 

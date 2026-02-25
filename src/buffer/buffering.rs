@@ -26,9 +26,9 @@ use smallvec::SmallVec;
 use crate::{
     AddOperation, BeginCleanupWorkflow, Buffer, BufferAccessors, BufferKey, BufferKeyBuilder,
     BufferKeyLifecycle, BufferStorage, Builder, Chain, CleanupWorkflowConditions, CloneFromBuffer,
-    ForkTargetStorage, Gate, GateState, InputSlot, InspectBuffer, Join, Listen, ManageBuffer, Node,
+    ForkTargetStorage, Gate, GateState, InputSlot, InspectBuffer, Join, Listen, ManageBufferSession, Node,
     OperateBufferAccess, OperationError, OperationResult, OperationRoster, OrBroken, Output, Scope,
-    ScopeSettings, SingleInputStorage, UnusedTarget,
+    ScopeSettings, SingleInputStorage, UnusedTarget, RequestId, BufferKeyTag,
 };
 
 pub trait Buffering: 'static + Send + Sync + Clone {
@@ -62,7 +62,8 @@ pub trait Joining: Buffering {
     type Item: 'static + Send + Sync;
     fn fetch_for_join(
         &self,
-        session: Entity,
+        req: RequestId,
+        key: &BufferKeyTag,
         world: &mut World,
     ) -> Result<Self::Item, OperationError>;
 

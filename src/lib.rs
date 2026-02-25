@@ -225,9 +225,6 @@ pub struct BlockingService<Request, Streams: StreamPack = ()> {
     pub provider: Entity,
     /// Unique identifier for this request
     pub id: RequestId,
-    /// The unique session ID for the workflow scope that this request is
-    /// happening in
-    pub session: Entity,
 }
 
 impl<Request, Streams: StreamPack> SystemInput for BlockingService<Request, Streams> {
@@ -260,9 +257,6 @@ pub struct AsyncService<Request, Streams: StreamPack = ()> {
     pub provider: Entity,
     /// Unique identifier for this request
     pub id: RequestId,
-    /// The unique session ID for the workflow scope that this request is
-    /// happening in
-    pub session: Entity,
 }
 
 impl<Request, Streams: StreamPack> SystemInput for AsyncService<Request, Streams> {
@@ -306,9 +300,6 @@ pub struct Blocking<Request, Streams: StreamPack = ()> {
     pub streams: Streams::StreamBuffers,
     /// Unique identifier for this request
     pub id: RequestId,
-    /// The unique session ID for the workflow scope that this request is
-    /// happening in
-    pub session: Entity,
 }
 
 impl<Request, Streams: StreamPack> SystemInput for Blocking<Request, Streams> {
@@ -326,7 +317,6 @@ impl<Request, Streams: StreamPack> From<BlockingService<Request, Streams>> for B
             request: srv.request,
             streams: srv.streams,
             id: srv.id,
-            session: srv.session,
         }
     }
 }
@@ -349,9 +339,6 @@ pub struct Async<Request, Streams: StreamPack = ()> {
     pub channel: Channel,
     /// Unique identifier for this request
     pub id: RequestId,
-    /// The unique session ID for the workflow scope that this request is
-    /// happening in
-    pub session: Entity,
 }
 
 impl<Request, Streams: StreamPack> SystemInput for Async<Request, Streams> {
@@ -370,7 +357,6 @@ impl<Request, Streams: StreamPack> From<AsyncService<Request, Streams>> for Asyn
             streams: srv.streams,
             channel: srv.channel,
             id: srv.id,
-            session: srv.session,
         }
     }
 }
@@ -378,6 +364,9 @@ impl<Request, Streams: StreamPack> From<AsyncService<Request, Streams>> for Asyn
 /// Uniquely identify a request that has been made to a node.
 #[derive(Debug, Clone, Copy)]
 pub struct RequestId {
+    /// The unique session ID for the workflow scope that this request is
+    /// happening in
+    pub session: Entity,
     /// The node in a workflow or series that asked for the callback
     pub source: Entity,
     /// The sequence number of the request into this service. Each request that

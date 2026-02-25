@@ -36,7 +36,8 @@ use backtrace::Backtrace;
 use crate::{
     Broken, BufferStorage, Cancel, Cancellation, CancellationCause, DeferredRoster, Detached,
     MiscellaneousFailure, OperationError, OperationRoster, OrBroken, SessionStatus,
-    UnhandledErrors, UnusedTarget, OutputPort, MessageSent,
+    UnhandledErrors, UnusedTarget, OutputPort, MessageSent, BufferWorldAccess,
+    RequestId, BufferKeyTag,
 };
 
 #[cfg(feature = "trace")]
@@ -141,27 +142,35 @@ pub struct MessageRoute<'a> {
 }
 
 pub struct Routing<'a> {
-    pub session: Entity,
-    pub sources: SmallVec<[RouteSource<'a>; 8]>,
-    pub target: Entity,
+    pub outputs: SmallVec<[RouteSource<'a>; 8]>,
+    pub input: RouteTarget,
 }
 
 pub struct RouteSource<'a> {
+    pub session: Entity,
     pub source: Entity,
     pub seq: Seq,
     pub port: OutputPort<'a>,
 }
 
+pub struct RouteTarget {
+    pub session: Entity,
+    pub target: Entity,
+}
+
 impl<'a> From<MessageRoute<'a>> for Routing<'a> {
     fn from(route: MessageRoute<'a>) -> Self {
         Routing {
-            session: route.session,
-            sources: smallvec![RouteSource {
+            outputs: smallvec![RouteSource {
+                session: route.session,
                 source: route.source,
                 seq: route.seq,
                 port: route.port,
             }],
-            target: route.target,
+            input: RouteTarget {
+                session: route.session,
+                target: route.target,
+            },
         }
     }
 }
@@ -249,7 +258,7 @@ impl ManageInput for World {
         roster: &mut OperationRoster,
     ) -> Result<(), OperationError> {
         let route: Routing = route.into();
-        let target = route.target;
+        let target = route.input.target;
         if unsafe { self.sneak_input(route, data, true, roster)? } {
             roster.queue(target);
         }
@@ -263,7 +272,7 @@ impl ManageInput for World {
         roster: &mut OperationRoster,
     ) -> Result<(), OperationError> {
         let route: Routing = route.into();
-        let target = route.target;
+        let target = route.input.target;
         if unsafe { self.sneak_input(route, data, true, roster)? } {
             roster.defer(target);
         }
@@ -278,8 +287,8 @@ impl ManageInput for World {
         roster: &mut OperationRoster,
     ) -> Result<bool, OperationError> {
         let route: Routing = route.into();
-        let session = route.session;
-        let target = route.target;
+        let session = route.input.session;
+        let target = route.input.target;
 
         if only_if_active {
             let active_session =
@@ -298,11 +307,28 @@ impl ManageInput for World {
         }
 
         let mut serialized_msg = None;
+        let mut perform_trace = false;
         #[cfg(feature = "trace")]
         {
             if let Some(trace) = self.get::<Trace>(target) {
+                if trace.toggle().is_on() {
+                    perform_trace = true;
+                }
+
                 if trace.toggle().with_messages() {
                     serialized_msg = trace.serialize_value(&data);
+                }
+            }
+
+            if !perform_trace {
+                // Check if any of the sources want to trace
+                for output in &route.outputs {
+                    if let Some(trace) = self.get::<Trace>(output.source) {
+                        if trace.toggle().is_on() {
+                            perform_trace = true;
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -312,7 +338,9 @@ impl ManageInput for World {
 
             #[cfg(feature = "trace")]
             {
-                MessageSent::trace(route, target_seq, serialized_msg, self);
+                if perform_trace {
+                    MessageSent::trace(route, target_seq, serialized_msg, self);
+                }
             }
 
         } else if self.get::<UnusedTarget>(target).is_none() {
@@ -449,12 +477,25 @@ impl ManageInput for World {
                     reverse_remaining.push(inputs.reverse_queue.remove(i));
                 }
 
-                // INVARIANT: Earlier in this function we checked that the
-                // entity contains this component, and we have not removed it
-                // since then.
-                let mut buffer = self.get_mut::<BufferStorage<T>>(source).unwrap();
-                for Input { data, seq, .. } in reverse_remaining.into_iter().rev() {
-                    buffer.force_push(session, seq, data);
+                for Input { data, seq, session } in reverse_remaining.into_iter().rev() {
+                    let req = RequestId { source, seq, session };
+                    let key = BufferKeyTag {
+                        buffer: source,
+                        accessor: source,
+                        session,
+                        lifecycle: None,
+                    };
+
+                    if let Err(_) = self.unchecked_buffer_mut::<T, _>(req, &key, |mut buffer| {
+                        buffer.force_push(data);
+                    }) {
+                        self.get_resource_or_insert_with(UnhandledErrors::default)
+                            .broken
+                            .push(Broken {
+                                node: source,
+                                backtrace: Some(Backtrace::new()),
+                            });
+                    }
                 }
             }
 

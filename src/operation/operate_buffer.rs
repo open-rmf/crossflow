@@ -23,7 +23,7 @@ use smallvec::SmallVec;
 
 use crate::{
     Broken, BufferAccessors, BufferSettings, BufferStorage, DeferredRoster, ForkTargetStorage,
-    Gate, GateActionStorage, Input, InputBundle, InspectBuffer, ManageBuffer, ManageInput,
+    Gate, GateActionStorage, Input, InputBundle, InspectBuffer, ManageBufferSession, ManageInput,
     Operation, OperationCleanup, OperationError, OperationReachability, OperationRequest,
     OperationResult, OperationRoster, OperationSetup, OrBroken, ReachabilityResult, RequestId,
     SingleInputStorage, UnhandledErrors, MessageRoute, output_port, BufferWorldAccess,
@@ -68,28 +68,25 @@ where
         OperationRequest {
             source,
             world,
-            ..,
+            ..
         }: OperationRequest,
     ) -> OperationResult {
         let Input { session, data, seq } = world.take_input::<T>(source)?;
-        unsafe {
-            // SAFETY: This operation is accessing its own buffer and therefore
-            // must know the correct type of the buffer.
-            world.unchecked_buffer_mut(
-                RequestId{ source, seq },
-                &BufferKeyTag {
-                    buffer: source,
-                    session,
-                    accessor: source,
-                    lifecycle: None,
-                },
-                |mut buffer| {
-                    // TODO(@mxgrey): Consider whether the implementation of
-                    // force_push should really be given to push
-                    buffer.force_push(data);
-                },
-            ).or_broken()
-        }
+        world.unchecked_buffer_mut(
+            RequestId{ source, seq },
+            &BufferKeyTag {
+                buffer: source,
+                session,
+                accessor: source,
+                lifecycle: None,
+            },
+            |mut buffer| {
+                // TODO(@mxgrey): Consider whether the implementation of
+                // force_push should really be given to push
+                buffer.force_push(data);
+            },
+        )
+        .or_broken()
     }
 
     fn cleanup(mut clean: OperationCleanup) -> OperationResult {
@@ -201,7 +198,7 @@ impl RelatedGateNodes {
 
 #[derive(Bundle)]
 struct BufferBundle {
-    clear: ClearBufferFn,
+    clear: ClearBufferSessionFn,
     size: CheckBufferSizeFn,
     sessions: GetBufferedSessionsFn,
 }
@@ -209,7 +206,7 @@ struct BufferBundle {
 impl BufferBundle {
     fn new<T: 'static + Send + Sync>() -> Self {
         Self {
-            clear: ClearBufferFn::new::<T>(),
+            clear: ClearBufferSessionFn::new::<T>(),
             size: CheckBufferSizeFn::new::<T>(),
             sessions: GetBufferedSessionsFn::new::<T>(),
         }
@@ -217,9 +214,9 @@ impl BufferBundle {
 }
 
 #[derive(Component)]
-pub struct ClearBufferFn(pub fn(Entity, Entity, &mut World) -> OperationResult);
+pub struct ClearBufferSessionFn(pub fn(Entity, Entity, &mut World) -> OperationResult);
 
-impl ClearBufferFn {
+impl ClearBufferSessionFn {
     fn new<T: 'static + Send + Sync>() -> Self {
         Self(clear_buffer::<T>)
     }
@@ -233,7 +230,7 @@ fn clear_buffer<T: 'static + Send + Sync>(
     world
         .get_entity_mut(source)
         .or_broken()?
-        .clear_buffer::<T>(session)
+        .remove_buffer::<T>(session)
 }
 
 #[derive(Component)]

@@ -115,8 +115,6 @@ impl<T: 'static + Send + Sync> StreamEffect for StreamOf<T> {
 pub struct StreamRequest<'a> {
     /// The request that created this stream
     pub request_id: RequestId,
-    /// The session of the stream
-    pub session: Entity,
     /// The identifier for the output port of this stream
     pub port: OutputPort<'a>,
     /// The target of the stream, if a specific target exists.
@@ -130,8 +128,7 @@ pub struct StreamRequest<'a> {
 impl<'a> StreamRequest<'a> {
     pub fn send_output<T: 'static + Send + Sync>(self, output: T) -> OperationResult {
         let Self {
-            request_id: RequestId { source, seq },
-            session,
+            request_id: RequestId { source, seq, session },
             port,
             target,
             world,

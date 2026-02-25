@@ -17,7 +17,7 @@
 
 use crate::{
     Accessing, AddOperation, Blocker, BufferKeyBuilder, Cancel, Cancellable, Cancellation, Cleanup,
-    CleanupContents, ClearBufferFn, CollectMarker, DisposalListener, DisposalUpdate,
+    CleanupContents, ClearBufferSessionFn, CollectMarker, DisposalListener, DisposalUpdate,
     FinalizeCleanup, FinalizeCleanupRequest, Input, InputBundle, InspectDisposals,
     ManageCancellation, ManageInput, NamedTarget, NamedValue, Operation, OperationCancel,
     OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
@@ -1929,7 +1929,7 @@ fn clear_scope_buffers(scope: Entity, session: Entity, world: &mut World) -> Ope
         .nodes()
         .clone();
     for node in nodes {
-        if let Some(clear_buffer) = world.get::<ClearBufferFn>(node) {
+        if let Some(clear_buffer) = world.get::<ClearBufferSessionFn>(node) {
             let clear_buffer = clear_buffer.0;
             clear_buffer(node, session, world)?;
         }

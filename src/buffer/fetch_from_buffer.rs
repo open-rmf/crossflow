@@ -22,7 +22,7 @@ use smallvec::SmallVec;
 use crate::{
     Accessing, AnyBuffer, AsAnyBuffer, Buffer, BufferKey, BufferKeyBuilder, BufferKeyLifecycle,
     BufferLocation, Bufferable, Buffering, Builder, CloneFromBuffer, Gate, InputSlot,
-    InspectBuffer, JoinBehavior, Joining, ManageBuffer, MessageTypeHint, OperationError,
+    InspectBuffer, JoinBehavior, Joining, ManageBufferSession, MessageTypeHint, OperationError,
     OperationResult, OperationRoster, OrBroken,
 };
 

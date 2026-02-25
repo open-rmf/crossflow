@@ -103,12 +103,12 @@ where
             let port = output_port::next();
             let route = Routing {
                 session,
-                sources: seqs.into_iter().map(|seq| RouteSource {
+                outputs: seqs.into_iter().map(|seq| RouteSource {
                     source,
                     seq,
                     port: &port,
                 }).collect(),
-                target,
+                input: target,
             };
             world.give_input(route, message, roster)?;
             return Ok(());
@@ -290,12 +290,12 @@ fn on_unreachable_collection<T: 'static + Send + Sync, const N: usize>(
     let port = output_port::next();
     let route = Routing {
         session,
-        sources: seqs.into_iter().map(|seq| RouteSource {
+        outputs: seqs.into_iter().map(|seq| RouteSource {
             source,
             seq,
             port: &port,
         }).collect(),
-        target,
+        input: target,
     };
     world.give_input(route, message, roster)?;
     Ok(())

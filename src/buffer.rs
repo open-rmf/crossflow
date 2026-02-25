@@ -16,7 +16,7 @@
 */
 
 use bevy_ecs::{
-    prelude::{Commands, Entity, EntityRef, Query, World},
+    prelude::{Commands, Entity, Query, World},
     query::QueryEntityError,
     system::{SystemParam, SystemState},
 };
@@ -30,7 +30,10 @@ use std::{
 
 use thiserror::Error as ThisError;
 
-use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError, RequestId, InputStorage};
+use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError, RequestId, BufferTracer};
+
+#[cfg(feature = "trace")]
+use crate::Trace;
 
 mod any_buffer;
 pub use any_buffer::*;
@@ -57,8 +60,8 @@ pub use buffering::*;
 mod bufferable;
 pub use bufferable::*;
 
-mod manage_buffer;
-pub use manage_buffer::*;
+mod inspect_buffer;
+pub use inspect_buffer::*;
 
 #[cfg(feature = "diagram")]
 mod json_buffer;
@@ -205,8 +208,9 @@ impl<T: Clone + Send + Sync + 'static> CloneFromBuffer<T> {
 }
 
 fn clone_for_any_join<T: 'static + Send + Sync + Clone>(
-    entity_ref: &EntityRef,
-    session: Entity,
+    request_id: RequestId,
+    key: &BufferKeyTag,
+    world: &mut World,
 ) -> Result<AnyMessageBox, OperationError> {
     // In general we expect pulling to imply pulling the oldest since the most
     // typical pattern when information is being pulled from a source would be
@@ -467,18 +471,30 @@ where
     T: 'static + Send + Sync,
 {
     query: Query<'w, 's, &'static BufferStorage<T>>,
+    #[cfg(feature = "trace")]
+    tracer: BufferTracer<'w, 's>,
 }
 
 impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
-    pub fn get<'a>(&'a self, key: &BufferKey<T>) -> Result<BufferView<'a, T>, QueryEntityError> {
+    pub fn get<'a>(
+        &'a mut self,
+        req: impl Into<RequestId>,
+        key: &BufferKey<T>,
+    ) -> Result<BufferView<'a, T>, QueryEntityError> {
         let session = key.session();
+
+        #[cfg(feature = "trace")]
+        {
+            let req = req.into();
+        }
+
         self.query
             .get(key.buffer())
             .map(|storage| BufferView { storage, session })
     }
 
-    pub fn get_newest<'a>(&'a self, key: &BufferKey<T>) -> Option<&'a T> {
-        self.get(key).ok().map(|view| view.newest()).flatten()
+    pub fn get_newest<'a>(&'a mut self, req: impl Into<RequestId>, key: &BufferKey<T>) -> Option<&'a T> {
+        self.get(req, key).ok().map(|view| view.newest()).flatten()
     }
 }
 
@@ -599,7 +615,12 @@ pub trait BufferWorldAccess {
     where
         T: 'static + Send + Sync;
 
-    unsafe fn unchecked_buffer_mut<T, U>(
+    /// Call this to get mutable access to a buffer. This gives no assurance
+    /// that the entity you are accessing is actually a buffer, or that the
+    /// buffer contains the message type that you are asking for.
+    ///
+    /// You should generally use [`Self::buffer_mut`] instead.
+    fn unchecked_buffer_mut<T, U>(
         &mut self,
         req: RequestId,
         key: &BufferKeyTag,
@@ -663,14 +684,10 @@ impl BufferWorldAccess for World {
     where
         T: 'static + Send + Sync,
     {
-        unsafe {
-            // SAFETY: We have already ensured that the key type matches the
-            // message access type.
-            self.unchecked_buffer_mut(req.into(), key.tag(), f)
-        }
+        self.unchecked_buffer_mut(req.into(), key.tag(), f)
     }
 
-    unsafe fn unchecked_buffer_mut<T, U>(
+    fn unchecked_buffer_mut<T, U>(
         &mut self,
         req: RequestId,
         key: &BufferKeyTag,

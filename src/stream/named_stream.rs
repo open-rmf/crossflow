@@ -155,7 +155,7 @@ impl<S: StreamEffect> NamedStream<S> {
             let target = targets.get(&name);
             let port = output_port::stream_out(name.as_ref());
             let mut request = StreamRequest {
-                request_id: RequestId { source, seq },
+                request_id: RequestId { source, seq, session },
                 session,
                 port: &port,
                 target: target.map(NamedTarget::as_entity),
