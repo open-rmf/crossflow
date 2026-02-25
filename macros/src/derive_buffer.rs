@@ -449,11 +449,12 @@ fn impl_joined(
 
             fn fetch_for_join(
                 &self,
-                session: ::crossflow::re_exports::Entity,
+                req: ::crossflow::RequestId,
+                key: &::crossflow::BufferKeyTag,
                 world: &mut ::crossflow::re_exports::World,
             ) -> ::std::result::Result<Self::Item, ::crossflow::OperationError> {
                 #(
-                    let #field_ident = self.#field_ident.fetch_for_join(session, world)?;
+                    let #field_ident = self.#field_ident.fetch_for_join(req, key, world)?;
                 )*
 
                 Ok(Self::Item {#(

@@ -31,7 +31,7 @@ use crate::{
     Accessing, AnyBuffer, AnyBufferKey, AnyMessageBox, AsAnyBuffer, Buffer, BufferKeyBuilder,
     BufferKeyLifecycle, Bufferable, Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer,
     Gate, GateState, Joining, Node, OperationError, OperationResult, OperationRoster, TypeInfo,
-    add_listener_to_source, IdentifierRef,
+    add_listener_to_source, IdentifierRef, RequestId, BufferKeyTag,
 };
 
 #[cfg(feature = "diagram")]
@@ -719,12 +719,13 @@ impl Joining for BufferMap {
 
     fn fetch_for_join(
         &self,
-        session: Entity,
+        req: RequestId,
+        key: &BufferKeyTag,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
         let mut value = HashMap::new();
         for (name, buffer) in self.iter() {
-            value.insert(name.clone(), buffer.fetch_for_join(session, world)?);
+            value.insert(name.clone(), buffer.fetch_for_join(req, key, world)?);
         }
 
         Ok(value)

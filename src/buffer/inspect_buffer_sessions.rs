@@ -24,45 +24,24 @@ use smallvec::SmallVec;
 
 use crate::{BufferStorage, OperationError, OperationResult, OrBroken};
 
-pub trait InspectBuffer {
+pub trait InspectBufferSessions {
     fn buffered_count<T: 'static + Send + Sync>(
         &self,
         session: Entity,
     ) -> Result<usize, OperationError>;
-
-    fn clone_from_buffer<T: 'static + Send + Sync + Clone>(
-        &self,
-        session: Entity,
-    ) -> Result<T, OperationError> {
-        self.try_clone_from_buffer(session)
-            .and_then(|r| r.or_broken())
-    }
-
-    fn try_clone_from_buffer<T: 'static + Send + Sync + Clone>(
-        &self,
-        session: Entity,
-    ) -> Result<Option<T>, OperationError>;
 
     fn buffered_sessions<T: 'static + Send + Sync>(
         &self,
     ) -> Result<SmallVec<[Entity; 16]>, OperationError>;
 }
 
-impl<'w> InspectBuffer for EntityRef<'w> {
+impl<'w> InspectBufferSessions for EntityRef<'w> {
     fn buffered_count<T: 'static + Send + Sync>(
         &self,
         session: Entity,
     ) -> Result<usize, OperationError> {
         let buffer = self.get::<BufferStorage<T>>().or_broken()?;
         Ok(buffer.count(session))
-    }
-
-    fn try_clone_from_buffer<T: 'static + Send + Sync + Clone>(
-        &self,
-        session: Entity,
-    ) -> Result<Option<T>, OperationError> {
-        let buffer = self.get::<BufferStorage<T>>().or_broken()?;
-        Ok(buffer.oldest(session).cloned())
     }
 
     fn buffered_sessions<T: 'static + Send + Sync>(
@@ -77,13 +56,13 @@ impl<'w> InspectBuffer for EntityRef<'w> {
     }
 }
 
-pub trait ManageBufferSession {
+pub trait ManageBufferSessions {
     fn remove_buffer<T: 'static + Send + Sync>(&mut self, session: Entity) -> OperationResult;
 
     fn ensure_session<T: 'static + Send + Sync>(&mut self, session: Entity) -> OperationResult;
 }
 
-impl<'w> ManageBufferSession for EntityWorldMut<'w> {
+impl<'w> ManageBufferSessions for EntityWorldMut<'w> {
     fn remove_buffer<T: 'static + Send + Sync>(&mut self, session: Entity) -> OperationResult {
         self.get_mut::<BufferStorage<T>>()
             .or_broken()?

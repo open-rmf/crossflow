@@ -289,7 +289,7 @@ pub struct BufferEvent {
     ///   is the session of the message that triggered the scope operation. Every
     ///   time a workflow is triggered it creates a new scope, and therefore also
     ///   creates a child session.
-    pub accessor: TraceSource,
+    pub accessor: TraceTarget,
     pub buffer: TraceBuffer,
     pub access: BufferAccessRecord,
 }
@@ -304,6 +304,7 @@ pub enum BufferAccessRecord {
 pub(crate) struct BufferTracer<'w, 's> {
     trace: Query<'w, 's, &'static Trace>,
     child_of: Query<'w, 's, &'static ChildOf>,
+    labels: Query<'w, 's, &'static OperationLabels>,
     commands: Commands<'w, 's>,
 }
 
@@ -314,6 +315,26 @@ impl<'w, 's> BufferTracer<'w, 's> {
         key: &BufferKeyTag,
         access: BufferAccessRecord,
     ) {
+        let Ok(buffer_trace) = self.trace.get(key.buffer) else {
+            // This buffer is not being traced, so don't track any of its changes.
+            return;
+        };
+
+        if !buffer_trace.toggle().is_on() {
+            // This buffer is not being traced, so don't track any of its
+            // changes.
+            return;
+        }
+
+        let buffer_labels = self.labels.get(key.buffer).ok().map(|l| l.input.clone());
+        let accessor_labels = self.labels.get(req.source).ok().map(|l| l.input.clone());
+
+        let value_serializer = if buffer_trace.toggle().with_messages() {
+            buffer_trace.serialize_value
+        } else {
+            None
+        };
+
         let accessor_session_stack = get_session_stack(req.session, &self.child_of);
         let buffer_session_stack = if key.session == req.session {
             accessor_session_stack.clone()
@@ -321,14 +342,28 @@ impl<'w, 's> BufferTracer<'w, 's> {
             get_session_stack(key.session, &self.child_of)
         };
 
-        BufferEvent {
-            accessor: TraceSource {
+        let buffer_event = BufferEvent {
+            accessor: TraceTarget {
                 session_stack: accessor_session_stack,
-                source: req.source,
+                target: req.source,
                 seq: req.seq,
-                labels:
-            }
-        }
+                labels: accessor_labels,
+            },
+            buffer: TraceBuffer {
+                session_stack: buffer_session_stack,
+                id: key.buffer,
+                labels: buffer_labels,
+            },
+            access,
+        };
+
+        let event = TracedEvent {
+            event: TracedEventKind::BufferEvent(buffer_event),
+            instant: Instant::now(),
+            time: SystemTime::now(),
+        };
+
+        self.commands.trigger(event);
     }
 }
 

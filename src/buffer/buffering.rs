@@ -26,9 +26,9 @@ use smallvec::SmallVec;
 use crate::{
     AddOperation, BeginCleanupWorkflow, Buffer, BufferAccessors, BufferKey, BufferKeyBuilder,
     BufferKeyLifecycle, BufferStorage, Builder, Chain, CleanupWorkflowConditions, CloneFromBuffer,
-    ForkTargetStorage, Gate, GateState, InputSlot, InspectBuffer, Join, Listen, ManageBufferSession, Node,
+    ForkTargetStorage, Gate, GateState, InputSlot, InspectBufferSessions, Join, Listen, ManageBufferSessions, Node,
     OperateBufferAccess, OperationError, OperationResult, OperationRoster, OrBroken, Output, Scope,
-    ScopeSettings, SingleInputStorage, UnusedTarget, RequestId, BufferKeyTag,
+    ScopeSettings, SingleInputStorage, UnusedTarget, RequestId, BufferKeyTag, BufferWorldAccess,
 };
 
 pub trait Buffering: 'static + Send + Sync + Clone {
@@ -63,7 +63,7 @@ pub trait Joining: Buffering {
     fn fetch_for_join(
         &self,
         req: RequestId,
-        key: &BufferKeyTag,
+        session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError>;
 
@@ -274,13 +274,20 @@ impl<T: 'static + Send + Sync> Joining for Buffer<T> {
     type Item = T;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
-        world
-            .get_entity_mut(self.id())
-            .or_broken()?
-            .pull_from_buffer::<T>(session)
+        let key = BufferKeyTag {
+            buffer: self.id(),
+            session,
+            accessor: req.source,
+            lifecycle: None,
+        };
+
+        world.unchecked_buffer_mut(req, &key, |mut buffer| {
+            buffer.pull().or_broken()
+        }).or_broken().flatten()
     }
 }
 
@@ -362,6 +369,7 @@ impl<T: 'static + Send + Sync + Clone> Joining for CloneFromBuffer<T> {
     type Item = T;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
@@ -489,12 +497,13 @@ macro_rules! impl_buffered_for_tuple {
             type Item = ($($T::Item),*);
             fn fetch_for_join(
                 &self,
+                req: RequestId,
                 session: Entity,
                 world: &mut World,
             ) -> Result<Self::Item, OperationError> {
                 let ($($T,)*) = self;
                 Ok(($(
-                    $T.fetch_for_join(session, world)?,
+                    $T.fetch_for_join(req, session, world)?,
                 )*))
             }
         }
@@ -621,6 +630,7 @@ impl<T: Joining, const N: usize> Joining for [T; N] {
     type Item = SmallVec<[T::Item; N]>;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {

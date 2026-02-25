@@ -23,7 +23,7 @@ use smallvec::SmallVec;
 
 use crate::{
     Broken, BufferAccessors, BufferSettings, BufferStorage, DeferredRoster, ForkTargetStorage,
-    Gate, GateActionStorage, Input, InputBundle, InspectBuffer, ManageBufferSession, ManageInput,
+    Gate, GateActionStorage, Input, InputBundle, InspectBufferSessions, ManageBufferSessions, ManageInput,
     Operation, OperationCleanup, OperationError, OperationReachability, OperationRequest,
     OperationResult, OperationRoster, OperationSetup, OrBroken, ReachabilityResult, RequestId,
     SingleInputStorage, UnhandledErrors, MessageRoute, output_port, BufferWorldAccess,

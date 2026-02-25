@@ -30,10 +30,10 @@ use std::{
 
 use thiserror::Error as ThisError;
 
-use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError, RequestId, BufferTracer};
+use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError, RequestId};
 
 #[cfg(feature = "trace")]
-use crate::Trace;
+use crate::{BufferTracer, BufferAccessRecord};
 
 mod any_buffer;
 pub use any_buffer::*;
@@ -60,8 +60,8 @@ pub use buffering::*;
 mod bufferable;
 pub use bufferable::*;
 
-mod inspect_buffer;
-pub use inspect_buffer::*;
+mod inspect_buffer_sessions;
+pub use inspect_buffer_sessions::*;
 
 #[cfg(feature = "diagram")]
 mod json_buffer;
@@ -476,25 +476,48 @@ where
 }
 
 impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
+    /// Get a view into a buffer.
+    ///
+    /// This requires mutable access because it will add this buffer access to
+    /// the workflow trace if the tracing feature is enabled.
     pub fn get<'a>(
         &'a mut self,
         req: impl Into<RequestId>,
         key: &BufferKey<T>,
     ) -> Result<BufferView<'a, T>, QueryEntityError> {
-        let session = key.session();
-
         #[cfg(feature = "trace")]
         {
-            let req = req.into();
+            self.tracer.trace(req.into(), key.tag(), BufferAccessRecord::Viewed);
         }
+        self.untracked_get(key)
+    }
 
+    /// Get a view into a buffer.
+    ///
+    /// This is the same as [`Self::get`] but it does not track the access, which
+    /// allows it to use an immutable borrow. Using this method is generally
+    /// discouraged unless you are certain that you do not want to track the
+    /// activity.
+    pub fn untracked_get<'a>(
+        &'a self,
+        key: &BufferKey<T>,
+    ) -> Result<BufferView<'a, T>, QueryEntityError> {
+        let session = key.session();
         self.query
             .get(key.buffer())
             .map(|storage| BufferView { storage, session })
     }
 
     pub fn get_newest<'a>(&'a mut self, req: impl Into<RequestId>, key: &BufferKey<T>) -> Option<&'a T> {
-        self.get(req, key).ok().map(|view| view.newest()).flatten()
+        #[cfg(feature = "trace")]
+        {
+            self.tracer.trace(req.into(), key.tag(), BufferAccessRecord::Viewed);
+        }
+        self.untracked_get_newest(key)
+    }
+
+    pub fn untracked_get_newest<'a>(&'a self, key: &BufferKey<T>) -> Option<&'a T> {
+        self.untracked_get(key).ok().map(|view| view.newest()).flatten()
     }
 }
 
@@ -1078,11 +1101,11 @@ mod tests {
     }
 
     fn multiply_buffers_by_copy(
-        Blocking { request: (key_a, key_b), .. }: Blocking<(BufferKey<f64>, BufferKey<f64>)>,
-        access: BufferAccess<f64>,
+        Blocking { request: (key_a, key_b), id, .. }: Blocking<(BufferKey<f64>, BufferKey<f64>)>,
+        mut access: BufferAccess<f64>,
     ) -> f64 {
-        *access.get(&key_a).unwrap().oldest().unwrap()
-            * *access.get(&key_b).unwrap().oldest().unwrap()
+        *access.get(id, &key_a).unwrap().oldest().unwrap()
+            * *access.get(id, &key_b).unwrap().oldest().unwrap()
     }
 
     fn add_buffers_by_pull(
@@ -1428,10 +1451,10 @@ mod tests {
     }
 
     fn get_largest_value(
-        input: Blocking<((), BufferKey<i32>)>,
-        access: BufferAccess<i32>,
+        Blocking { request, id, .. }: Blocking<((), BufferKey<i32>)>,
+        mut access: BufferAccess<i32>,
     ) -> Option<i32> {
-        let access = access.get(&input.request.1).ok()?;
+        let access = access.get(id, &request.1).ok()?;
         access.iter().max().cloned()
     }
 
