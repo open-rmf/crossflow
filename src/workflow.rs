@@ -236,9 +236,9 @@ impl<'w, 's> SpawnWorkflowExt for Commands<'w, 's> {
     {
         let scope_id = self.spawn(()).id();
         let ScopeEndpoints {
-            terminal,
+            terminate: terminal,
             enter_scope,
-            finish_scope_cancel,
+            finish_scope_cleanup: finish_scope_cancel,
         } = OperateScope::add::<Request, Response>(None, scope_id, None, self);
 
         let mut builder = Builder {

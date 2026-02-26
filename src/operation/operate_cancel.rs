@@ -15,10 +15,12 @@
  *
 */
 
+use bevy_ecs::prelude::{Component, Entity};
+
 use crate::{
     Cancellation, Input, InputBundle, ManageCancellation, ManageInput, Operation, OperationCleanup,
     OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ReachabilityResult, SingleInputStorage,
+    ReachabilityResult, SingleInputStorage, ScopeStorage, ScopeEndpoints, SingleTargetStorage,
 };
 
 /// Create an operation that will cancel a scope. The incoming message will be
@@ -30,6 +32,9 @@ use crate::{
 pub struct OperateCancel<T: 'static + Send + Sync + ToString> {
     _ignore: std::marker::PhantomData<fn(T)>,
 }
+
+#[derive(Component)]
+struct CancelTarget(Entity);
 
 impl<T> OperateCancel<T>
 where
@@ -47,7 +52,17 @@ where
     T: 'static + Send + Sync + ToString,
 {
     fn setup(self, OperationSetup { source, world }: OperationSetup) -> OperationResult {
-        world.entity_mut(source).insert(InputBundle::<T>::new());
+        let mut source_mut = world.entity_mut(source);
+        let scope = **world.get::<ScopeStorage>(source).or_broken()?;
+        let cancel_target = world.get::<ScopeEndpoints>(scope).or_broken()?.cancel_scope;
+
+        world.get_mut::<SingleInputStorage>(cancel_target).or_broken()?.add(source);
+
+        world.entity_mut(source).insert((
+            InputBundle::<T>::new(),
+            CancelTarget(cancel_target),
+            SingleTargetStorage::new(cancel_target),
+        ));
         Ok(())
     }
 
@@ -60,9 +75,11 @@ where
     ) -> OperationResult {
         let Input { session, data, seq } = world.take_input::<T>(source).or_broken()?;
 
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
+        let source_ref = world.get_entity(source).or_broken()?;
+        let scope = *source_ref.get::<ScopeStorage>().or_broken()?;
+
         let cancellation = Cancellation::triggered(source, Some(data.to_string()));
-        source_mut.emit_cancel(session, cancellation, roster);
+        world.emit_cancel(session, cancellation, roster);
         Ok(())
     }
 

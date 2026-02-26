@@ -288,7 +288,7 @@ pub(crate) mod tests {
             (|input: Blocking<String, FormatStreams>| {
                 impl_formatting_streams_blocking(input.request, input.streams);
             })
-            .as_callback();
+            .into_callback();
 
         validate_formatting_stream(parse_blocking_callback, &mut context);
 
@@ -296,21 +296,21 @@ pub(crate) mod tests {
             (|input: Async<String, FormatStreams>| async move {
                 impl_formatting_streams_async(input.request, input.streams);
             })
-            .as_callback();
+            .into_callback();
 
         validate_formatting_stream(parse_async_callback, &mut context);
 
         let parse_blocking_map = (|input: Blocking<String, FormatStreams>| {
             impl_formatting_streams_blocking(input.request, input.streams);
         })
-        .as_map();
+        .into_map();
 
         validate_formatting_stream(parse_blocking_map, &mut context);
 
         let parse_async_map = (|input: Async<String, FormatStreams>| async move {
             impl_formatting_streams_async(input.request, input.streams);
         })
-        .as_map();
+        .into_map();
 
         validate_formatting_stream(parse_async_map, &mut context);
 

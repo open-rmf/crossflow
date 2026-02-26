@@ -15,10 +15,7 @@
  *
 */
 
-use bevy_ecs::{
-    prelude::{Bundle, Component, Entity, World},
-    world::EntityWorldMut,
-};
+use bevy_ecs::prelude::{Bundle, Component, Entity, World};
 
 use backtrace::Backtrace;
 
@@ -28,7 +25,7 @@ use std::{fmt::Display, sync::Arc};
 
 use crate::{
     CancelFailure, DisplayDebugSlice, Disposal, Filtered, OperationError, OperationResult,
-    OperationRoster, ScopeStorage, Supplanted, UnhandledErrors,
+    OperationRoster, ScopeStorage, Supplanted, UnhandledErrors, RouteSource,
 };
 
 /// Information about the cancellation that occurred.
@@ -392,18 +389,27 @@ pub trait ManageCancellation {
     /// Have this node emit a signal to cancel the current scope.
     fn emit_cancel(
         &mut self,
-        session: Entity,
+        source: RouteSource,
+        scope_to_cancel: Entity,
+        session_to_cancel: Entity,
         cancellation: Cancellation,
         roster: &mut OperationRoster,
     );
 
-    fn emit_broken(&mut self, backtrace: Option<Backtrace>, roster: &mut OperationRoster);
+    fn emit_broken(
+        &mut self,
+        broken_id: Entity,
+        backtrace: Option<Backtrace>,
+        roster: &mut OperationRoster,
+    );
 }
 
-impl<'w> ManageCancellation for EntityWorldMut<'w> {
+impl ManageCancellation for World {
     fn emit_cancel(
         &mut self,
-        session: Entity,
+        source: RouteSource,
+        scope_to_cancel: Entity,
+        session_to_cancel: Entity,
         cancellation: Cancellation,
         roster: &mut OperationRoster,
     ) {
@@ -411,18 +417,20 @@ impl<'w> ManageCancellation for EntityWorldMut<'w> {
             // We were unable to emit the cancel according to the normal
             // procedure. We should move this into the unhandled errors resource
             // so that it does not get lost.
-            self.world_scope(move |world| {
-                world
-                    .get_resource_or_insert_with(UnhandledErrors::default)
-                    .cancellations
-                    .push(failure);
-            });
+            self.get_resource_or_insert_with(UnhandledErrors::default)
+                .cancellations
+                .push(failure);
         }
     }
 
-    fn emit_broken(&mut self, backtrace: Option<Backtrace>, roster: &mut OperationRoster) {
+    fn emit_broken(
+        &mut self,
+        broken_id: Entity,
+        backtrace: Option<Backtrace>,
+        roster: &mut OperationRoster,
+    ) {
         let cause = Broken {
-            node: self.id(),
+            node: broken_id,
             backtrace,
         };
         if let Err(failure) = try_emit_cancel(self, None, cause.into(), roster) {

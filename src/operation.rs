@@ -619,19 +619,6 @@ impl<Op: Operation> AddOperation<Op> {
 
 impl<Op: Operation + 'static + Sync + Send> Command for AddOperation<Op> {
     fn apply(self, world: &mut World) {
-        if let Err(error) = self.operation.setup(OperationSetup {
-            source: self.source,
-            world,
-        }) {
-            world
-                .get_resource_or_insert_with(UnhandledErrors::default)
-                .setup
-                .push(SetupFailure {
-                    broken_node: self.source,
-                    error,
-                });
-        }
-
         let mut source_mut = world.entity_mut(self.source);
         source_mut.insert((
             OperationExecuteStorage(perform_operation::<Op>),
@@ -659,6 +646,19 @@ impl<Op: Operation + 'static + Sync + Send> Command for AddOperation<Op> {
                         });
                 }
             }
+        }
+
+        if let Err(error) = self.operation.setup(OperationSetup {
+            source: self.source,
+            world,
+        }) {
+            world
+                .get_resource_or_insert_with(UnhandledErrors::default)
+                .setup
+                .push(SetupFailure {
+                    broken_node: self.source,
+                    error,
+                });
         }
     }
 }

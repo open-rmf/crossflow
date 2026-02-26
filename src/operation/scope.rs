@@ -82,19 +82,9 @@ pub enum SessionStatus {
 }
 
 pub(crate) struct OperateScope {
-    /// The first node that is inside of the scope
-    enter_scope: Entity,
-    /// The final target of the nodes inside the scope. It receives the final
-    /// output to be produced by the scope. When this target is triggered, the
-    /// scope will begin its cleanup.
-    ///
-    /// Note that the finished staging node is a child node of the scope but it
-    /// is not a node inside of the scoped contents.
-    terminal: Entity,
+    endpoints: ScopeEndpoints,
     /// The target that the output of this scope should be fed to
     exit_scope: Option<Entity>,
-    /// Cancellation finishes at this node
-    finish_scope_cancel: Entity,
     components: Option<TypeSensitiveScopeComponents>,
 }
 
@@ -139,11 +129,22 @@ impl Command for InsertTypeSensitiveComponents {
     }
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct ScopeEndpoints {
-    pub(crate) terminal: Entity,
+#[derive(Clone, Copy, Component)]
+pub struct ScopeEndpoints {
     pub(crate) enter_scope: Entity,
-    pub(crate) finish_scope_cancel: Entity,
+    pub(crate) terminate: Entity,
+    pub(crate) cancel_scope: Entity,
+    pub(crate) finish_scope_cleanup: Entity,
+}
+
+impl ScopeEndpoints {
+    pub fn terminate(&self) -> Entity {
+        self.terminate
+    }
+
+    pub fn cancel_scope(&self) -> Entity {
+        self.cancel_scope
+    }
 }
 
 pub(crate) struct ScopedSession {
@@ -229,16 +230,6 @@ impl ScopedSessionStatus {
 #[derive(Component, Default)]
 struct ScopedSessionStorage(SmallVec<[ScopedSession; 8]>);
 
-/// Store the terminating nodes for this scope
-#[derive(Component)]
-pub struct TerminalStorage(Entity);
-
-impl TerminalStorage {
-    pub fn get(&self) -> Entity {
-        self.0
-    }
-}
-
 #[derive(Component, Default)]
 pub struct ScopeContents {
     nodes: SmallVec<[Entity; 16]>,
@@ -266,15 +257,13 @@ impl Operation for OperateScope {
 
         let mut source_mut = world.entity_mut(source);
         source_mut.insert((
-            ScopeEntryStorage(self.enter_scope),
             ScopedSessionStorage::default(),
-            TerminalStorage(self.terminal),
             Cancellable::new(receive_cancel),
             ValidateScopeReachability(validate_scope_reachability),
             CleanupContents::new(),
             ScopeContents::new(),
             BeginCleanupWorkflowStorage::default(),
-            FinishCleanupWorkflowStorage(self.finish_scope_cancel),
+            self.endpoints,
         ));
 
         if let Some(exit_scope) = self.exit_scope {
@@ -473,8 +462,8 @@ fn dyn_is_reachable<Request: 'static + Send + Sync>(
             &mut visited,
         );
 
-        let terminal = source_ref.get::<TerminalStorage>().or_broken()?.0;
-        if scoped_reachability.check_upstream(terminal)? {
+        let terminate = source_ref.get::<ScopeEndpoints>().or_broken()?.terminate;
+        if scoped_reachability.check_upstream(terminate)? {
             return Ok(true);
         }
     }
@@ -612,7 +601,7 @@ where
     Request: 'static + Send + Sync,
 {
     let mut source_mut = world.get_entity_mut(source).or_broken()?;
-    let enter_scope = source_mut.get::<ScopeEntryStorage>().or_broken()?.0;
+    let enter_scope = source_mut.get::<ScopeEndpoints>().or_broken()?.enter_scope;
 
     source_mut
         .get_mut::<ScopedSessionStorage>()
@@ -652,18 +641,21 @@ impl OperateScope {
         // NOTE(@mxgrey): When changing this implementation, remember to similarly
         // update the implementation of IncrementalScopeBuilder.
         let enter_scope = commands.spawn((EntryForScope(scope_id), UnusedTarget)).id();
-
-        let terminal = commands.spawn(()).insert(ChildOf(scope_id)).id();
-        let finish_scope_cancel = commands
+        let terminate = commands.spawn(()).insert(ChildOf(scope_id)).id();
+        let cancel_scope = commands.spawn(()).insert(ChildOf(scope_id)).id();
+        let finish_scope_cleanup = commands
             .spawn(FinishCleanupForScope(scope_id))
             .insert(ChildOf(scope_id))
             .id();
 
         let scope = OperateScope {
-            enter_scope,
-            terminal,
+            endpoints: ScopeEndpoints {
+                enter_scope,
+                terminate,
+                cancel_scope,
+                finish_scope_cleanup,
+            },
             exit_scope,
-            finish_scope_cancel,
             components: Some(TypeSensitiveScopeComponents {
                 dyn_scope_request: DynScopeRequest::new::<Request>(),
                 finalize_cleanup: FinalizeCleanup(begin_cleanup_workflows::<Response>),
@@ -679,7 +671,7 @@ impl OperateScope {
             // We do not consider the terminal node to be "inside" the scope,
             // otherwise it will get cleaned up prematurely
             None,
-            terminal,
+            terminate,
             Terminate::<Response>::new(scope_id),
         ));
 
@@ -687,13 +679,13 @@ impl OperateScope {
             // We do not consider the finish cancel node to be "inside" the
             // scope, otherwise it will get cleaned up prematurely
             None,
-            finish_scope_cancel,
+            finish_scope_cleanup,
             FinishCleanup::<Response>::new(scope_id),
         ));
 
         ScopeEndpoints {
-            finish_scope_cancel,
-            terminal,
+            finish_scope_cleanup,
+            terminate,
             enter_scope,
         }
     }
@@ -765,8 +757,9 @@ impl IncrementalScopeBuilder {
         let scope_id = commands.spawn(()).id();
         let exit_scope = commands.spawn(UnusedTarget).id();
         let enter_scope = commands.spawn((EntryForScope(scope_id), UnusedTarget)).id();
-        let terminal = commands.spawn(()).insert(ChildOf(scope_id)).id();
-        let finish_scope_cancel = commands
+        let terminate = commands.spawn(()).insert(ChildOf(scope_id)).id();
+        let cancel_scope = commands.spawn(()).insert(ChildOf(scope_id)).id();
+        let finish_scope_cleanup = commands
             .spawn(FinishCleanupForScope(scope_id))
             .insert(ChildOf(scope_id))
             .id();
@@ -776,10 +769,13 @@ impl IncrementalScopeBuilder {
             .insert(ScopeSettingsStorage(settings));
 
         let scope = OperateScope {
-            enter_scope,
-            terminal,
+            endpoints: ScopeEndpoints {
+                enter_scope,
+                terminate,
+                cancel_scope,
+                finish_scope_cleanup
+            },
             exit_scope: Some(exit_scope),
-            finish_scope_cancel,
             components: None,
         };
         commands.queue(AddOperation::new(Some(parent_scope), scope_id, scope));
@@ -789,9 +785,9 @@ impl IncrementalScopeBuilder {
                 parent_scope,
                 scope_id,
                 enter_scope,
-                terminal,
+                terminate,
                 exit_scope,
-                finish_scope_cancel,
+                finish_scope_cancel: finish_scope_cleanup,
                 request: None,
                 response: None,
                 already_built: false,
@@ -857,7 +853,7 @@ impl IncrementalScopeBuilder {
                 // We do not consider the terminal node to be "inside" the scope,
                 // otherwise it will get cleaned up prematurely
                 None,
-                inner.terminal,
+                inner.terminate,
                 Terminate::<Response>::new(inner.scope_id),
             ));
 
@@ -878,7 +874,7 @@ impl IncrementalScopeBuilder {
         inner.consider_building(commands);
 
         let response = IncrementalScopeResponse {
-            terminate: DynInputSlot::new(inner.scope_id, inner.terminal, message_info),
+            terminate: DynInputSlot::new(inner.scope_id, inner.terminate, message_info),
             external_output: inner
                 .external_output_not_sent
                 .then(|| DynOutput::new(inner.parent_scope, inner.exit_scope, message_info)),
@@ -907,7 +903,7 @@ struct IncrementalScopeBuilderInner {
     parent_scope: Entity,
     scope_id: Entity,
     enter_scope: Entity,
-    terminal: Entity,
+    terminate: Entity,
     exit_scope: Entity,
     finish_scope_cancel: Entity,
     request: Option<(DynScopeRequest, TypeInfo)>,
@@ -1126,9 +1122,9 @@ fn begin_cleanup_workflows<Response: 'static + Send + Sync>(
         .retain(|p| p.scoped_session != scoped_session);
 
     let finish_cleanup = scope_mut
-        .get::<FinishCleanupWorkflowStorage>()
+        .get::<ScopeEndpoints>()
         .or_broken()?
-        .0;
+        .finish_scope_cleanup;
     let begin_cleanup_workflows = scope_mut
         .get::<BeginCleanupWorkflowStorage>()
         .or_broken()?
@@ -1228,9 +1224,6 @@ pub struct ValidationRequest<'a> {
     pub roster: &'a mut OperationRoster,
 }
 
-#[derive(Component)]
-pub(crate) struct ScopeEntryStorage(pub(crate) Entity);
-
 /// Store the scope entity for the first node within a scope
 #[derive(Component)]
 pub(crate) struct EntryForScope(pub(crate) Entity);
@@ -1238,6 +1231,51 @@ pub(crate) struct EntryForScope(pub(crate) Entity);
 /// Store the scope entity for the FinishCleanup operation within a scope
 #[derive(Component)]
 struct FinishCleanupForScope(Entity);
+
+struct CancelScope {
+    scope: Entity,
+}
+
+impl Operation for CancelScope {
+    fn setup(self, OperationSetup { source, world }: OperationSetup) -> OperationResult {
+        world.entity_mut(source).insert((
+            InputBundle::<Cancellation>::new(),
+            SingleInputStorage::empty(),
+            ScopeStorage::new(self.scope),
+        ));
+        Ok(())
+    }
+
+    fn execute(
+        OperationRequest {
+                source,
+                world,
+                roster,
+            }: OperationRequest,
+    ) -> OperationResult {
+        let Input {
+            session: scoped_session,
+            data,
+            seq,
+        } = world.take_input::<Cancellation>(source)?;
+
+
+    }
+
+    fn cleanup(mut clean: OperationCleanup) -> OperationResult {
+        clean.cleanup_inputs::<Cancellation>()?;
+        clean.cleanup_disposals()?;
+        clean.notify_cleaned()
+    }
+
+    fn is_reachable(mut reachability: OperationReachability) -> ReachabilityResult {
+        if reachability.has_input::<Cancellation>()? {
+            return Ok(true);
+        }
+
+        SingleInputStorage::is_reachable(&mut reachability)
+    }
+}
 
 pub(crate) struct Terminate<T> {
     scope: Entity,
@@ -1269,9 +1307,9 @@ fn cleanup_entire_scope(
         .nodes()
         .clone();
     let finish_cleanup_workflow = scope_ref
-        .get::<FinishCleanupWorkflowStorage>()
+        .get::<ScopeEndpoints>()
         .or_broken()?
-        .0;
+        .finish_scope_cleanup;
 
     for scoped_session in relevant_scoped_sessions {
         let parent_session = world
@@ -1348,12 +1386,13 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
         let Input {
             session: scoped_session,
             data,
-        } = source_mut.take_input::<T>()?;
+            seq,
+        } = world.take_input::<T>(source)?;
 
+        let mut source_mut = world.get_entity_mut(source).or_broken()?;
         let mut staging = source_mut.get_mut::<Staging<T>>().or_broken()?;
         match staging.0.entry(scoped_session) {
             Entry::Occupied(_) => {
@@ -1459,9 +1498,6 @@ struct CleanupWorkflow {
     on_terminate: bool,
     on_cancelled: bool,
 }
-
-#[derive(Component)]
-pub(crate) struct FinishCleanupWorkflowStorage(pub(crate) Entity);
 
 pub(crate) struct CleanupInfo {
     parent_session: Entity,
@@ -1576,9 +1612,9 @@ where
             .give_input(cancellation_session, keys, roster)?;
 
         let finish_cleanup = world
-            .get::<FinishCleanupWorkflowStorage>(from_scope)
+            .get::<ScopeEndpoints>(from_scope)
             .or_broken()?
-            .0;
+            .finish_scope_cleanup;
         world
             .get_entity_mut(finish_cleanup)
             .or_broken()?
