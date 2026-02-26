@@ -26,6 +26,7 @@ use std::{fmt::Display, sync::Arc};
 use crate::{
     CancelFailure, DisplayDebugSlice, Disposal, Filtered, OperationError, OperationResult,
     OperationRoster, ScopeStorage, Supplanted, UnhandledErrors, RouteSource, RequestId,
+    SessionOfScope,
 };
 
 /// Information about the cancellation that occurred.
@@ -387,10 +388,13 @@ impl From<CircularCollect> for CancellationCause {
 
 pub trait ManageCancellation {
     /// Have a node emit a signal to cancel the scope that it's inside of.
-    fn emit_cancel(
+    ///
+    /// # Params
+    /// * cancel_scope_endpoint - The cancellation endpoint of the scope that is
+    ///   being cancelled.
+    fn send_cancellation(
         &mut self,
         source: RouteSource,
-        scope_to_cancel: Entity,
         session_to_cancel: Entity,
         cancellation: Cancellation,
         roster: &mut OperationRoster,
@@ -405,21 +409,19 @@ pub trait ManageCancellation {
 }
 
 impl ManageCancellation for World {
-    fn emit_cancel(
+    fn send_cancellation(
         &mut self,
         source: RouteSource,
-        scope_to_cancel: Entity,
         session_to_cancel: Entity,
         cancellation: Cancellation,
         roster: &mut OperationRoster,
     ) {
-        if let Err(failure) = try_emit_cancel(self, Some(session), cancellation, roster) {
-            // We were unable to emit the cancel according to the normal
-            // procedure. We should move this into the unhandled errors resource
-            // so that it does not get lost.
-            self.get_resource_or_insert_with(UnhandledErrors::default)
-                .cancellations
-                .push(failure);
+        if let Some(scope) = self.get::<SessionOfScope>(session_to_cancel).map(|s| s.scope()) {
+
+        } else if let Some(on_cancel) = self.get::<OperationCancelStorage>(session_to_cancel).map(|s| s.0) {
+
+        } else {
+
         }
     }
 

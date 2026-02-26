@@ -41,7 +41,7 @@ use backtrace::Backtrace;
 use bevy_derive::Deref;
 use bevy_ecs::{
     hierarchy::ChildOf,
-    prelude::{Commands, Component, Entity, World},
+    prelude::{Commands, Component, Entity, World, Bundle},
 };
 
 #[cfg(feature = "diagram")]
@@ -60,6 +60,28 @@ use std::sync::{Arc, Mutex};
 #[cfg(feature = "diagram")]
 use thiserror::Error as ThisError;
 
+#[derive(Bundle)]
+pub struct SessionBundle {
+    parent_session: ParentSession,
+    child_of: ChildOf,
+    scope: SessionOfScope,
+    status: SessionStatus,
+}
+
+impl SessionBundle {
+    pub fn new(
+        parent: Entity,
+        scope: Entity
+    ) -> Self {
+        Self {
+            parent_session: ParentSession(parent),
+            child_of: ChildOf(parent),
+            scope: SessionOfScope(scope),
+            status: SessionStatus::Active,
+        }
+    }
+}
+
 // TODO(@mxgrey): Consider whether ParentSession is now redundant with the
 // built-in Parent since we are now using Parent to link sessions together.
 #[derive(Component, Deref)]
@@ -71,6 +93,19 @@ impl ParentSession {
     }
 
     pub fn get(&self) -> Entity {
+        self.0
+    }
+}
+
+#[derive(Component, Deref)]
+pub struct SessionOfScope(Entity);
+
+impl SessionOfScope {
+    pub fn new(entity: Entity) -> Self {
+        Self(entity)
+    }
+
+    pub fn scope(&self) -> Entity {
         self.0
     }
 }
@@ -363,8 +398,7 @@ fn dyn_begin_scope<Request: 'static + Send + Sync>(
     let input = world.take_input::<Request>(source)?;
 
     let scoped_session = world
-        .spawn((ParentSession(input.session), SessionStatus::Active))
-        .insert(ChildOf(input.session))
+        .spawn(SessionBundle::new(input.session, source))
         .id();
 
     begin_scope(
@@ -1604,8 +1638,7 @@ where
         let keys = buffers.0.create_key(&key_builder);
 
         let cleanup_session = world
-            .spawn((ParentSession(scoped_session), SessionStatus::Active))
-            .insert(ChildOf(scoped_session))
+            .spawn(SessionBundle::new(scoped_session, target))
             .id();
         world
             .get_entity_mut(target)
@@ -2480,5 +2513,34 @@ mod tests {
 
         let r = context.resolve_request(1.0, workflow);
         assert_eq!(r, 1.0);
+    }
+
+    #[test]
+    fn test_scope_cancellation() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            builder
+                .chain(scope.start)
+                .spread()
+                .then_io_scope(|scope, builder| {
+                    builder
+                        .chain(scope.start)
+                        .map_block(|v| {
+                            if v < 3 {
+                                Some(v)
+                            } else {
+                                None
+                            }
+                        })
+                        .cancel_on_none()
+                        .connect(scope.terminate);
+                })
+                .collect_all::<8>()
+                .connect(scope.terminate);
+        });
+
+        let r = context.resolve_request(vec![0, 1, 2, 3, 4, 5], workflow);
+        assert_eq!(r.as_slice(), &[0, 1, 2]);
     }
 }
