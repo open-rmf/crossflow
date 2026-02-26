@@ -2454,6 +2454,31 @@ mod tests {
         assert_eq!(r, "fast");
     }
 
-    // TODO(@mxgrey): Add tests for some of the finer details of buffer cleanup,
-    // such as what happens when a cleanup workflow experiences a cancellation.
+    #[test]
+    fn test_scope_cleanup_cancellation() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffer = builder.create_buffer::<()>(Default::default());
+            builder.on_cleanup(buffer, |scope, builder| {
+                builder
+                    .chain(scope.start)
+                    .map_block(|_| ())
+                    .connect(scope.terminate);
+            });
+
+            builder.on_cleanup(buffer, |scope, builder| {
+                builder
+                    .chain(scope.start)
+                    .map_block(|_| None)
+                    .cancel_on_none()
+                    .connect(scope.terminate);
+            });
+
+            builder.connect(scope.start, scope.terminate);
+        });
+
+        let r = context.resolve_request(1.0, workflow);
+        assert_eq!(r, 1.0);
+    }
 }
