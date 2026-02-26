@@ -244,7 +244,7 @@ impl<'w, 's> SpawnWorkflowExt for Commands<'w, 's> {
         let mut builder = Builder {
             context: BuilderScopeContext {
                 scope: scope_id,
-                finish_scope_cancel,
+                finish_scope_cleanup: finish_scope_cancel,
             },
             commands: self,
         };

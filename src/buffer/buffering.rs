@@ -194,10 +194,10 @@ pub trait Accessing: Buffering {
     ) where
         Settings: Into<ScopeSettings>,
     {
-        let cancelling_scope_id = builder.commands.spawn(()).id();
+        let cleanup_scope_id = builder.commands.spawn(()).id();
         let _ = builder.create_scope_impl::<Self::Key, (), (), Settings>(
-            cancelling_scope_id,
-            builder.context.finish_scope_cancel,
+            cleanup_scope_id,
+            builder.context.finish_scope_cleanup,
             build,
         );
 
@@ -210,7 +210,7 @@ pub trait Accessing: Buffering {
             BeginCleanupWorkflow::<Self>::new(
                 builder.scope(),
                 self,
-                cancelling_scope_id,
+                cleanup_scope_id,
                 conditions.run_on_terminate,
                 conditions.run_on_cancel,
             ),

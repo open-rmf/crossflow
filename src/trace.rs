@@ -367,10 +367,30 @@ impl<'w, 's> BufferTracer<'w, 's> {
     }
 }
 
+pub struct SessionEvent {
+    session_stack: SmallVec<[Entity; 8]>,
+    change: SessionChange,
+}
+
+pub enum SessionChange {
+    Spawned {
+        scope: Option<TraceTarget>,
+    },
+    Terminated {
+        source: TraceSource,
+    },
+    Cancelled {
+        source: TraceSource,
+    },
+    BeginCleanup,
+    Despawned,
+}
+
 #[derive(Debug, Clone)]
 pub enum TracedEventKind {
     MessageSent(MessageSent),
     BufferEvent(BufferEvent),
+    SessionChange(SessionEvent),
 }
 
 #[derive(Debug, Clone, Event)]

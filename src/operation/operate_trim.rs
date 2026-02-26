@@ -117,10 +117,7 @@ impl<T: 'static + Send + Sync> Operation for Trim<T> {
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let Input { session, data } = world
-            .get_entity_mut(source)
-            .or_broken()?
-            .take_input::<T>()?;
+        let Input { session, data, seq } = world.take_input::<T>(source)?;
 
         let source_ref = world.get_entity(source).or_broken()?;
         let trim = source_ref.get::<TrimStorage>().or_broken()?;
@@ -166,7 +163,7 @@ impl<T: 'static + Send + Sync> Operation for Trim<T> {
             .get_mut::<HoldingStorage<T>>(source)
             .or_broken()?
             .map
-            .insert(cleanup_id, Input { data, session });
+            .insert(cleanup_id, Input { data, session, seq });
 
         world
             .get_mut::<CleanupContents>(source)
@@ -210,7 +207,7 @@ impl<T: 'static + Send + Sync> Trim<T> {
         }: FinalizeCleanupRequest,
     ) -> OperationResult {
         let mut source_mut = world.get_entity_mut(cleanup.cleaner).or_broken()?;
-        let Input { session, data } = source_mut
+        let Input { session, data, seq } = source_mut
             .get_mut::<HoldingStorage<T>>()
             .or_broken()?
             // It's possible for the entry to be erased if this trim node gets

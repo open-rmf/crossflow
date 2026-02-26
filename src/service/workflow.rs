@@ -118,8 +118,11 @@ where
             seq,
         } = world.take_input::<Request>(source)?;
         let scoped_session = world
-            .spawn((ParentSession::new(session), SessionStatus::Active))
-            .insert(ChildOf(session))
+            .spawn((
+                ParentSession::new(session),
+                ChildOf(session),
+                SessionStatus::Active,
+            ))
             .id();
 
         let result = serve_workflow_impl::<Request, Response, Streams>(

@@ -25,7 +25,7 @@ use std::{fmt::Display, sync::Arc};
 
 use crate::{
     CancelFailure, DisplayDebugSlice, Disposal, Filtered, OperationError, OperationResult,
-    OperationRoster, ScopeStorage, Supplanted, UnhandledErrors, RouteSource,
+    OperationRoster, ScopeStorage, Supplanted, UnhandledErrors, RouteSource, RequestId,
 };
 
 /// Information about the cancellation that occurred.
@@ -256,11 +256,11 @@ impl Display for Broken {
     }
 }
 
-/// Passed into the [`OperationRoster`] to pass a cancel  signal into the target.
+/// Passed into the [`OperationRoster`] to pass a cancel signal into the target.
 #[derive(Debug, Clone)]
 pub struct Cancel {
-    /// The entity that triggered the cancellation
-    pub(crate) origin: Entity,
+    /// The operation that triggered the cancellation
+    pub(crate) origin: RequestId,
     /// The target of the cancellation
     pub(crate) target: Entity,
     /// The session which is being cancelled for the target
@@ -386,7 +386,7 @@ impl From<CircularCollect> for CancellationCause {
 }
 
 pub trait ManageCancellation {
-    /// Have this node emit a signal to cancel the current scope.
+    /// Have a node emit a signal to cancel the scope that it's inside of.
     fn emit_cancel(
         &mut self,
         source: RouteSource,

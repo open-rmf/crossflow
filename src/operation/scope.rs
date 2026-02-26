@@ -24,7 +24,7 @@ use crate::{
     OperationRoster, OperationSetup, OrBroken, ReachabilityResult, ScopeSettings, CleanInputsOf,
     SingleInputStorage, SingleTargetStorage, StreamEffect, StreamRequest, StreamTargetMap,
     UnhandledErrors, Unreachability, UnusedTarget, check_reachability, execute_operation,
-    is_downstream_of, Routing, RouteSource, RouteTarget, output_port, MessageRoute, RequestId,
+    is_downstream_of, Routing, RouteSource, RouteTarget, output_port, MessageRoute, RequestId, StreamTarget,
 };
 
 use smallvec::smallvec;
@@ -308,7 +308,7 @@ impl Operation for OperateScope {
             .or_broken()?
             .get::<DynScopeRequest>()
             .or_broken()?
-            .cleanup;
+            .early_cleanup;
 
         (cleanup)(clean)
     }
@@ -330,7 +330,7 @@ impl Operation for OperateScope {
 struct DynScopeRequest {
     setup_input: fn(OperationSetup) -> OperationResult,
     begin_scope: fn(OperationRequest) -> OperationResult,
-    cleanup: fn(OperationCleanup) -> OperationResult,
+    early_cleanup: fn(OperationCleanup) -> OperationResult,
     is_reachable: fn(OperationReachability) -> ReachabilityResult,
 }
 
@@ -339,7 +339,7 @@ impl DynScopeRequest {
         Self {
             setup_input: dyn_setup_input::<T>,
             begin_scope: dyn_begin_scope::<T>,
-            cleanup: dyn_cleanup::<T>,
+            early_cleanup: dyn_early_cleanup::<T>,
             is_reachable: dyn_is_reachable::<T>,
         }
     }
@@ -378,7 +378,7 @@ fn dyn_begin_scope<Request: 'static + Send + Sync>(
     )
 }
 
-fn dyn_cleanup<Request: 'static + Send + Sync>(
+fn dyn_early_cleanup<Request: 'static + Send + Sync>(
     OperationCleanup {
         source,
         cleanup,
@@ -676,7 +676,7 @@ impl OperateScope {
         ));
 
         commands.queue(AddOperation::new(
-            // We do not consider the finish cancel node to be "inside" the
+            // We do not consider the finish cleanup node to be "inside" the
             // scope, otherwise it will get cleaned up prematurely
             None,
             finish_scope_cleanup,
@@ -684,9 +684,10 @@ impl OperateScope {
         ));
 
         ScopeEndpoints {
-            finish_scope_cleanup,
-            terminate,
             enter_scope,
+            terminate,
+            cancel_scope,
+            finish_scope_cleanup,
         }
     }
 }
@@ -768,13 +769,15 @@ impl IncrementalScopeBuilder {
             .entity(scope_id)
             .insert(ScopeSettingsStorage(settings));
 
+        let endpoints = ScopeEndpoints {
+            enter_scope,
+            terminate,
+            cancel_scope,
+            finish_scope_cleanup
+        };
+
         let scope = OperateScope {
-            endpoints: ScopeEndpoints {
-                enter_scope,
-                terminate,
-                cancel_scope,
-                finish_scope_cleanup
-            },
+            endpoints,
             exit_scope: Some(exit_scope),
             components: None,
         };
@@ -784,10 +787,8 @@ impl IncrementalScopeBuilder {
             inner: Arc::new(Mutex::new(IncrementalScopeBuilderInner {
                 parent_scope,
                 scope_id,
-                enter_scope,
-                terminate,
+                endpoints,
                 exit_scope,
-                finish_scope_cancel: finish_scope_cleanup,
                 request: None,
                 response: None,
                 already_built: false,
@@ -801,7 +802,7 @@ impl IncrementalScopeBuilder {
         let inner = self.inner.lock().unwrap();
         BuilderScopeContext {
             scope: inner.scope_id,
-            finish_scope_cancel: inner.finish_scope_cancel,
+            finish_scope_cleanup: inner.finish_scope_cancel,
         }
     }
 
@@ -902,10 +903,8 @@ impl IncrementalScopeBuilder {
 struct IncrementalScopeBuilderInner {
     parent_scope: Entity,
     scope_id: Entity,
-    enter_scope: Entity,
-    terminate: Entity,
+    endpoints: ScopeEndpoints,
     exit_scope: Entity,
-    finish_scope_cancel: Entity,
     request: Option<(DynScopeRequest, TypeInfo)>,
     response: Option<(FinalizeCleanup, TypeInfo)>,
     already_built: bool,
@@ -980,14 +979,15 @@ fn receive_cancel(
 }
 
 fn cancel_one(
+    request_id: RequestId,
     session: Entity,
-    source: Entity,
+    scope: Entity,
     cancellation: Cancellation,
     world: &mut World,
     roster: &mut OperationRoster,
 ) -> OperationResult {
-    let mut source_mut = world.get_entity_mut(source).or_broken()?;
-    let relevant_scoped_sessions = source_mut
+    let mut scope_mut = world.get_entity_mut(scope).or_broken()?;
+    let relevant_scoped_sessions = scope_mut
         .get_mut::<ScopedSessionStorage>()
         .or_broken()?
         .0
@@ -1006,13 +1006,14 @@ fn cancel_one(
         .collect();
 
     let cleanup = Cleanup {
-        cleaner: source,
-        node: source,
+        cleaner: scope,
+        node: scope,
         session,
         cleanup_id: session,
     };
     cleanup_entire_scope(
-        source,
+        request_id,
+        scope,
         cleanup,
         FinishStatus::Cancelled(cancellation),
         relevant_scoped_sessions,
@@ -1602,14 +1603,14 @@ where
 
         let keys = buffers.0.create_key(&key_builder);
 
-        let cancellation_session = world
+        let cleanup_session = world
             .spawn((ParentSession(scoped_session), SessionStatus::Active))
             .insert(ChildOf(scoped_session))
             .id();
         world
             .get_entity_mut(target)
             .or_broken()?
-            .give_input(cancellation_session, keys, roster)?;
+            .give_input(cleanup_session, keys, roster)?;
 
         let finish_cleanup = world
             .get::<ScopeEndpoints>(from_scope)
@@ -1625,7 +1626,7 @@ where
             .cleanup_workflow_sessions
             .as_mut()
             .or_broken()?
-            .push(cancellation_session);
+            .push(cleanup_session);
 
         Ok(())
     }
@@ -1703,8 +1704,8 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
         OperationCancel {
             cancel:
                 Cancel {
-                    origin: _origin,
-                    target: source,
+                    origin,
+                    target: finish,
                     session,
                     cancellation,
                 },
@@ -1717,7 +1718,7 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
             // cancellation signal for a FinishCleanup always comes from a child
             // cancellation session, never from an outside source.
             return Self::deduct_finished_cleanup(
-                source,
+                finish,
                 cancellation_session,
                 world,
                 roster,
@@ -1727,8 +1728,8 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
 
         // All cleanup workflows need to be wiped out. This usually implies
         // that some workflow has broken entities.
-        let cancellation_sessions: SmallVec<[Entity; 16]> = world
-            .get::<AwaitingCleanupStorage>(source)
+        let cleanup_sessions: SmallVec<[Entity; 16]> = world
+            .get::<AwaitingCleanupStorage>(finish)
             .or_broken()?
             .0
             .iter()
@@ -1736,13 +1737,13 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
             .copied()
             .collect();
 
-        for cancellation_session in cancellation_sessions {
-            // TODO(@mxgrey): Should we try to cancel the cancellation workflow?
+        for cleanup_session in cleanup_sessions {
+            // TODO(@mxgrey): Should we try to cancel the cleanup workflow?
             // This is a pretty extreme edge case so it would be tricky to wind
             // this down correctly.
             if let Err(error) = Self::deduct_finished_cleanup(
-                source,
-                cancellation_session,
+                finish,
+                cleanup_session,
                 world,
                 roster,
                 Some(cancellation.clone()),
@@ -1792,14 +1793,15 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
     }
 
     fn deduct_finished_cleanup(
-        source: Entity,
+        request_id: RequestId,
+        finish: Entity,
         cancellation_session: Entity,
         world: &mut World,
         roster: &mut OperationRoster,
         inner_cancellation: Option<Cancellation>,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let mut awaiting = source_mut.get_mut::<AwaitingCleanupStorage>().or_broken()?;
+        let mut finish_mut = world.get_entity_mut(finish).or_broken()?;
+        let mut awaiting = finish_mut.get_mut::<AwaitingCleanupStorage>().or_broken()?;
         if let Some((index, a)) = awaiting.0.iter_mut().enumerate().find(|(_, a)| {
             a.cleanup_workflow_sessions
                 .iter()
@@ -1830,7 +1832,7 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
                     Self::finalize_scoped_session(
                         index,
                         OperationRequest {
-                            source,
+                            source: finish,
                             world,
                             roster,
                         },
@@ -1928,7 +1930,7 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
         }
 
         let mut scope_mut = world.get_entity_mut(scope).or_broken()?;
-        let terminal = scope_mut.get::<TerminalStorage>().or_broken()?.0;
+        let terminate = scope_mut.get::<ScopeEndpoints>().or_broken()?.terminate;
         let (target, blocker) = scope_mut
             .get_mut::<ExitTargetStorage>()
             .and_then(|mut storage| storage.map.remove(&scoped_session))
@@ -1941,7 +1943,7 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
             .or_broken()?;
 
         if terminating {
-            let mut staging = world.get_mut::<Staging<T>>(terminal).or_broken()?;
+            let mut staging = world.get_mut::<Staging<T>>(terminate).or_broken()?;
 
             let response = staging.0.remove(&scoped_session).or_broken()?;
 
@@ -1953,7 +1955,7 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
         } else {
             // Make certain there is nothing related to the scoped session
             // lingering in the terminal node.
-            let mut terminal_mut = world.get_entity_mut(terminal).or_broken()?;
+            let mut terminal_mut = world.get_entity_mut(terminate).or_broken()?;
             terminal_mut.cleanup_inputs::<T>(scoped_session);
             terminal_mut
                 .get_mut::<Staging<T>>()
@@ -2024,6 +2026,7 @@ struct AwaitingCleanup {
     /// both Some and the collection is empty. Think of "None" as indicating
     /// that the cleanup workflows have not even begun running yet.
     cleanup_workflow_sessions: Option<SmallVec<[Entity; 8]>>,
+    cleanups_finished: SmallVec<[RequestId; 8]>,
 }
 
 impl AwaitingCleanup {
@@ -2033,6 +2036,7 @@ impl AwaitingCleanup {
             scoped_session,
             info,
             cleanup_workflow_sessions: None,
+            cleanups_finished: Default::default(),
         }
     }
 }
@@ -2101,11 +2105,12 @@ impl<S: StreamEffect> Operation for RedirectScopeStream<S> {
             .get::<ParentSession>(scoped_session)
             .or_broken()?
             .get();
+        let port = output_port::next();
 
         let mut request = StreamRequest {
-            source,
-            session: parent_session,
-            target,
+            request_id: RequestId { session: scoped_session, source, seq },
+            port: &port,
+            target: target.map(|id| StreamTarget { id, session: parent_session }),
             world,
             roster,
         };
@@ -2219,6 +2224,7 @@ impl<S: StreamEffect> StreamRedirect for AnonymousStreamRedirect<S> {
         let Input {
             session: scoped_session,
             data,
+            seq,
         } = source_mut.take_input::<S::Input>()?;
         let scope = source_mut.get::<ScopeStorage>().or_broken()?.get();
         let name = source_mut.get::<StreamNameStorage>().or_broken()?.0.clone();
@@ -2238,13 +2244,14 @@ impl<S: StreamEffect> StreamRedirect for AnonymousStreamRedirect<S> {
         let parent_session = exit.parent_session;
 
         let stream_targets = world.get::<StreamTargetMap>(exit_source).or_broken()?;
+        let port = output_port::anonymous_stream(std::any::type_name::<S>());
 
         if let Some(name) = name {
             let target = stream_targets.get_named_or_anonymous::<S::Output>(&name);
             let mut request = StreamRequest {
-                source,
-                session: parent_session,
-                target: target.map(NamedTarget::as_entity),
+                request_id: RequestId { session: scoped_session, source, seq },
+                port: &port,
+                target: NamedTarget::to_stream_target(target, parent_session),
                 world,
                 roster,
             };
@@ -2257,9 +2264,9 @@ impl<S: StreamEffect> StreamRedirect for AnonymousStreamRedirect<S> {
         } else {
             let target = stream_targets.get_anonymous::<S::Output>();
             let mut request = StreamRequest {
-                source,
-                session: parent_session,
-                target,
+                request_id: RequestId { session: scoped_session, source, seq },
+                port: &port,
+                target: target.map(|id| StreamTarget { id, session: parent_session }),
                 world,
                 roster,
             };
@@ -2446,4 +2453,7 @@ mod tests {
         let r: &'static str = context.resolve_request((), workflow);
         assert_eq!(r, "fast");
     }
+
+    // TODO(@mxgrey): Add tests for some of the finer details of buffer cleanup,
+    // such as what happens when a cleanup workflow experiences a cancellation.
 }

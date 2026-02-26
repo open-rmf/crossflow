@@ -54,7 +54,7 @@ pub struct BuilderScopeContext {
     /// The scope that this builder is meant to help build
     pub(crate) scope: Entity,
     /// The target for cancellation workflows
-    pub(crate) finish_scope_cancel: Entity,
+    pub(crate) finish_scope_cleanup: Entity,
 }
 
 impl<'w, 's, 'a> Builder<'w, 's, 'a> {
@@ -715,9 +715,10 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
         // NOTE(@mxgrey): When changing the implementation of this function,
         // remember to similarly update the implementation of IncrementalScopeBuilder
         let ScopeEndpoints {
-            terminate: terminal,
             enter_scope,
-            finish_scope_cleanup: finish_scope_cancel,
+            terminate,
+            cancel_scope,
+            finish_scope_cleanup,
         } = OperateScope::add::<Request, Response>(
             Some(self.scope()),
             scope_id,
@@ -731,14 +732,14 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
         let mut builder = Builder {
             context: BuilderScopeContext {
                 scope: scope_id,
-                finish_scope_cancel,
+                finish_scope_cleanup,
             },
             commands: self.commands,
         };
 
         let scope = Scope {
             start: Output::new(scope_id, enter_scope),
-            terminate: InputSlot::new(scope_id, terminal),
+            terminate: InputSlot::new(scope_id, terminate),
             streams: stream_in,
         };
 
