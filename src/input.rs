@@ -37,7 +37,7 @@ use crate::{
     Broken, BufferStorage, Cancel, Cancellation, CancellationCause, DeferredRoster, Detached,
     MiscellaneousFailure, OperationError, OperationRoster, OrBroken, SessionStatus,
     UnhandledErrors, UnusedTarget, OutputPort, MessageSent, BufferWorldAccess,
-    RequestId, BufferKeyTag,
+    RequestId, BufferKeyTag, output_port, ManageCancellation,
 };
 
 #[cfg(feature = "trace")]
@@ -524,37 +524,46 @@ impl<'a> InspectInput for EntityRef<'a> {
     }
 }
 
-pub(crate) struct InputCommand<T> {
-    pub(crate) target: Entity,
+pub(crate) struct SeriesRequest<T> {
+    pub(crate) start: Entity,
     pub(crate) session: Entity,
     pub(crate) data: T,
 }
 
-impl<T: 'static + Send + Sync> Command for InputCommand<T> {
+impl<T: 'static + Send + Sync> Command for SeriesRequest<T> {
     fn apply(self, world: &mut World) {
-        match world.get_mut::<InputStorage<T>>(self.target) {
-            Some(mut storage) => {
-                storage.push(self.session, self.data);
-                world
-                    .get_resource_or_insert_with(DeferredRoster::default)
-                    .queue(self.target);
-            }
-            None => {
+        world.resource_scope::<DeferredRoster, _>(|world: &mut World, mut roster| {
+            let Self { start, session, data } = self;
+            let source = session;
+            let seq = 0;
+            let port = output_port::name_str("request");
+
+            let route = MessageRoute {
+                session,
+                source,
+                seq,
+                port: &port,
+                target: start,
+            };
+
+            let r = world.give_input(route, data, &mut *roster);
+            if let Err(OperationError::Broken(backtrace)) = r {
                 let cause = CancellationCause::Broken(Broken {
-                    node: self.target,
+                    node: self.start,
                     backtrace: Some(Backtrace::new()),
                 });
-                let cancel = Cancel {
-                    origin: self.target,
-                    target: self.session,
-                    session: Some(self.session),
-                    cancellation: Cancellation::from_cause(cause),
-                };
-
-                world
-                    .get_resource_or_insert_with(DeferredRoster::default)
-                    .cancel(cancel);
+                world.emit_cancel(
+                    RouteSource {
+                        session,
+                        source,
+                        seq,
+                        port: &port,
+                    },
+                    session,
+                    Cancellation::from_cause(cause),
+                    &mut *roster,
+                );
             }
-        }
+        });
     }
 }

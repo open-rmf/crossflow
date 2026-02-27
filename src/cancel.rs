@@ -392,7 +392,7 @@ pub trait ManageCancellation {
     /// # Params
     /// * cancel_scope_endpoint - The cancellation endpoint of the scope that is
     ///   being cancelled.
-    fn send_cancellation(
+    fn emit_cancel(
         &mut self,
         source: RouteSource,
         session_to_cancel: Entity,
@@ -409,7 +409,8 @@ pub trait ManageCancellation {
 }
 
 impl ManageCancellation for World {
-    fn send_cancellation(
+    /// Have a workflow operation emit a signal to cancel a certain session.
+    fn emit_cancel(
         &mut self,
         source: RouteSource,
         session_to_cancel: Entity,

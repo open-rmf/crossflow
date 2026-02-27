@@ -34,7 +34,7 @@ use thiserror::Error as ThisError;
 
 use crate::{
     Cancel, Cancellation, DisposalFailure, OperationResult, OperationRoster, OrBroken,
-    SeriesMarker, UnhandledErrors, UnusedTarget, operation::ScopeStorage,
+    SeriesMarker, UnhandledErrors, UnusedTarget, operation::ScopeStorage, RequestId, OutputPort,
 };
 
 #[derive(ThisError, Debug, Clone)]
@@ -476,7 +476,13 @@ impl From<IncompleteSplit> for DisposalCause {
 }
 
 pub trait ManageDisposal {
-    fn emit_disposal(&mut self, session: Entity, disposal: Disposal, roster: &mut OperationRoster);
+    fn emit_disposal(
+        &mut self,
+        request_id: RequestId,
+        port: OuputPort,
+        disposal: Disposal,
+        roster: &mut OperationRoster,
+    );
 
     fn clear_disposals(&mut self, session: Entity);
 
@@ -489,16 +495,22 @@ pub trait InspectDisposals {
     fn get_disposals(&self, session: Entity) -> Option<&Vec<Disposal>>;
 }
 
-impl<'w> ManageDisposal for EntityWorldMut<'w> {
-    fn emit_disposal(&mut self, session: Entity, disposal: Disposal, roster: &mut OperationRoster) {
-        let Some(scope) = self.get::<ScopeStorage>() else {
-            if self.contains::<SeriesMarker>() {
-                // If a series has been supplanted, we trigger a cancellation
-                // for it. Besides supplanting, we do not generally convert a
-                // disposal into a cancellation because sometimes services will
-                // emit disposals just to trigger a reachability check, e.g. for
-                // unused streams, not because the actual result is undeliverable.
+impl ManageDisposal for World {
+    fn emit_disposal(
+        &mut self,
+        request_id: RequestId,
+        port: OutputPort,
+        disposal: Disposal,
+        roster: &mut OperationRoster,
+    ) {
+        let Some(scope) = self.get::<ScopeStorage>(request_id.source) else {
+            if self.get::<SeriesMarker>(request_id.source).is_some() {
                 if let DisposalCause::Supplanted(supplanted) = disposal.cause.as_ref() {
+                    // If a series has been supplanted, we trigger a cancellation
+                    // for it. Besides supplanting, we do not generally convert a
+                    // disposal into a cancellation because sometimes services will
+                    // emit disposals just to trigger a reachability check, e.g. for
+                    // unused streams, not because the actual result is undeliverable.
                     let cancellation: Cancellation = (*supplanted).into();
                     roster.cancel(Cancel {
                         origin: self.id(),

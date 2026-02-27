@@ -236,15 +236,16 @@ impl<'w, 's> SpawnWorkflowExt for Commands<'w, 's> {
     {
         let scope_id = self.spawn(()).id();
         let ScopeEndpoints {
-            terminate: terminal,
             enter_scope,
-            finish_scope_cleanup: finish_scope_cancel,
+            terminate,
+            cancel_scope: _,
+            finish_scope_cleanup,
         } = OperateScope::add::<Request, Response>(None, scope_id, None, self);
 
         let mut builder = Builder {
             context: BuilderScopeContext {
                 scope: scope_id,
-                finish_scope_cleanup: finish_scope_cancel,
+                finish_scope_cleanup,
             },
             commands: self,
         };
@@ -253,7 +254,7 @@ impl<'w, 's> SpawnWorkflowExt for Commands<'w, 's> {
 
         let scope = Scope {
             start: Output::new(scope_id, enter_scope),
-            terminate: InputSlot::new(scope_id, terminal),
+            terminate: InputSlot::new(scope_id, terminate),
             streams,
         };
 

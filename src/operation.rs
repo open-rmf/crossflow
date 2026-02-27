@@ -16,7 +16,7 @@
 */
 
 use crate::{
-    Broken, Cancel, DeliveryLabelId, InspectInput, SetupFailure, StreamTargetMap, UnhandledErrors,
+    Broken, DeliveryLabelId, InspectInput, SetupFailure, StreamTargetMap, UnhandledErrors,
     try_emit_broken,
 };
 
@@ -219,8 +219,6 @@ pub struct OperationRoster {
     /// flush. This is for the final outputs of polled tasks, to make sure their
     /// stream data gets flushed before their final output is flushed.
     pub(crate) deferred_queue: VecDeque<Entity>,
-    /// Operation sources that should be cancelled
-    pub(crate) cancel: VecDeque<Cancel>,
     /// Async services that should pull their next item
     pub(crate) unblock: VecDeque<Blocker>,
     /// Remove these entities as they are no longer needed
@@ -249,10 +247,6 @@ impl OperationRoster {
         self.deferred_queue.push_back(source);
     }
 
-    pub fn cancel(&mut self, source: Cancel) {
-        self.cancel.push_back(source);
-    }
-
     pub(crate) fn unblock(&mut self, provider: Blocker) {
         self.unblock.push_back(provider);
     }
@@ -277,7 +271,6 @@ impl OperationRoster {
         self.queue.is_empty()
             && self.awake.is_empty()
             && self.deferred_queue.is_empty()
-            && self.cancel.is_empty()
             && self.unblock.is_empty()
             && self.disposed.is_empty()
             && self.cleanup_finished.is_empty()
@@ -290,7 +283,6 @@ impl OperationRoster {
         self.queue.append(&mut other.queue);
         self.awake.append(&mut other.awake);
         self.deferred_queue.append(&mut other.deferred_queue);
-        self.cancel.append(&mut other.cancel);
         self.unblock.append(&mut other.unblock);
         self.disposed.append(&mut other.disposed);
         self.cleanup_finished.append(&mut other.cleanup_finished);

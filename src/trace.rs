@@ -277,6 +277,15 @@ impl MessageSent {
     }
 }
 
+/// Track which outputs of an operation did not yield any message after the
+/// operation was triggered.
+#[derive(Debug, Clone)]
+pub struct OutputDisposed {
+    /// Information about which output port did not yield any message for a
+    /// request that came in.
+    pub output: TraceSource,
+}
+
 #[derive(Debug, Clone, Event)]
 pub struct BufferEvent {
     /// The stack of session IDs in which the buffer was accessed. The first entry
@@ -367,6 +376,7 @@ impl<'w, 's> BufferTracer<'w, 's> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct SessionEvent {
     session_stack: SmallVec<[Entity; 8]>,
     change: SessionChange,
@@ -391,6 +401,7 @@ pub enum TracedEventKind {
     MessageSent(MessageSent),
     BufferEvent(BufferEvent),
     SessionChange(SessionEvent),
+    OutputDisposed(OutputDisposed),
 }
 
 #[derive(Debug, Clone, Event)]

@@ -24,7 +24,7 @@ use bevy_ecs::{
 use std::future::Future;
 
 use crate::{
-    Cancellable, Detached, InputCommand, IntoAsyncMap, IntoBlockingMapOnce, ProvideOnce, Series,
+    Cancellable, Detached, SeriesRequest, IntoAsyncMap, IntoBlockingMapOnce, ProvideOnce, Series,
     SeriesMarker, SessionStatus, StreamPack, UnusedTarget, cancel_execution,
 };
 
@@ -95,25 +95,30 @@ impl<'w, 's> RequestExt<'w, 's> for Commands<'w, 's> {
         P::Response: 'static + Send + Sync,
         P::Streams: StreamPack,
     {
-        let target = self
-            .spawn((Detached::default(), UnusedTarget, SeriesMarker))
-            .id();
+        let session = self.spawn(()).id();
 
         let source = self
             .spawn((
+                ChildOf(session),
                 Cancellable::new(cancel_execution),
                 SeriesMarker,
                 SessionStatus::Active,
             ))
-            // We set the parent of this source to the target so that when the
-            // target gets despawned, this will also be despawned.
-            .insert(ChildOf(target))
+            .id();
+
+        let target = self
+            .spawn((
+                ChildOf(source),
+                Detached::default(),
+                UnusedTarget,
+                SeriesMarker,
+            ))
             .id();
 
         provider.connect(None, source, target, self);
-        self.queue(InputCommand {
-            session: source,
-            target: source,
+        self.queue(SeriesRequest {
+            session,
+            start: source,
             data: request,
         });
 
