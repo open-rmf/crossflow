@@ -61,14 +61,14 @@ use std::sync::{Arc, Mutex};
 use thiserror::Error as ThisError;
 
 #[derive(Bundle)]
-pub struct SessionBundle {
+pub struct ScopedSessionBundle {
     parent_session: ParentSession,
     child_of: ChildOf,
     scope: SessionOfScope,
     status: SessionStatus,
 }
 
-impl SessionBundle {
+impl ScopedSessionBundle {
     pub fn new(
         parent: Entity,
         scope: Entity
@@ -398,7 +398,7 @@ fn dyn_begin_scope<Request: 'static + Send + Sync>(
     let input = world.take_input::<Request>(source)?;
 
     let scoped_session = world
-        .spawn(SessionBundle::new(input.session, source))
+        .spawn(ScopedSessionBundle::new(input.session, source))
         .id();
 
     begin_scope(
@@ -1638,7 +1638,7 @@ where
         let keys = buffers.0.create_key(&key_builder);
 
         let cleanup_session = world
-            .spawn(SessionBundle::new(scoped_session, target))
+            .spawn(ScopedSessionBundle::new(scoped_session, target))
             .id();
         world
             .get_entity_mut(target)
@@ -2083,7 +2083,7 @@ pub(crate) struct ExitTargetStorage {
 #[derive(Debug)]
 pub(crate) struct ExitTarget {
     pub(crate) target: Entity,
-    pub(crate) source: Entity,
+    pub(crate) request_id: RequestId,
     pub(crate) parent_session: Entity,
     pub(crate) blocker: Option<Blocker>,
 }
@@ -2273,7 +2273,7 @@ impl<S: StreamEffect> StreamRedirect for AnonymousStreamRedirect<S> {
             //
             // TODO(@mxgrey): Consider whether this should count as a disposal.
             .or_not_ready()?;
-        let exit_source = exit.source;
+        let exit_source = exit.request_id.source;
         let parent_session = exit.parent_session;
 
         let stream_targets = world.get::<StreamTargetMap>(exit_source).or_broken()?;

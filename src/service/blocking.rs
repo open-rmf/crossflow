@@ -171,12 +171,11 @@ where
         );
         service.apply_deferred(world);
 
-        let mut unused_streams = UnusedStreams::new(source);
+        let request_id = RequestId { session, source, seq };
+        let mut unused_streams = UnusedStreams::new(request_id);
         Streams::process_stream_buffers(
             streams,
-            source,
-            seq,
-            session,
+            request_id,
             &mut unused_streams,
             world,
             roster,
@@ -199,11 +198,8 @@ where
         }
 
         if !unused_streams.streams.is_empty() {
-            world.get_entity_mut(source).or_broken()?.emit_disposal(
-                session,
-                unused_streams.into(),
-                roster,
-            );
+            let port = output_port::name_str("stream_out");
+            world.emit_disposal(request_id, &port, unused_streams.into(), roster);
         }
 
         let route = MessageRoute {

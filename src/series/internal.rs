@@ -147,7 +147,7 @@ pub(crate) fn cancel_execution(
         terminal = target.get();
     }
 
-    if let Some(on_cancel) = world.get::<OnTerminalCancelled>(terminal) {
+    if let Some(on_cancel) = world.get::<OnSeriesCancelled>(terminal) {
         let on_cancel = on_cancel.0;
         let cancel = cancel.for_target(terminal);
         match on_cancel(OperationCancel {
@@ -178,7 +178,12 @@ pub(crate) fn cancel_execution(
 }
 
 #[derive(Component)]
-pub(crate) struct OnTerminalCancelled(pub(crate) fn(OperationCancel) -> OperationResult);
+pub(crate) struct OnSeriesCancelled(pub(crate) fn(SeriesCancel) -> OperationResult);
+
+pub(crate) struct SeriesCancel<'a> {
+    source: Entity,
+    world: &'a mut World,
+}
 
 #[derive(Resource)]
 pub(crate) struct SeriesLifecycleChannel {

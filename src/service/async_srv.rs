@@ -20,9 +20,9 @@ use crate::{
     Deliver, Delivery, DeliveryOrder, DeliveryUpdate, Disposal, Input, IntoService, ManageInput,
     OperateTask, OperationError, OperationRequest, OperationResult, OperationRoster, OrBroken,
     Sendish, ServiceBuilder, ServiceBundle, ServiceRequest, ServiceTrait, SingleTargetStorage,
-    StopTask, StopTaskFailure, StreamPack, UnhandledErrors, RequestId, Seq,
+    StopTask, StopTaskFailure, StreamPack, UnhandledErrors, RequestId, Seq, output_port, ManageDisposal,
     async_execution::{spawn_task, task_cancel_sender},
-    dispose_for_despawned_service, emit_disposal, insert_new_order, pop_next_delivery,
+    dispose_for_despawned_service, insert_new_order, pop_next_delivery,
     service::service_builder::{ParallelChosen, SerialChosen},
 };
 
@@ -124,9 +124,7 @@ where
         let update = insert_new_order::<Request>(
             delivery.as_mut(),
             DeliveryOrder {
-                source,
-                seq,
-                session,
+                request_id: RequestId { session, source, seq },
                 task_id,
                 request,
                 instructions: instructions.clone(),
@@ -138,8 +136,7 @@ where
                 let serve_next = serve_next_async_request::<Request, Streams, Task>;
                 let blocker = blocking.map(|label| Blocker {
                     provider,
-                    source,
-                    session,
+                    request_id: RequestId { session, source, seq },
                     label,
                     serve_next,
                 });
@@ -151,8 +148,8 @@ where
                 label,
             } => {
                 for cancelled in cancelled {
-                    let disposal = Disposal::supplanted(cancelled.source, source, session);
-                    emit_disposal(cancelled.source, cancelled.session, disposal, world, roster);
+                    let disposal = Disposal::supplanted(RequestId { session, source, seq });
+                    world.emit_disposal(cancelled.request_id, &output_port::next(), disposal, roster);
                     if let Ok(task_mut) = world.get_entity_mut(cancelled.task_id) {
                         task_mut.despawn();
                     }
@@ -165,7 +162,7 @@ where
                         .or_broken()
                         .and_then(|task_ref| task_ref.get::<StopTask>().or_broken().copied())
                         .and_then(|stop_task| {
-                            let disposal = Disposal::supplanted(stop.source, source, session);
+                            let disposal = Disposal::supplanted(RequestId { session, source, seq });
                             (stop_task.0)(
                                 OperationRequest {
                                     source: stop.task_id,
@@ -190,8 +187,7 @@ where
                         let serve_next = serve_next_async_request::<Request, Streams, Task>;
                         roster.unblock(Blocker {
                             provider,
-                            source: stop.source,
-                            session: stop.session,
+                            request_id: stop.request_id,
                             label,
                             serve_next,
                         });
@@ -286,7 +282,8 @@ where
         .get_resource_or_insert_with(ChannelQueue::new)
         .sender
         .clone();
-    let channel = Channel::new(source, session, sender.clone());
+    let request_id = RequestId { source, seq, session };
+    let channel = Channel::new(request_id, sender.clone());
     let streams = channel.for_streams::<Streams>(world)?;
     let job = service.run(
         AsyncService {
@@ -294,8 +291,7 @@ where
             streams,
             channel,
             provider,
-            id: RequestId { source, seq },
-            session,
+            id: request_id,
         },
         world,
     );
@@ -319,8 +315,7 @@ where
 
     OperateTask::<_, Streams>::new(
         task_id,
-        session,
-        source,
+        request_id,
         target,
         task,
         cancel_sender,
@@ -347,7 +342,6 @@ pub(crate) fn serve_next_async_request<Request, Streams, Task>(
     loop {
         let Some(Deliver {
             request,
-            seq,
             task_id,
             blocker,
         }) = pop_next_delivery::<Request>(
@@ -361,8 +355,9 @@ pub(crate) fn serve_next_async_request<Request, Streams, Task>(
             return;
         };
 
-        let session = blocker.session;
-        let source = blocker.source;
+        let session = blocker.request_id.session;
+        let source = blocker.request_id.source;
+        let seq = blocker.request_id.seq;
 
         let Some(target) = world.get::<SingleTargetStorage>(source) else {
             // This will not be able to run, so we should move onto the next

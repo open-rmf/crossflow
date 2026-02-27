@@ -26,7 +26,7 @@ use std::{fmt::Display, sync::Arc};
 use crate::{
     CancelFailure, DisplayDebugSlice, Disposal, Filtered, OperationError, OperationResult,
     OperationRoster, ScopeStorage, Supplanted, UnhandledErrors, RouteSource, RequestId,
-    SessionOfScope,
+    SessionOfScope, RouteTarget,
 };
 
 /// Information about the cancellation that occurred.
@@ -74,16 +74,9 @@ impl Cancellation {
     }
 
     pub fn supplanted(
-        supplanted_at_node: Entity,
-        supplanted_by_node: Entity,
-        supplanting_session: Entity,
+        supplanted_by: RequestId,
     ) -> Self {
-        Supplanted {
-            supplanted_at_node,
-            supplanted_by_node,
-            supplanting_session,
-        }
-        .into()
+        Supplanted { supplanted_by }.into()
     }
 
     pub fn invalid_span(from_point: Entity, to_point: Option<Entity>) -> Self {
@@ -392,12 +385,33 @@ pub trait ManageCancellation {
     /// # Params
     /// * cancel_scope_endpoint - The cancellation endpoint of the scope that is
     ///   being cancelled.
-    fn emit_cancel(
+    fn emit_scope_cancel(
         &mut self,
         source: RouteSource,
         session_to_cancel: Entity,
         cancellation: Cancellation,
         roster: &mut OperationRoster,
+    );
+
+    /// Notify a node that its service request has been cancelled.
+    ///
+    /// # Params
+    /// * cancel_source - The operation that caused the cancellation
+    /// - cancelled_request_id - The unique ID of the request whose outcome has been cancelled
+    fn notify_node_cancel(
+        &mut self,
+        cancel_source: RouteSource,
+        cancelled_request_id: RequestId,
+        cancellation: Cancellation,
+        roster: &mut OperationRoster,
+    );
+
+    /// Notify an operation within a series that the series is being cancelled.
+    fn notify_series_cancel(
+        &mut self,
+        source: RouteSource,
+        session: Entity,
+        cancellation: Cancellation,
     );
 
     fn emit_broken(
@@ -410,7 +424,7 @@ pub trait ManageCancellation {
 
 impl ManageCancellation for World {
     /// Have a workflow operation emit a signal to cancel a certain session.
-    fn emit_cancel(
+    fn emit_scope_cancel(
         &mut self,
         source: RouteSource,
         session_to_cancel: Entity,
@@ -419,11 +433,29 @@ impl ManageCancellation for World {
     ) {
         if let Some(scope) = self.get::<SessionOfScope>(session_to_cancel).map(|s| s.scope()) {
 
-        } else if let Some(on_cancel) = self.get::<OperationCancelStorage>(session_to_cancel).map(|s| s.0) {
-
         } else {
 
         }
+    }
+
+    /// Notify a node that its service request has been cancelled.
+    fn notify_node_cancel(
+        &mut self,
+        cancel_source: RouteSource,
+        cancelled_request_id: RequestId,
+        cancellation: Cancellation,
+        roster: &mut OperationRoster,
+    ) {
+
+    }
+
+    fn notify_series_cancel(
+        &mut self,
+        source: RouteSource,
+        session: Entity,
+        cancellation: Cancellation,
+    ) {
+
     }
 
     fn emit_broken(

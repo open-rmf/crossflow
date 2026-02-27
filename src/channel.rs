@@ -29,7 +29,8 @@ use tokio::sync::{
 use std::sync::Arc;
 
 use crate::{
-    OperationError, OperationRoster, Outcome, Promise, Provider, Reply, RequestExt, StreamPack, Seq,
+    OperationError, OperationRoster, Outcome, Promise, ProvideOnce, Reply, RequestExt, StreamPack, Seq,
+    RequestId,
 };
 
 /// Provides asynchronous access to the [`World`], allowing you to issue queries
@@ -50,7 +51,7 @@ impl Channel {
     /// [`Capture`]: crate::Capture
     pub fn request_outcome<P>(&self, request: P::Request, provider: P) -> Outcome<P::Response>
     where
-        P: Provider,
+        P: ProvideOnce,
         P::Request: 'static + Send + Sync,
         P::Response: 'static + Send + Sync,
         P::Streams: 'static + StreamPack,
@@ -66,7 +67,7 @@ impl Channel {
     #[deprecated(since = "0.0.6", note = "Use .request_outcome() instead")]
     pub fn query<P>(&self, request: P::Request, provider: P) -> Promise<P::Response>
     where
-        P: Provider,
+        P: ProvideOnce,
         P::Request: 'static + Send + Sync,
         P::Response: 'static + Send + Sync,
         P::Streams: 'static + StreamPack,
@@ -157,12 +158,10 @@ impl Channel {
         Ok(Streams::make_stream_channels(&self.inner, world))
     }
 
-    pub(crate) fn new(source: Entity, seq: Seq, session: Entity, sender: TokioSender<ChannelItem>) -> Self {
+    pub(crate) fn new(request_id: RequestId, sender: TokioSender<ChannelItem>) -> Self {
         Self {
             inner: Arc::new(InnerChannel {
-                source,
-                seq,
-                session,
+                request_id,
                 sender,
             }),
         }
@@ -171,19 +170,21 @@ impl Channel {
 
 #[derive(Clone)]
 pub struct InnerChannel {
-    pub(crate) source: Entity,
-    pub(crate) seq: Seq,
-    pub(crate) session: Entity,
+    pub(crate) request_id: RequestId,
     pub(crate) sender: TokioSender<ChannelItem>,
 }
 
 impl InnerChannel {
+    pub fn request_id(&self) -> RequestId {
+        self.request_id
+    }
+
     pub fn source(&self) -> Entity {
-        self.source
+        self.request_id.source
     }
 
     pub fn seq(&self) -> Seq {
-        self.seq
+        self.request_id.seq
     }
 
     pub fn sender(&self) -> &TokioSender<ChannelItem> {

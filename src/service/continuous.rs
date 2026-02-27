@@ -17,7 +17,7 @@
 
 use bevy_ecs::{
     hierarchy::ChildOf,
-    prelude::{Command, Commands, Component, Entity, Event, EventReader, In, Local, Query, World},
+    prelude::{Command, Commands, Component, Entity, Event, EventReader, Local, Query, World},
     schedule::IntoScheduleConfigs,
     system::{IntoSystem, ScheduleSystem, SystemParam},
     world::EntityWorldMut,
@@ -33,8 +33,8 @@ use crate::{
     ManageInput, OperationCleanup, OperationError, OperationReachability, OperationRequest,
     OperationResult, OperationRoster, OrBroken, ProviderStorage, ReachabilityResult, ScopeStorage,
     ServiceBuilder, ServiceBundle, ServiceRequest, ServiceTrait, SingleTargetStorage, StreamOf,
-    StreamPack, StreamTargetMap, UnhandledErrors, dispose_for_despawned_service, emit_disposal,
-    insert_new_order, pop_next_delivery, MessageRoute, output_port, Seq,
+    StreamPack, StreamTargetMap, UnhandledErrors, dispose_for_despawned_service,
+    insert_new_order, pop_next_delivery, MessageRoute, output_port, Seq, RequestId, ManageDisposal
 };
 
 pub use bevy_ecs::schedule::ScheduleConfigs;
@@ -210,11 +210,11 @@ impl<'a, Request> OrderView<'a, Request> {
     }
 
     pub fn session(&self) -> Entity {
-        self.order.session
+        self.order.request_id.session
     }
 
     pub fn source(&self) -> Entity {
-        self.order.source
+        self.order.request_id.source
     }
 
     pub fn index(&self) -> usize {
@@ -290,7 +290,7 @@ where
         // INVARIANT: We have already confirmed that the index is smaller than
         // the length of the SmallVec, so it should be a valid index.
         let item = self.queue.inner.get(index).unwrap();
-        let streams = self.make_stream_buffers(item.source);
+        let streams = self.make_stream_buffers(item.request_id.source);
         Some(OrderMut {
             index,
             streams: Some(streams),
@@ -311,7 +311,7 @@ where
                 continue;
             }
 
-            let streams = self.make_stream_buffers(item.source);
+            let streams = self.make_stream_buffers(item.request_id.source);
             f(OrderMut {
                 index,
                 streams: Some(streams),
@@ -343,7 +343,7 @@ where
                 continue;
             }
 
-            let streams = self.make_stream_buffers(item.source);
+            let streams = self.make_stream_buffers(item.request_id.source);
             let u = f(OrderMut {
                 index,
                 streams: Some(streams),
@@ -399,12 +399,12 @@ where
 
     /// Check the session that this order is associated with.
     pub fn session(&self) -> Entity {
-        self.request.session
+        self.request.request_id.session
     }
 
     /// Check the ID of the node that this order is associated with
     pub fn source(&self) -> Entity {
-        self.request.source
+        self.request.request_id.source
     }
 
     /// Provide a response for this order. After calling this you will not be
@@ -414,9 +414,7 @@ where
             self.index,
             DeliverResponse {
                 provider: self.provider,
-                source: self.request.source,
-                seq: self.request.seq,
-                session: self.request.session,
+                request_id: self.request.request_id,
                 task_id: self.request.task_id,
                 data: response,
                 index: self.index,
@@ -456,9 +454,7 @@ where
         Streams::defer_buffers(
             // INVARIANT: This is the only place where streams are taken
             self.streams.take().unwrap(),
-            self.request.source,
-            self.request.seq,
-            self.request.session,
+            self.request.request_id,
             self.commands,
         );
     }
@@ -515,7 +511,7 @@ impl<Request> ContinuousQueueStorage<Request> {
             return Ok(false);
         };
 
-        Ok(queue.inner.iter().any(|order| order.session == session))
+        Ok(queue.inner.iter().any(|order| order.request_id.session == session))
     }
 
     fn cleanup(provider: Entity, session: Entity, world: &mut World) -> OperationResult
@@ -527,7 +523,7 @@ impl<Request> ContinuousQueueStorage<Request> {
             return Ok(());
         };
 
-        queue.inner.retain(|order| order.session != session);
+        queue.inner.retain(|order| order.request_id.session != session);
         Ok(())
     }
 }
@@ -576,9 +572,7 @@ impl ActiveContinuousSessions {
 
 struct ContinuousOrder<Request> {
     data: Request,
-    session: Entity,
-    source: Entity,
-    seq: Seq,
+    request_id: RequestId,
     task_id: Entity,
     unblock: Option<Blocker>,
 }
@@ -586,8 +580,7 @@ struct ContinuousOrder<Request> {
 impl<Request> std::fmt::Debug for ContinuousOrder<Request> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ContinuousQueueStorage")
-            .field("session", &self.session)
-            .field("source", &self.source)
+            .field("request_id", &self.request_id)
             .field("task_id", &self.task_id)
             .finish()
     }
@@ -600,9 +593,7 @@ struct DeliverResponses<Request, Response, Streams> {
 
 struct DeliverResponse<Response> {
     provider: Entity,
-    source: Entity,
-    seq: Seq,
-    session: Entity,
+    request_id: RequestId,
     task_id: Entity,
     data: Response,
     index: usize,
@@ -620,14 +611,13 @@ where
             let mut remove: SmallVec<[(usize, Entity); 16]> = SmallVec::new();
             for DeliverResponse {
                 provider,
-                source,
-                seq,
-                session,
+                request_id,
                 data,
                 index,
                 task_id,
             } in self.responses
             {
+                let RequestId { session, source, seq } = request_id;
                 remove.push((index, provider));
                 let r = try_give_response(source, seq, session, data, world, &mut deferred);
                 if let Err(OperationError::Broken(backtrace)) = r {
@@ -651,8 +641,10 @@ where
                     // reachability test may have concluded with a false
                     // positive, and it needs to be rechecked now that this
                     // node has finished.
-                    if let Some(scope) = world.get::<ScopeStorage>(source) {
-                        deferred.disposed(scope.get(), source, session);
+                    if world.get::<ScopeStorage>(source).is_some() {
+                        let port = output_port::name_str("stream_out");
+                        let disposal = Disposal::async_node_with_streams();
+                        world.emit_disposal(request_id, &port, disposal, &mut *deferred);
                     }
                 }
 
@@ -761,9 +753,7 @@ where
         let update = insert_new_order::<Request>(
             delivery.as_mut(),
             DeliveryOrder {
-                source,
-                seq,
-                session,
+                request_id: RequestId { session, source, seq },
                 task_id,
                 request,
                 instructions: instructions.clone(),
@@ -775,8 +765,7 @@ where
                 let serve_next = serve_next_continuous_request::<Request, Response, Streams>;
                 let blocker = blocking.map(|label| Blocker {
                     provider,
-                    source,
-                    session,
+                    request_id: RequestId { session, source, seq },
                     label,
                     serve_next,
                 });
@@ -788,8 +777,8 @@ where
                 label,
             } => {
                 for cancelled in cancelled {
-                    let disposal = Disposal::supplanted(cancelled.source, source, session);
-                    emit_disposal(cancelled.source, cancelled.session, disposal, world, roster);
+                    let disposal = Disposal::supplanted(RequestId { session, source, seq });
+                    world.emit_disposal(cancelled.request_id, &output_port::next(), disposal, roster);
                     if let Ok(task_mut) = world.get_entity_mut(cancelled.task_id) {
                         task_mut.despawn();
                     }
@@ -818,15 +807,14 @@ where
                             serve_next_continuous_request::<Request, Response, Streams>;
                         roster.unblock(Blocker {
                             provider,
-                            source: stop.source,
-                            session: stop.session,
+                            request_id: stop.request_id,
                             label,
                             serve_next,
                         });
                     }
 
-                    let disposal = Disposal::supplanted(stop.source, source, session);
-                    emit_disposal(stop.source, stop.session, disposal, world, roster);
+                    let disposal = Disposal::supplanted(RequestId { session, source, seq });
+                    world.emit_disposal(stop.request_id, &output_port::next(), disposal, roster);
                     if let Ok(task_mut) = world.get_entity_mut(stop.task_id) {
                         task_mut.despawn();
                     }
@@ -877,9 +865,7 @@ where
         .or_broken()?;
     queue.inner.push(ContinuousOrder {
         data: request,
-        session,
-        source,
-        seq,
+        request_id: RequestId { session, source, seq },
         task_id,
         unblock: blocker,
     });
@@ -902,7 +888,6 @@ fn serve_next_continuous_request<Request, Response, Streams>(
     loop {
         let Some(Deliver {
             request,
-            seq,
             task_id,
             blocker,
         }) = pop_next_delivery::<Request>(
@@ -916,9 +901,7 @@ fn serve_next_continuous_request<Request, Response, Streams>(
             return;
         };
 
-        let session = blocker.session;
-        let source = blocker.source;
-
+        let RequestId { session, source, seq } = blocker.request_id;
         let Some(target) = world.get::<SingleTargetStorage>(source) else {
             // This will not be able to run, so we should move onto the next
             // item in the queue.

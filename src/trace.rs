@@ -382,6 +382,23 @@ pub struct SessionEvent {
     change: SessionChange,
 }
 
+impl SessionEvent {
+    pub(crate) fn despawned(session: Entity, world: &mut World) {
+        let session_stack = get_session_stack_from_world(session, world);
+        let event = SessionEvent {
+            session_stack,
+            change: SessionChange::Despawned,
+        };
+
+        world.trigger(TracedEvent {
+            event: TracedEventKind::SessionEvent(event),
+            instant: Instant::now(),
+            time: SystemTime::now(),
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum SessionChange {
     Spawned {
         scope: Option<TraceTarget>,
@@ -400,7 +417,7 @@ pub enum SessionChange {
 pub enum TracedEventKind {
     MessageSent(MessageSent),
     BufferEvent(BufferEvent),
-    SessionChange(SessionEvent),
+    SessionEvent(SessionEvent),
     OutputDisposed(OutputDisposed),
 }
 
@@ -468,6 +485,15 @@ fn get_session_stack(
     }
     session_stack.reverse();
     session_stack
+}
+
+fn get_session_stack_from_world(
+    session: Entity,
+    world: &mut World,
+) -> SmallVec<[Entity; 8]> {
+    let mut child_of_state = world.query::<&ChildOf>();
+    let child_of = child_of_state.query(world);
+    get_session_stack(session, &child_of)
 }
 
 #[cfg(test)]

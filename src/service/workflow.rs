@@ -16,12 +16,13 @@
 */
 
 use crate::{
-    Blocker, Cancel, Cancellation, Deliver, Delivery, DeliveryOrder, DeliveryUpdate, Disposal,
+    Blocker, Cancellation, Deliver, Delivery, DeliveryOrder, DeliveryUpdate, Disposal,
     ExitTarget, ExitTargetStorage, Input, ManageInput, OperationCleanup, OperationError,
     OperationReachability, OperationRequest, OperationResult, OperationRoster, OrBroken, Seq,
     ParentSession, ProviderStorage, ReachabilityResult, Service, ServiceRequest, ServiceTrait,
     SessionStatus, SingleTargetStorage, StreamPack, begin_scope, dispose_for_despawned_service,
-    emit_disposal, insert_new_order, pop_next_delivery,
+    insert_new_order, pop_next_delivery, RequestId, ManageCancellation, RouteSource,
+    output_port, ManageDisposal,
 };
 
 use bevy_ecs::prelude::{ChildOf, Component, Entity, World};
@@ -185,9 +186,7 @@ where
     let update = insert_new_order::<Request>(
         delivery.as_mut(),
         DeliveryOrder {
-            source,
-            seq,
-            session: parent_session,
+            request_id: RequestId { session: parent_session, source, seq },
             task_id: scoped_session,
             request,
             instructions,
@@ -199,8 +198,7 @@ where
             let serve_next = serve_next_workflow_request::<Request, Response, Streams>;
             let blocker = blocking.map(|label| Blocker {
                 provider,
-                source,
-                session: parent_session,
+                request_id: RequestId { session: parent_session, source, seq },
                 label,
                 serve_next,
             });
@@ -210,18 +208,23 @@ where
             cancelled, stop, ..
         } => {
             for cancelled in cancelled {
-                let disposal = Disposal::supplanted(cancelled.source, source, parent_session);
-                emit_disposal(cancelled.source, cancelled.session, disposal, world, roster);
+                let disposal = Disposal::supplanted(RequestId { session: parent_session, source, seq });
+                world.emit_disposal(cancelled.request_id, &output_port::next(), disposal, roster);
             }
             if let Some(stop) = stop {
                 // This workflow is already running and we need to stop it at the
                 // scope level
-                roster.cancel(Cancel {
-                    origin: source,
-                    target: workflow.scope,
-                    session: Some(stop.session),
-                    cancellation: Cancellation::supplanted(stop.source, source, parent_session),
-                });
+                world.emit_scope_cancel(
+                    RouteSource {
+                        session: parent_session,
+                        source,
+                        seq,
+                        port: &output_port::name_str("supplant"),
+                    },
+                    stop.task_id,
+                    Cancellation::supplanted(RequestId { session: parent_session, source, seq }),
+                    roster,
+                );
             }
 
             // The request has been queued up and should be delivered later.
@@ -268,7 +271,7 @@ where
         scoped_session,
         ExitTarget {
             target,
-            source,
+            request_id: RequestId { source, session: input.session, seq: input.seq },
             parent_session,
             blocker,
         },
@@ -306,7 +309,6 @@ fn serve_next_workflow_request<Request, Response, Streams>(
             request,
             task_id: scoped_session,
             blocker,
-            seq,
         }) = pop_next_delivery::<Request>(
             provider,
             label.clone(),
@@ -318,9 +320,7 @@ fn serve_next_workflow_request<Request, Response, Streams>(
             return;
         };
 
-        let parent_session = blocker.session;
-        let source = blocker.source;
-
+        let RequestId { session: parent_session, source, seq } = blocker.request_id;
         let Some(target) = world.get::<SingleTargetStorage>(source) else {
             // This will not be able to run, so we should move onto the next
             // item in the queue.

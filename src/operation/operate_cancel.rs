@@ -79,7 +79,7 @@ where
         let scope = *source_ref.get::<ScopeStorage>().or_broken()?;
 
         let cancellation = Cancellation::triggered(source, Some(data.to_string()));
-        world.emit_cancel(session, cancellation, roster);
+        world.emit_scope_cancel(session, cancellation, roster);
         Ok(())
     }
 

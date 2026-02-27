@@ -17,7 +17,7 @@
 
 use crate::{
     AddOperation, Async, Blocking, Channel, ChannelQueue, Input, ManageDisposal, Seq, RequestId,
-    ManageInput, OperateCallback, OperateTask, OperationError, OperationRoster, OrBroken,
+    ManageInput, OperateCallback, OperateTask, OperationError, OperationRoster,
     ProvideOnce, Provider, Sendish, StreamPack, UnusedStreams, MessageRoute, output_port,
     async_execution::{spawn_task, task_cancel_sender},
     make_stream_buffers_from_world,
@@ -179,11 +179,10 @@ impl<'a> CallbackRequest<'a> {
         seq: Seq,
         unused_streams: UnusedStreams,
     ) -> Result<(), OperationError> {
+        let request_id = RequestId { session, source: self.source, seq };
         if !unused_streams.streams.is_empty() {
-            self.world
-                .get_entity_mut(self.source)
-                .or_broken()?
-                .emit_disposal(session, unused_streams.into(), self.roster);
+            let port = output_port::name_str("stream_out");
+            self.world.emit_disposal(request_id, &port, unused_streams.into(), self.roster);
         }
 
         let route = MessageRoute {
@@ -201,6 +200,7 @@ impl<'a> CallbackRequest<'a> {
     fn give_task<Task: Future + 'static + Sendish, Streams: StreamPack>(
         &mut self,
         session: Entity,
+        seq: Seq,
         task: Task,
     ) -> Result<(), OperationError>
     where
@@ -217,8 +217,7 @@ impl<'a> CallbackRequest<'a> {
         let cancel_sender = task_cancel_sender(self.world);
         OperateTask::<_, Streams>::new(
             task_id,
-            session,
-            self.source,
+            RequestId { session, source: self.source, seq },
             self.target,
             task,
             cancel_sender,
@@ -239,7 +238,7 @@ impl<'a> CallbackRequest<'a> {
             .get_resource_or_insert_with(ChannelQueue::new)
             .sender
             .clone();
-        let channel = Channel::new(self.source, seq, session, sender);
+        let channel = Channel::new(RequestId { source: self.source, seq, session }, sender);
         let streams = channel.for_streams::<Streams>(self.world)?;
         Ok((channel, streams))
     }
@@ -289,6 +288,8 @@ where
             data: request,
             seq,
         } = input.get_request()?;
+        let source = input.source;
+        let request_id = RequestId { source, seq, session };
 
         if !self.initialized {
             self.system.initialize(input.world);
@@ -301,18 +302,16 @@ where
             Blocking {
                 request,
                 streams: streams.clone(),
-                id: RequestId { source: input.source, seq, session },
+                id: request_id,
             },
             input.world,
         );
         self.system.apply_deferred(input.world);
 
-        let mut unused_streams = UnusedStreams::new(input.source);
+        let mut unused_streams = UnusedStreams::new(request_id);
         Streams::process_stream_buffers(
             streams,
-            input.source,
-            seq,
-            session,
+            RequestId { session, source: input.source, seq },
             &mut unused_streams,
             input.world,
             input.roster,
@@ -361,7 +360,7 @@ where
         );
         self.system.apply_deferred(input.world);
 
-        input.give_task::<_, Streams>(session, task)
+        input.give_task::<_, Streams>(session, seq, task)
     }
 }
 

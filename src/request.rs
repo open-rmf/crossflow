@@ -108,7 +108,7 @@ impl<'w, 's> RequestExt<'w, 's> for Commands<'w, 's> {
 
         let target = self
             .spawn((
-                ChildOf(source),
+                ChildOf(session),
                 Detached::default(),
                 UnusedTarget,
                 SeriesMarker,
@@ -123,6 +123,7 @@ impl<'w, 's> RequestExt<'w, 's> for Commands<'w, 's> {
         });
 
         Series {
+            session,
             source,
             target,
             commands: self,

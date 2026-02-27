@@ -16,7 +16,7 @@
 */
 
 use bevy_ecs::{
-    prelude::{Component, Entity, World},
+    prelude::{Component, Entity, World, Children},
     world::{EntityRef, EntityWorldMut},
 };
 
@@ -33,8 +33,8 @@ use smallvec::SmallVec;
 use thiserror::Error as ThisError;
 
 use crate::{
-    Cancel, Cancellation, DisposalFailure, OperationResult, OperationRoster, OrBroken,
-    SeriesMarker, UnhandledErrors, UnusedTarget, operation::ScopeStorage, RequestId, OutputPort,
+    Cancel, Cancellation, DisposalFailure, OperationResult, OperationRoster, OrBroken, OutputPort,
+    SeriesMarker, UnhandledErrors, UnusedTarget, operation::ScopeStorage, RequestId, ManageCancellation,
 };
 
 #[derive(ThisError, Debug, Clone)]
@@ -82,16 +82,15 @@ impl Disposal {
     }
 
     pub fn supplanted(
-        supplanted_at_node: Entity,
-        supplanted_by_node: Entity,
-        supplanting_session: Entity,
-    ) -> Disposal {
-        Supplanted {
-            supplanted_at_node,
-            supplanted_by_node,
-            supplanting_session,
+        supplanted_by: RequestId,
+    ) -> Self {
+        Supplanted { supplanted_by }.into()
+    }
+
+    pub fn async_node_with_streams() -> Self {
+        Self {
+            cause: Arc::new(DisposalCause::AsyncNodeWithStreams),
         }
-        .into()
     }
 
     pub fn filtered(filtered_at_node: Entity, reason: Option<anyhow::Error>) -> Self {
@@ -179,10 +178,18 @@ pub enum DisposalCause {
     #[error("{}", .0)]
     Scope(Cancellation),
 
-    /// One or more streams from a node never emitted any signal. This can lead
-    /// to unexpected
+    /// A stream from a node never emitted any signal. This can cause some
+    /// branches of the workflow to become unreachable, so we consider it a
+    /// disposal event.
     #[error("{}", .0)]
     UnusedStreams(UnusedStreams),
+
+    /// Whenever an async node with streams finishes running we need to do a
+    /// reachability check because it's possible that an earlier reachability
+    /// check was depending on the possibility that this node would eventually
+    /// produce one of its streams.
+    #[error("An async node with streams finished running")]
+    AsyncNodeWithStreams,
 
     /// Some nodes in the workflow were trimmed.
     #[error("{}", .0)]
@@ -211,30 +218,18 @@ pub enum DisposalCause {
     IncompleteSplit(IncompleteSplit),
 }
 
+impl DisposalCause {
+    pub fn stream_disposal(&self) -> bool {
+        matches!(self, Self::UnusedStreams(_) | Self::AsyncNodeWithStreams)
+    }
+}
+
 /// A variant of [`DisposalCause`]
 #[derive(ThisError, Debug, Clone, Copy)]
 #[error("request was supplanted")]
 pub struct Supplanted {
-    /// ID of the node whose service request was supplanted
-    pub supplanted_at_node: Entity,
-    /// ID of the node that did the supplanting
-    pub supplanted_by_node: Entity,
-    /// ID of the session that did the supplanting
-    pub supplanting_session: Entity,
-}
-
-impl Supplanted {
-    pub fn new(
-        cancelled_at_node: Entity,
-        supplanting_node: Entity,
-        supplanting_session: Entity,
-    ) -> Self {
-        Self {
-            supplanted_at_node: cancelled_at_node,
-            supplanted_by_node: supplanting_node,
-            supplanting_session,
-        }
-    }
+    /// ID of the request that did the supplanting
+    pub supplanted_by: RequestId,
 }
 
 impl From<Supplanted> for DisposalCause {
@@ -374,18 +369,18 @@ impl From<PoisonedMutexDisposal> for DisposalCause {
 
 /// A variant of [`DisposalCause`]
 #[derive(ThisError, Debug)]
-#[error("streams unused for node [{:?}]:{}", .node, DisplaySlice(.streams))]
+#[error("streams unused for a request [{:?}]:{}", .request_id, DisplaySlice(.streams))]
 pub struct UnusedStreams {
     /// The node which did not use all its streams
-    pub node: Entity,
+    pub request_id: RequestId,
     /// The streams which went unused.
     pub streams: Vec<&'static str>,
 }
 
 impl UnusedStreams {
-    pub fn new(node: Entity) -> Self {
+    pub fn new(request_id: RequestId) -> Self {
         Self {
-            node,
+            request_id,
             streams: Default::default(),
         }
     }
@@ -479,7 +474,7 @@ pub trait ManageDisposal {
     fn emit_disposal(
         &mut self,
         request_id: RequestId,
-        port: OuputPort,
+        port: OutputPort,
         disposal: Disposal,
         roster: &mut OperationRoster,
     );
@@ -496,6 +491,7 @@ pub trait InspectDisposals {
 }
 
 impl ManageDisposal for World {
+    /// Emit a signal that an output has been disposed for a certain operation.
     fn emit_disposal(
         &mut self,
         request_id: RequestId,
@@ -505,15 +501,24 @@ impl ManageDisposal for World {
     ) {
         let Some(scope) = self.get::<ScopeStorage>(request_id.source) else {
             if self.get::<SeriesMarker>(request_id.source).is_some() {
-                if let DisposalCause::Supplanted(supplanted) = disposal.cause.as_ref() {
-                    // If a series has been supplanted, we trigger a cancellation
-                    // for it. Besides supplanting, we do not generally convert a
-                    // disposal into a cancellation because sometimes services will
-                    // emit disposals just to trigger a reachability check, e.g. for
-                    // unused streams, not because the actual result is undeliverable.
-                    let cancellation: Cancellation = (*supplanted).into();
+                if !disposal.cause.stream_disposal() {
+                    // If a series has had one of its "next" outputs disposed,
+                    // we trigger a cancellation for it.
+                    //
+                    // We do not convert stream disposals into a cancellation
+                    // because they do not effect the ability of the series to
+                    // reach its end.
+                    let session = request_id.session;
+                    let cancellation = Cancellation::unreachable(session, session, vec![disposal]);
+
+                    if let Some(operations) = self.get::<Children>(session).cloned() {
+                        for op in operations.iter() {
+
+                        }
+                    }
+
                     roster.cancel(Cancel {
-                        origin: self.id(),
+                        origin: request_id,
                         target: session,
                         session: Some(session),
                         cancellation,
@@ -528,17 +533,14 @@ impl ManageDisposal for World {
                 //
                 // We can safely ignore disposals for unused targets because
                 // unused targets cannot affect the reachability of a workflow.
-                let broken_node = self.id();
-                self.world_scope(|world| {
-                    world
-                        .get_resource_or_insert_with(UnhandledErrors::default)
-                        .disposals
-                        .push(DisposalFailure {
-                            disposal,
-                            broken_node,
-                            backtrace: Some(Backtrace::new()),
-                        });
-                });
+                let broken_node = request_id.source;
+                self.get_resource_or_insert_with(UnhandledErrors::default)
+                    .disposals
+                    .push(DisposalFailure {
+                        disposal,
+                        broken_node,
+                        backtrace: Some(Backtrace::new()),
+                    });
             }
             return;
         };

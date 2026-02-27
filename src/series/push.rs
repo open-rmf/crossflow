@@ -22,6 +22,7 @@ use bevy_ecs::prelude::{Component, Entity};
 use crate::{
     Collection, Executable, Input, InputBundle, ManageInput, NamedValue, OperationRequest,
     OperationResult, OperationSetup, OrBroken, Storage, add_lifecycle_dependency,
+    ManageSession,
 };
 
 pub(crate) struct Push<T> {
@@ -66,14 +67,12 @@ impl<T: 'static + Send + Sync> Executable for Push<T> {
     }
 
     fn execute(OperationRequest { source, world, .. }: OperationRequest) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { session, data } = source_mut.take_input::<T>()?;
+        let Input { session, data, .. } = world.take_input::<T>(source)?;
         let PushSettings {
             target,
             is_stream,
             name,
-            ..
-        } = source_mut.get::<PushSettings>().or_broken()?.clone();
+        } = world.get::<PushSettings>(source).or_broken()?.clone();
         let mut target_mut = world.get_entity_mut(target).or_broken()?;
 
         if let Some(name) = name {
@@ -95,8 +94,8 @@ impl<T: 'static + Send + Sync> Executable for Push<T> {
             }
         }
 
-        if is_stream {
-            world.entity_mut(source).despawn();
+        if !is_stream {
+            world.despawn_session(session);
         }
         Ok(())
     }

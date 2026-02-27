@@ -150,9 +150,7 @@ impl<S: StreamEffect> StreamPack for DynamicallyNamedStream<S> {
 
     fn process_stream_buffers(
         buffer: Self::StreamBuffers,
-        source: Entity,
-        seq: Seq,
-        session: Entity,
+        request_id: RequestId,
         unused: &mut UnusedStreams,
         world: &mut World,
         roster: &mut OperationRoster,
@@ -168,9 +166,9 @@ impl<S: StreamEffect> StreamPack for DynamicallyNamedStream<S> {
             let target = targets.get(name.as_ref());
             let port = output_port::stream_out(name.as_ref());
             let mut request = StreamRequest {
-                request_id: RequestId { source, seq, session },
+                request_id,
                 port: &port,
-                target: NamedTarget::to_stream_target(target, session),
+                target: NamedTarget::to_stream_target(target, request_id.session),
                 world,
                 roster,
             };
@@ -181,7 +179,7 @@ impl<S: StreamEffect> StreamPack for DynamicallyNamedStream<S> {
                         .map(|t| t.send_output(NamedValue { name: name.clone(), value }, request))
                         .unwrap_or(Ok(()))
                 })
-                .report_unhandled(source, world);
+                .report_unhandled(request_id.source, world);
         }
 
         if was_unused {
@@ -193,16 +191,14 @@ impl<S: StreamEffect> StreamPack for DynamicallyNamedStream<S> {
 
     fn defer_buffers(
         buffer: Self::StreamBuffers,
-        source: Entity,
-        seq: Seq,
-        session: Entity,
+        request_id: RequestId,
         commands: &mut Commands,
     ) {
         commands.queue(SendNamedStreams::<
             S,
             DefaultStreamBufferContainer<NamedValue<S::Input>>,
         >::new(
-            buffer.container.take(), source, seq, session, buffer.targets
+            buffer.container.take(), request_id, buffer.targets
         ));
     }
 
@@ -240,9 +236,7 @@ impl<S: StreamEffect> DynamicallyNamedStreamChannel<S> {
     pub fn send(&self, data: NamedValue<S::Input>) {
         let NamedValue { name, value } = data;
         let f = send_named_stream::<S>(
-            self.inner.source,
-            self.inner.seq,
-            self.inner.session,
+            self.inner.request_id,
             Arc::clone(&self.targets),
             name,
             value,

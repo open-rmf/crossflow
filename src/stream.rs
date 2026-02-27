@@ -222,7 +222,7 @@ pub(crate) mod tests {
             }
             return input.request;
         })
-        .as_map();
+        .into_map();
 
         test_counting_stream(count_blocking_map, &mut context);
 
@@ -232,7 +232,7 @@ pub(crate) mod tests {
             }
             return input.request;
         })
-        .as_map();
+        .into_map();
 
         test_counting_stream(count_async_map, &mut context);
     }

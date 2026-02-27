@@ -174,10 +174,6 @@ fn garbage_cleanup(world: &mut World, roster: &mut OperationRoster) {
     while let Some(cleanup) = roster.cleanup_finished.pop() {
         cleanup.trigger(world, roster);
     }
-
-    while let Some(cancel) = roster.cancel.pop_front() {
-        cancel.trigger(world, roster);
-    }
 }
 
 fn collect_from_channels(

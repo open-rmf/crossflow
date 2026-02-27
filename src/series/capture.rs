@@ -20,9 +20,9 @@ use bevy_ecs::prelude::Component;
 use tokio::sync::oneshot;
 
 use crate::{
-    Cancellation, Executable, Input, InputBundle, ManageInput, OnTerminalCancelled,
+    Cancellation, Executable, Input, InputBundle, ManageInput, OnSeriesCancelled,
     OperationCancel, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    SeriesLifecycleChannel, async_execution::spawn_task,
+    SeriesLifecycleChannel, async_execution::spawn_task, ManageSession,
 };
 
 pub(crate) struct CaptureOutcome<T> {
@@ -72,18 +72,19 @@ impl<T: 'static + Send + Sync> Executable for CaptureOutcome<T> {
 
         world.entity_mut(source).insert((
             InputBundle::<T>::new(),
-            OnTerminalCancelled(cancel_recv_target::<T>),
+            OnSeriesCancelled(cancel_recv_target::<T>),
             OutcomeSenderStorage(self.value),
         ));
         Ok(())
     }
 
     fn execute(OperationRequest { source, world, .. }: OperationRequest) -> OperationResult {
+        let Input { data, session, .. } = world.take_input::<T>(source)?;
         let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { data, .. } = source_mut.take_input::<T>()?;
         let sender = source_mut.take::<OutcomeSenderStorage<T>>().or_broken()?.0;
         sender.send(Ok(data)).ok();
-        source_mut.despawn();
+
+        world.despawn_session(session);
 
         Ok(())
     }
@@ -96,7 +97,6 @@ where
     let mut target_mut = world.get_entity_mut(cancel.target).or_broken()?;
     let sender = target_mut.take::<OutcomeSenderStorage<T>>().or_broken()?.0;
     let _ = sender.send(Err(cancel.cancellation));
-    target_mut.despawn();
 
     Ok(())
 }

@@ -149,6 +149,9 @@ pub use request::*;
 pub mod service;
 pub use service::*;
 
+pub mod session;
+pub use session::*;
+
 pub mod stream;
 pub use stream::*;
 

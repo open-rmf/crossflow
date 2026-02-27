@@ -34,9 +34,8 @@ use crate::{
     AddOperation, Blocker, Broken, ChannelItem, ChannelQueue, Cleanup, Disposal, ManageInput,
     Operation, OperationCleanup, OperationError, OperationReachability, OperationRequest,
     OperationResult, OperationRoster, OperationSetup, OrBroken, ReachabilityResult, ScopeStorage,
-    StreamPack, UnhandledErrors,
+    StreamPack, UnhandledErrors, ManageDisposal, RequestId, output_port,
     async_execution::{CancelSender, TaskHandle, task_cancel_sender},
-    emit_disposal,
 };
 
 struct JobWaker {
@@ -69,8 +68,7 @@ impl WakeQueue {
 #[derive(Component)]
 pub(crate) struct OperateTask<Response: 'static + Send + Sync, Streams: StreamPack> {
     source: Entity,
-    session: Entity,
-    node: Entity,
+    request_id: RequestId,
     target: Entity,
     task: Option<TaskHandle<Response>>,
     cancel_sender: CancelSender,
@@ -86,8 +84,7 @@ impl<Response: 'static + Send + Sync, Streams: StreamPack> OperateTask<Response,
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         source: Entity,
-        session: Entity,
-        node: Entity,
+        request_id: RequestId,
         target: Entity,
         task: TaskHandle<Response>,
         cancel_sender: CancelSender,
@@ -96,8 +93,7 @@ impl<Response: 'static + Send + Sync, Streams: StreamPack> OperateTask<Response,
     ) -> Self {
         Self {
             source,
-            session,
-            node,
+            request_id,
             target,
             task: Some(task),
             cancel_sender,
@@ -136,8 +132,9 @@ where
         }
 
         let source = self.source;
-        let session = self.session;
-        let node = self.node;
+        let request_id = self.request_id;
+        let session = self.request_id.session;
+        let node = self.request_id.node;
         let task = self.task.take();
         let unblock = self.blocker.take();
         let sender = self.sender.clone();
@@ -158,7 +155,7 @@ where
                         if disposed {
                             let disposal =
                                 disposal.unwrap_or_else(|| Disposal::task_despawned(source, node));
-                            emit_disposal(node, session, disposal, world, roster);
+                            world.emit_disposal(request_id, &output_port::next(), disposal, roster);
                         }
                     },
                 ))
@@ -366,6 +363,7 @@ where
             .or_broken()?
             .get::<OperateTask<Response, Streams>>()
             .or_broken()?
+            .request_id
             .session;
         Ok(session == reachability.session)
     }

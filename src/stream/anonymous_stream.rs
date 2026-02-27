@@ -30,7 +30,7 @@ use crate::{
     DeferredRoster, InnerChannel, InputSlot, OperationError, OperationResult, OperationRoster,
     OrBroken, Output, Push, RedirectScopeStream, RedirectWorkflowStream, ReportUnhandled,
     SingleInputStorage, StreamAvailability, StreamBuffer, StreamEffect, StreamPack, StreamTarget,
-    StreamRequest, StreamTargetMap, TakenStream, UnusedStreams, UnusedTarget, RequestId, Seq, output_port,
+    StreamRequest, StreamTargetMap, TakenStream, UnusedStreams, UnusedTarget, RequestId, output_port,
     dyn_node::{DynStreamInputPack, DynStreamOutputPack},
 };
 
@@ -156,15 +156,14 @@ impl<S: StreamEffect> StreamPack for AnonymousStream<S> {
 
     fn process_stream_buffers(
         buffer: Self::StreamBuffers,
-        source: Entity,
-        seq: Seq,
-        session: Entity,
+        request_id: RequestId,
         unused: &mut UnusedStreams,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
         let target = buffer.target;
         let mut was_unused = true;
+        let RequestId { session, source, .. } = request_id;
         for data in Rc::into_inner(buffer.container)
             .or_broken()?
             .into_inner()
@@ -173,7 +172,7 @@ impl<S: StreamEffect> StreamPack for AnonymousStream<S> {
             was_unused = false;
             let port = output_port::anonymous_stream(std::any::type_name::<S>());
             let mut request = StreamRequest {
-                request_id: RequestId { source, seq, session },
+                request_id,
                 port: &port,
                 target: target.map(|id| StreamTarget { id, session }),
                 world,
@@ -194,16 +193,14 @@ impl<S: StreamEffect> StreamPack for AnonymousStream<S> {
 
     fn defer_buffers(
         buffer: Self::StreamBuffers,
-        source: Entity,
-        seq: Seq,
-        session: Entity,
+        request_id: RequestId,
         commands: &mut Commands,
     ) {
         commands.queue(SendAnonymousStreams::<
             S,
             DefaultStreamBufferContainer<S::Input>,
         >::new(
-            buffer.container.take(), source, seq, session, buffer.target
+            buffer.container.take(), request_id, buffer.target
         ));
     }
 
@@ -233,9 +230,7 @@ impl<S: StreamEffect> StreamPack for AnonymousStream<S> {
 
 pub struct SendAnonymousStreams<S, Container> {
     container: Container,
-    source: Entity,
-    seq: Seq,
-    session: Entity,
+    request_id: RequestId,
     target: Option<Entity>,
     _ignore: std::marker::PhantomData<fn(S)>,
 }
@@ -243,16 +238,12 @@ pub struct SendAnonymousStreams<S, Container> {
 impl<S, Container> SendAnonymousStreams<S, Container> {
     pub fn new(
         container: Container,
-        source: Entity,
-        seq: Seq,
-        session: Entity,
+        request_id: RequestId,
         target: Option<Entity>,
     ) -> Self {
         Self {
             container,
-            source,
-            seq,
-            session,
+            request_id,
             target,
             _ignore: Default::default(),
         }
@@ -265,10 +256,7 @@ where
     Container: 'static + Send + Sync + IntoIterator<Item = S::Input>,
 {
     fn apply(self, world: &mut World) {
-        let session = self.session;
-        let source = self.source;
-        let seq = self.seq;
-
+        let RequestId { session, source, seq } = self.request_id;
         world.get_resource_or_insert_with(DeferredRoster::default);
         world.resource_scope::<DeferredRoster, _>(|world, mut deferred| {
             let port = output_port::anonymous_stream(std::any::type_name::<S>());
@@ -283,7 +271,7 @@ where
 
                 S::side_effect(data, &mut request)
                     .and_then(move |output| request.send_output(output))
-                    .report_unhandled(self.source, world);
+                    .report_unhandled(source, world);
             }
         });
     }
@@ -299,17 +287,18 @@ pub struct AnonymousStreamChannel<S> {
 impl<S: StreamEffect> AnonymousStreamChannel<S> {
     /// Send an instance of data out over a stream.
     pub fn send(&self, data: S::Input) {
-        let source = self.inner.source;
-        let seq = self.inner.seq;
-        let session = self.inner.session;
+        let request_id = self.inner.request_id;
+        let session = request_id.session;
+        let source = request_id.source;
         let target = self.target;
+
         self.inner
             .sender
             .send(Box::new(
                 move |world: &mut World, roster: &mut OperationRoster| {
                     let port = output_port::anonymous_stream(std::any::type_name::<S>());
                     let mut request = StreamRequest {
-                        request_id: RequestId { source, seq, session },
+                        request_id,
                         port: &port,
                         target: target.map(|id| StreamTarget { id, session }),
                         world,

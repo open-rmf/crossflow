@@ -136,9 +136,7 @@ impl<S: StreamEffect> NamedStream<S> {
     pub fn process_stream_buffer(
         name: impl Into<Cow<'static, str>>,
         buffer: NamedStreamBuffer<S::Input>,
-        source: Entity,
-        seq: Seq,
-        session: Entity,
+        request_id: RequestId,
         unused: &mut UnusedStreams,
         world: &mut World,
         roster: &mut OperationRoster,
@@ -152,10 +150,11 @@ impl<S: StreamEffect> NamedStream<S> {
             .into_iter()
         {
             was_unused = false;
+            let RequestId { session, source, .. } = request_id;
             let target = targets.get(&name);
             let port = output_port::stream_out(name.as_ref());
             let mut request = StreamRequest {
-                request_id: RequestId { source, seq, session },
+                request_id,
                 port: &port,
                 target: NamedTarget::to_stream_target(target, session),
                 world,
@@ -189,9 +188,7 @@ impl<S: StreamEffect> NamedStream<S> {
     pub fn defer_buffer(
         name: impl Into<Cow<'static, str>>,
         buffer: NamedStreamBuffer<S::Input>,
-        source: Entity,
-        seq: Seq,
-        session: Entity,
+        request_id: RequestId,
         commands: &mut Commands,
     ) {
         let name = name.into();
@@ -208,7 +205,7 @@ impl<S: StreamEffect> NamedStream<S> {
         commands.queue(SendNamedStreams::<
             S,
             DefaultStreamBufferContainer<NamedValue<S::Input>>,
-        >::new(container, source, seq, session, buffer.targets));
+        >::new(container, request_id, buffer.targets));
     }
 }
 
@@ -325,14 +322,12 @@ pub struct SendNamedStreams<S, Container> {
 impl<S, Container> SendNamedStreams<S, Container> {
     pub fn new(
         container: Container,
-        source: Entity,
-        seq: Seq,
-        session: Entity,
+        request_id: RequestId,
         targets: Arc<NamedStreamTargets>,
     ) -> Self {
         Self {
             container,
-            request_id: RequestId { source, seq, session },
+            request_id,
             targets,
             _ignore: Default::default(),
         }
@@ -458,10 +453,10 @@ impl<S: StreamEffect> StreamRedirect for NamedStreamRedirect<S> {
             .get(&scoped_session)
             .or_not_ready()?;
 
-        let exit_source = exit.source;
+        let exit_source = exit.request_id;
         let parent_session = exit.parent_session;
 
-        let stream_targets = world.get::<StreamTargetMap>(exit_source).or_broken()?;
+        let stream_targets = world.get::<StreamTargetMap>(exit_source.source).or_broken()?;
 
         let target = stream_targets.get_named_or_anonymous::<S::Output>(&name);
         let port = output_port::stream_out(name.as_ref());
@@ -493,9 +488,7 @@ pub struct NamedStreamChannel<S> {
 impl<S: StreamEffect> NamedStreamChannel<S> {
     pub fn send(&self, data: S::Input) {
         let f = send_named_stream::<S>(
-            self.inner.source,
-            self.inner.seq,
-            self.inner.session,
+            self.inner.request_id,
             Arc::clone(&self.targets),
             self.name.clone(),
             data,
@@ -530,9 +523,7 @@ impl<S> Clone for NamedStreamChannel<S> {
 }
 
 pub(crate) fn send_named_stream<S: StreamEffect>(
-    source: Entity,
-    seq: Seq,
-    session: Entity,
+    request_id: RequestId,
     targets: Arc<NamedStreamTargets>,
     name: Cow<'static, str>,
     value: S::Input,
@@ -541,9 +532,9 @@ pub(crate) fn send_named_stream<S: StreamEffect>(
         let target = targets.get(&name);
         let port = output_port::stream_out(name.as_ref());
         let mut request = StreamRequest {
-            request_id: RequestId { source, seq, session },
+            request_id,
             port: &port,
-            target: NamedTarget::to_stream_target(target, session),
+            target: NamedTarget::to_stream_target(target, request_id.session),
             world,
             roster,
         };
@@ -554,7 +545,7 @@ pub(crate) fn send_named_stream<S: StreamEffect>(
                     .map(|t| t.send_output(NamedValue { name: name.clone(), value }, request))
                     .unwrap_or(Ok(()))
             })
-            .report_unhandled(source, world);
+            .report_unhandled(request_id.source, world);
     }
 }
 

@@ -383,7 +383,7 @@ mod tests {
     use crate::{
         Accessor, AnyBufferKey, AnyBufferWorldAccess, BufferAccess, BufferAccessMut, BufferKey,
         BufferWorldAccess, Diagram, DiagramErrorCode, Blocking, JsonBufferKey,
-        JsonBufferWorldAccess, JsonMessage, Node, NodeBuilderOptions,
+        JsonBufferWorldAccess, JsonMessage, Node, NodeBuilderOptions, IntoCallback,
         diagram::testing::DiagramTestFixture,
     };
 
@@ -422,14 +422,14 @@ mod tests {
                                world: &mut World| {
                             let (value, key) = input.request;
                             world
-                                .json_buffer_mut(&key, |mut buffer| {
+                                .json_buffer_mut(input.id, &key, |mut buffer| {
                                     for _ in 0..config {
                                         buffer.push(value.clone()).unwrap();
                                     }
                                 })
                                 .unwrap();
                         })
-                        .into_blocking_callback(),
+                        .into_callback(),
                     )
                 },
             )
@@ -520,13 +520,13 @@ mod tests {
     }
 
     fn count_json_buffer_entries(
-        In(((), key)): In<((), JsonBufferKey)>,
+        Blocking { request: ((), key), .. }: Blocking<((), JsonBufferKey)>,
         world: &mut World,
     ) -> usize {
         world.json_buffer_view(&key).unwrap().len()
     }
 
-    fn listen_count_json_buffer_entries(In(key): In<JsonBufferKey>, world: &mut World) -> usize {
+    fn listen_count_json_buffer_entries(Blocking { request: key, .. }: Blocking<JsonBufferKey>, world: &mut World) -> usize {
         world.json_buffer_view(&key).unwrap().len()
     }
 
@@ -595,8 +595,8 @@ mod tests {
                 NodeBuilderOptions::new("wait_2_strings"),
                 |builder, _config: ()| {
                     let n = builder.create_node(
-                        (|In(req): In<Vec<BufferKey<String>>>, access: BufferAccess<String>| {
-                            if access.get(&req[0]).unwrap().len() < 2 {
+                        (|Blocking { request, id, .. }: Blocking<Vec<BufferKey<String>>>, mut access: BufferAccess<String>| {
+                            if access.get(id, &request[0]).unwrap().len() < 2 {
                                 None
                             } else {
                                 Some("hello world".to_string())

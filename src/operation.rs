@@ -16,7 +16,7 @@
 */
 
 use crate::{
-    Broken, DeliveryLabelId, InspectInput, SetupFailure, StreamTargetMap, UnhandledErrors,
+    Broken, DeliveryLabelId, InspectInput, SetupFailure, StreamTargetMap, UnhandledErrors, RequestId,
     try_emit_broken,
 };
 
@@ -315,13 +315,12 @@ pub struct DisposalNotice {
     pub session: Entity,
 }
 
+/// Information about how an active task is blocking other tasks
 pub(crate) struct Blocker {
     /// The provider that is being blocked
     pub(crate) provider: Entity,
-    /// The source that is doing the blocking
-    pub(crate) source: Entity,
-    /// The session that is doing the blocking
-    pub(crate) session: Entity,
+    /// The identity of the request that is blocking it
+    pub(crate) request_id: RequestId,
     /// The label of the queue that is being blocked
     pub(crate) label: Option<DeliveryLabelId>,
     /// Function pointer to call when this is no longer blocking
@@ -332,8 +331,7 @@ impl std::fmt::Debug for Blocker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Blocker")
             .field("provider", &self.provider)
-            .field("source", &self.source)
-            .field("session", &self.session)
+            .field("request_id", &self.request_id)
             .field("label", &self.label)
             .finish()
     }

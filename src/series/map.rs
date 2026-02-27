@@ -20,10 +20,10 @@ use bevy_ecs::prelude::{Bundle, Component, Entity};
 use std::future::Future;
 
 use crate::{
-    ActiveTasksStorage, AsyncMap, BlockingMap, CallAsyncMapOnce, CallBlockingMapOnce, Channel,
+    ActiveTasksStorage, Blocking, Async, CallAsyncMapOnce, CallBlockingMapOnce, Channel,
     ChannelQueue, Executable, Input, InputBundle, ManageInput, OperateTask, OperationRequest,
     OperationResult, OperationSetup, OrBroken, Sendish, SingleTargetStorage, StreamPack,
-    UnusedStreams, MessageRoute, output_port,
+    UnusedStreams, MessageRoute, output_port, RequestId,
     async_execution::{spawn_task, task_cancel_sender},
     make_stream_buffers_from_world,
 };
@@ -89,29 +89,30 @@ where
         }: OperationRequest,
     ) -> OperationResult {
         let streams = make_stream_buffers_from_world::<Streams>(source, world)?;
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let target = source_mut.get::<SingleTargetStorage>().or_broken()?.get();
         let Input {
             session,
             data: request,
-        } = source_mut.take_input::<Request>()?;
+            seq,
+        } = world.take_input::<Request>(source)?;
+
+        let mut source_mut = world.get_entity_mut(source).or_broken()?;
+        let target = source_mut.get::<SingleTargetStorage>().or_broken()?.get();
         let f = source_mut
             .take::<BlockingMapOnceStorage<F>>()
             .or_broken()?
             .f;
+        let request_id = RequestId { session, source, seq };
 
-        let response = f.call(BlockingMap {
+        let response = f.call(Blocking {
             request,
             streams: streams.clone(),
-            source,
-            session,
+            id: request_id,
         });
 
-        let mut unused_streams = UnusedStreams::new(source);
+        let mut unused_streams = UnusedStreams::new(request_id);
         Streams::process_stream_buffers(
             streams,
-            source,
-            session,
+            request_id,
             &mut unused_streams,
             world,
             roster,
@@ -119,15 +120,14 @@ where
         // Note: We do not need to emit a disposal for any unused streams since
         // this is only used for series, not workflows.
 
-        let trace = MessageRoute {
+        let route = MessageRoute {
             session,
             source,
+            seq,
             port: &output_port::next(),
+            target,
         };
-        world
-            .get_entity_mut(target)
-            .or_broken()?
-            .give_input(trace, response, roster)?;
+        world.give_input(route, response, roster)?;
         Ok(())
     }
 }
@@ -198,24 +198,27 @@ where
             .get_resource_or_insert_with(ChannelQueue::new)
             .sender
             .clone();
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
+
         let Input {
             session,
             data: request,
-        } = source_mut.take_input::<Request>()?;
+            seq
+        } = world.take_input::<Request>(source)?;
+
+        let mut source_mut = world.get_entity_mut(source).or_broken()?;
         let target = source_mut.get::<SingleTargetStorage>().or_broken()?.get();
         let f = source_mut.take::<AsyncMapOnceStorage<F>>().or_broken()?.f;
 
-        let channel = Channel::new(source, session, sender.clone());
+        let request_id = RequestId { session, source, seq };
+        let channel = Channel::new(request_id, sender.clone());
         let streams = channel.for_streams::<Streams>(world)?;
 
         let task = spawn_task(
-            f.call(AsyncMap {
+            f.call(Async {
                 request,
                 streams,
                 channel,
-                source,
-                session,
+                id: request_id,
             }),
             world,
         );
@@ -224,8 +227,7 @@ where
         let task_source = world.spawn(()).id();
         OperateTask::<_, Streams>::new(
             task_source,
-            session,
-            source,
+            request_id,
             target,
             task,
             cancel_sender,

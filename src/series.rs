@@ -76,6 +76,7 @@ pub(crate) use taken::*;
 /// from happening, you can use [`Series::detach`] to lock in the execution of
 /// the series (or a subset of the series) no matter what happens downstream.
 pub struct Series<'w, 's, 'a, Response, Streams> {
+    pub(crate) session: Entity,
     pub(crate) source: Entity,
     pub(crate) target: Entity,
     pub(crate) commands: &'a mut Commands<'w, 's>,
@@ -179,21 +180,30 @@ where
         self,
         provider: P,
     ) -> Series<'w, 's, 'a, P::Response, P::Streams> {
+        let session = self.session;
         let source = self.target;
-        let target = self
-            .commands
-            .spawn((Detached::default(), UnusedTarget, SeriesMarker))
-            .id();
 
-        // We should automatically delete the previous step in the chain once
-        // this one is finished.
         self.commands
             .entity(source)
-            .insert((Cancellable::new(cancel_execution), SeriesMarker))
-            .remove::<UnusedTarget>()
-            .insert(ChildOf(target));
+            .insert((
+                Cancellable::new(cancel_execution),
+                SeriesMarker,
+            ))
+            .remove::<UnusedTarget>();
+
+        let target = self
+            .commands
+            .spawn((
+                ChildOf(session),
+                Detached::default(),
+                UnusedTarget,
+                SeriesMarker,
+            ))
+            .id();
+
         provider.connect(None, source, target, self.commands);
         Series {
+            session,
             source,
             target,
             commands: self.commands,
@@ -287,6 +297,8 @@ where
     /// still decide what to do with the final response data.
     #[must_use]
     pub fn collect_streams(self, target: Entity) -> Series<'w, 's, 'a, Response, ()> {
+        let session = self.session;
+
         let mut map = StreamTargetMap::default();
         let stream_targets = Streams::collect_streams(self.source, target, &mut map, self.commands);
         self.commands
@@ -294,6 +306,7 @@ where
             .insert((stream_targets, map));
 
         Series {
+            session,
             source: self.source,
             target: self.target,
             commands: self.commands,

@@ -550,9 +550,9 @@ impl<T: 'static + Send + Sync> Command for SeriesRequest<T> {
             if let Err(OperationError::Broken(backtrace)) = r {
                 let cause = CancellationCause::Broken(Broken {
                     node: self.start,
-                    backtrace: Some(Backtrace::new()),
+                    backtrace,
                 });
-                world.emit_cancel(
+                world.emit_scope_cancel(
                     RouteSource {
                         session,
                         source,
