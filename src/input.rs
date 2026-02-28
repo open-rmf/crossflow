@@ -146,6 +146,7 @@ pub struct Routing<'a> {
     pub input: RouteTarget,
 }
 
+#[derive(Clone, Copy)]
 pub struct RouteSource<'a> {
     pub session: Entity,
     pub source: Entity,

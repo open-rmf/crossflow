@@ -16,6 +16,7 @@
 */
 
 use bevy_ecs::prelude::{ChildOf, Command, Component, Entity, Resource, World};
+use bevy_derive::Deref;
 
 use backtrace::Backtrace;
 
@@ -33,6 +34,7 @@ use crate::{
     Broken, Cancel, CancelFailure, Cancellable, ManageCancellation, MiscellaneousFailure,
     OperationCancel, OperationError, OperationExecuteStorage, OperationRequest, OperationResult,
     OperationSetup, SetupFailure, SingleTargetStorage, UnhandledErrors, UnusedTarget,
+    Cancellation,
 };
 
 pub(crate) trait Executable {
@@ -177,12 +179,19 @@ pub(crate) fn cancel_execution(
     Ok(())
 }
 
-#[derive(Component)]
-pub(crate) struct OnSeriesCancelled(pub(crate) fn(SeriesCancel) -> OperationResult);
+#[derive(Component, Clone, Copy, Deref)]
+pub struct OnSeriesCancelled(pub(crate) fn(SeriesCancel) -> OperationResult);
 
-pub(crate) struct SeriesCancel<'a> {
-    source: Entity,
-    world: &'a mut World,
+impl OnSeriesCancelled {
+    pub fn new(f: fn(SeriesCancel) -> OperationResult) -> Self {
+        Self(f)
+    }
+}
+
+pub struct SeriesCancel<'a> {
+    pub source: Entity,
+    pub cancellation: Cancellation,
+    pub world: &'a mut World,
 }
 
 #[derive(Resource)]

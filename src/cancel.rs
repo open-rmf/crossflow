@@ -15,7 +15,7 @@
  *
 */
 
-use bevy_ecs::prelude::{Bundle, Component, Entity, World};
+use bevy_ecs::prelude::{Bundle, Component, Entity, World, Children};
 
 use backtrace::Backtrace;
 
@@ -23,11 +23,16 @@ use thiserror::Error as ThisError;
 
 use std::{fmt::Display, sync::Arc};
 
+use smallvec::SmallVec;
+
 use crate::{
     CancelFailure, DisplayDebugSlice, Disposal, Filtered, OperationError, OperationResult,
     OperationRoster, ScopeStorage, Supplanted, UnhandledErrors, RouteSource, RequestId,
-    SessionOfScope, RouteTarget,
+    SessionOfScope, RouteTarget, OnSeriesCancelled, SeriesCancel, ManageSession,
 };
+
+#[cfg(feature = "trace")]
+use crate::SessionEvent;
 
 /// Information about the cancellation that occurred.
 #[derive(ThisError, Debug, Clone)]
@@ -455,7 +460,36 @@ impl ManageCancellation for World {
         session: Entity,
         cancellation: Cancellation,
     ) {
+        #[cfg(feature = "trace")]
+        {
+            SessionEvent::cancelled(source, session, cancellation.clone(), self);
+        }
 
+        if let Some(operations) = self.get::<Children>(session) {
+            let operations: SmallVec<[Entity; 8]> = operations.iter().cloned().collect();
+            for op in operations {
+                let Some(on_cancel) = self.get::<OnSeriesCancelled>(op).copied() else {
+                    continue;
+                };
+
+                let f = *on_cancel;
+                if let Err(OperationError::Broken(backtrace)) = f(SeriesCancel {
+                    source: source.source,
+                    cancellation: cancellation.clone(),
+                    world: self,
+                }) {
+                    self.get_resource_or_insert_with(UnhandledErrors::default)
+                        .broken
+                        .push(Broken { node: source.source, backtrace });
+                }
+            }
+        }
+
+        #[cfg(feature = "trace")]
+        {
+            SessionEvent::despawned(session, self);
+        }
+        self.despawn_session(session);
     }
 
     fn emit_broken(

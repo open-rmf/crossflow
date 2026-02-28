@@ -34,8 +34,11 @@ use thiserror::Error as ThisError;
 
 use crate::{
     Cancel, Cancellation, DisposalFailure, OperationResult, OperationRoster, OrBroken, OutputPort,
-    SeriesMarker, UnhandledErrors, UnusedTarget, operation::ScopeStorage, RequestId, ManageCancellation,
+    SeriesMarker, UnhandledErrors, UnusedTarget, operation::ScopeStorage, RequestId, ManageCancellation, RouteSource,
 };
+
+#[cfg(feature = "trace")]
+use crate::OutputDisposed;
 
 #[derive(ThisError, Debug, Clone)]
 #[error("the output of an operation in a workflow was disposed: {}", .cause)]
@@ -499,40 +502,63 @@ impl ManageDisposal for World {
         disposal: Disposal,
         roster: &mut OperationRoster,
     ) {
-        let Some(scope) = self.get::<ScopeStorage>(request_id.source) else {
-            if self.get::<SeriesMarker>(request_id.source).is_some() {
+        let RequestId { session, source, seq } = request_id;
+        #[cfg(feature = "trace")]
+        {
+            // TODO(@mxgrey): Consider not tracing stream-related disposals
+            // since that could produce a lot of useless noise.
+            OutputDisposed::trace(
+                RouteSource { session, source, seq, port },
+                disposal.clone(),
+                self,
+            );
+        }
+
+        if let Some(scope) = self.get::<ScopeStorage>(source) {
+            // The source is inside of a workflow scope, so we need to notify
+            // the scope that a disposal is taking place.
+            let scope = scope.get();
+
+            if let Some(mut storage) = self.get_mut::<DisposalStorage>(source) {
+                storage.disposals.entry(session).or_default().push(disposal);
+            } else {
+                let mut storage = DisposalStorage::default();
+                storage.disposals.entry(session).or_default().push(disposal);
+                self.entity_mut(source).insert(storage);
+            }
+
+            roster.disposed(scope, source, session);
+        } else {
+            // The source is not inside a workflow scope, so we expect it to
+            // either be part of a series or to be something unused.
+            if self.get::<SeriesMarker>(source).is_some() {
+                // The disposal happened for an operation in a series. If the
+                // operation cannot be completed, then the series needs to be
+                // cancelled.
+                //
+                // We do not convert stream disposals into a cancellation
+                // because they do not affect the ability of the series to
+                // reach its end.
                 if !disposal.cause.stream_disposal() {
-                    // If a series has had one of its "next" outputs disposed,
-                    // we trigger a cancellation for it.
-                    //
-                    // We do not convert stream disposals into a cancellation
-                    // because they do not effect the ability of the series to
-                    // reach its end.
-                    let session = request_id.session;
                     let cancellation = Cancellation::unreachable(session, session, vec![disposal]);
-
-                    if let Some(operations) = self.get::<Children>(session).cloned() {
-                        for op in operations.iter() {
-
-                        }
-                    }
-
-                    roster.cancel(Cancel {
-                        origin: request_id,
-                        target: session,
-                        session: Some(session),
+                    self.notify_series_cancel(
+                        RouteSource {
+                            session,
+                            source,
+                            seq,
+                            port,
+                        },
+                        session,
                         cancellation,
-                    });
+                    );
                 }
-                // TODO(@mxgrey): Consider whether there is a more sound way to
-                // decide whether a disposal should be converted into a
-                // cancellation for a series.
-            } else if !self.contains::<UnusedTarget>() {
+            } else if self.get::<UnusedTarget>(source).is_none() {
                 // If the emitting node does not have a scope, is not part of
                 // a series, and is not an unused target, then something is broken.
                 //
                 // We can safely ignore disposals for unused targets because
-                // unused targets cannot affect the reachability of a workflow.
+                // unused targets cannot affect the reachability of a workflow
+                // or a series.
                 let broken_node = request_id.source;
                 self.get_resource_or_insert_with(UnhandledErrors::default)
                     .disposals
@@ -544,17 +570,6 @@ impl ManageDisposal for World {
             }
             return;
         };
-        let scope = scope.get();
-
-        if let Some(mut storage) = self.get_mut::<DisposalStorage>() {
-            storage.disposals.entry(session).or_default().push(disposal);
-        } else {
-            let mut storage = DisposalStorage::default();
-            storage.disposals.entry(session).or_default().push(disposal);
-            self.insert(storage);
-        }
-
-        roster.disposed(scope, self.id(), session);
     }
 
     fn clear_disposals(&mut self, session: Entity) {

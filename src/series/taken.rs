@@ -22,7 +22,7 @@ use tokio::sync::mpsc::UnboundedSender as Sender;
 use crate::{
     Executable, Input, InputBundle, ManageInput, OnSeriesCancelled, OperationCancel,
     OperationRequest, OperationResult, OperationSetup, OrBroken, SeriesLifecycleChannel,
-    promise::private::Sender as PromiseSender, ManageSession,
+    promise::private::Sender as PromiseSender, ManageSession, SeriesCancel,
 };
 
 #[derive(Component)]
@@ -48,7 +48,7 @@ impl<T: 'static + Send + Sync> Executable for TakenResponse<T> {
 
         world.entity_mut(source).insert((
             InputBundle::<T>::new(),
-            OnSeriesCancelled(cancel_taken_target::<T>),
+            OnSeriesCancelled::new(cancel_taken_target::<T>),
             self,
         ));
         Ok(())
@@ -97,13 +97,13 @@ impl<T: 'static + Send + Sync> Executable for TakenStream<T> {
     }
 }
 
-fn cancel_taken_target<T>(OperationCancel { cancel, world, .. }: OperationCancel) -> OperationResult
+fn cancel_taken_target<T>(SeriesCancel { source, cancellation, world, .. }: SeriesCancel) -> OperationResult
 where
     T: 'static + Send + Sync,
 {
-    let mut target_mut = world.get_entity_mut(cancel.target).or_broken()?;
+    let mut target_mut = world.get_entity_mut(source).or_broken()?;
     let taken = target_mut.take::<TakenResponse<T>>().or_broken()?;
-    taken.sender.cancel(cancel.cancellation).ok();
+    taken.sender.cancel(cancellation).ok();
 
     Ok(())
 }

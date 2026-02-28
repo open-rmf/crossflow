@@ -22,7 +22,7 @@ use tokio::sync::oneshot;
 use crate::{
     Cancellation, Executable, Input, InputBundle, ManageInput, OnSeriesCancelled,
     OperationCancel, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    SeriesLifecycleChannel, async_execution::spawn_task, ManageSession,
+    SeriesLifecycleChannel, async_execution::spawn_task, ManageSession, SeriesCancel,
 };
 
 pub(crate) struct CaptureOutcome<T> {
@@ -90,13 +90,13 @@ impl<T: 'static + Send + Sync> Executable for CaptureOutcome<T> {
     }
 }
 
-fn cancel_recv_target<T>(OperationCancel { cancel, world, .. }: OperationCancel) -> OperationResult
+fn cancel_recv_target<T>(SeriesCancel { source, cancellation, world, .. }: SeriesCancel) -> OperationResult
 where
     T: 'static + Send + Sync,
 {
-    let mut target_mut = world.get_entity_mut(cancel.target).or_broken()?;
+    let mut target_mut = world.get_entity_mut(source).or_broken()?;
     let sender = target_mut.take::<OutcomeSenderStorage<T>>().or_broken()?.0;
-    let _ = sender.send(Err(cancel.cancellation));
+    let _ = sender.send(Err(cancellation));
 
     Ok(())
 }

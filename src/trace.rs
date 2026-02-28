@@ -15,7 +15,10 @@
  *
 */
 
-use crate::{JsonMessage, OperationRef, TraceToggle, TypeInfo, OutputPort, Seq, OutputRef, Routing, OutputKey, RequestId, BufferKeyTag};
+use crate::{
+    JsonMessage, OperationRef, TraceToggle, TypeInfo, OutputPort, Seq, OutputRef,
+    Routing, OutputKey, RequestId, BufferKeyTag, RouteSource, Cancellation, Disposal,
+};
 
 use bevy_ecs::{
     prelude::{Component, Entity, Event, World, ChildOf, Query, Commands},
@@ -174,6 +177,25 @@ pub struct TraceSource {
     pub labels: Option<Arc<Vec<OutputRef>>>,
 }
 
+impl TraceSource {
+    fn new(
+        route_source: RouteSource,
+        world: &mut World,
+    ) -> Self {
+        let output_port = route_source.port;
+        let session_stack = get_session_stack_from_world(route_source.session, world);
+
+        TraceSource {
+            session_stack,
+            source: route_source.source,
+            seq: route_source.seq,
+            labels: world.get::<OperationLabels>(route_source.source)
+                .map(move |labels| labels.outputs(output_port))
+                .flatten(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TraceTarget {
     /// The stack of session IDs that sent the message was sent into. The first
@@ -236,32 +258,13 @@ impl MessageSent {
         message: Option<Result<JsonMessage, GetValueError>>,
         world: &mut World,
     ) {
-        let mut child_of_state = world.query::<&ChildOf>();
-        let child_of = child_of_state.query(world);
-        let input_session_stack = get_session_stack(route.input.session, &child_of);
-
         let mut output = SmallVec::new();
         for out in route.outputs {
-            let output_port = out.port;
-            let session_stack = if out.session == route.input.session {
-                input_session_stack.clone()
-            } else {
-                get_session_stack(out.session, &child_of)
-            };
-
-            let trace = TraceSource {
-                session_stack,
-                source: out.source,
-                seq: out.seq,
-                labels: world.get::<OperationLabels>(out.source)
-                    .map(move |labels| labels.outputs(output_port))
-                    .flatten(),
-            };
-            output.push(trace);
+            output.push(TraceSource::new(out, world));
         }
 
         let input = TraceTarget {
-            session_stack: input_session_stack.clone(),
+            session_stack: get_session_stack_from_world(route.input.session, world),
             target: route.input.target,
             seq: target_seq,
             labels: world.get::<OperationLabels>(route.input.target)
@@ -269,11 +272,7 @@ impl MessageSent {
         };
 
         let event = MessageSent { output, input, message };
-        world.trigger(TracedEvent {
-            event: TracedEventKind::MessageSent(event),
-            instant: Instant::now(),
-            time: SystemTime::now(),
-        });
+        world.trigger(TracedEvent::now(event));
     }
 }
 
@@ -284,6 +283,18 @@ pub struct OutputDisposed {
     /// Information about which output port did not yield any message for a
     /// request that came in.
     pub output: TraceSource,
+    pub disposal: Disposal,
+}
+
+impl OutputDisposed {
+    pub(crate) fn trace(
+        output: RouteSource,
+        disposal: Disposal,
+        world: &mut World,
+    ) {
+        let output = TraceSource::new(output, world);
+        world.trigger(TracedEvent::now(Self { output, disposal }));
+    }
 }
 
 #[derive(Debug, Clone, Event)]
@@ -366,13 +377,7 @@ impl<'w, 's> BufferTracer<'w, 's> {
             access,
         };
 
-        let event = TracedEvent {
-            event: TracedEventKind::BufferEvent(buffer_event),
-            instant: Instant::now(),
-            time: SystemTime::now(),
-        };
-
-        self.commands.trigger(event);
+        self.commands.trigger(TracedEvent::now(buffer_event));
     }
 }
 
@@ -390,11 +395,23 @@ impl SessionEvent {
             change: SessionChange::Despawned,
         };
 
-        world.trigger(TracedEvent {
-            event: TracedEventKind::SessionEvent(event),
-            instant: Instant::now(),
-            time: SystemTime::now(),
-        })
+        world.trigger(TracedEvent::now(event));
+    }
+
+    pub(crate) fn cancelled(
+        source: RouteSource,
+        session: Entity,
+        cancellation: Cancellation,
+        world: &mut World,
+    ) {
+        let source = TraceSource::new(source, world);
+        let session_stack = get_session_stack_from_world(session, world);
+        let event = SessionEvent {
+            session_stack,
+            change: SessionChange::Cancelled { source, cancellation },
+        };
+
+        world.trigger(TracedEvent::now(event));
     }
 }
 
@@ -408,6 +425,7 @@ pub enum SessionChange {
     },
     Cancelled {
         source: TraceSource,
+        cancellation: Cancellation,
     },
     BeginCleanup,
     Despawned,
@@ -421,11 +439,45 @@ pub enum TracedEventKind {
     OutputDisposed(OutputDisposed),
 }
 
+impl From<MessageSent> for TracedEventKind {
+    fn from(value: MessageSent) -> Self {
+        Self::MessageSent(value)
+    }
+}
+
+impl From<BufferEvent> for TracedEventKind {
+    fn from(value: BufferEvent) -> Self {
+        Self::BufferEvent(value)
+    }
+}
+
+impl From<SessionEvent> for TracedEventKind {
+    fn from(value: SessionEvent) -> Self {
+        Self::SessionEvent(value)
+    }
+}
+
+impl From<OutputDisposed> for TracedEventKind {
+    fn from(value: OutputDisposed) -> Self {
+        Self::OutputDisposed(value)
+    }
+}
+
 #[derive(Debug, Clone, Event)]
 pub struct TracedEvent {
     pub event: TracedEventKind,
     pub instant: Instant,
     pub time: SystemTime,
+}
+
+impl TracedEvent {
+    pub fn now(event: impl Into<TracedEventKind>) -> Self {
+        Self {
+            event: event.into(),
+            instant: Instant::now(),
+            time: SystemTime::now(),
+        }
+    }
 }
 
 /// Information about an operation.
