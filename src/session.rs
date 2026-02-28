@@ -40,6 +40,11 @@ impl ManageSession for World {
     }
 
     fn despawn_session(&mut self, session: Entity) {
+        if !self.get_entity(session).is_ok() {
+            // This session has somehow been despawned already.
+            return;
+        }
+
         #[cfg(feature = "trace")]
         {
             SessionEvent::despawned(session, self);

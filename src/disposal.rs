@@ -55,11 +55,11 @@ impl<T: Into<DisposalCause>> From<T> for Disposal {
 }
 
 impl Disposal {
-    pub fn service_unavailable(service: Entity, for_node: Entity) -> Disposal {
+    pub fn service_unavailable(service: Entity, for_node: Entity) -> Self {
         ServiceUnavailable { service, for_node }.into()
     }
 
-    pub fn task_despawned(task: Entity, node: Entity) -> Disposal {
+    pub fn task_despawned(task: Entity, node: Entity) -> Self {
         TaskDespawned { task, node }.into()
     }
 
@@ -67,7 +67,7 @@ impl Disposal {
         branched_at_node: Entity,
         disposed_for_target: Entity,
         reason: Option<anyhow::Error>,
-    ) -> Disposal {
+    ) -> Self {
         DisposedBranch {
             branched_at_node,
             disposed_for_target,
@@ -76,7 +76,11 @@ impl Disposal {
         .into()
     }
 
-    pub fn buffer_key(accessor_node: Entity, key_for_buffer: Entity) -> Disposal {
+    pub fn scope(cancellation: Cancellation) -> Self {
+        DisposalCause::Scope(cancellation).into()
+    }
+
+    pub fn buffer_key(accessor_node: Entity, key_for_buffer: Entity) -> Self {
         DisposedBufferKey {
             accessor_node,
             key_for_buffer,

@@ -182,7 +182,8 @@ impl<'a> CallbackRequest<'a> {
         let request_id = RequestId { session, source: self.source, seq };
         if !unused_streams.streams.is_empty() {
             let port = output_port::name_str("stream_out");
-            self.world.emit_disposal(request_id, &port, unused_streams.into(), self.roster);
+            let route = request_id.to_route_source(&port);
+            self.world.emit_disposal(route, unused_streams.into(), self.roster);
         }
 
         let route = MessageRoute {

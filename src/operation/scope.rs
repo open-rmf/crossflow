@@ -19,12 +19,13 @@ use crate::{
     Accessing, AddOperation, Blocker, BufferKeyBuilder, Cancel, Cancellable, Cancellation, Cleanup,
     CleanupContents, ClearBufferSessionFn, CollectMarker, DisposalListener, DisposalUpdate,
     FinalizeCleanup, FinalizeCleanupRequest, Input, InputBundle, InspectDisposals,
-    ManageCancellation, ManageInput, NamedTarget, NamedValue, Operation, OperationCancel,
+    ManageInput, NamedTarget, NamedValue, Operation, OperationCancel,
     OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
     OperationRoster, OperationSetup, OrBroken, ReachabilityResult, ScopeSettings, CleanInputsOf,
     SingleInputStorage, SingleTargetStorage, StreamEffect, StreamRequest, StreamTargetMap,
     UnhandledErrors, Unreachability, UnusedTarget, check_reachability, execute_operation,
     is_downstream_of, Routing, RouteSource, RouteTarget, output_port, MessageRoute, RequestId, StreamTarget,
+    ManageSession, ManageDisposal, Disposal,
 };
 
 use smallvec::smallvec;
@@ -1496,7 +1497,7 @@ where
 
 /// Map from scoped_session ID to the first output that terminated the scope
 #[derive(Component)]
-struct Staging<T>(HashMap<Entity, T>);
+struct Staging<T>(HashMap<Entity, Input<T>>);
 
 impl<T> Staging<T> {
     fn new() -> Self {
@@ -1884,22 +1885,57 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let scope = source_mut.get::<FinishCleanupForScope>().or_broken()?.0;
-        let mut awaiting = source_mut.get_mut::<AwaitingCleanupStorage>().or_broken()?;
+        let scope = world.get::<FinishCleanupForScope>(source).or_broken()?.0;
+        let awaiting = world.get::<AwaitingCleanupStorage>(source).or_broken()?;
         let a = awaiting.0.get(index).or_broken()?;
         let parent_session = a.info.parent_session;
         let cleanup = a.info.cleanup;
         let cleanup_id = cleanup.cleanup_id;
         let scoped_session = a.scoped_session;
         let terminating = a.info.status.is_terminated();
-        if !a.info.status.is_early_cleanup() {
+        let is_early_cleanup = a.info.status.is_early_cleanup();
+
+        let mut scope_mut = world.get_entity_mut(scope).or_broken()?;
+        let terminate = scope_mut.get::<ScopeEndpoints>().or_broken()?.terminate;
+        let (target, blocker) = scope_mut
+            .get_mut::<ExitTargetStorage>()
+            .and_then(|mut storage| storage.map.remove(&scoped_session))
+            .map(|exit| (exit.target, exit.blocker))
+            .or_else(|| {
+                scope_mut
+                    .get::<SingleTargetStorage>()
+                    .map(|target| (target.get(), None))
+            })
+            .or_broken()?;
+
+        if !is_early_cleanup {
             // We can remove this right away since it's a cancellation or
-            // termination, so we don't need to track when to notify the parent
-            // of a cleanup.
-            let a = awaiting.0.remove(index);
+            // termination. The parent scope is not expecting us to notify it
+            // about any cleanup, so we don't need to hold onto the final
+            // results that are ready for this parent.
+            let a = world
+                .get_mut::<AwaitingCleanupStorage>(source).or_broken()?
+                .0
+                .remove(index);
+
             if let FinishStatus::Cancelled(cancellation) = a.info.status {
-                source_mut.emit_cancel(parent_session, cancellation, roster);
+                // Cancelling a scope is treated as a disposal by the scope creator.
+                if let Some(service) = &blocker {
+                    // This scope was created by a service, so a cancellation
+                    // means we need to emit a disposal on behalf of the service.
+                    let port = output_port::next();
+                    let route = service.request_id.to_route_source(&port);
+                    let disposal = Disposal::scope(cancellation);
+                    world.emit_disposal(route, disposal, roster);
+                } else {
+                    // The scope is embedded into a workflow, so it is its own
+                    // operation, not working on behalf of another operation.
+                    // It should emit a disposal on its own behalf.
+                    let port = output_port::next();
+                    let route = a.request_id.to_route_source(&port);
+                    let disposal = Disposal::scope(cancellation);
+                    world.emit_disposal(route, disposal, roster);
+                }
             }
         }
 
@@ -1908,13 +1944,14 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
         // parent scope and that no other scoped sessions are still running for
         // the parent scope. Only after all of that is finished can we notify
         // that the parent session is cleaned.
-
+        //
         // Early cleanup implies that the workflow was stopped by its parent and
         // told to clean up before it terminated. This is distinct from a
         // cancelation.
         let mut early_cleanup = false;
         let mut cleaning_finished = true;
-        for a in &source_mut.get::<AwaitingCleanupStorage>().or_broken()?.0 {
+        let source_ref = world.get_entity(source).or_broken()?;
+        for a in &source_ref.get::<AwaitingCleanupStorage>().or_broken()?.0 {
             if a.info.cleanup.cleanup_id == cleanup_id {
                 if !a
                     .cleanup_workflow_sessions
@@ -1937,7 +1974,7 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
             // In that case, we need to make sure that ALL instances of this
             // workflow for the parent session are finished before we notify
             // that cleanup is finished.
-            let scope = source_mut.get::<CleanupForScope>().or_broken()?.0;
+            let scope = source_ref.get::<CleanupForScope>().or_broken()?.0;
             let scope_ref = world.get_entity(scope).or_broken()?;
             let pairs = scope_ref.get::<ScopedSessionStorage>().or_broken()?;
             if pairs
@@ -1962,36 +1999,38 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
             cleanup.notify_cleaned(world, roster)?;
         }
 
-        let mut scope_mut = world.get_entity_mut(scope).or_broken()?;
-        let terminate = scope_mut.get::<ScopeEndpoints>().or_broken()?.terminate;
-        let (target, blocker) = scope_mut
-            .get_mut::<ExitTargetStorage>()
-            .and_then(|mut storage| storage.map.remove(&scoped_session))
-            .map(|exit| (exit.target, exit.blocker))
-            .or_else(|| {
-                scope_mut
-                    .get::<SingleTargetStorage>()
-                    .map(|target| (target.get(), None))
-            })
-            .or_broken()?;
-
         if terminating {
             let mut staging = world.get_mut::<Staging<T>>(terminate).or_broken()?;
+            let Input { data, seq, .. } = staging.0.remove(&scoped_session).or_broken()?;
+            let port = output_port::next();
+            let scope_output = RouteSource {
+                session: scoped_session,
+                source: terminate,
+                seq,
+                port: &port,
+            };
+            let mut outputs = smallvec![scope_output];
+            if let Some(service) = &blocker {
+                outputs.push(service.request_id.to_route_source(&port));
+            }
 
-            let response = staging.0.remove(&scoped_session).or_broken()?;
-
-            world.get_entity_mut(target).or_broken()?.give_input(
-                parent_session,
-                response,
-                roster,
-            )?;
+            let route = Routing {
+                outputs,
+                input: RouteTarget {
+                    session: parent_session,
+                    target,
+                },
+            };
+            world.give_input(route, data, roster)?;
         } else {
             // Make certain there is nothing related to the scoped session
             // lingering in the terminal node.
-            let mut terminal_mut = world.get_entity_mut(terminate).or_broken()?;
-            terminal_mut.cleanup_inputs::<T>(scoped_session);
-            terminal_mut
-                .get_mut::<Staging<T>>()
+            world.cleanup_inputs::<T>(CleanInputsOf {
+                session: scoped_session,
+                source: terminate,
+            });
+            world
+                .get_mut::<Staging<T>>(terminate)
                 .or_broken()?
                 .0
                 .remove(&scoped_session);
@@ -2003,13 +2042,7 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
         }
 
         clear_scope_buffers(scope, scoped_session, world)?;
-
-        if world.get_entity(scoped_session).is_ok() {
-            if let Ok(scoped_session_mut) = world.get_entity_mut(scoped_session) {
-                scoped_session_mut.despawn();
-            }
-        }
-
+        world.despawn_session(scoped_session);
         Ok(())
     }
 }

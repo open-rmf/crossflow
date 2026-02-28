@@ -81,39 +81,39 @@ mod tests {
 
         let _blocking_exclusive_system_srv = context
             .app
-            .spawn_service(blocking_exclusive_system.into_blocking_service());
+            .spawn_service(blocking_exclusive_system);
         let _blocking_exclusive_system_with_params_srv = context
             .app
-            .spawn_service(blocking_exclusive_system_with_param.into_blocking_service());
+            .spawn_service(blocking_exclusive_system_with_param);
         let _blocking_exclusive_service = context.app.spawn_service(blocking_exclusive_service);
         let _blocking_exclusive_service_with_params = context
             .app
             .spawn_service(blocking_exclusive_service_with_params);
 
-        let _blocking_exclusive_system_cb = blocking_exclusive_system.into_blocking_callback();
+        let _blocking_exclusive_system_cb = blocking_exclusive_system.into_callback();
         let _blocking_exclusive_system_with_params_cb =
-            blocking_exclusive_system_with_param.into_blocking_callback();
-        let _blocking_exclusive_callback = blocking_exclusive_callback.as_callback();
+            blocking_exclusive_system_with_param.into_callback();
+        let _blocking_exclusive_callback = blocking_exclusive_callback.into_callback();
         let _blocking_exclusive_callback_with_param =
-            blocking_exclusive_callback_with_param.as_callback();
+            blocking_exclusive_callback_with_param.into_callback();
 
         let _async_exclusive_system_srv = context
             .app
-            .spawn_service(async_exclusive_system.into_async_service());
+            .spawn_service(async_exclusive_system);
         let _async_exclusive_system_with_param_srv = context
             .app
-            .spawn_service(async_exclusive_system_with_param.into_async_service());
+            .spawn_service(async_exclusive_system_with_param);
         let _async_exclusive_service = context.app.spawn_service(async_exclusive_service);
         let _async_exclusive_service_with_param = context
             .app
             .spawn_service(async_exclusive_service_with_param);
 
-        let _async_exclusive_system_cb = async_exclusive_system.into_async_callback();
+        let _async_exclusive_system_cb = async_exclusive_system.into_callback();
         let _async_exclusive_system_with_param_cb =
-            async_exclusive_system_with_param.into_async_callback();
-        let _async_exclusive_callback = async_exclusive_callback.as_callback();
+            async_exclusive_system_with_param.into_callback();
+        let _async_exclusive_callback = async_exclusive_callback.into_callback();
         let _async_exclusive_callback_with_param =
-            async_exclusive_callback_with_param.as_callback();
+            async_exclusive_callback_with_param.into_callback();
 
         let _exclusive_continuous_service = context
             .app
@@ -122,15 +122,15 @@ mod tests {
             .app
             .spawn_continuous_service(Update, exclusive_continuous_service_with_param);
 
-        let exclusive_closure = |_: In<()>, _: &mut World| {};
+        let exclusive_closure = |_: Blocking<()>, _: &mut World| {};
         let _exclusive_closure_blocking_srv = context
             .app
-            .spawn_service(exclusive_closure.into_blocking_service());
+            .spawn_service(exclusive_closure);
 
-        let exclusive_closure = |_: In<()>, _: &mut World| async move {};
+        let exclusive_closure = |_: Async<()>, _: &mut World| async move {};
         let _exclusive_closure_async_srv = context
             .app
-            .spawn_service(exclusive_closure.into_async_service());
+            .spawn_service(exclusive_closure);
 
         let exclusive_closure = |_: ContinuousService<(), ()>, _: &mut World| {};
         let _exclusive_closure_continuous_srv = context
@@ -138,16 +138,16 @@ mod tests {
             .spawn_continuous_service(Update, exclusive_closure);
 
         let exclusive_closure = |_: In<()>, _: &mut World| {};
-        let _exclusive_closure_blocking_cb = exclusive_closure.into_blocking_callback();
+        let _exclusive_closure_blocking_cb = exclusive_closure.into_callback();
 
         let exclusive_closure = |_: In<()>, _: &mut World| async move {};
-        let _exclusive_closure_async_cb = exclusive_closure.into_async_callback();
+        let _exclusive_closure_async_cb = exclusive_closure.into_callback();
     }
 
-    fn blocking_exclusive_system(In(_): In<i32>, _: &mut World) {}
+    fn blocking_exclusive_system(_: Blocking<i32>, _: &mut World) {}
 
     fn blocking_exclusive_system_with_param(
-        In(_): In<i32>,
+        _: Blocking<i32>,
         _: &mut World,
         _: &mut QueryState<&mut TestComponent>,
     ) {
@@ -171,12 +171,12 @@ mod tests {
     ) {
     }
 
-    fn async_exclusive_system(In(_): In<i32>, _: &mut World) -> impl Future<Output = ()> + use<> {
+    fn async_exclusive_system(_: Async<i32>, _: &mut World) -> impl Future<Output = ()> + use<> {
         async {}
     }
 
     fn async_exclusive_system_with_param(
-        In(_): In<i32>,
+        _: Async<i32>,
         _: &mut World,
         _: &mut QueryState<&mut TestComponent>,
     ) -> impl Future<Output = ()> + use<> {

@@ -401,19 +401,6 @@ pub trait ManageCancellation {
         roster: &mut OperationRoster,
     );
 
-    /// Notify a node that its service request has been cancelled.
-    ///
-    /// # Params
-    /// * cancel_source - The operation that caused the cancellation
-    /// - cancelled_request_id - The unique ID of the request whose outcome has been cancelled
-    fn notify_node_cancel(
-        &mut self,
-        cancel_source: RouteSource,
-        cancelled_request_id: RequestId,
-        cancellation: Cancellation,
-        roster: &mut OperationRoster,
-    );
-
     /// Notify an operation within a series that the series is being cancelled.
     fn notify_series_cancel(
         &mut self,
@@ -449,17 +436,6 @@ impl ManageCancellation for World {
                     cancellation,
                 });
         }
-    }
-
-    /// Notify a node that its service request has been cancelled.
-    fn notify_node_cancel(
-        &mut self,
-        cancel_source: RouteSource,
-        cancelled_request_id: RequestId,
-        cancellation: Cancellation,
-        roster: &mut OperationRoster,
-    ) {
-
     }
 
     fn notify_series_cancel(
