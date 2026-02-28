@@ -209,7 +209,9 @@ where
         } => {
             for cancelled in cancelled {
                 let disposal = Disposal::supplanted(RequestId { session: parent_session, source, seq });
-                world.emit_disposal(cancelled.request_id, &output_port::next(), disposal, roster);
+                let port = output_port::next();
+                let route = cancelled.request_id.to_route_source(&port);
+                world.emit_disposal(route, disposal, roster);
             }
             if let Some(stop) = stop {
                 // This workflow is already running and we need to stop it at the

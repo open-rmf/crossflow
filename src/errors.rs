@@ -23,7 +23,7 @@ use anyhow::Error as Anyhow;
 
 use std::{borrow::Cow, sync::Arc};
 
-use crate::{Broken, Cancel, Disposal, OperationError};
+use crate::{Broken, Cancel, Disposal, OperationError, Cancellation, RequestId};
 
 use thiserror::Error as ThisError;
 
@@ -72,14 +72,10 @@ pub struct SetupFailure {
 pub struct CancelFailure {
     /// The error produced while the cancellation was happening
     pub error: OperationError,
+    pub source: RequestId,
+    pub session_to_cancel: Entity,
     /// The cancellation that was being emitted
-    pub cancel: Cancel,
-}
-
-impl CancelFailure {
-    pub fn new(error: OperationError, cancel: Cancel) -> Self {
-        Self { error, cancel }
-    }
+    pub cancellation: Cancellation,
 }
 
 /// When it is impossible for some reason to perform a disposal, the incident

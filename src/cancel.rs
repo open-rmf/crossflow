@@ -23,12 +23,13 @@ use thiserror::Error as ThisError;
 
 use std::{fmt::Display, sync::Arc};
 
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 
 use crate::{
     CancelFailure, DisplayDebugSlice, Disposal, Filtered, OperationError, OperationResult,
     OperationRoster, ScopeStorage, Supplanted, UnhandledErrors, RouteSource, RequestId,
     SessionOfScope, RouteTarget, OnSeriesCancelled, SeriesCancel, ManageSession,
+    ScopeEndpoints, OrBroken, ManageInput, Routing,
 };
 
 #[cfg(feature = "trace")]
@@ -385,11 +386,13 @@ impl From<CircularCollect> for CancellationCause {
 }
 
 pub trait ManageCancellation {
-    /// Have a node emit a signal to cancel the scope that it's inside of.
+    /// Have a workflow operation emit a signal to cancel a session of a scope.
     ///
-    /// # Params
-    /// * cancel_scope_endpoint - The cancellation endpoint of the scope that is
-    ///   being cancelled.
+    /// Note: session_to_cancel is intentionally a separate argument from the
+    /// session inside the RouteSource. In many cases they will be the same, but
+    /// it is possible for an operation from a different session to cancel the
+    /// session of a scope, so we must allow these two session values to be
+    /// defined separately.
     fn emit_scope_cancel(
         &mut self,
         source: RouteSource,
@@ -428,7 +431,6 @@ pub trait ManageCancellation {
 }
 
 impl ManageCancellation for World {
-    /// Have a workflow operation emit a signal to cancel a certain session.
     fn emit_scope_cancel(
         &mut self,
         source: RouteSource,
@@ -436,10 +438,16 @@ impl ManageCancellation for World {
         cancellation: Cancellation,
         roster: &mut OperationRoster,
     ) {
-        if let Some(scope) = self.get::<SessionOfScope>(session_to_cancel).map(|s| s.scope()) {
-
-        } else {
-
+        if let Err(error) = try_emit_scope_cancel(source, session_to_cancel, cancellation.clone(), self, roster) {
+            let RouteSource { session, source, seq, .. } = source;
+            self.get_resource_or_init::<UnhandledErrors>()
+                .cancellations
+                .push(CancelFailure {
+                    error,
+                    source: RequestId { session, source, seq },
+                    session_to_cancel,
+                    cancellation,
+                });
         }
     }
 
@@ -544,45 +552,25 @@ pub fn try_emit_broken(
     }
 }
 
-fn try_emit_cancel(
-    source_mut: &mut EntityWorldMut,
-    session: Option<Entity>,
+fn try_emit_scope_cancel(
+    source: RouteSource,
+    session_to_cancel: Entity,
     cancellation: Cancellation,
+    world: &mut World,
     roster: &mut OperationRoster,
-) -> Result<(), CancelFailure> {
-    let source = source_mut.id();
-    if let Some(scope) = source_mut.get::<ScopeStorage>() {
-        // The cancellation is happening inside a scope, so we should cancel
-        // the scope
-        let scope = scope.get();
-        roster.cancel(Cancel {
-            origin: source,
-            target: scope,
-            session,
-            cancellation,
-        });
-    } else if let Some(session) = session {
-        // The cancellation is not happening inside a scope, so we should tell
-        // the session itself to cancel.
-        roster.cancel(Cancel {
-            origin: source,
-            target: session,
-            session: Some(session),
-            cancellation,
-        });
-    } else {
-        return Err(CancelFailure::new(
-            OperationError::Broken(Some(Backtrace::new())),
-            Cancel {
-                origin: source,
-                target: source,
-                session,
-                cancellation,
-            },
-        ));
-    }
-
-    Ok(())
+) -> Result<(), OperationError> {
+    // Workflow scopes are cancelled by sending a `Cancellation` input to the
+    // `cancel_scope` endpoint of the scope.
+    let scope = world.get::<SessionOfScope>(session_to_cancel).or_broken()?.scope();
+    let cancel_scope = world.get::<ScopeEndpoints>(scope).or_broken()?.cancel_scope;
+    let route = Routing {
+        outputs: smallvec![source],
+        input: RouteTarget {
+            session: session_to_cancel,
+            target: cancel_scope,
+        },
+    };
+    world.give_input(route, cancellation, roster)
 }
 
 pub struct OperationCancel<'a> {

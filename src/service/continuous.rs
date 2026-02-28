@@ -644,7 +644,8 @@ where
                     if world.get::<ScopeStorage>(source).is_some() {
                         let port = output_port::name_str("stream_out");
                         let disposal = Disposal::async_node_with_streams();
-                        world.emit_disposal(request_id, &port, disposal, &mut *deferred);
+                        let route = request_id.to_route_source(&port);
+                        world.emit_disposal(route, disposal, &mut *deferred);
                     }
                 }
 
@@ -778,7 +779,9 @@ where
             } => {
                 for cancelled in cancelled {
                     let disposal = Disposal::supplanted(RequestId { session, source, seq });
-                    world.emit_disposal(cancelled.request_id, &output_port::next(), disposal, roster);
+                    let port = output_port::next();
+                    let route = cancelled.request_id.to_route_source(&port);
+                    world.emit_disposal(route, disposal, roster);
                     if let Ok(task_mut) = world.get_entity_mut(cancelled.task_id) {
                         task_mut.despawn();
                     }
@@ -814,7 +817,9 @@ where
                     }
 
                     let disposal = Disposal::supplanted(RequestId { session, source, seq });
-                    world.emit_disposal(stop.request_id, &output_port::next(), disposal, roster);
+                    let port = output_port::next();
+                    let route = stop.request_id.to_route_source(&port);
+                    world.emit_disposal(route, disposal, roster);
                     if let Ok(task_mut) = world.get_entity_mut(stop.task_id) {
                         task_mut.despawn();
                     }

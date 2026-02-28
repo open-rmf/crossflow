@@ -149,7 +149,9 @@ where
             } => {
                 for cancelled in cancelled {
                     let disposal = Disposal::supplanted(RequestId { session, source, seq });
-                    world.emit_disposal(cancelled.request_id, &output_port::next(), disposal, roster);
+                    let port = output_port::next();
+                    let route = cancelled.request_id.to_route_source(&port);
+                    world.emit_disposal(route, disposal, roster);
                     if let Ok(task_mut) = world.get_entity_mut(cancelled.task_id) {
                         task_mut.despawn();
                     }

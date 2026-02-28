@@ -379,6 +379,13 @@ pub struct RequestId {
     pub seq: Seq,
 }
 
+impl RequestId {
+    pub fn to_route_source<'a>(self, port: OutputPort<'a>) -> RouteSource<'a> {
+        let Self { session, source, seq } = self;
+        RouteSource { session, source, seq, port }
+    }
+}
+
 impl<'a, Request, Streams: StreamPack> From<&'a BlockingService<Request, Streams>> for RequestId {
     fn from(value: &'a BlockingService<Request, Streams>) -> Self {
         value.id

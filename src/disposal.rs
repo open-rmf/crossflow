@@ -33,7 +33,7 @@ use smallvec::SmallVec;
 use thiserror::Error as ThisError;
 
 use crate::{
-    Cancel, Cancellation, DisposalFailure, OperationResult, OperationRoster, OrBroken, OutputPort,
+    Cancellation, DisposalFailure, OperationResult, OperationRoster, OrBroken, OutputPort,
     SeriesMarker, UnhandledErrors, UnusedTarget, operation::ScopeStorage, RequestId, ManageCancellation, RouteSource,
 };
 
@@ -476,17 +476,16 @@ impl From<IncompleteSplit> for DisposalCause {
 pub trait ManageDisposal {
     fn emit_disposal(
         &mut self,
-        request_id: RequestId,
-        port: OutputPort,
+        route: RouteSource,
         disposal: Disposal,
         roster: &mut OperationRoster,
     );
 
-    fn clear_disposals(&mut self, session: Entity);
+    fn clear_disposals(&mut self, session: Entity, source: Entity);
 
     /// Used to transfer the disposals gathered by a temporary operation (e.g.
     /// a task) over to a persistent node
-    fn transfer_disposals(&mut self, to_node: Entity) -> OperationResult;
+    fn transfer_disposals(&mut self, from_node: Entity, to_node: Entity) -> OperationResult;
 }
 
 pub trait InspectDisposals {
@@ -497,12 +496,11 @@ impl ManageDisposal for World {
     /// Emit a signal that an output has been disposed for a certain operation.
     fn emit_disposal(
         &mut self,
-        request_id: RequestId,
-        port: OutputPort,
+        route: RouteSource,
         disposal: Disposal,
         roster: &mut OperationRoster,
     ) {
-        let RequestId { session, source, seq } = request_id;
+        let RouteSource { session, source, seq, port } = route;
         #[cfg(feature = "trace")]
         {
             // TODO(@mxgrey): Consider not tracing stream-related disposals
@@ -541,16 +539,7 @@ impl ManageDisposal for World {
                 // reach its end.
                 if !disposal.cause.stream_disposal() {
                     let cancellation = Cancellation::unreachable(session, session, vec![disposal]);
-                    self.notify_series_cancel(
-                        RouteSource {
-                            session,
-                            source,
-                            seq,
-                            port,
-                        },
-                        session,
-                        cancellation,
-                    );
+                    self.notify_series_cancel(route, session, cancellation);
                 }
             } else if self.get::<UnusedTarget>(source).is_none() {
                 // If the emitting node does not have a scope, is not part of
@@ -559,7 +548,7 @@ impl ManageDisposal for World {
                 // We can safely ignore disposals for unused targets because
                 // unused targets cannot affect the reachability of a workflow
                 // or a series.
-                let broken_node = request_id.source;
+                let broken_node = source;
                 self.get_resource_or_insert_with(UnhandledErrors::default)
                     .disposals
                     .push(DisposalFailure {
@@ -572,32 +561,29 @@ impl ManageDisposal for World {
         };
     }
 
-    fn clear_disposals(&mut self, session: Entity) {
-        if let Some(mut storage) = self.get_mut::<DisposalStorage>() {
+    fn clear_disposals(&mut self, session: Entity, source: Entity) {
+        if let Some(mut storage) = self.get_mut::<DisposalStorage>(source) {
             storage.disposals.remove(&session);
         }
     }
 
-    fn transfer_disposals(&mut self, to: Entity) -> OperationResult {
-        if let Some(from_storage) = self.take::<DisposalStorage>() {
-            self.world_scope::<OperationResult>(|world| {
-                let mut to_mut = world.get_entity_mut(to).or_broken()?;
-                match to_mut.get_mut::<DisposalStorage>() {
-                    Some(mut to_storage) => {
-                        for (session, disposals) in from_storage.disposals {
-                            to_storage
-                                .disposals
-                                .entry(session)
-                                .or_default()
-                                .extend(disposals);
-                        }
-                    }
-                    None => {
-                        to_mut.insert(from_storage);
+    fn transfer_disposals(&mut self, from: Entity, to: Entity) -> OperationResult {
+        if let Some(from_storage) = self.get_entity_mut(from).or_broken()?.take::<DisposalStorage>() {
+            let mut to_mut = self.get_entity_mut(to).or_broken()?;
+            match to_mut.get_mut::<DisposalStorage>() {
+                Some(mut to_storage) => {
+                    for (session, disposals) in from_storage.disposals {
+                        to_storage
+                            .disposals
+                            .entry(session)
+                            .or_default()
+                            .extend(disposals);
                     }
                 }
-                Ok(())
-            })?;
+                None => {
+                    to_mut.insert(from_storage);
+                }
+            }
         }
 
         Ok(())
@@ -621,27 +607,6 @@ impl<'w> InspectDisposals for EntityRef<'w> {
         }
 
         None
-    }
-}
-
-pub fn emit_disposal(
-    source: Entity,
-    session: Entity,
-    disposal: Disposal,
-    world: &mut World,
-    roster: &mut OperationRoster,
-) {
-    if let Ok(mut source_mut) = world.get_entity_mut(source) {
-        source_mut.emit_disposal(session, disposal, roster);
-    } else {
-        world
-            .get_resource_or_insert_with(UnhandledErrors::default)
-            .disposals
-            .push(DisposalFailure {
-                disposal,
-                broken_node: source,
-                backtrace: Some(Backtrace::new()),
-            });
     }
 }
 

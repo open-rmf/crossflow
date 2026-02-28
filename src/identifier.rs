@@ -197,6 +197,14 @@ pub mod output_port {
         [IdentifierRef::name_str("next")]
     }
 
+    pub const fn cancel() -> [IdentifierRef<'static>; 1] {
+        [IdentifierRef::name_str("cancel")]
+    }
+
+    pub const fn dispose() -> [IdentifierRef<'static>; 1] {
+        [IdentifierRef::name_str("dispose")]
+    }
+
     pub const fn stream_out<'a>(stream: &'a str) -> [IdentifierRef<'a>; 2] {
         [
             IdentifierRef::name_str("stream_out"),

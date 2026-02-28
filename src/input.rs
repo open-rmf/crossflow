@@ -553,7 +553,7 @@ impl<T: 'static + Send + Sync> Command for SeriesRequest<T> {
                     node: self.start,
                     backtrace,
                 });
-                world.emit_scope_cancel(
+                world.notify_series_cancel(
                     RouteSource {
                         session,
                         source,
@@ -562,7 +562,6 @@ impl<T: 'static + Send + Sync> Command for SeriesRequest<T> {
                     },
                     session,
                     Cancellation::from_cause(cause),
-                    &mut *roster,
                 );
             }
         });

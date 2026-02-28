@@ -296,7 +296,7 @@ where
         }: OperationRequest,
     ) -> OperationResult {
         let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { session, data } = source_mut.take_input::<Response>()?;
+        let Input { session, data, seq } = source_mut.take_input::<Response>()?;
         let injector = source_mut.get::<InjectionSource>().or_broken()?.0;
         source_mut.despawn();
         let mut injector_mut = world.get_entity_mut(injector).or_broken()?;
@@ -308,9 +308,8 @@ where
             .find(|injected| injected.finish == source)
             .or_broken()?;
         storage.list.retain(|injected| injected.finish != source);
-        let mut task_mut = world.get_entity_mut(injected.task).or_broken()?;
-        task_mut.transfer_disposals(injector)?;
-        task_mut.despawn();
+        world.transfer_disposals(injected.task, injector)?;
+        world.despawn(injected.task);
 
         world
             .get_entity_mut(target)
