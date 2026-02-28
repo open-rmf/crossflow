@@ -23,7 +23,7 @@ use crate::{
     Accessing, AnyBuffer, AsAnyBuffer, Buffer, BufferKey, BufferKeyBuilder, BufferKeyLifecycle,
     BufferLocation, Bufferable, Buffering, Builder, CloneFromBuffer, Gate, InputSlot,
     InspectBufferSessions, JoinBehavior, Joining, ManageBufferSessions, MessageTypeHint, OperationError,
-    OperationResult, OperationRoster, OrBroken,
+    OperationResult, OperationRoster, OrBroken, RequestId,
 };
 
 /// This is an alternative to the [`Buffer`] and [`CloneFromBuffer`] structs
@@ -220,6 +220,7 @@ impl<T: 'static + Send + Sync> Joining for FetchFromBuffer<T> {
     type Item = T;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {

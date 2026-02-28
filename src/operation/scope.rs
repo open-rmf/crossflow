@@ -72,7 +72,7 @@ pub struct ScopedSessionBundle {
 impl ScopedSessionBundle {
     pub fn new(
         parent: Entity,
-        scope: Entity
+        scope: Entity,
     ) -> Self {
         Self {
             parent_session: ParentSession(parent),
@@ -397,10 +397,7 @@ fn dyn_begin_scope<Request: 'static + Send + Sync>(
     }: OperationRequest,
 ) -> OperationResult {
     let input = world.take_input::<Request>(source)?;
-
-    let scoped_session = world
-        .spawn(ScopedSessionBundle::new(input.session, source))
-        .id();
+    let scoped_session = world.spawn_scoped_session(input.session, source, input.seq);
 
     begin_scope(
         input,
@@ -1089,8 +1086,8 @@ fn validate_scope_reachability(
 
     let scoped_session = session;
     let source_ref = world.get_entity(source).or_broken()?;
-    let terminal = source_ref.get::<TerminalStorage>().or_broken()?.0;
-    if check_reachability(scoped_session, terminal, Some(origin), world)? {
+    let terminate = source_ref.get::<ScopeEndpoints>().or_broken()?.terminate;
+    if check_reachability(scoped_session, terminate, Some(origin), world)? {
         // The terminal node can still be reached, so we're done
         return Ok(true);
     }
@@ -1623,28 +1620,52 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input {
-            session: scoped_session,
-            ..
-        } = source_mut.take_input::<()>()?;
-        let buffers = source_mut
+        let Input { session: scoped_session, seq, .. } = world.take_input::<()>(source)?;
+        let source_ref = world.get_entity(source).or_broken()?;
+        let buffers = source_ref
             .get::<CleanupInputBufferStorage<B>>()
             .or_broken()?;
-        let target = source_mut.get::<SingleTargetStorage>().or_broken()?.0;
-        let from_scope = source_mut.get::<CleanupForScope>().or_broken()?.0;
+        let target = source_ref.get::<SingleTargetStorage>().or_broken()?.0;
+        let from_scope = source_ref.get::<CleanupForScope>().or_broken()?.0;
 
         let key_builder = BufferKeyBuilder::without_tracking(from_scope, scoped_session, source);
 
         let keys = buffers.0.create_key(&key_builder);
 
-        let cleanup_session = world
-            .spawn(ScopedSessionBundle::new(scoped_session, target))
-            .id();
-        world
-            .get_entity_mut(target)
-            .or_broken()?
-            .give_input(cleanup_session, keys, roster)?;
+        // The cleanup workflow that we are about to start will take place in its
+        // own unique session that it will create for itself, so it might seem
+        // strange that we are spawning a cleanup session here, prior to beginning
+        // the scope of the cleanup workflow.
+        //
+        // We create a cleanup_session here so that when the cleanup workflow
+        // does finish, it will refer to this special-purpose session which was
+        // spawned specifically for that cleanup workflow. We can't know the ID
+        // of the session that the cleanup workflow's scope will spawn for it,
+        // so we can't use that to identify which workflow result we're receiving.
+        // And if we simply passed along the scoped_session in the request, then
+        // all the replies we get back from all the cleanup workflows will refer
+        // to the same scoped_session, so we won't be able to tell them apart.
+        //
+        // By spawning this session and passing it to the cleanup workflow, the
+        // cleanup workflow's final reply will refer to this specific unique
+        // cleanup_session, so we can reliably keep track of which cleanup
+        // workflows have finished versus which are still running.
+        let cleanup_session = world.spawn_scoped_session(scoped_session, source, seq);
+
+        let output = RouteSource {
+            session: scoped_session,
+            source,
+            seq,
+            port: &output_port::begin_cleanup(),
+        };
+        let route = Routing {
+            outputs: smallvec![output],
+            input: RouteTarget {
+                session: cleanup_session,
+                target,
+            },
+        };
+        world.give_input(route, keys, roster)?;
 
         let finish_cleanup = world
             .get::<ScopeEndpoints>(from_scope)
@@ -1703,21 +1724,13 @@ impl<T: 'static + Send + Sync> Operation for FinishCleanup<T> {
 
     fn execute(
         OperationRequest {
-            source,
+            source: finish,
             world,
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Some(Input {
-            session: cancellation_session,
-            ..
-        }) = source_mut.try_take_input::<()>()?
-        else {
-            return Ok(());
-        };
-
-        Self::deduct_finished_cleanup(source, cancellation_session, world, roster, None)
+        let Input { session: cleanup_session, .. } = world.take_input::<()>(finish)?;
+        Self::deduct_finished_cleanup(finish, cleanup_session, world, roster, None)
     }
 
     fn cleanup(_: OperationCleanup) -> OperationResult {
@@ -1734,6 +1747,8 @@ impl<T: 'static + Send + Sync> Operation for FinishCleanup<T> {
 }
 
 impl<T: 'static + Send + Sync> FinishCleanup<T> {
+
+    This is not really used anymore -- need to rework how this cancellation is received
     fn receive_cancel(
         OperationCancel {
             cancel:
@@ -1748,9 +1763,9 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
         }: OperationCancel,
     ) -> OperationResult {
         if let Some(cancellation_session) = session {
-            // We just need to cancel a specific cancellation session. The
-            // cancellation signal for a FinishCleanup always comes from a child
-            // cancellation session, never from an outside source.
+            // We just need to cancel a specific cleanup session. The cancellation
+            // signal for a FinishCleanup always comes from a child cleanup session,
+            // never from an outside source.
             return Self::deduct_finished_cleanup(
                 finish,
                 cancellation_session,
@@ -1827,9 +1842,8 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
     }
 
     fn deduct_finished_cleanup(
-        request_id: RequestId,
         finish: Entity,
-        cancellation_session: Entity,
+        cleanup_session: Entity,
         world: &mut World,
         roster: &mut OperationRoster,
         inner_cancellation: Option<Cancellation>,
@@ -1839,7 +1853,7 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
         if let Some((index, a)) = awaiting.0.iter_mut().enumerate().find(|(_, a)| {
             a.cleanup_workflow_sessions
                 .iter()
-                .any(|w| w.iter().any(|s| *s == cancellation_session))
+                .any(|w| w.iter().any(|s| *s == cleanup_session))
         }) {
             if let Some(inner_cancellation) = inner_cancellation {
                 match &mut a.info.status {
@@ -1859,7 +1873,7 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
             }
 
             if let Some(cleanup_workflow_sessions) = &mut a.cleanup_workflow_sessions {
-                cleanup_workflow_sessions.retain(|s| *s != cancellation_session);
+                cleanup_workflow_sessions.retain(|s| *s != cleanup_session);
                 if cleanup_workflow_sessions.is_empty() {
                     // All cancellation sessions for this scoped session have
                     // finished so we can clean it up now.
@@ -1880,13 +1894,13 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
     fn finalize_scoped_session(
         index: usize,
         OperationRequest {
-            source,
+            source: finish,
             world,
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let scope = world.get::<FinishCleanupForScope>(source).or_broken()?.0;
-        let awaiting = world.get::<AwaitingCleanupStorage>(source).or_broken()?;
+        let scope = world.get::<FinishCleanupForScope>(finish).or_broken()?.0;
+        let awaiting = world.get::<AwaitingCleanupStorage>(finish).or_broken()?;
         let a = awaiting.0.get(index).or_broken()?;
         let parent_session = a.info.parent_session;
         let cleanup = a.info.cleanup;
@@ -1914,7 +1928,7 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
             // about any cleanup, so we don't need to hold onto the final
             // results that are ready for this parent.
             let a = world
-                .get_mut::<AwaitingCleanupStorage>(source).or_broken()?
+                .get_mut::<AwaitingCleanupStorage>(finish).or_broken()?
                 .0
                 .remove(index);
 
@@ -1950,8 +1964,8 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
         // cancelation.
         let mut early_cleanup = false;
         let mut cleaning_finished = true;
-        let source_ref = world.get_entity(source).or_broken()?;
-        for a in &source_ref.get::<AwaitingCleanupStorage>().or_broken()?.0 {
+        let finish_ref = world.get_entity(finish).or_broken()?;
+        for a in &finish_ref.get::<AwaitingCleanupStorage>().or_broken()?.0 {
             if a.info.cleanup.cleanup_id == cleanup_id {
                 if !a
                     .cleanup_workflow_sessions
@@ -1974,7 +1988,7 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
             // In that case, we need to make sure that ALL instances of this
             // workflow for the parent session are finished before we notify
             // that cleanup is finished.
-            let scope = source_ref.get::<CleanupForScope>().or_broken()?.0;
+            let scope = finish_ref.get::<CleanupForScope>().or_broken()?.0;
             let scope_ref = world.get_entity(scope).or_broken()?;
             let pairs = scope_ref.get::<ScopedSessionStorage>().or_broken()?;
             if pairs
@@ -1991,11 +2005,11 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
             // parent session and then notify the parent scope that it's
             // clean.
             let mut awaiting = world
-                .get_mut::<AwaitingCleanupStorage>(source)
-                .or_broken()?;
-            awaiting
+                .get_mut::<AwaitingCleanupStorage>(finish)
+                .or_broken()?
                 .0
                 .retain(|p| p.info.parent_session != parent_session);
+
             cleanup.notify_cleaned(world, roster)?;
         }
 

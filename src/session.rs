@@ -17,7 +17,7 @@
 
 use bevy_ecs::prelude::{World, Entity};
 
-use crate::{RequestId};
+use crate::{RequestId, Seq};
 
 #[cfg(feature = "trace")]
 use crate::SessionEvent;
@@ -25,7 +25,12 @@ use crate::SessionEvent;
 pub trait ManageSession {
     fn spawn_series_session(&mut self) -> Entity;
 
-    fn spawn_scoped_session(&mut self, scope_request: RequestId) -> Entity;
+    fn spawn_scoped_session(
+        &mut self,
+        parent_session: Entity,
+        scope: Entity,
+        seq: Seq,
+    ) -> Entity;
 
     fn despawn_session(&mut self, entity: Entity);
 }
@@ -35,7 +40,12 @@ impl ManageSession for World {
 
     }
 
-    fn spawn_scoped_session(&mut self, scope_request: RequestId) -> Entity {
+    fn spawn_scoped_session(
+        &mut self,
+        parent_session: Entity,
+        scope: Entity,
+        seq: Seq,
+    ) -> Entity {
 
     }
 

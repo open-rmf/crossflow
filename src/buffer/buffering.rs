@@ -202,7 +202,7 @@ pub trait Accessing: Buffering {
         );
 
         let scope = builder.scope();
-        let begin_cancel = builder.commands.spawn(()).insert(ChildOf(scope)).id();
+        let begin_cancel = builder.commands.spawn(ChildOf(scope)).id();
         self.verify_scope(builder.scope());
         builder.commands.queue(AddOperation::new(
             None,
@@ -376,7 +376,7 @@ impl<T: 'static + Send + Sync + Clone> Joining for CloneFromBuffer<T> {
         world
             .get_entity(self.id())
             .or_broken()?
-            .try_clone_from_buffer(session)
+            .clone_from_buffer(req, session)
             .and_then(|r| r.or_broken())
     }
 }
@@ -635,7 +635,7 @@ impl<T: Joining, const N: usize> Joining for [T; N] {
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
         self.iter()
-            .map(|buffer| buffer.fetch_for_join(session, world))
+            .map(|buffer| buffer.fetch_for_join(req, session, world))
             .collect()
     }
 }
@@ -749,11 +749,12 @@ impl<T: Joining, const N: usize> Joining for SmallVec<[T; N]> {
     type Item = SmallVec<[T::Item; N]>;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
         self.iter()
-            .map(|buffer| buffer.fetch_for_join(session, world))
+            .map(|buffer| buffer.fetch_for_join(req, session, world))
             .collect()
     }
 }
@@ -867,11 +868,12 @@ impl<B: Joining> Joining for Vec<B> {
     type Item = Vec<B::Item>;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
         self.iter()
-            .map(|buffer| buffer.fetch_for_join(session, world))
+            .map(|buffer| buffer.fetch_for_join(req, session, world))
             .collect()
     }
 }

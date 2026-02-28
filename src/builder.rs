@@ -717,7 +717,7 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
         let ScopeEndpoints {
             enter_scope,
             terminate,
-            cancel_scope,
+            cancel_scope: _,
             finish_scope_cleanup,
         } = OperateScope::add::<Request, Response>(
             Some(self.scope()),
