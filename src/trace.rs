@@ -18,6 +18,7 @@
 use crate::{
     JsonMessage, OperationRef, TraceToggle, TypeInfo, OutputPort, Seq, OutputRef,
     Routing, OutputKey, RequestId, BufferKeyTag, RouteSource, Cancellation, Disposal,
+    Broken,
 };
 
 use bevy_ecs::{
@@ -467,10 +468,17 @@ pub enum SessionChange {
 
 #[derive(Debug, Clone)]
 pub enum TracedEventKind {
+    /// A message was sent from one operation to another
     MessageSent(MessageSent),
+    /// A buffer was viewed or modified by an operation
     BufferEvent(BufferEvent),
+    /// A session was spawned despawned, or changed state
     SessionEvent(SessionEvent),
+    /// An output from an operation was disposed or never activated
     OutputDisposed(OutputDisposed),
+    /// Something in the execution structure is broken. This indicates a severe
+    /// implementation error.
+    Broken(Broken),
 }
 
 impl From<MessageSent> for TracedEventKind {
@@ -497,6 +505,12 @@ impl From<OutputDisposed> for TracedEventKind {
     }
 }
 
+impl From<Broken> for TracedEventKind {
+    fn from(value: Broken) -> Self {
+        Self::Broken(value)
+    }
+}
+
 #[derive(Debug, Clone, Event)]
 pub struct TracedEvent {
     pub event: TracedEventKind,
@@ -511,6 +525,11 @@ impl TracedEvent {
             instant: Instant::now(),
             time: SystemTime::now(),
         }
+    }
+
+    pub fn trace(event: impl Into<TracedEventKind>, world: &mut World) {
+        let event = event.into();
+        world.trigger(Self::now(event));
     }
 }
 

@@ -15,7 +15,7 @@
  *
 */
 
-use bevy_ecs::prelude::{Bundle, Component, Entity, World, Children};
+use bevy_ecs::prelude::{Bundle, Component, Entity, World};
 
 use backtrace::Backtrace;
 
@@ -23,17 +23,17 @@ use thiserror::Error as ThisError;
 
 use std::{fmt::Display, sync::Arc};
 
-use smallvec::{SmallVec, smallvec};
+use smallvec::smallvec;
 
 use crate::{
     CancelFailure, DisplayDebugSlice, Disposal, Filtered, OperationError, OperationResult,
-    OperationRoster, InScope, Supplanted, UnhandledErrors, RouteSource, RequestId,
-    SessionOfScope, RouteTarget, OnSeriesCancelled, SeriesCancel, ManageSession,
+    OperationRoster, Supplanted, UnhandledErrors, RouteSource, RequestId,
+    SessionOfScope, RouteTarget, ManageSession, InScope, InSeries,
     ScopeEndpoints, OrBroken, ManageInput, Routing,
 };
 
 #[cfg(feature = "trace")]
-use crate::SessionEvent;
+use crate::{SessionEvent, TracedEvent};
 
 /// Information about the cancellation that occurred.
 #[derive(ThisError, Debug, Clone)]
@@ -411,7 +411,8 @@ impl ManageCancellation for World {
                 .push(CancelFailure {
                     error,
                     source: Some(RequestId { session, source, seq }),
-                    session_to_cancel,
+                    target_to_cancel: session_to_cancel,
+                    session_to_cancel: Some(session_to_cancel),
                     cancellation,
                 });
         }
@@ -424,7 +425,7 @@ impl ManageCancellation for World {
         cancellation: Cancellation,
         roster: &mut OperationRoster,
     ) {
-        cancel_session(Some(source), session_to_cancel, cancellation, self, roster);
+        cancel_operation(Some(source), session_to_cancel, Some(session_to_cancel), cancellation, self, roster);
     }
 
     fn cancel_session(
@@ -433,7 +434,7 @@ impl ManageCancellation for World {
         cancellation: Cancellation,
         roster: &mut OperationRoster,
     ) {
-        cancel_session(None, session, cancellation, self, roster);
+        cancel_operation(None, session, Some(session), cancellation, self, roster);
     }
 
     fn emit_broken(
@@ -442,49 +443,38 @@ impl ManageCancellation for World {
         backtrace: Option<Backtrace>,
         roster: &mut OperationRoster,
     ) {
-        let cause = Broken {
+        let broken = Broken {
             node: broken_id,
             backtrace,
         };
-        if let Err(failure) = try_emit_cancel(self, None, cause.into(), roster) {
-            // We were unable to emit the cancel according to the normal
-            // procedure. We should move this into the unhandled errors resource
-            // so that it does not get lost.
-            self.world_scope(move |world| {
-                world
-                    .get_resource_or_insert_with(UnhandledErrors::default)
-                    .cancellations
-                    .push(failure);
-            });
-        }
-    }
-}
 
-pub fn try_emit_broken(
-    source: Entity,
-    backtrace: Option<Backtrace>,
-    world: &mut World,
-    roster: &mut OperationRoster,
-) {
-    if let Ok(mut source_mut) = world.get_entity_mut(source) {
-        source_mut.emit_broken(backtrace, roster);
-    } else {
-        world
-            .get_resource_or_insert_with(UnhandledErrors::default)
-            .cancellations
-            .push(CancelFailure {
-                error: OperationError::Broken(Some(Backtrace::new())),
-                cancel: Cancel {
-                    origin: source,
-                    target: source,
-                    session: None,
-                    cancellation: Broken {
-                        node: source,
-                        backtrace,
-                    }
-                    .into(),
-                },
-            });
+        // Always put cases of broken structure into the unhandled error log.
+        self.get_resource_or_init::<UnhandledErrors>()
+            .broken
+            .push(broken.clone());
+
+        #[cfg(feature = "trace")]
+        {
+            TracedEvent::trace(broken.clone(), self);
+        }
+
+        // A broken operation could leave an Outcome hanging indefinitely, waiting
+        // for a response that will never come. To mitigate this risk, we will try
+        // to issue cancellation signals to any scope or series associated with the
+        // broken operation. Unfortunately we cannot necessarily isolate a specific
+        // session to cancel because we don't know what sessions are affected by
+        // the brokenness.
+        if let Some(scope) = self.get::<InScope>(broken_id).map(|s| s.scope()) {
+            // The broken operation is within a scope, so cancel the whole scope.
+            cancel_operation(None, scope, None, broken.into(), self, roster);
+        } else if let Some(series) = self.get::<InSeries>(broken_id).map(|s| s.series()) {
+            // The broken operation is within a series, so cancel the whole series.
+            cancel_operation(None, series, Some(series), broken.into(), self, roster);
+        } else {
+            // The broken operation is not within a series or a scope, so maybe
+            // it is a series or scope itself. Try cancelling it directly.
+            cancel_operation(None, broken_id, Some(broken_id), broken.into(), self, roster);
+        }
     }
 }
 
@@ -509,23 +499,26 @@ fn try_emit_scope_cancel(
     world.give_input(route, cancellation, roster)
 }
 
-fn cancel_session(
+fn cancel_operation(
     source: Option<RouteSource>,
-    session: Entity,
+    target: Entity,
+    session: Option<Entity>,
     cancellation: Cancellation,
     world: &mut World,
     roster: &mut OperationRoster,
 ) {
     #[cfg(feature = "trace")]
     {
-        SessionEvent::cancelled(source, session, cancellation.clone(), world);
+        if let Some(session) = session {
+            SessionEvent::cancelled(source, session, cancellation.clone(), world);
+        }
     }
 
-    match world.get::<OnCancel>(session).map(|c| c.0).or_broken() {
+    match world.get::<OnCancel>(target).map(|c| c.0).or_broken() {
         Ok(on_cancel) => {
             on_cancel(Cancel {
-                target: session,
-                session: Some(session),
+                target: target,
+                session: session,
                 cancellation,
                 world,
                 roster,
@@ -537,17 +530,12 @@ fn cancel_session(
                 .push(CancelFailure {
                     error,
                     source: source.map(|s| s.request_id()),
+                    target_to_cancel: target,
                     session_to_cancel: session,
                     cancellation,
                 });
         }
     }
-
-    #[cfg(feature = "trace")]
-    {
-        SessionEvent::despawned(session, world);
-    }
-    world.despawn_session(session);
 }
 
 #[derive(Component)]

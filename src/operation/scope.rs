@@ -25,7 +25,7 @@ use crate::{
     SingleInputStorage, SingleTargetStorage, StreamEffect, StreamRequest, StreamTargetMap,
     UnhandledErrors, Unreachability, UnusedTarget, check_reachability, execute_operation,
     is_downstream_of, Routing, RouteSource, RouteTarget, output_port, MessageRoute, RequestId, StreamTarget,
-    ManageSession, ManageDisposal, Disposal, DisposalStorage, OnCancel, OperationResultFilter, ManageCancellation,
+    ManageSession, ManageDisposal, Disposal, DisposalStorage, OnCancel, OperationResultFilter,
     SessionEvent,
 };
 

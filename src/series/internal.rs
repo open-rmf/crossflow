@@ -16,7 +16,7 @@
 */
 
 use bevy_derive::Deref;
-use bevy_ecs::prelude::{Bundle, ChildOf, Children, Command, Component, Entity, Resource, World};
+use bevy_ecs::prelude::{Bundle, Command, Component, Entity, Resource, World};
 
 use backtrace::Backtrace;
 
@@ -31,11 +31,14 @@ use anyhow::anyhow;
 use std::sync::Arc;
 
 use crate::{
-    Broken, Cancel, CancelFailure, Cancellable, Cancellation, DisposalListener, DisposalUpdate,
+    Cancel, Cancellation, DisposalListener, DisposalUpdate,
     ManageCancellation, MiscellaneousFailure, OnCancel, OperationError, OperationExecuteStorage,
     OperationRequest, OperationResult, OperationResultFilter, OperationSetup, SetupFailure,
-    SingleTargetStorage, UnhandledErrors, UnusedTarget, OrBroken,
+    UnhandledErrors, UnusedTarget, OrBroken, ManageSession, DeferredRoster,
 };
+
+#[cfg(feature = "trace")]
+use crate::SessionEvent;
 
 pub(crate) trait Executable {
     fn setup(self, info: OperationSetup) -> OperationResult;
@@ -51,6 +54,15 @@ pub(crate) struct SeriesSessionBundle {
 /// Ordered sequence of operations in a series
 #[derive(Default, Clone, Debug, Component)]
 pub(crate) struct SequenceInSeries(Vec<Entity>);
+
+#[derive(Clone, Copy, Debug, Component, Deref)]
+pub struct InSeries(Entity);
+
+impl InSeries {
+    pub fn series(&self) -> Entity {
+        self.0
+    }
+}
 
 impl SequenceInSeries {
     pub(crate) fn push(&mut self, operation: Entity) {
@@ -146,31 +158,28 @@ impl<E: Executable + 'static + Sync + Send> Command for AddExecutableToSeries<E>
     fn apply(self, world: &mut World) -> () {
         let series = self.series;
         let target = self.executable.target;
-        AddConnectionToSeries { series, target }.apply(world);
+        AddToSeries { series, target }.apply(world);
         self.executable.apply(world);
     }
 }
 
-pub(crate) struct AddConnectionToSeries {
+pub(crate) struct AddToSeries {
     series: Entity,
     target: Entity,
 }
 
-impl Command for AddConnectionToSeries {
+impl Command for AddToSeries {
     fn apply(self, world: &mut World) -> () {
         let node = self.target;
         if let Err(OperationError::Broken(backtrace)) = self.try_apply(world) {
-            world
-                .get_resource_or_init::<UnhandledErrors>()
-                .broken
-                .push(Broken { node, backtrace });
-
-            world.emit_broken()
+            world.resource_scope::<DeferredRoster, _>(|world, mut roster| {
+                world.emit_broken(node, backtrace, &mut *roster);
+            });
         }
     }
 }
 
-impl AddConnectionToSeries {
+impl AddToSeries {
     pub(crate) fn new(session: Entity, target: Entity) -> Self {
         Self {
             series: session,
@@ -180,6 +189,7 @@ impl AddConnectionToSeries {
 
     fn try_apply(self, world: &mut World) -> OperationResult {
         world.get_mut::<SequenceInSeries>(self.series).or_broken()?.push(self.target);
+        world.get_entity_mut(self.target).or_broken()?.insert(InSeries(self.series));
         Ok(())
     }
 }
@@ -203,9 +213,7 @@ fn perform_execution<E: Executable>(
             // Do nothing
         }
         Err(OperationError::Broken(backtrace)) => {
-            if let Ok(mut source_mut) = world.get_entity_mut(source) {
-                source_mut.emit_broken(backtrace, roster);
-            }
+            world.emit_broken(source, backtrace, roster);
         }
     }
 }
@@ -236,6 +244,12 @@ pub(crate) fn cancel_series(cancel: Cancel) -> OperationResult {
         }
     }
 
+    #[cfg(feature = "trace")]
+    {
+        SessionEvent::despawned(session, world);
+    }
+
+    world.despawn_session(session);
     Ok(())
 }
 

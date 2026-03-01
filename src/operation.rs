@@ -17,7 +17,7 @@
 
 use crate::{
     Broken, DeliveryLabelId, InspectInput, SetupFailure, StreamTargetMap, UnhandledErrors, RequestId,
-    try_emit_broken, Disposal, RouteSource,
+    Disposal, RouteSource,
 };
 
 use bevy_derive::Deref;

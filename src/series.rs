@@ -25,7 +25,7 @@ use std::future::Future;
 use crate::{
     AsMapOnce, IntoAsyncMapOnce, IntoBlockingMapOnce, Outcome, Promise, ProvideOnce,
     Sendish, StreamPack, StreamTargetMap, UnusedTarget,
-    series::internal::{AddExecutableToSeries, AddConnectionToSeries}
+    series::internal::{AddExecutableToSeries, AddToSeries}
 };
 
 mod detach;
@@ -193,7 +193,7 @@ where
             ))
             .id();
 
-        self.commands.queue(AddConnectionToSeries::new(session, target));
+        self.commands.queue(AddToSeries::new(session, target));
 
         provider.connect(None, source, target, self.commands);
         Series {

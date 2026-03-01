@@ -73,7 +73,8 @@ pub struct CancelFailure {
     /// The error produced while the cancellation was happening
     pub error: OperationError,
     pub source: Option<RequestId>,
-    pub session_to_cancel: Entity,
+    pub target_to_cancel: Entity,
+    pub session_to_cancel: Option<Entity>,
     /// The cancellation that was being emitted
     pub cancellation: Cancellation,
 }
