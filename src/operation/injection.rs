@@ -20,7 +20,7 @@ use crate::{
     Executable, FinalizeCleanup, FinalizeCleanupRequest, Input, InputBundle, ManageDisposal,
     ManageInput, OperateService, Operation, OperationCleanup, OperationReachability,
     OperationRequest, OperationResult, OperationSetup, OrBroken, ProviderStorage,
-    ReachabilityResult, ScopeStorage, ServiceInstructions, ServiceRequest, SingleInputStorage,
+    ReachabilityResult, InScope, ServiceInstructions, ServiceRequest, SingleInputStorage,
     SingleTargetStorage, StreamPack, StreamTargetMap, dispatch_service,
 };
 
@@ -74,7 +74,7 @@ where
         } = source_mut
             .take_input::<(Request, ServiceInstructions<Request, Response, Streams>)>()?;
 
-        let scope = source_mut.get::<ScopeStorage>().or_broken()?.get();
+        let scope = source_mut.get::<InScope>().or_broken()?.scope();
         let provider = service.provider();
         let instructions = service.instructions().cloned();
 
@@ -95,7 +95,7 @@ where
                 SingleTargetStorage::new(finish),
                 ActiveTasksStorage::default(),
                 DisposeForUnavailableService::new::<Request>(),
-                ScopeStorage::new(scope),
+                InScope::new(scope),
                 stream_targets,
             ))
             .id();

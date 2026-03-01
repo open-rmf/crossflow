@@ -27,7 +27,7 @@ use smallvec::SmallVec;
 use crate::{
     Accessing, BufferKeyBuilder, ChannelQueue, Input, InputBundle, ManageInput, Operation,
     OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
-    OperationSetup, OrBroken, ReachabilityResult, ScopeStorage, SingleInputStorage,
+    OperationSetup, OrBroken, ReachabilityResult, InScope, SingleInputStorage,
     SingleTargetStorage,
 };
 
@@ -141,7 +141,7 @@ where
     B: Accessing + 'static + Send + Sync,
     B::Key: 'static + Send + Sync,
 {
-    let scope = world.get::<ScopeStorage>(source).or_broken()?.get();
+    let scope = world.get::<InScope>(source).or_broken()?.scope();
     let sender = world
         .get_resource_or_insert_with(ChannelQueue::default)
         .sender

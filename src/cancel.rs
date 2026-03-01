@@ -27,7 +27,7 @@ use smallvec::{SmallVec, smallvec};
 
 use crate::{
     CancelFailure, DisplayDebugSlice, Disposal, Filtered, OperationError, OperationResult,
-    OperationRoster, ScopeStorage, Supplanted, UnhandledErrors, RouteSource, RequestId,
+    OperationRoster, InScope, Supplanted, UnhandledErrors, RouteSource, RequestId,
     SessionOfScope, RouteTarget, OnSeriesCancelled, SeriesCancel, ManageSession,
     ScopeEndpoints, OrBroken, ManageInput, Routing,
 };
@@ -372,7 +372,7 @@ pub trait ManageCancellation {
     fn emit_series_cancel(
         &mut self,
         source: RouteSource,
-        session: Entity,
+        session_to_cancel: Entity,
         cancellation: Cancellation,
         roster: &mut OperationRoster,
     );
@@ -420,11 +420,11 @@ impl ManageCancellation for World {
     fn emit_series_cancel(
         &mut self,
         source: RouteSource,
-        session: Entity,
+        session_to_cancel: Entity,
         cancellation: Cancellation,
         roster: &mut OperationRoster,
     ) {
-        cancel_session(Some(source), session, cancellation, self, roster);
+        cancel_session(Some(source), session_to_cancel, cancellation, self, roster);
     }
 
     fn cancel_session(

@@ -34,7 +34,7 @@ use thiserror::Error as ThisError;
 
 use crate::{
     Cancellation, DisposalFailure, OperationResult, OperationRoster, OrBroken, OutputPort,
-    UnhandledErrors, UnusedTarget, operation::ScopeStorage, RequestId, ManageCancellation, RouteSource,
+    UnhandledErrors, UnusedTarget, operation::InScope, RequestId, ManageCancellation, RouteSource,
     DisposalUpdate, DisposalListener, OperationError, Broken,
 };
 
@@ -479,6 +479,7 @@ impl From<IncompleteSplit> for DisposalCause {
 }
 
 pub trait ManageDisposal {
+    /// Have an operation emit a disposal into its own scope
     fn emit_disposal(
         &mut self,
         route: RouteSource,

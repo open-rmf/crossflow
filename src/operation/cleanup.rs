@@ -17,7 +17,7 @@
 
 use crate::{
     Accessing, BufferAccessStorage, ManageDisposal, ManageInput, MiscellaneousFailure,
-    OperationError, OperationResult, OperationRoster, OrBroken, ScopeStorage, UnhandledErrors,
+    OperationError, OperationResult, OperationRoster, OrBroken, InScope, UnhandledErrors,
     CleanInputsOf, RequestId,
 };
 
@@ -89,7 +89,7 @@ impl<'a> OperationCleanup<'a> {
     pub fn cleanup_disposals(&mut self) -> OperationResult {
         let mut source_mut = self.world.get_entity_mut(self.source).or_broken()?;
 
-        let scope = source_mut.get::<ScopeStorage>().or_broken()?.get();
+        let scope = source_mut.get::<InScope>().or_broken()?.scope();
         if self.cleanup.cleaner == scope {
             // Only erase disposals if the cleanup is being triggered by the scope
             source_mut.clear_disposals(self.cleanup.session);
@@ -104,9 +104,9 @@ impl<'a> OperationCleanup<'a> {
     {
         let scope = self
             .world
-            .get::<ScopeStorage>(self.source)
+            .get::<InScope>(self.source)
             .or_broken()?
-            .get();
+            .scope();
         if self.cleanup.cleaner == scope {
             // If the scope is telling us to clean up, then we should fully
             // remove the key for this session. Otherwise we should not remove

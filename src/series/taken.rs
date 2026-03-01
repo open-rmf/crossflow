@@ -20,9 +20,9 @@ use bevy_ecs::prelude::Component;
 use tokio::sync::mpsc::UnboundedSender as Sender;
 
 use crate::{
-    Executable, Input, InputBundle, ManageInput, OnSeriesCancelled, OperationCancel,
+    Executable, Input, InputBundle, ManageInput, Cancellable,
     OperationRequest, OperationResult, OperationSetup, OrBroken, SeriesLifecycleChannel,
-    promise::private::Sender as PromiseSender, ManageSession, SeriesCancel,
+    promise::private::Sender as PromiseSender, ManageSession, Cancel,
 };
 
 #[derive(Component)]
@@ -48,7 +48,7 @@ impl<T: 'static + Send + Sync> Executable for TakenResponse<T> {
 
         world.entity_mut(source).insert((
             InputBundle::<T>::new(),
-            OnSeriesCancelled::new(cancel_taken_target::<T>),
+            Cancellable::new(cancel_taken_target::<T>),
             self,
         ));
         Ok(())
@@ -97,11 +97,11 @@ impl<T: 'static + Send + Sync> Executable for TakenStream<T> {
     }
 }
 
-fn cancel_taken_target<T>(SeriesCancel { source, cancellation, world, .. }: SeriesCancel) -> OperationResult
+fn cancel_taken_target<T>(Cancel { target, cancellation, world, .. }: Cancel) -> OperationResult
 where
     T: 'static + Send + Sync,
 {
-    let mut target_mut = world.get_entity_mut(source).or_broken()?;
+    let mut target_mut = world.get_entity_mut(target).or_broken()?;
     let taken = target_mut.take::<TakenResponse<T>>().or_broken()?;
     taken.sender.cancel(cancellation).ok();
 

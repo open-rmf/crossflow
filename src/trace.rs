@@ -456,7 +456,9 @@ pub enum SessionChange {
         source: TraceSource,
     },
     Cancelled {
+        /// What operation triggered the cancellation
         source: Option<TraceSource>,
+        /// Summary of the cancellation cause
         cancellation: Cancellation,
     },
     BeginCleanup,

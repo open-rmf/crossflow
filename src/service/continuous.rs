@@ -31,7 +31,7 @@ use crate::{
     Blocker, Broken, ContinuousService, DeferredRoster, Deliver, Delivery,
     DeliveryOrder, DeliveryUpdate, Disposal, Input, IntoContinuousService, IntoServiceBuilder,
     ManageInput, OperationCleanup, OperationError, OperationReachability, OperationRequest,
-    OperationResult, OperationRoster, OrBroken, ProviderStorage, ReachabilityResult, ScopeStorage,
+    OperationResult, OperationRoster, OrBroken, ProviderStorage, ReachabilityResult, InScope,
     ServiceBuilder, ServiceBundle, ServiceRequest, ServiceTrait, SingleTargetStorage, StreamOf,
     StreamPack, StreamTargetMap, UnhandledErrors, dispose_for_despawned_service,
     insert_new_order, pop_next_delivery, MessageRoute, output_port, Seq, RequestId, ManageDisposal
@@ -641,7 +641,7 @@ where
                     // reachability test may have concluded with a false
                     // positive, and it needs to be rechecked now that this
                     // node has finished.
-                    if world.get::<ScopeStorage>(source).is_some() {
+                    if world.get::<InScope>(source).is_some() {
                         let port = output_port::name_str("stream_out");
                         let disposal = Disposal::async_node_with_streams();
                         let route = request_id.to_route_source(&port);

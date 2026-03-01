@@ -33,7 +33,7 @@ use smallvec::SmallVec;
 use crate::{
     AddOperation, Blocker, Broken, ChannelItem, ChannelQueue, Cleanup, Disposal, ManageInput,
     Operation, OperationCleanup, OperationError, OperationReachability, OperationRequest,
-    OperationResult, OperationRoster, OperationSetup, OrBroken, ReachabilityResult, ScopeStorage,
+    OperationResult, OperationRoster, OperationSetup, OrBroken, ReachabilityResult, InScope,
     StreamPack, UnhandledErrors, ManageDisposal, RequestId, output_port,
     async_execution::{CancelSender, TaskHandle, task_cancel_sender},
 };
@@ -108,11 +108,11 @@ impl<Response: 'static + Send + Sync, Streams: StreamPack> OperateTask<Response,
 
     pub(crate) fn add(self, world: &mut World, roster: &mut OperationRoster) {
         let source = self.source;
-        let scope = world.get::<ScopeStorage>(self.node).map(|s| s.get());
+        let scope = world.get::<InScope>(self.node).map(|s| s.scope());
         let mut source_mut = world.entity_mut(source);
         source_mut.insert(ChildOf(self.node));
         if let Some(scope) = scope {
-            source_mut.insert(ScopeStorage::new(scope));
+            source_mut.insert(InScope::new(scope));
         }
 
         AddOperation::new(None, source, self).apply(world);
@@ -256,7 +256,7 @@ where
                 cleanup_task(source, node, unblock, being_cleaned, world, roster);
 
                 if Streams::has_streams() {
-                    if let Some(scope) = world.get::<ScopeStorage>(node) {
+                    if let Some(scope) = world.get::<InScope>(node) {
                         // When an async task with any number of streams >= 1 is
                         // finished, we should always do a disposal notification
                         // to force a reachability check. Normally there are
@@ -272,7 +272,7 @@ where
                         // trigger this disposal if we detected that a
                         // reachability test happened while this task was
                         // running.
-                        roster.disposed(scope.get(), source, session);
+                        roster.disposed(scope.scope(), source, session);
                     }
                 }
 

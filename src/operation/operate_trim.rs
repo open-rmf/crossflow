@@ -25,7 +25,7 @@ use crate::{
     Cancellation, CleanupContents, Disposal, FinalizeCleanup, FinalizeCleanupRequest, Input,
     InputBundle, ManageCancellation, ManageInput, Operation, OperationCleanup, OperationError,
     OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ReachabilityResult, ScopeEntryStorage, ScopeStorage, SingleInputStorage, SingleTargetStorage,
+    ReachabilityResult, ScopeEntryStorage, InScope, SingleInputStorage, SingleTargetStorage,
     TrimBranch, TrimPoint, TrimPolicy, immediately_downstream_of, RequestId,
 };
 
@@ -134,7 +134,7 @@ impl<T: 'static + Send + Sync> Operation for Trim<T> {
                 return Ok(());
             }
             None => {
-                let scope = world.get::<ScopeStorage>(source).or_broken()?.get();
+                let scope = world.get::<InScope>(source).or_broken()?.scope();
                 let scope_entry = world.get::<ScopeEntryStorage>(scope).or_broken()?.0;
                 match calculate_nodes(scope_entry, &trim.branches, world) {
                     Ok(Ok(nodes)) => {

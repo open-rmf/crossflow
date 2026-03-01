@@ -20,7 +20,7 @@ use bevy_ecs::prelude::{Component, Entity};
 use crate::{
     Cancellation, Input, InputBundle, ManageCancellation, ManageInput, Operation, OperationCleanup,
     OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ReachabilityResult, SingleInputStorage, ScopeStorage, ScopeEndpoints, SingleTargetStorage,
+    ReachabilityResult, SingleInputStorage, InScope, ScopeEndpoints, SingleTargetStorage,
     RouteSource, output_port,
 };
 
@@ -137,7 +137,7 @@ impl Operation for OperateQuietCancel {
 fn setup_cancel_operation<T: 'static + Send + Sync>(
     OperationSetup { source, world }: OperationSetup,
 ) -> OperationResult {
-    let scope = **world.get::<ScopeStorage>(source).or_broken()?;
+    let scope = **world.get::<InScope>(source).or_broken()?;
     let cancel_target = world.get::<ScopeEndpoints>(scope).or_broken()?.cancel_scope;
 
     world.get_mut::<SingleInputStorage>(cancel_target).or_broken()?.add(source);

@@ -610,7 +610,7 @@ impl<Op: Operation + 'static + Sync + Send> Command for AddOperation<Op> {
         ));
         if let Some(scope) = self.scope {
             source_mut
-                .insert(ScopeStorage::new(scope))
+                .insert(InScope::new(scope))
                 .insert(ChildOf(scope));
             match world.get_mut::<ScopeContents>(scope).or_broken() {
                 Ok(mut contents) => {

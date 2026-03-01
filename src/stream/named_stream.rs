@@ -28,7 +28,7 @@ use crate::{
     AddExecution, AddOperation, Builder, DefaultStreamBufferContainer, DeferredRoster,
     ExitTargetStorage, InnerChannel, Input, InputBundle, InputSlot, ManageInput, OperationRequest,
     OperationResult, OperationRoster, OperationSetup, OrBroken, Output, Push, Receiver,
-    RedirectScopeStream, RedirectWorkflowStream, ReportUnhandled, ScopeStorage, SingleInputStorage,
+    RedirectScopeStream, RedirectWorkflowStream, ReportUnhandled, InScope, SingleInputStorage,
     StreamEffect, StreamRedirect, StreamRequest, StreamTargetMap, TakenStream, UnusedStreams,
     UnusedTarget, RequestId, Seq, output_port, StreamTarget,
 };
@@ -443,7 +443,7 @@ impl<S: StreamEffect> StreamRedirect for NamedStreamRedirect<S> {
             }
         };
 
-        let scope = world.get::<ScopeStorage>(source).or_broken()?.get();
+        let scope = world.get::<InScope>(source).or_broken()?.scope();
 
         let exit = world
             .get::<ExitTargetStorage>(scope)
