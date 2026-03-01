@@ -15,7 +15,7 @@
  *
 */
 
-use bevy_ecs::prelude::{ChildOf, Command, Component, Entity, Resource, World};
+use bevy_ecs::prelude::{ChildOf, Command, Component, Entity, Resource, World, Bundle};
 use bevy_derive::Deref;
 
 use backtrace::Backtrace;
@@ -34,12 +34,52 @@ use crate::{
     Broken, Cancel, CancelFailure, Cancellable, ManageCancellation, MiscellaneousFailure,
     OperationCancel, OperationError, OperationExecuteStorage, OperationRequest, OperationResult,
     OperationSetup, SetupFailure, SingleTargetStorage, UnhandledErrors, UnusedTarget,
-    Cancellation,
+    Cancellation, DisposalListener, DisposalUpdate,
 };
 
 pub(crate) trait Executable {
     fn setup(self, info: OperationSetup) -> OperationResult;
     fn execute(request: OperationRequest) -> OperationResult;
+}
+
+#[derive(Bundle)]
+pub(crate) struct SeriesSessionBundle {
+    disposal_listener: DisposalListener,
+    marker: SeriesMarker,
+}
+
+impl SeriesSessionBundle {
+    pub(crate) fn new() -> Self {
+        Self {
+            disposal_listener: DisposalListener(series_session_disposal_listener),
+            marker: Default::default(),
+        }
+    }
+}
+
+fn series_session_disposal_listener(
+    DisposalUpdate {
+        listener: _,
+        origin,
+        session,
+        disposal,
+        world,
+        roster: _,
+    }: DisposalUpdate,
+) -> OperationResult {
+    // The disposal happened for an operation in a series. If the
+    // operation cannot be completed, then the series needs to be
+    // cancelled.
+    //
+    // We do not convert stream disposals into a cancellation
+    // because they do not affect the ability of the series to
+    // reach its end.
+    if !disposal.cause.stream_disposal() {
+        let cancellation = Cancellation::unreachable(session, session, vec![disposal]);
+        world.emit_series_cancel(origin, session, cancellation);
+    }
+
+    Ok(())
 }
 
 #[derive(Component)]
@@ -177,21 +217,6 @@ pub(crate) fn cancel_execution(
     }
 
     Ok(())
-}
-
-#[derive(Component, Clone, Copy, Deref)]
-pub struct OnSeriesCancelled(pub(crate) fn(SeriesCancel) -> OperationResult);
-
-impl OnSeriesCancelled {
-    pub fn new(f: fn(SeriesCancel) -> OperationResult) -> Self {
-        Self(f)
-    }
-}
-
-pub struct SeriesCancel<'a> {
-    pub source: Entity,
-    pub cancellation: Cancellation,
-    pub world: &'a mut World,
 }
 
 #[derive(Resource)]

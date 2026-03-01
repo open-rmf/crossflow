@@ -239,6 +239,10 @@ pub mod output_port {
         name_str("begin_cleanup")
     }
 
+    pub const fn cleanup_buffers() -> [IdentifierRef<'static>; 1] {
+        name_str("cleanup_buffers")
+    }
+
     pub const fn name_str(name: &'static str) -> [IdentifierRef<'static>; 1] {
         [IdentifierRef::name_str(name)]
     }

@@ -256,21 +256,22 @@ impl Display for Broken {
     }
 }
 
-/// Passed into the [`OperationRoster`] to pass a cancel signal into the target.
-#[derive(Debug, Clone)]
-pub struct Cancel {
-    /// The operation that triggered the cancellation
-    pub(crate) origin: RequestId,
+/// Input argument for asking a sesion or operation to cancel
+pub struct Cancel<'a> {
     /// The target of the cancellation
-    pub(crate) target: Entity,
-    /// The session which is being cancelled for the target
-    pub(crate) session: Option<Entity>,
+    pub target: Entity,
+    /// A specific session which is being cancelled for the target. If left
+    /// blank, cancel all activity for the target.
+    pub session: Option<Entity>,
     /// Information about why a cancellation is happening
-    pub(crate) cancellation: Cancellation,
+    pub cancellation: Cancellation,
+    pub world: &'a mut World,
+    pub roster: &'a mut OperationRoster,
+
 }
 
-impl Cancel {
-    pub(crate) fn for_target(mut self, target: Entity) -> Self {
+impl<'a> Cancel<'a> {
+    pub fn for_target(mut self, target: Entity) -> Self {
         self.target = target;
         self
     }
@@ -292,7 +293,7 @@ impl Cancel {
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> Result<(), CancelFailure> {
-        if let Some(cancel) = world.get::<OperationCancelStorage>(self.target) {
+        if let Some(cancel) = world.get::<OnCancel>(self.target) {
             let cancel = cancel.0;
             // TODO(@mxgrey): Figure out a way to structure this so we don't
             // need to always clone self.
@@ -402,7 +403,7 @@ pub trait ManageCancellation {
     );
 
     /// Notify an operation within a series that the series is being cancelled.
-    fn notify_series_cancel(
+    fn emit_series_cancel(
         &mut self,
         source: RouteSource,
         session: Entity,
@@ -438,7 +439,7 @@ impl ManageCancellation for World {
         }
     }
 
-    fn notify_series_cancel(
+    fn emit_series_cancel(
         &mut self,
         source: RouteSource,
         session: Entity,
@@ -549,24 +550,18 @@ fn try_emit_scope_cancel(
     world.give_input(route, cancellation, roster)
 }
 
-pub struct OperationCancel<'a> {
-    pub cancel: Cancel,
-    pub world: &'a mut World,
-    pub roster: &'a mut OperationRoster,
-}
-
 #[derive(Component)]
-struct OperationCancelStorage(fn(OperationCancel) -> OperationResult);
+struct OnCancel(fn(Cancel) -> OperationResult);
 
 #[derive(Bundle)]
 pub struct Cancellable {
-    cancel: OperationCancelStorage,
+    cancel: OnCancel,
 }
 
 impl Cancellable {
-    pub fn new(cancel: fn(OperationCancel) -> OperationResult) -> Self {
+    pub fn new(cancel: fn(Cancel) -> OperationResult) -> Self {
         Cancellable {
-            cancel: OperationCancelStorage(cancel),
+            cancel: OnCancel(cancel),
         }
     }
 }

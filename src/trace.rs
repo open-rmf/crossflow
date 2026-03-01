@@ -214,6 +214,22 @@ pub struct TraceTarget {
     pub labels: Option<Arc<Vec<OperationRef>>>,
 }
 
+impl TraceTarget {
+    fn new(
+        request_id: RequestId,
+        world: &mut World,
+    ) -> Self {
+        let RequestId { session, source, seq } = request_id;
+        Self {
+            session_stack: get_session_stack_from_world(session, world),
+            target: source,
+            seq,
+            labels: world.get::<OperationLabels>(source)
+                .map(|labels| labels.input()),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TraceBuffer {
     /// The stack of session IDs of the buffer that's being accessed. The first
@@ -263,13 +279,14 @@ impl MessageSent {
             output.push(TraceSource::new(out, world));
         }
 
-        let input = TraceTarget {
-            session_stack: get_session_stack_from_world(route.input.session, world),
-            target: route.input.target,
-            seq: target_seq,
-            labels: world.get::<OperationLabels>(route.input.target)
-                .map(|labels| labels.input()),
-        };
+        let input = TraceTarget::new(
+            RequestId {
+                session: route.input.session,
+                source: route.input.target,
+                seq: target_seq,
+            },
+            world,
+        );
 
         let event = MessageSent { output, input, message };
         world.trigger(TracedEvent::now(event));
@@ -388,6 +405,21 @@ pub struct SessionEvent {
 }
 
 impl SessionEvent {
+    pub(crate) fn spawned(
+        scope_request: Option<RequestId>,
+        spawned_session: Entity,
+        world: &mut World,
+    ) {
+        let session_stack = get_session_stack_from_world(spawned_session, world);
+        let scope = scope_request.map(|s| TraceTarget::new(s, world));
+        let event = SessionEvent {
+            session_stack,
+            change: SessionChange::Spawned { scope },
+        };
+
+        world.trigger(TracedEvent::now(event));
+    }
+
     pub(crate) fn despawned(session: Entity, world: &mut World) {
         let session_stack = get_session_stack_from_world(session, world);
         let event = SessionEvent {

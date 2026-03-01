@@ -553,7 +553,7 @@ impl<T: 'static + Send + Sync> Command for SeriesRequest<T> {
                     node: self.start,
                     backtrace,
                 });
-                world.notify_series_cancel(
+                world.emit_series_cancel(
                     RouteSource {
                         session,
                         source,

@@ -35,6 +35,7 @@ use thiserror::Error as ThisError;
 use crate::{
     Cancellation, DisposalFailure, OperationResult, OperationRoster, OrBroken, OutputPort,
     SeriesMarker, UnhandledErrors, UnusedTarget, operation::ScopeStorage, RequestId, ManageCancellation, RouteSource,
+    DisposalUpdate, DisposalListener, OperationError, Broken,
 };
 
 #[cfg(feature = "trace")]
@@ -226,7 +227,7 @@ pub enum DisposalCause {
 }
 
 impl DisposalCause {
-    pub fn stream_disposal(&self) -> bool {
+    pub fn is_stream_disposal(&self) -> bool {
         matches!(self, Self::UnusedStreams(_) | Self::AsyncNodeWithStreams)
     }
 }
@@ -516,53 +517,34 @@ impl ManageDisposal for World {
             );
         }
 
-        if let Some(scope) = self.get::<ScopeStorage>(source) {
-            // The source is inside of a workflow scope, so we need to notify
-            // the scope that a disposal is taking place.
-            let scope = scope.get();
-
-            if let Some(mut storage) = self.get_mut::<DisposalStorage>(source) {
-                storage.disposals.entry(session).or_default().push(disposal);
-            } else {
-                let mut storage = DisposalStorage::default();
-                storage.disposals.entry(session).or_default().push(disposal);
-                self.entity_mut(source).insert(storage);
-            }
-
-            roster.disposed(scope, source, session);
-        } else {
-            // The source is not inside a workflow scope, so we expect it to
-            // either be part of a series or to be something unused.
-            if self.get::<SeriesMarker>(source).is_some() {
-                // The disposal happened for an operation in a series. If the
-                // operation cannot be completed, then the series needs to be
-                // cancelled.
-                //
-                // We do not convert stream disposals into a cancellation
-                // because they do not affect the ability of the series to
-                // reach its end.
-                if !disposal.cause.stream_disposal() {
-                    let cancellation = Cancellation::unreachable(session, session, vec![disposal]);
-                    self.notify_series_cancel(route, session, cancellation);
-                }
-            } else if self.get::<UnusedTarget>(source).is_none() {
-                // If the emitting node does not have a scope, is not part of
-                // a series, and is not an unused target, then something is broken.
-                //
-                // We can safely ignore disposals for unused targets because
-                // unused targets cannot affect the reachability of a workflow
-                // or a series.
-                let broken_node = source;
-                self.get_resource_or_insert_with(UnhandledErrors::default)
-                    .disposals
-                    .push(DisposalFailure {
-                        disposal,
-                        broken_node,
-                        backtrace: Some(Backtrace::new()),
+        if let Some(listener) = self.get::<DisposalListener>(route.session).map(|l| l.0) {
+            if let Err(OperationError::Broken(backtrace)) = listener(DisposalUpdate {
+                session,
+                listener: session,
+                origin: route,
+                disposal,
+                world: self,
+                roster,
+            }) {
+                self.get_resource_or_init::<UnhandledErrors>()
+                    .broken
+                    .push(Broken {
+                        node: route.source,
+                        backtrace,
                     });
             }
-            return;
-        };
+        } else {
+            // If the session does not have a disposal listener then something
+            // is broken.
+            let broken_node = source;
+            self.get_resource_or_init::<UnhandledErrors>()
+                .disposals
+                .push(DisposalFailure {
+                    disposal,
+                    broken_node,
+                    backtrace: Some(Backtrace::new()),
+                });
+        }
     }
 
     fn clear_disposals(&mut self, session: Entity, source: Entity) {
@@ -615,9 +597,9 @@ impl<'w> InspectDisposals for EntityRef<'w> {
 }
 
 #[derive(Component, Default)]
-struct DisposalStorage {
+pub(crate) struct DisposalStorage {
     /// A map from a session to all the disposals that occurred for the session
-    disposals: HashMap<Entity, Vec<Disposal>>,
+    pub(crate) disposals: HashMap<Entity, Vec<Disposal>>,
 }
 
 pub(crate) struct DisplaySlice<'a, T>(&'a [T]);

@@ -31,10 +31,10 @@ use backtrace::Backtrace;
 use std::sync::Arc;
 
 use crate::{
-    AddExecution, ChannelQueue, Detached, DisposalNotice, Finished, FlushWarning,
+    AddExecution, ChannelQueue, Detached, Finished, FlushWarning,
     MiscellaneousFailure, OperationError, OperationRequest, OperationRoster,
     SeriesLifecycleChannel, ServiceHook, ServiceLifecycle, ServiceLifecycleChannel,
-    UnhandledErrors, UnusedTarget, UnusedTargetDrop, ValidateScopeReachability, ValidationRequest,
+    UnhandledErrors, UnusedTarget, UnusedTargetDrop, OnDisposalInScope,
     WakeQueue, awaken_task, dispose_for_despawned_service, execute_operation,
 };
 
@@ -273,47 +273,6 @@ fn collect_from_channels(
 
     for target in drop_targets {
         drop_target(target, world, roster, false);
-    }
-
-    while let Some(DisposalNotice {
-        source,
-        origin,
-        session,
-    }) = roster.disposed.pop()
-    {
-        let Some(validate) = world.get::<ValidateScopeReachability>(source) else {
-            world
-                .get_resource_or_insert_with(UnhandledErrors::default)
-                .miscellaneous
-                .push(MiscellaneousFailure {
-                    error: Arc::new(anyhow!(
-                        "Scope {source:?} for disposal notification does not \
-                        have validation component",
-                    )),
-                    backtrace: Some(Backtrace::new()),
-                });
-            continue;
-        };
-
-        let validate = validate.0;
-        let req = ValidationRequest {
-            source,
-            origin,
-            session,
-            world,
-            roster,
-        };
-        if let Err(OperationError::Broken(backtrace)) = validate(req) {
-            world
-                .get_resource_or_insert_with(UnhandledErrors::default)
-                .miscellaneous
-                .push(MiscellaneousFailure {
-                    error: Arc::new(anyhow!(
-                        "Scope {source:?} broken while validating a disposal"
-                    )),
-                    backtrace,
-                });
-        }
     }
 
     #[cfg(feature = "single_threaded_async")]

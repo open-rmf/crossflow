@@ -17,7 +17,7 @@
 
 use crate::{
     Broken, DeliveryLabelId, InspectInput, SetupFailure, StreamTargetMap, UnhandledErrors, RequestId,
-    try_emit_broken,
+    try_emit_broken, Disposal, RouteSource,
 };
 
 use bevy_derive::Deref;
@@ -221,8 +221,6 @@ pub struct OperationRoster {
     pub(crate) deferred_queue: VecDeque<Entity>,
     /// Async services that should pull their next item
     pub(crate) unblock: VecDeque<Blocker>,
-    /// Remove these entities as they are no longer needed
-    pub(crate) disposed: Vec<DisposalNotice>,
     /// Tell a scope to attempt cleanup
     pub(crate) cleanup_finished: Vec<Cleanup>,
     /// Despawn these entities while no other operation is running. This is used
@@ -251,14 +249,6 @@ impl OperationRoster {
         self.unblock.push_back(provider);
     }
 
-    pub fn disposed(&mut self, scope: Entity, origin: Entity, session: Entity) {
-        self.disposed.push(DisposalNotice {
-            source: scope,
-            origin,
-            session,
-        });
-    }
-
     pub fn cleanup_finished(&mut self, cleanup: Cleanup) {
         self.cleanup_finished.push(cleanup);
     }
@@ -272,7 +262,6 @@ impl OperationRoster {
             && self.awake.is_empty()
             && self.deferred_queue.is_empty()
             && self.unblock.is_empty()
-            && self.disposed.is_empty()
             && self.cleanup_finished.is_empty()
             && self.deferred_despawn.is_empty()
     }
@@ -284,7 +273,6 @@ impl OperationRoster {
         self.awake.append(&mut other.awake);
         self.deferred_queue.append(&mut other.deferred_queue);
         self.unblock.append(&mut other.unblock);
-        self.disposed.append(&mut other.disposed);
         self.cleanup_finished.append(&mut other.cleanup_finished);
         self.deferred_despawn.append(&mut other.deferred_despawn);
     }
@@ -302,17 +290,6 @@ impl OperationRoster {
             self.queue.push_back(e);
         }
     }
-}
-
-/// Notify the scope manager that a disposal took place. This will prompt the
-/// scope to check whether it's still possible to terminate.
-pub struct DisposalNotice {
-    /// The scope that needs to handle the disposal
-    pub source: Entity,
-    /// The operation that the disposal originated from
-    pub origin: Entity,
-    /// The session that experienced a disposal
-    pub session: Entity,
 }
 
 /// Information about how an active task is blocking other tasks
@@ -809,11 +786,13 @@ pub fn is_downstream_of(source: Entity, target: Entity, world: &World) -> bool {
 
 pub struct DisposalUpdate<'a> {
     /// The operation that is being updated about the disposal
-    pub source: Entity,
+    pub listener: Entity,
     /// The operation that the disposal originated from
-    pub origin: Entity,
+    pub origin: RouteSource<'a>,
     /// The session that has experienced a disposal
     pub session: Entity,
+    /// Information about the disposal
+    pub disposal: Disposal,
     pub world: &'a mut World,
     pub roster: &'a mut OperationRoster,
 }
