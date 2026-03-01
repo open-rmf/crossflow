@@ -72,7 +72,7 @@ pub struct SetupFailure {
 pub struct CancelFailure {
     /// The error produced while the cancellation was happening
     pub error: OperationError,
-    pub source: RequestId,
+    pub source: Option<RequestId>,
     pub session_to_cancel: Entity,
     /// The cancellation that was being emitted
     pub cancellation: Cancellation,

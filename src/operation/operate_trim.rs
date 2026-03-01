@@ -26,7 +26,7 @@ use crate::{
     InputBundle, ManageCancellation, ManageInput, Operation, OperationCleanup, OperationError,
     OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
     ReachabilityResult, ScopeEntryStorage, ScopeStorage, SingleInputStorage, SingleTargetStorage,
-    TrimBranch, TrimPoint, TrimPolicy, emit_disposal, immediately_downstream_of,
+    TrimBranch, TrimPoint, TrimPolicy, immediately_downstream_of, RequestId,
 };
 
 pub(crate) struct Trim<T> {
@@ -71,7 +71,7 @@ struct TrimStorage {
 #[derive(Component)]
 struct HoldingStorage<T> {
     // The key of this map is a cleanup_id
-    map: HashMap<Entity, Input<T>>,
+    map: HashMap<RequestId, Input<T>>,
 }
 
 impl<T> Default for HoldingStorage<T> {
@@ -118,6 +118,7 @@ impl<T: 'static + Send + Sync> Operation for Trim<T> {
         }: OperationRequest,
     ) -> OperationResult {
         let Input { session, data, seq } = world.take_input::<T>(source)?;
+        let cleanup_id = RequestId { source, session, seq };
 
         let source_ref = world.get_entity(source).or_broken()?;
         let trim = source_ref.get::<TrimStorage>().or_broken()?;
@@ -158,7 +159,6 @@ impl<T: 'static + Send + Sync> Operation for Trim<T> {
             }
         };
 
-        let cleanup_id = world.spawn(()).id();
         world
             .get_mut::<HoldingStorage<T>>(source)
             .or_broken()?

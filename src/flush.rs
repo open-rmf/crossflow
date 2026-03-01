@@ -34,7 +34,7 @@ use crate::{
     AddExecution, ChannelQueue, Detached, Finished, FlushWarning,
     MiscellaneousFailure, OperationError, OperationRequest, OperationRoster,
     SeriesLifecycleChannel, ServiceHook, ServiceLifecycle, ServiceLifecycleChannel,
-    UnhandledErrors, UnusedTarget, UnusedTargetDrop, OnDisposalInScope,
+    UnhandledErrors, UnusedTarget, UnusedTargetDrop,
     WakeQueue, awaken_task, dispose_for_despawned_service, execute_operation,
 };
 
@@ -259,7 +259,7 @@ fn collect_from_channels(
 
     for e in add_finish {
         // Add a Finished execution to the unused target of a detached series.
-        AddExecution::new(None, e, Finished).apply(world);
+        AddExecution::new(e, Finished).apply(world);
     }
 
     for target in drop_targets.drain(..) {

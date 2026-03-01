@@ -25,8 +25,11 @@ use std::future::Future;
 
 use crate::{
     Cancellable, Detached, SeriesRequest, IntoAsyncMap, IntoBlockingMapOnce, ProvideOnce, Series,
-    SeriesMarker, SessionStatus, StreamPack, UnusedTarget, cancel_execution,
+    SessionStatus, StreamPack, UnusedTarget, cancel_series, SeriesSessionBundle,
 };
+
+#[cfg(feature = "trace")]
+use crate::TraceSeriesSessionSpawned;
 
 /// Extensions for creating a series of execution by making a request to a provider or
 /// serving a value. This is implemented for [`Commands`].
@@ -95,13 +98,16 @@ impl<'w, 's> RequestExt<'w, 's> for Commands<'w, 's> {
         P::Response: 'static + Send + Sync,
         P::Streams: StreamPack,
     {
-        let session = self.spawn(()).id();
+        let session = self.spawn(SeriesSessionBundle::new()).id();
+        #[cfg(feature = "trace")]
+        {
+            self.queue(TraceSeriesSessionSpawned { session });
+        }
 
         let source = self
             .spawn((
                 ChildOf(session),
-                Cancellable::new(cancel_execution),
-                SeriesMarker,
+                Cancellable::new(cancel_series),
                 SessionStatus::Active,
             ))
             .id();
@@ -111,7 +117,6 @@ impl<'w, 's> RequestExt<'w, 's> for Commands<'w, 's> {
                 ChildOf(session),
                 Detached::default(),
                 UnusedTarget,
-                SeriesMarker,
             ))
             .id();
 

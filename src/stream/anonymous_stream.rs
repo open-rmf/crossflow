@@ -118,7 +118,7 @@ impl<S: StreamEffect> StreamPack for AnonymousStream<S> {
             .id();
 
         map.add_anonymous::<S::Output>(target, commands);
-        commands.queue(AddExecution::new(None, target, TakenStream::new(sender)));
+        commands.queue(AddExecution::new(target, TakenStream::new(sender)));
 
         receiver
     }
@@ -131,7 +131,6 @@ impl<S: StreamEffect> StreamPack for AnonymousStream<S> {
     ) {
         let redirect = commands.spawn(()).insert(ChildOf(source)).id();
         commands.queue(AddExecution::new(
-            None,
             redirect,
             Push::<S::Output>::new(target, true),
         ));

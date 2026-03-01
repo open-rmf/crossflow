@@ -431,12 +431,12 @@ impl SessionEvent {
     }
 
     pub(crate) fn cancelled(
-        source: RouteSource,
+        source: Option<RouteSource>,
         session: Entity,
         cancellation: Cancellation,
         world: &mut World,
     ) {
-        let source = TraceSource::new(source, world);
+        let source = source.map(|source| TraceSource::new(source, world));
         let session_stack = get_session_stack_from_world(session, world);
         let event = SessionEvent {
             session_stack,
@@ -456,7 +456,7 @@ pub enum SessionChange {
         source: TraceSource,
     },
     Cancelled {
-        source: TraceSource,
+        source: Option<TraceSource>,
         cancellation: Cancellation,
     },
     BeginCleanup,

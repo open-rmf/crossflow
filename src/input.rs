@@ -37,7 +37,7 @@ use crate::{
     Broken, BufferStorage, Cancel, Cancellation, CancellationCause, DeferredRoster, Detached,
     MiscellaneousFailure, OperationError, OperationRoster, OrBroken, SessionStatus,
     UnhandledErrors, UnusedTarget, OutputPort, MessageSent, BufferWorldAccess,
-    RequestId, BufferKeyTag, output_port, ManageCancellation,
+    RequestId, BufferKeyTag, output_port, ManageCancellation, OperationResult, SequenceInSeries,
 };
 
 #[cfg(feature = "trace")]
@@ -152,6 +152,13 @@ pub struct RouteSource<'a> {
     pub source: Entity,
     pub seq: Seq,
     pub port: OutputPort<'a>,
+}
+
+impl<'a> RouteSource<'a> {
+    pub fn request_id(&self) -> RequestId {
+        let Self { session, source, seq, port } = *self;
+        RequestId { session, source, seq }
+    }
 }
 
 pub struct RouteTarget {
@@ -533,37 +540,52 @@ pub(crate) struct SeriesRequest<T> {
 
 impl<T: 'static + Send + Sync> Command for SeriesRequest<T> {
     fn apply(self, world: &mut World) {
-        world.resource_scope::<DeferredRoster, _>(|world: &mut World, mut roster| {
-            let Self { start, session, data } = self;
-            let source = session;
+        let start = self.start;
+        let session = self.session;
+        let r = try_series_request(self, world);
+        if let Err(OperationError::Broken(backtrace)) = r {
             let seq = 0;
             let port = output_port::name_str("request");
-
-            let route = MessageRoute {
-                session,
-                source,
-                seq,
-                port: &port,
-                target: start,
-            };
-
-            let r = world.give_input(route, data, &mut *roster);
-            if let Err(OperationError::Broken(backtrace)) = r {
-                let cause = CancellationCause::Broken(Broken {
-                    node: self.start,
-                    backtrace,
-                });
+            let cause = CancellationCause::Broken(Broken {
+                node: start,
+                backtrace,
+            });
+            world.resource_scope::<DeferredRoster, _>(|world: &mut World, mut roster| {
                 world.emit_series_cancel(
                     RouteSource {
                         session,
-                        source,
+                        source: session,
                         seq,
                         port: &port,
                     },
                     session,
                     Cancellation::from_cause(cause),
+                    &mut roster,
                 );
-            }
-        });
+            });
+        }
     }
+}
+
+fn try_series_request<T: 'static + Send + Sync>(
+    request: SeriesRequest<T>,
+    world: &mut World,
+) -> OperationResult {
+    world.resource_scope::<DeferredRoster, _>(|world: &mut World, mut roster| {
+        let SeriesRequest { start, session, data } = request;
+        let seq = 0;
+        let port = output_port::name_str("request");
+
+        world.get_mut::<SequenceInSeries>(session).or_broken()?.push(start);
+
+        let route = MessageRoute {
+            session,
+            source: session,
+            seq,
+            port: &port,
+            target: start,
+        };
+
+        world.give_input(route, data, &mut *roster)
+    })
 }

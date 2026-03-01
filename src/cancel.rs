@@ -267,47 +267,13 @@ pub struct Cancel<'a> {
     pub cancellation: Cancellation,
     pub world: &'a mut World,
     pub roster: &'a mut OperationRoster,
-
 }
 
 impl<'a> Cancel<'a> {
-    pub fn for_target(mut self, target: Entity) -> Self {
-        self.target = target;
-        self
-    }
-
-    pub(crate) fn trigger(self, world: &mut World, roster: &mut OperationRoster) {
-        if let Err(failure) = self.try_trigger(world, roster) {
-            // We were unable to deliver the cancellation to the intended target.
-            // We should move this into the unhandled errors resource so that it
-            // does not get lost.
-            world
-                .get_resource_or_insert_with(UnhandledErrors::default)
-                .cancellations
-                .push(failure);
-        }
-    }
-
-    fn try_trigger(
-        self,
-        world: &mut World,
-        roster: &mut OperationRoster,
-    ) -> Result<(), CancelFailure> {
-        if let Some(cancel) = world.get::<OnCancel>(self.target) {
-            let cancel = cancel.0;
-            // TODO(@mxgrey): Figure out a way to structure this so we don't
-            // need to always clone self.
-            (cancel)(OperationCancel {
-                cancel: self.clone(),
-                world,
-                roster,
-            })
-            .map_err(|error| CancelFailure::new(error, self))
-        } else {
-            Err(CancelFailure::new(
-                OperationError::Broken(Some(Backtrace::new())),
-                self,
-            ))
+    pub fn for_target(self, target: Entity) -> Cancel<'a> {
+        Cancel {
+            target,
+            ..self
         }
     }
 }
@@ -408,6 +374,18 @@ pub trait ManageCancellation {
         source: RouteSource,
         session: Entity,
         cancellation: Cancellation,
+        roster: &mut OperationRoster,
+    );
+
+    /// Force a session to cancel. This is for downstream users to externally
+    /// impose a cancellation on a session. For example, if a user cancels a
+    /// task, this could be used to force the execution of that task to shut
+    /// down.
+    fn cancel_session(
+        &mut self,
+        session: Entity,
+        cancellation: Cancellation,
+        roster: &mut OperationRoster,
     );
 
     fn emit_broken(
@@ -432,7 +410,7 @@ impl ManageCancellation for World {
                 .cancellations
                 .push(CancelFailure {
                     error,
-                    source: RequestId { session, source, seq },
+                    source: Some(RequestId { session, source, seq }),
                     session_to_cancel,
                     cancellation,
                 });
@@ -444,37 +422,18 @@ impl ManageCancellation for World {
         source: RouteSource,
         session: Entity,
         cancellation: Cancellation,
+        roster: &mut OperationRoster,
     ) {
-        #[cfg(feature = "trace")]
-        {
-            SessionEvent::cancelled(source, session, cancellation.clone(), self);
-        }
+        cancel_session(Some(source), session, cancellation, self, roster);
+    }
 
-        if let Some(operations) = self.get::<Children>(session) {
-            let operations: SmallVec<[Entity; 8]> = operations.iter().cloned().collect();
-            for op in operations {
-                let Some(on_cancel) = self.get::<OnSeriesCancelled>(op).copied() else {
-                    continue;
-                };
-
-                let f = *on_cancel;
-                if let Err(OperationError::Broken(backtrace)) = f(SeriesCancel {
-                    source: source.source,
-                    cancellation: cancellation.clone(),
-                    world: self,
-                }) {
-                    self.get_resource_or_insert_with(UnhandledErrors::default)
-                        .broken
-                        .push(Broken { node: source.source, backtrace });
-                }
-            }
-        }
-
-        #[cfg(feature = "trace")]
-        {
-            SessionEvent::despawned(session, self);
-        }
-        self.despawn_session(session);
+    fn cancel_session(
+        &mut self,
+        session: Entity,
+        cancellation: Cancellation,
+        roster: &mut OperationRoster,
+    ) {
+        cancel_session(None, session, cancellation, self, roster);
     }
 
     fn emit_broken(
@@ -550,8 +509,49 @@ fn try_emit_scope_cancel(
     world.give_input(route, cancellation, roster)
 }
 
+fn cancel_session(
+    source: Option<RouteSource>,
+    session: Entity,
+    cancellation: Cancellation,
+    world: &mut World,
+    roster: &mut OperationRoster,
+) {
+    #[cfg(feature = "trace")]
+    {
+        SessionEvent::cancelled(source, session, cancellation.clone(), world);
+    }
+
+    match world.get::<OnCancel>(session).map(|c| c.0).or_broken() {
+        Ok(on_cancel) => {
+            on_cancel(Cancel {
+                target: session,
+                session: Some(session),
+                cancellation,
+                world,
+                roster,
+            });
+        }
+        Err(error) => {
+            world.get_resource_or_init::<UnhandledErrors>()
+                .cancellations
+                .push(CancelFailure {
+                    error,
+                    source: source.map(|s| s.request_id()),
+                    session_to_cancel: session,
+                    cancellation,
+                });
+        }
+    }
+
+    #[cfg(feature = "trace")]
+    {
+        SessionEvent::despawned(session, world);
+    }
+    world.despawn_session(session);
+}
+
 #[derive(Component)]
-struct OnCancel(fn(Cancel) -> OperationResult);
+pub(crate) struct OnCancel(pub(crate) fn(Cancel) -> OperationResult);
 
 #[derive(Bundle)]
 pub struct Cancellable {

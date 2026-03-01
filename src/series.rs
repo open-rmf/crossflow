@@ -23,8 +23,9 @@ use bevy_ecs::{
 use std::future::Future;
 
 use crate::{
-    AsMapOnce, Cancellable, IntoAsyncMapOnce, IntoBlockingMapOnce, Outcome, Promise, ProvideOnce,
+    AsMapOnce, IntoAsyncMapOnce, IntoBlockingMapOnce, Outcome, Promise, ProvideOnce,
     Sendish, StreamPack, StreamTargetMap, UnusedTarget,
+    series::internal::{AddExecutableToSeries, AddConnectionToSeries}
 };
 
 mod detach;
@@ -138,8 +139,8 @@ where
     #[deprecated(since = "0.0.6", note = "Use .capture() instead")]
     pub fn take(self) -> Recipient<Response, Streams> {
         let (response_sender, response_promise) = Promise::<Response>::new();
-        self.commands.queue(AddExecution::new(
-            Some(self.source),
+        self.commands.queue(AddExecutableToSeries::new(
+            self.session,
             self.target,
             TakenResponse::<Response>::new(response_sender),
         ));
@@ -166,8 +167,8 @@ where
     #[deprecated(since = "0.0.6", note = "Use .outcome() instead")]
     pub fn take_response(self) -> Promise<Response> {
         let (response_sender, response_promise) = Promise::<Response>::new();
-        self.commands.queue(AddExecution::new(
-            Some(self.source),
+        self.commands.queue(AddExecutableToSeries::new(
+            self.session,
             self.target,
             TakenResponse::<Response>::new(response_sender),
         ));
@@ -183,23 +184,16 @@ where
         let session = self.session;
         let source = self.target;
 
-        self.commands
-            .entity(source)
-            .insert((
-                Cancellable::new(cancel_execution),
-                SeriesMarker,
-            ))
-            .remove::<UnusedTarget>();
-
         let target = self
             .commands
             .spawn((
                 ChildOf(session),
                 Detached::default(),
                 UnusedTarget,
-                SeriesMarker,
             ))
             .id();
+
+        self.commands.queue(AddConnectionToSeries::new(session, target));
 
         provider.connect(None, source, target, self.commands);
         Series {
@@ -279,8 +273,8 @@ where
     /// If the entity despawns then the request gets cancelled unless you used
     /// [`Self::detach`] before calling this.
     pub fn store(self, target: Entity) {
-        self.commands.queue(AddExecution::new(
-            Some(self.source),
+        self.commands.queue(AddExecutableToSeries::new(
+            self.session,
             self.target,
             Store::<Response>::new(target),
         ));
@@ -323,8 +317,8 @@ where
     /// If the entity despawns then the request gets cancelled unless you used
     /// [`Self::detach`] before calling this.
     pub fn push(self, target: Entity) {
-        self.commands.queue(AddExecution::new(
-            Some(self.source),
+        self.commands.queue(AddExecutableToSeries::new(
+            self.session,
             self.target,
             Push::<Response>::new(target, false),
         ));
@@ -339,7 +333,7 @@ where
     /// Used internally to implement various ways of capturing an outcome.
     pub(crate) fn send_outcome(self, capture: CaptureOutcome<Response>) {
         self.commands
-            .queue(AddExecution::new(Some(self.source), self.target, capture));
+            .queue(AddExecutableToSeries::new(self.session, self.target, capture));
     }
 
     // TODO(@mxgrey): Consider offering ways for users to respond to cancellations.
@@ -363,8 +357,8 @@ where
     /// [`Self::store`] or [`Self::push`]. Alternatively you can transform it
     /// into a bundle using [`Self::map_block`] or [`Self::map_async`].
     pub fn insert(self, target: Entity) {
-        self.commands.queue(AddExecution::new(
-            Some(self.source),
+        self.commands.queue(AddExecutableToSeries::new(
+            self.session,
             self.target,
             Insert::<Response>::new(target),
         ));
@@ -380,8 +374,8 @@ where
     ///
     /// Using this will also effectively [detach](Self::detach) the series.
     pub fn send_event(self) {
-        self.commands.queue(AddExecution::new(
-            Some(self.source),
+        self.commands.queue(AddExecutableToSeries::new(
+            self.session,
             self.target,
             SendEvent::<Response>::new(),
         ));

@@ -34,7 +34,7 @@ use thiserror::Error as ThisError;
 
 use crate::{
     Cancellation, DisposalFailure, OperationResult, OperationRoster, OrBroken, OutputPort,
-    SeriesMarker, UnhandledErrors, UnusedTarget, operation::ScopeStorage, RequestId, ManageCancellation, RouteSource,
+    UnhandledErrors, UnusedTarget, operation::ScopeStorage, RequestId, ManageCancellation, RouteSource,
     DisposalUpdate, DisposalListener, OperationError, Broken,
 };
 

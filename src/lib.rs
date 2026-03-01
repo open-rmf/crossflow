@@ -365,7 +365,7 @@ impl<Request, Streams: StreamPack> From<AsyncService<Request, Streams>> for Asyn
 }
 
 /// Uniquely identify a request that has been made to a node.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RequestId {
     /// The unique session ID for the workflow scope that this request is
     /// happening in

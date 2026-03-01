@@ -550,6 +550,19 @@ impl<T> OrBroken for Option<T> {
     }
 }
 
+pub trait OperationResultFilter {
+    fn ignore_not_ready(self) -> Result<(), OperationError>;
+}
+
+impl OperationResultFilter for OperationResult {
+    fn ignore_not_ready(self) -> Result<(), OperationError> {
+        match self {
+            Err(OperationError::NotReady) => Ok(()),
+            x => x,
+        }
+    }
+}
+
 pub trait ReportUnhandled {
     fn report_unhandled(self, source: Entity, world: &mut World);
 }

@@ -15,8 +15,8 @@
  *
 */
 
-use bevy_ecs::prelude::{ChildOf, Command, Component, Entity, Resource, World, Bundle};
 use bevy_derive::Deref;
+use bevy_ecs::prelude::{Bundle, ChildOf, Children, Command, Component, Entity, Resource, World};
 
 use backtrace::Backtrace;
 
@@ -31,10 +31,10 @@ use anyhow::anyhow;
 use std::sync::Arc;
 
 use crate::{
-    Broken, Cancel, CancelFailure, Cancellable, ManageCancellation, MiscellaneousFailure,
-    OperationCancel, OperationError, OperationExecuteStorage, OperationRequest, OperationResult,
-    OperationSetup, SetupFailure, SingleTargetStorage, UnhandledErrors, UnusedTarget,
-    Cancellation, DisposalListener, DisposalUpdate,
+    Broken, Cancel, CancelFailure, Cancellable, Cancellation, DisposalListener, DisposalUpdate,
+    ManageCancellation, MiscellaneousFailure, OnCancel, OperationError, OperationExecuteStorage,
+    OperationRequest, OperationResult, OperationResultFilter, OperationSetup, SetupFailure,
+    SingleTargetStorage, UnhandledErrors, UnusedTarget, OrBroken,
 };
 
 pub(crate) trait Executable {
@@ -45,14 +45,24 @@ pub(crate) trait Executable {
 #[derive(Bundle)]
 pub(crate) struct SeriesSessionBundle {
     disposal_listener: DisposalListener,
-    marker: SeriesMarker,
+    sequence: SequenceInSeries,
+}
+
+/// Ordered sequence of operations in a series
+#[derive(Default, Clone, Debug, Component)]
+pub(crate) struct SequenceInSeries(Vec<Entity>);
+
+impl SequenceInSeries {
+    pub(crate) fn push(&mut self, operation: Entity) {
+        self.0.push(operation);
+    }
 }
 
 impl SeriesSessionBundle {
     pub(crate) fn new() -> Self {
         Self {
             disposal_listener: DisposalListener(series_session_disposal_listener),
-            marker: Default::default(),
+            sequence: Default::default(),
         }
     }
 }
@@ -64,7 +74,7 @@ fn series_session_disposal_listener(
         session,
         disposal,
         world,
-        roster: _,
+        roster,
     }: DisposalUpdate,
 ) -> OperationResult {
     // The disposal happened for an operation in a series. If the
@@ -74,34 +84,29 @@ fn series_session_disposal_listener(
     // We do not convert stream disposals into a cancellation
     // because they do not affect the ability of the series to
     // reach its end.
-    if !disposal.cause.stream_disposal() {
+    if !disposal.cause.is_stream_disposal() {
         let cancellation = Cancellation::unreachable(session, session, vec![disposal]);
-        world.emit_series_cancel(origin, session, cancellation);
+        world.emit_series_cancel(origin, session, cancellation, roster);
     }
 
     Ok(())
 }
 
-#[derive(Component)]
-pub(crate) struct SeriesMarker;
-
 pub(crate) struct AddExecution<E: Executable> {
-    source: Option<Entity>,
     target: Entity,
     execution: E,
 }
 
 impl<E: Executable> AddExecution<E> {
-    pub(crate) fn new(source: Option<Entity>, target: Entity, execution: E) -> Self {
+    pub(crate) fn new(target: Entity, execution: E) -> Self {
         Self {
-            source,
             target,
             execution,
         }
     }
 }
 
-impl<I: Executable + 'static + Sync + Send> Command for AddExecution<I> {
+impl<E: Executable + 'static + Sync + Send> Command for AddExecution<E> {
     fn apply(self, world: &mut World) {
         if let Err(error) = self.execution.setup(OperationSetup {
             source: self.target,
@@ -115,29 +120,78 @@ impl<I: Executable + 'static + Sync + Send> Command for AddExecution<I> {
                     error,
                 });
         }
+
         world
             .entity_mut(self.target)
-            .insert((
-                OperationExecuteStorage(perform_execution::<I>),
-                Cancellable::new(cancel_execution),
-                SeriesMarker,
-            ))
+            .insert(OperationExecuteStorage(perform_execution::<E>))
             .remove::<UnusedTarget>();
+    }
+}
 
-        if let Some(source) = self.source {
-            world.entity_mut(source).insert(ChildOf(self.target));
+pub(crate) struct AddExecutableToSeries<E: Executable> {
+    series: Entity,
+    executable: AddExecution<E>,
+}
+
+impl<E: Executable> AddExecutableToSeries<E> {
+    pub(crate) fn new(session: Entity, target: Entity, execution: E) -> Self {
+        Self {
+            series: session,
+            executable: AddExecution { target, execution },
         }
     }
 }
 
-fn perform_execution<I: Executable>(
+impl<E: Executable + 'static + Sync + Send> Command for AddExecutableToSeries<E> {
+    fn apply(self, world: &mut World) -> () {
+        let series = self.series;
+        let target = self.executable.target;
+        AddConnectionToSeries { series, target }.apply(world);
+        self.executable.apply(world);
+    }
+}
+
+pub(crate) struct AddConnectionToSeries {
+    series: Entity,
+    target: Entity,
+}
+
+impl Command for AddConnectionToSeries {
+    fn apply(self, world: &mut World) -> () {
+        let node = self.target;
+        if let Err(OperationError::Broken(backtrace)) = self.try_apply(world) {
+            world
+                .get_resource_or_init::<UnhandledErrors>()
+                .broken
+                .push(Broken { node, backtrace });
+
+            world.emit_broken()
+        }
+    }
+}
+
+impl AddConnectionToSeries {
+    pub(crate) fn new(session: Entity, target: Entity) -> Self {
+        Self {
+            series: session,
+            target,
+        }
+    }
+
+    fn try_apply(self, world: &mut World) -> OperationResult {
+        world.get_mut::<SequenceInSeries>(self.series).or_broken()?.push(self.target);
+        Ok(())
+    }
+}
+
+fn perform_execution<E: Executable>(
     OperationRequest {
         source,
         world,
         roster,
     }: OperationRequest,
 ) {
-    match I::execute(OperationRequest {
+    match E::execute(OperationRequest {
         source,
         world,
         roster,
@@ -151,69 +205,35 @@ fn perform_execution<I: Executable>(
         Err(OperationError::Broken(backtrace)) => {
             if let Ok(mut source_mut) = world.get_entity_mut(source) {
                 source_mut.emit_broken(backtrace, roster);
-            } else {
-                world
-                    .get_resource_or_insert_with(UnhandledErrors::default)
-                    .cancellations
-                    .push(CancelFailure {
-                        error: OperationError::Broken(Some(Backtrace::new())),
-                        cancel: Cancel {
-                            origin: source,
-                            target: source,
-                            session: None,
-                            cancellation: Broken {
-                                node: source,
-                                backtrace,
-                            }
-                            .into(),
-                        },
-                    });
             }
         }
     }
 }
 
-pub(crate) fn cancel_execution(
-    OperationCancel {
-        cancel,
+pub(crate) fn cancel_series(cancel: Cancel) -> OperationResult {
+    let Cancel {
+        target: session,
+        session: _,
+        cancellation,
         world,
         roster,
-    }: OperationCancel,
-) -> OperationResult {
-    // We cancel a series by travelling to its terminal and
-    let mut terminal = cancel.target;
-    loop {
-        let Some(target) = world.get::<SingleTargetStorage>(terminal) else {
-            break;
-        };
-        terminal = target.get();
-    }
+    } = cancel;
+    if let Some(operations) = world.get::<SequenceInSeries>(session) {
+        let operations: SmallVec<[Entity; 8]> = operations.0.iter().cloned().collect();
+        for op in operations {
+            let Some(on_cancel) = world.get::<OnCancel>(op).map(|c| c.0) else {
+                continue;
+            };
 
-    if let Some(on_cancel) = world.get::<OnSeriesCancelled>(terminal) {
-        let on_cancel = on_cancel.0;
-        let cancel = cancel.for_target(terminal);
-        match on_cancel(OperationCancel {
-            cancel: cancel.clone(),
-            world,
-            roster,
-        }) {
-            Ok(()) | Err(OperationError::NotReady) => {
-                // Do nothing
-            }
-            Err(OperationError::Broken(backtrace)) => {
-                world
-                    .get_resource_or_insert_with(UnhandledErrors::default)
-                    .cancellations
-                    .push(CancelFailure {
-                        error: OperationError::Broken(backtrace),
-                        cancel,
-                    });
-            }
+            on_cancel(Cancel {
+                target: op,
+                session: Some(session),
+                cancellation: cancellation.clone(),
+                world,
+                roster,
+            })
+            .ignore_not_ready()?;
         }
-    }
-
-    if let Ok(terminal_mut) = world.get_entity_mut(terminal) {
-        terminal_mut.despawn();
     }
 
     Ok(())

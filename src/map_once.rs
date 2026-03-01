@@ -75,7 +75,6 @@ where
 
     fn connect(self, _: Option<Entity>, source: Entity, target: Entity, commands: &mut Commands) {
         commands.queue(AddExecution::new(
-            None,
             source,
             BlockingMapOnce::new(target, self.def),
         ));
@@ -185,7 +184,6 @@ where
 
     fn connect(self, _: Option<Entity>, source: Entity, target: Entity, commands: &mut Commands) {
         commands.queue(AddExecution::new(
-            None,
             source,
             AsyncMapOnce::new(target, self.def),
         ));

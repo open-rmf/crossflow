@@ -19,13 +19,13 @@ use crate::{
     Accessing, AddOperation, Blocker, BufferKeyBuilder, Cancel, Cancellable, Cancellation, Cleanup,
     CleanupContents, ClearBufferSessionFn, CollectMarker, DisposalListener, DisposalUpdate,
     FinalizeCleanup, FinalizeCleanupRequest, Input, InputBundle, InspectDisposals,
-    ManageInput, NamedTarget, NamedValue, Operation, OperationCancel,
+    ManageInput, NamedTarget, NamedValue, Operation,
     OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
     OperationRoster, OperationSetup, OrBroken, ReachabilityResult, ScopeSettings, CleanInputsOf,
     SingleInputStorage, SingleTargetStorage, StreamEffect, StreamRequest, StreamTargetMap,
     UnhandledErrors, Unreachability, UnusedTarget, check_reachability, execute_operation,
     is_downstream_of, Routing, RouteSource, RouteTarget, output_port, MessageRoute, RequestId, StreamTarget,
-    ManageSession, ManageDisposal, Disposal, DisposalStorage,
+    ManageSession, ManageDisposal, Disposal, DisposalStorage, OnCancel, OperationResultFilter,
 };
 
 use smallvec::smallvec;
@@ -41,7 +41,7 @@ use backtrace::Backtrace;
 
 use bevy_derive::Deref;
 use bevy_ecs::{
-    hierarchy::ChildOf,
+    hierarchy::{ChildOf, Children},
     prelude::{Commands, Component, Entity, World, Bundle},
 };
 
@@ -68,6 +68,7 @@ pub struct ScopedSessionBundle {
     scope: SessionOfScope,
     status: SessionStatus,
     disposal_listener: DisposalListener,
+    cancellable: Cancellable,
 }
 
 /// This disposal listener simply forwards the disposal information to the
@@ -95,6 +96,11 @@ fn scoped_session_disposal_listener(
     })
 }
 
+fn scoped_session_cancel(cancel: Cancel) -> OperationResult {
+    let scope = cancel.world.get::<SessionOfScope>(cancel.target).or_broken()?.scope();
+    receive_cancel(cancel.for_target(scope))
+}
+
 impl ScopedSessionBundle {
     /// Make a regular scoped session
     pub(crate) fn new(
@@ -106,7 +112,8 @@ impl ScopedSessionBundle {
             child_of: ChildOf(parent_session),
             scope: SessionOfScope(scope),
             status: SessionStatus::Active,
-            disposal_listener: DisposalListener(scoped_session_disposal_listener)
+            disposal_listener: DisposalListener(scoped_session_disposal_listener),
+            cancellable: Cancellable::new(scoped_session_cancel),
         }
     }
 
@@ -120,7 +127,8 @@ impl ScopedSessionBundle {
             child_of: ChildOf(parent_session),
             scope: SessionOfScope(begin_cleanup),
             status: SessionStatus::Active,
-            disposal_listener: DisposalListener(cleanup_workflow_disposal_listener),
+            disposal_listener: DisposalListener(cleanup_workflow_session_disposal_listener),
+            cancellable: Cancellable::new(cleanup_workflow_session_cancel),
         }
     }
 }
@@ -876,7 +884,7 @@ impl IncrementalScopeBuilder {
         let inner = self.inner.lock().unwrap();
         BuilderScopeContext {
             scope: inner.scope_id,
-            finish_scope_cleanup: inner.finish_scope_cancel,
+            finish_scope_cleanup: inner.endpoints.finish_scope_cleanup,
         }
     }
 
@@ -1012,13 +1020,10 @@ impl IncrementalScopeBuilderInner {
 }
 
 fn receive_cancel(
-    OperationCancel {
-        cancel:
-            Cancel {
-                target: source,
-                session,
-                cancellation,
-            },
+    Cancel {
+        target: source,
+        session,
+        cancellation,
         world,
         roster,
     }: OperationCancel,
@@ -1082,7 +1087,7 @@ fn cancel_one(
         cleaner: scope,
         node: scope,
         session,
-        cleanup_id: session,
+        cleanup_id: request_id,
     };
     cleanup_entire_scope(
         request_id,
@@ -1772,25 +1777,54 @@ where
     }
 }
 
-fn cleanup_workflow_disposal_listener(
+fn cleanup_workflow_session_disposal_listener(
     DisposalUpdate {
         // listener and session are equivalent when a session is being notified of a disposal
         listener: _,
-        origin,
+        origin: _,
         session: cleanup_session,
         disposal,
         world,
         roster,
     }: DisposalUpdate
 ) -> OperationResult {
-    let scoped_session = world.get::<ParentSession>(cleanup_session).or_broken()?.0;
     if disposal.cause.is_stream_disposal() {
-        // Cleanup workflows don't need to be concerned about streams being disposed
+        // Cleanup workflows aren't concerned about streams being disposed
         return Ok(());
     }
 
-    let cleanup_scope = world.get::<SessionOfScope>(cleanup_session).or_broken()?.scope();
+    let begin_cleanup = world.get::<SessionOfScope>(cleanup_session).or_broken()?.scope();
+    let on_cancel = world.get::<OnCancel>(begin_cleanup).or_broken()?.0;
+    on_cancel(Cancel {
+        target: begin_cleanup,
+        session: Some(cleanup_session),
+        cancellation: Cancellation::unreachable(begin_cleanup, cleanup_session, vec![disposal]),
+        world,
+        roster,
+    })
+}
 
+fn cleanup_workflow_session_cancel(cancel: Cancel) -> OperationResult {
+    // This isn't something we expect to see, but the best we can do is forward
+    // the cancellation to the child sessions.
+    if let Some(operations) = cancel.world.get::<Children>(cancel.target) {
+        let operations: SmallVec<[Entity; 8]> = operations.iter().cloned().collect();
+        for op in operations {
+            let Some(on_cancel) = cancel.world.get::<OnCancel>(op).map(|c| c.0) else {
+                continue;
+            };
+
+            on_cancel(
+                Cancel {
+                    target: op,
+                    session: Some(cancel.target),
+                    cancellation: cancel.cancellation.clone(),
+                    world: cancel.world,
+                    roster: cancel.roster,
+                }
+            ).ignore_not_ready()?;
+        }
+    }
 
     Ok(())
 }
@@ -1846,17 +1880,13 @@ impl<T: 'static + Send + Sync> Operation for FinishCleanup<T> {
 
 impl<T: 'static + Send + Sync> FinishCleanup<T> {
     fn receive_cleanup_workflow_cancellation(
-        OperationCancel {
-            cancel:
-                Cancel {
-                    origin,
-                    target: finish,
-                    session,
-                    cancellation,
-                },
+        Cancel {
+            target: finish,
+            session,
+            cancellation,
             world,
             roster,
-        }: OperationCancel,
+        }: Cancel,
     ) -> OperationResult {
         if let Some(cancellation_session) = session {
             // We just need to cancel a specific cleanup session. The cancellation

@@ -18,7 +18,7 @@
 use crate::{
     Accessing, BufferAccessStorage, ManageDisposal, ManageInput, MiscellaneousFailure,
     OperationError, OperationResult, OperationRoster, OrBroken, ScopeStorage, UnhandledErrors,
-    CleanInputsOf,
+    CleanInputsOf, RequestId,
 };
 
 use bevy_ecs::prelude::{Component, Entity, World};
@@ -41,7 +41,7 @@ impl<'a> OperationCleanup<'a> {
         cleaner: Entity,
         node: Entity,
         session: Entity,
-        cleanup_id: Entity,
+        cleanup_id: RequestId,
         world: &'a mut World,
         roster: &'a mut OperationRoster,
     ) -> Self {
@@ -136,7 +136,7 @@ impl<'a> OperationCleanup<'a> {
 /// The contents that an operation is willing to clean.
 #[derive(Default, Component)]
 pub struct CleanupContents {
-    awaiting_cleanup: HashMap<Entity, SmallVec<[Entity; 16]>>,
+    awaiting_cleanup: HashMap<RequestId, SmallVec<[Entity; 16]>>,
 }
 
 impl CleanupContents {
@@ -144,11 +144,11 @@ impl CleanupContents {
         Self::default()
     }
 
-    pub fn add_cleanup(&mut self, cleanup_id: Entity, nodes: SmallVec<[Entity; 16]>) {
+    pub fn add_cleanup(&mut self, cleanup_id: RequestId, nodes: SmallVec<[Entity; 16]>) {
         self.awaiting_cleanup.insert(cleanup_id, nodes);
     }
 
-    pub fn register_cleanup_of_node(&mut self, cleanup_id: Entity, node: Entity) -> bool {
+    pub fn register_cleanup_of_node(&mut self, cleanup_id: RequestId, node: Entity) -> bool {
         let Some(nodes) = self.awaiting_cleanup.get_mut(&cleanup_id) else {
             return false;
         };
@@ -178,7 +178,8 @@ impl FinalizeCleanup {
 /// Notify the scope manager that the request may be finished with cleanup
 #[derive(Clone, Copy, Debug)]
 pub struct Cleanup {
-    /// This is the ID of the scope operation that is being cleaned up.
+    /// This is the ID of the scope operation that initiated the cleanup. This
+    /// will typically be the trim or terminate operation.
     pub cleaner: Entity,
     /// This is the operation node that the Cleanup request was sent to. The
     /// request might need to move across other operation nodes while it is
@@ -186,10 +187,10 @@ pub struct Cleanup {
     /// that the cleaner can be correctly notified about which node finished
     /// cleaning up.
     pub node: Entity,
+    /// This is the session that the node shoudl clean.
     pub session: Entity,
-    // A unique ID for this cleanup operation. For final scope cleanup, this
-    // will be equal to the session ID.
-    pub cleanup_id: Entity,
+    // A unique ID for this cleanup operation.
+    pub cleanup_id: RequestId,
 }
 
 impl Cleanup {

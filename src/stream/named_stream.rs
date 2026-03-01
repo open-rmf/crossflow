@@ -93,7 +93,7 @@ impl<S: StreamEffect> NamedStream<S> {
         let target = commands.spawn(()).insert(ChildOf(source)).id();
 
         map.add_named::<S::Output>(name.into(), target, commands);
-        commands.queue(AddExecution::new(None, target, TakenStream::new(sender)));
+        commands.queue(AddExecution::new(target, TakenStream::new(sender)));
 
         receiver
     }
@@ -108,7 +108,6 @@ impl<S: StreamEffect> NamedStream<S> {
         let name = name.into();
         let redirect = commands.spawn(()).insert(ChildOf(source)).id();
         commands.queue(AddExecution::new(
-            None,
             redirect,
             Push::<S::Output>::new(target, true).with_name(name.clone()),
         ));

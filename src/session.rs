@@ -17,15 +17,15 @@
 
 use bevy_ecs::prelude::{World, Entity};
 
-use crate::{ScopedSessionBundle, SeriesSessionBundle, Seq};
+use crate::{ScopedSessionBundle, Seq};
 
 #[cfg(feature = "trace")]
 use crate::{SessionEvent, RequestId};
 
-pub trait ManageSession {
-    /// Spawn a session that will be used by a series
-    fn spawn_series_session(&mut self) -> Entity;
+#[cfg(feature = "trace")]
+use bevy_ecs::prelude::Command;
 
+pub trait ManageSession {
     /// Spawn a session that will be used inside a scope
     fn spawn_scoped_session(
         &mut self,
@@ -47,15 +47,6 @@ pub trait ManageSession {
 }
 
 impl ManageSession for World {
-    fn spawn_series_session(&mut self) -> Entity {
-        let series_session = self.spawn(SeriesSessionBundle::new()).id();
-        #[cfg(feature = "trace")]
-        {
-            SessionEvent::spawned(None, series_session, self);
-        }
-        series_session
-    }
-
     fn spawn_scoped_session(
         &mut self,
         parent_session: Entity,
@@ -108,5 +99,17 @@ impl ManageSession for World {
         }
 
         self.despawn(session);
+    }
+}
+
+#[cfg(feature = "trace")]
+pub(crate) struct TraceSeriesSessionSpawned {
+    pub(crate) session: Entity,
+}
+
+#[cfg(feature = "trace")]
+impl Command for TraceSeriesSessionSpawned {
+    fn apply(self, world: &mut World) -> () {
+        SessionEvent::spawned(None, self.session, world);
     }
 }
