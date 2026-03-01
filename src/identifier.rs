@@ -201,6 +201,10 @@ pub mod output_port {
         [IdentifierRef::name_str("cancel")]
     }
 
+    pub const fn broken() -> [IdentifierRef<'static>; 1] {
+        [IdentifierRef::name_str("broken")]
+    }
+
     pub const fn dispose() -> [IdentifierRef<'static>; 1] {
         [IdentifierRef::name_str("dispose")]
     }
@@ -229,6 +233,10 @@ pub mod output_port {
 
     pub const fn listen() -> [IdentifierRef<'static>; 1] {
         name_str("listen")
+    }
+
+    pub const fn update() -> [IdentifierRef<'static>; 1] {
+        name_str("update")
     }
 
     pub const fn start() -> [IdentifierRef<'static>; 1] {

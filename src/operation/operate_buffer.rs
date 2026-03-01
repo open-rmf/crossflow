@@ -73,7 +73,7 @@ where
     ) -> OperationResult {
         let Input { session, data, seq } = world.take_input::<T>(source)?;
         world.unchecked_buffer_mut(
-            RequestId{ source, seq },
+            RequestId{ session, source, seq },
             &BufferKeyTag {
                 buffer: source,
                 session,
@@ -128,11 +128,12 @@ pub(crate) struct GateState {
 impl GateState {
     pub fn apply(
         buffer: Entity,
-        session: Entity,
+        req: RequestId,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
+        let RequestId { session, .. } = req;
         let mut states = world.get_mut::<GateState>(buffer).or_broken()?;
         let state = states.map.entry(session).or_insert(Gate::Open);
         if *state == action {
@@ -151,10 +152,8 @@ impl GateState {
                 .clone();
 
             for target in targets {
-                world
-                    .get_entity_mut(target)
-                    .or_broken()?
-                    .give_input(session, (), roster)?;
+                let port = output_port::update();
+                world.give_input(req.to_message_route(&port, target), (), roster)?;
             }
         }
 
@@ -277,7 +276,7 @@ fn get_buffered_sessions<T: 'static + Send + Sync>(
 
 pub(crate) struct NotifyBufferUpdate {
     buffer: Entity,
-    session: Entity,
+    req: RequestId,
     /// This field is used to prevent notifications from going to the accessor
     /// that produced the key which was used for modification. That way users
     /// don't end up with unintentional infinite loops in their workflow. If
@@ -287,10 +286,10 @@ pub(crate) struct NotifyBufferUpdate {
 }
 
 impl NotifyBufferUpdate {
-    pub(crate) fn new(buffer: Entity, session: Entity, accessor: Option<Entity>) -> Self {
+    pub(crate) fn new(buffer: Entity, req: RequestId, accessor: Option<Entity>) -> Self {
         Self {
             buffer,
-            session,
+            req,
             accessor,
         }
     }

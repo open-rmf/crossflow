@@ -110,7 +110,6 @@ impl<Request: 'static + Send + Sync> Operation for OperateService<Request> {
 
         // TODO(@mxgrey): Seriously consider how to make all these different
         // service cleanup routes more maintainable.
-
         clean.notify_cleaned()
     }
 

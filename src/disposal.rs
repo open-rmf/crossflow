@@ -34,7 +34,7 @@ use thiserror::Error as ThisError;
 
 use crate::{
     Cancellation, DisposalFailure, OperationResult, OperationRoster, OrBroken, OutputPort,
-    UnhandledErrors, UnusedTarget, operation::InScope, RequestId, ManageCancellation, RouteSource,
+    UnhandledErrors, UnusedTarget, RequestId, ManageCancellation, RouteSource,
     DisposalUpdate, DisposalListener, OperationError, Broken,
 };
 
@@ -487,6 +487,17 @@ pub trait ManageDisposal {
         roster: &mut OperationRoster,
     );
 
+    /// Notify that an operation, such as trim, has caused disposals to happen
+    /// for other operations.
+    fn notify_trim(
+        &mut self,
+        origin: RouteSource,
+        disposed_operations: &[Entity],
+        disposed_in_session: Entity,
+        disposal: Disposal,
+        roster: &mut OperationRoster,
+    );
+
     fn clear_disposals(&mut self, session: Entity, source: Entity);
 
     /// Used to transfer the disposals gathered by a temporary operation (e.g.
@@ -506,45 +517,44 @@ impl ManageDisposal for World {
         disposal: Disposal,
         roster: &mut OperationRoster,
     ) {
-        let RouteSource { session, source, seq, port } = route;
+        self.notify_trim(route, &[route.source], route.session, disposal, roster);
+    }
+
+    fn notify_trim(
+        &mut self,
+        trigger: RouteSource,
+        disposed_operations: &[Entity],
+        disposed_in_session: Entity,
+        disposal: Disposal,
+        roster: &mut OperationRoster,
+    ) {
         #[cfg(feature = "trace")]
         {
             // TODO(@mxgrey): Consider not tracing stream-related disposals
             // since that could produce a lot of useless noise.
-            OutputDisposed::trace(
-                RouteSource { session, source, seq, port },
-                disposal.clone(),
-                self,
-            );
+            for op in disposed_operations {
+                OutputDisposed::trace(trigger, *op, disposed_in_session, disposal.clone(), self);
+            }
         }
 
-        if let Some(listener) = self.get::<DisposalListener>(route.session).map(|l| l.0) {
-            if let Err(OperationError::Broken(backtrace)) = listener(DisposalUpdate {
-                session,
-                listener: session,
-                origin: route,
-                disposal,
-                world: self,
-                roster,
-            }) {
-                self.get_resource_or_init::<UnhandledErrors>()
-                    .broken
-                    .push(Broken {
-                        node: route.source,
-                        backtrace,
-                    });
+        if let Some(listener) = self.get::<DisposalListener>(disposed_in_session).map(|l| l.0) {
+            for disposed in disposed_operations.iter().copied() {
+                if let Err(OperationError::Broken(backtrace)) = listener(DisposalUpdate {
+                    session: disposed_in_session,
+                    listener: disposed_in_session,
+                    trigger,
+                    disposed,
+                    disposal: disposal.clone(),
+                    world: self,
+                    roster,
+                }) {
+                    self.emit_broken(disposed_in_session, backtrace, roster);
+                }
             }
         } else {
             // If the session does not have a disposal listener then something
             // is broken.
-            let broken_node = source;
-            self.get_resource_or_init::<UnhandledErrors>()
-                .disposals
-                .push(DisposalFailure {
-                    disposal,
-                    broken_node,
-                    backtrace: Some(Backtrace::new()),
-                });
+            self.emit_broken(disposed_in_session, Some(Backtrace::new()), roster);
         }
     }
 

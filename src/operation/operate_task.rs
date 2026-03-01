@@ -155,7 +155,8 @@ where
                         if disposed {
                             let disposal =
                                 disposal.unwrap_or_else(|| Disposal::task_despawned(source, node));
-                            world.emit_disposal(request_id, &output_port::next(), disposal, roster);
+                            let port = output_port::next();
+                            world.emit_disposal(request_id.to_route_source(&port), disposal, roster);
                         }
                     },
                 ))

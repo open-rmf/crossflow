@@ -82,7 +82,8 @@ impl SeriesSessionBundle {
 fn series_session_disposal_listener(
     DisposalUpdate {
         listener: _,
-        origin,
+        trigger,
+        disposed: _,
         session,
         disposal,
         world,
@@ -98,7 +99,7 @@ fn series_session_disposal_listener(
     // reach its end.
     if !disposal.cause.is_stream_disposal() {
         let cancellation = Cancellation::unreachable(session, session, vec![disposal]);
-        world.emit_series_cancel(origin, session, cancellation, roster);
+        world.emit_series_cancel(trigger, session, cancellation, roster);
     }
 
     Ok(())

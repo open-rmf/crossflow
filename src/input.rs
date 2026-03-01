@@ -20,9 +20,6 @@ use bevy_ecs::{
     world::{EntityRef, EntityWorldMut, World},
 };
 
-#[cfg(feature = "trace")]
-use bevy_ecs::prelude::ChildOf;
-
 use smallvec::{smallvec, SmallVec};
 
 #[cfg(feature = "trace")]
@@ -41,7 +38,7 @@ use crate::{
 };
 
 #[cfg(feature = "trace")]
-use crate::{OperationStarted, Trace};
+use crate::Trace;
 
 pub type Seq = u32;
 
@@ -156,7 +153,7 @@ pub struct RouteSource<'a> {
 
 impl<'a> RouteSource<'a> {
     pub fn request_id(&self) -> RequestId {
-        let Self { session, source, seq, port } = *self;
+        let Self { session, source, seq, .. } = *self;
         RequestId { session, source, seq }
     }
 }
@@ -252,6 +249,11 @@ pub trait ManageInput {
         &mut self,
         clean: CleanInputsOf,
     );
+
+    fn increment_input_seq<T: 'static + Send + Sync>(
+        &mut self,
+        source: Entity,
+    ) -> Result<Seq, OperationError>;
 }
 
 pub trait InspectInput {
@@ -404,54 +406,6 @@ impl ManageInput for World {
     ) -> Result<Option<Input<T>>, OperationError> {
         let mut storage = self.get_mut::<InputStorage<T>>(source).or_broken()?;
         let input = storage.reverse_queue.pop();
-
-        #[cfg(feature = "trace")]
-        {
-            if let Some(input) = &input {
-                if let Some(trace) = self.get::<Trace>(source) {
-                    if trace.toggle().is_on() {
-                        let message = trace
-                            .toggle()
-                            .with_messages()
-                            .then(|| trace.serialize_value(&input.data))
-                            .flatten()
-                            .transpose();
-
-                        let message = match message {
-                            Ok(message) => message,
-                            Err(err) => {
-                                self.get_resource_or_insert_with(UnhandledErrors::default)
-                                    .miscellaneous
-                                    .push(MiscellaneousFailure {
-                                        error: Arc::new(err.into()),
-                                        backtrace: Some(Backtrace::new()),
-                                    });
-                                return Err(OperationError::Broken(Some(Backtrace::new())));
-                            }
-                        };
-
-                        let mut session_stack = SmallVec::new();
-                        session_stack.push(input.session);
-                        let mut session = input.session;
-                        while let Some(next_session) = self.get::<ChildOf>(session) {
-                            session = next_session.parent();
-                            session_stack.push(session);
-                        }
-                        session_stack.reverse();
-
-                        let started = OperationStarted {
-                            operation: source,
-                            session_stack,
-                            info: Arc::clone(trace.info()),
-                            message,
-                        };
-
-                        self.send_event(started);
-                    }
-                }
-            }
-        }
-
         Ok(input)
     }
 
@@ -515,6 +469,13 @@ impl ManageInput for World {
                 .reverse_queue
                 .retain(|Input { session: r, .. }| *r != session);
         }
+    }
+
+    fn increment_input_seq<T: 'static + Send + Sync>(
+        &mut self,
+        source: Entity,
+    ) -> Result<Seq, OperationError> {
+        Ok(self.get_mut::<InputStorage<T>>(source).or_broken()?.increment_seq())
     }
 }
 

@@ -25,8 +25,9 @@ use crate::{
     Cancellation, CleanupContents, Disposal, FinalizeCleanup, FinalizeCleanupRequest, Input,
     InputBundle, ManageCancellation, ManageInput, Operation, OperationCleanup, OperationError,
     OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ReachabilityResult, ScopeEntryStorage, InScope, SingleInputStorage, SingleTargetStorage,
-    TrimBranch, TrimPoint, TrimPolicy, immediately_downstream_of, RequestId,
+    ReachabilityResult, InScope, SingleInputStorage, SingleTargetStorage, ScopeEndpoints,
+    TrimBranch, TrimPoint, TrimPolicy, immediately_downstream_of, RequestId, RouteSource, output_port,
+    ManageDisposal,
 };
 
 pub(crate) struct Trim<T> {
@@ -126,16 +127,18 @@ impl<T: 'static + Send + Sync> Operation for Trim<T> {
             Some(Ok(nodes)) => nodes.clone(),
             Some(Err(cancellation)) => {
                 let cancellation = cancellation.clone();
-                world.get_entity_mut(source).or_broken()?.emit_cancel(
+                let route = RouteSource {
                     session,
-                    cancellation,
-                    roster,
-                );
+                    source,
+                    seq,
+                    port: &output_port::broken(),
+                };
+                world.emit_scope_cancel(route, session, cancellation, roster);
                 return Ok(());
             }
             None => {
                 let scope = world.get::<InScope>(source).or_broken()?.scope();
-                let scope_entry = world.get::<ScopeEntryStorage>(scope).or_broken()?.0;
+                let scope_entry = world.get::<ScopeEndpoints>(scope).or_broken()?.enter_scope();
                 match calculate_nodes(scope_entry, &trim.branches, world) {
                     Ok(Ok(nodes)) => {
                         world.get_mut::<TrimStorage>(source).or_broken()?.nodes =
@@ -145,11 +148,16 @@ impl<T: 'static + Send + Sync> Operation for Trim<T> {
                     Ok(Err(cancellation)) => {
                         // There is something broken in how the branches to be
                         // trimmed re defined, so we should cancel the workflow.
-                        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-                        source_mut.get_mut::<TrimStorage>().or_broken()?.nodes =
+                        world.get_mut::<TrimStorage>(source).or_broken()?.nodes =
                             Some(Err(cancellation.clone()));
 
-                        source_mut.emit_cancel(session, cancellation, roster);
+                        let route = RouteSource {
+                            session,
+                            source,
+                            seq,
+                            port: &output_port::broken(),
+                        };
+                        world.emit_scope_cancel(route, session, cancellation, roster);
                         return Ok(());
                     }
                     Err(broken) => {
@@ -206,7 +214,8 @@ impl<T: 'static + Send + Sync> Trim<T> {
             roster,
         }: FinalizeCleanupRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(cleanup.cleaner).or_broken()?;
+        let source = cleanup.cleaner;
+        let mut source_mut = world.get_entity_mut(source).or_broken()?;
         let Input { session, data, seq } = source_mut
             .get_mut::<HoldingStorage<T>>()
             .or_broken()?
@@ -226,13 +235,21 @@ impl<T: 'static + Send + Sync> Trim<T> {
 
         let target = source_mut.get::<SingleTargetStorage>().or_broken()?.get();
 
-        let disposal = Disposal::trimming(cleanup.cleaner, nodes);
-        emit_disposal(cleanup.cleaner, cleanup.session, disposal, world, roster);
+        // After performing a trim, it's possible that the terminal node is no
+        // longer reachable, so we should always emit a disposal.
+        let disposal = Disposal::trimming(cleanup.cleaner, nodes.clone());
+        let request_id = RequestId { session, source, seq };
+        let dispose_port = output_port::dispose();
+        world.notify_trim(
+            request_id.to_route_source(&dispose_port),
+            nodes.as_slice(),
+            session,
+            disposal,
+            roster,
+        );
 
-        world
-            .get_entity_mut(target)
-            .or_broken()?
-            .give_input(session, data, roster)
+        let port = output_port::next();
+        world.give_input(request_id.to_message_route(&port, target), data, roster)
     }
 }
 

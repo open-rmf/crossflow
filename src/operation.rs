@@ -17,7 +17,7 @@
 
 use crate::{
     Broken, DeliveryLabelId, InspectInput, SetupFailure, StreamTargetMap, UnhandledErrors, RequestId,
-    Disposal, RouteSource,
+    Disposal, RouteSource, ManageCancellation,
 };
 
 use bevy_derive::Deref;
@@ -708,7 +708,7 @@ fn perform_operation<Op: Operation>(
             // Do nothing
         }
         Err(OperationError::Broken(backtrace)) => {
-            try_emit_broken(source, backtrace, world, roster);
+            world.emit_broken(source, backtrace, roster);
         }
     }
 }
@@ -800,8 +800,10 @@ pub fn is_downstream_of(source: Entity, target: Entity, world: &World) -> bool {
 pub struct DisposalUpdate<'a> {
     /// The operation that is being updated about the disposal
     pub listener: Entity,
-    /// The operation that the disposal originated from
-    pub origin: RouteSource<'a>,
+    /// The operation that triggered the disposal
+    pub trigger: RouteSource<'a>,
+    /// The operation whose potential outputs may have been disposed
+    pub disposed: Entity,
     /// The session that has experienced a disposal
     pub session: Entity,
     /// Information about the disposal

@@ -17,8 +17,8 @@
 
 use crate::{
     Disposal, Input, InputBundle, ManageInput, Operation, OperationCleanup, OperationReachability,
-    OperationRequest, OperationResult, OperationSetup, OrBroken, ReachabilityResult,
-    SingleInputStorage, SingleTargetStorage, emit_disposal, MessageRoute, output_port,
+    OperationRequest, OperationResult, OperationSetup, OrBroken, ReachabilityResult, RouteSource,
+    SingleInputStorage, SingleTargetStorage, MessageRoute, output_port, ManageDisposal,
 };
 
 use bevy_ecs::prelude::Entity;
@@ -85,7 +85,13 @@ where
             // There was nothing to be sent, so we notify that a disposal has
             // happened.
             let disposal = Disposal::empty_spread(source);
-            emit_disposal(source, session, disposal, world, roster);
+            let route = RouteSource {
+                session,
+                source,
+                seq,
+                port: &output_port::next(),
+            };
+            world.emit_disposal(route, disposal, roster);
         }
 
         Ok(())

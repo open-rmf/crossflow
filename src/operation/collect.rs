@@ -25,7 +25,7 @@ use crate::{
     Disposal, DisposalListener, DisposalUpdate, Input, InputBundle, ManageInput, Operation,
     OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationRoster,
     OperationSetup, OrBroken, ReachabilityResult, SingleInputStorage, SingleTargetStorage,
-    is_downstream_of, output_port, Routing, RouteSource, Seq,
+    is_downstream_of, output_port, Routing, RouteSource, Seq, RouteTarget, ManageDisposal,
 };
 
 pub(crate) struct Collect<T, const N: usize> {
@@ -102,13 +102,16 @@ where
 
             let port = output_port::next();
             let route = Routing {
-                session,
                 outputs: seqs.into_iter().map(|seq| RouteSource {
+                    session,
                     source,
                     seq,
                     port: &port,
                 }).collect(),
-                input: target,
+                input: RouteTarget {
+                    session,
+                    target,
+                },
             };
             world.give_input(route, message, roster)?;
             return Ok(());
@@ -119,7 +122,7 @@ where
         if !is_upstream_active::<T>(session, source, None, world)? {
             // This node is not reachable, so we need to either give an output
             // or emit a disposal.
-            on_unreachable_collection::<T, N>(source, session, target, min, len, world, roster)?;
+            on_unreachable_collection::<T, N>(source, session, Some(seq), target, min, len, world, roster)?;
         }
 
         // The collection node is still reachable so we can just wait until the
@@ -195,8 +198,10 @@ impl<T, const N: usize> CollectionStorage<T, N> {
 fn collection_disposal_listener<T, const N: usize>(
     DisposalUpdate {
         listener: source,
-        origin,
+        trigger: _,
+        disposed,
         session,
+        disposal: _,
         world,
         roster,
     }: DisposalUpdate,
@@ -204,18 +209,18 @@ fn collection_disposal_listener<T, const N: usize>(
 where
     T: 'static + Send + Sync,
 {
-    if source == origin {
+    if source == disposed {
         // We should ignore disposals that were produced by our own operation
         return Ok(());
     }
 
-    if !is_downstream_of(origin, source, world) {
+    if !is_downstream_of(disposed, source, world) {
         // We should ignore disposals that were not produced downstream of this
         // operation
         return Ok(());
     }
 
-    if is_upstream_active::<T>(session, source, Some(origin), world)? {
+    if is_upstream_active::<T>(session, source, Some(disposed), world)? {
         // The collection node is still reachable, so no action is needed.
         return Ok(());
     }
@@ -226,7 +231,7 @@ where
     let min = collection.min;
     let len = collection.map.get(&session).map(|c| c.len()).unwrap_or(0);
 
-    on_unreachable_collection::<T, N>(source, session, target, min, len, world, roster)
+    on_unreachable_collection::<T, N>(source, session, None, target, min, len, world, roster)
 }
 
 // Check if there is still upstream activity.
@@ -259,6 +264,7 @@ fn is_upstream_active<T: 'static + Send + Sync>(
 fn on_unreachable_collection<T: 'static + Send + Sync, const N: usize>(
     source: Entity,
     session: Entity,
+    seq: Option<Seq>,
     target: Entity,
     min: usize,
     len: usize,
@@ -270,7 +276,15 @@ fn on_unreachable_collection<T: 'static + Send + Sync, const N: usize>(
         // collection yet. Since we do not detect any more entries coming,
         // we need to emit a disposal notice.
         let disposal = Disposal::deficient_collection(source, min, len);
-        emit_disposal(source, session, disposal, world, roster);
+        let seq = if let Some(seq) = seq {
+            seq
+        } else {
+            world.increment_input_seq::<T>(source)?
+        };
+
+        let port = output_port::dispose();
+        let route = RouteSource { session, source, seq, port: &port };
+        world.emit_disposal(route, disposal, roster);
         return Ok(());
     }
 
@@ -289,13 +303,16 @@ fn on_unreachable_collection<T: 'static + Send + Sync, const N: usize>(
 
     let port = output_port::next();
     let route = Routing {
-        session,
         outputs: seqs.into_iter().map(|seq| RouteSource {
+            session,
             source,
             seq,
             port: &port,
         }).collect(),
-        input: target,
+        input: RouteTarget {
+            session,
+            target,
+        },
     };
     world.give_input(route, message, roster)?;
     Ok(())

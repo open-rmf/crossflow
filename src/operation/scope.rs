@@ -78,7 +78,8 @@ fn scoped_session_disposal_listener(
     DisposalUpdate {
             // listener and session are equivalent when a session is being notified of a disposal
             listener: _,
-            origin,
+            disposed: origin,
+            trigger,
             session,
             disposal,
             world,
@@ -89,7 +90,8 @@ fn scoped_session_disposal_listener(
     let listener = world.get::<DisposalListener>(scope).or_broken()?.0;
     listener(DisposalUpdate {
         listener: scope,
-        origin,
+        disposed: origin,
+        trigger,
         session,
         disposal,
         world,
@@ -225,6 +227,10 @@ pub struct ScopeEndpoints {
 }
 
 impl ScopeEndpoints {
+    pub fn enter_scope(&self) -> Entity {
+        self.enter_scope
+    }
+
     pub fn terminate(&self) -> Entity {
         self.terminate
     }
@@ -1118,7 +1124,8 @@ fn cancel_one(
 fn scoped_disposal_listener(
     DisposalUpdate {
         listener: scope,
-        origin,
+        disposed,
+        trigger,
         session,
         disposal,
         world,
@@ -1126,12 +1133,12 @@ fn scoped_disposal_listener(
     }: DisposalUpdate,
 ) -> OperationResult {
     // Store the disposal information on the source
-    if let Some(mut storage) = world.get_mut::<DisposalStorage>(origin.source) {
-        storage.disposals.entry(origin.source).or_default().push(disposal.clone());
+    if let Some(mut storage) = world.get_mut::<DisposalStorage>(disposed) {
+        storage.disposals.entry(disposed).or_default().push(disposal.clone());
     } else {
         let mut storage = DisposalStorage::default();
-        storage.disposals.entry(origin.session).or_default().push(disposal.clone());
-        world.entity_mut(origin.source).insert(storage);
+        storage.disposals.entry(session).or_default().push(disposal.clone());
+        world.entity_mut(disposed).insert(storage);
     }
 
     // Notify all nodes with disposal listeners about the disposal. This allows
@@ -1148,7 +1155,8 @@ fn scoped_disposal_listener(
         let f = disposal_listener.0;
         f(DisposalUpdate {
             listener: *node,
-            origin,
+            disposed,
+            trigger,
             session,
             disposal: disposal.clone(),
             world,
@@ -1159,7 +1167,7 @@ fn scoped_disposal_listener(
     validate_scope_reachability(
         ValidationRequest {
             source: scope,
-            origin: origin.source,
+            origin: disposed,
             session,
             world,
             roster,
@@ -1819,7 +1827,8 @@ fn cleanup_workflow_session_disposal_listener(
     DisposalUpdate {
         // listener and session are equivalent when a session is being notified of a disposal
         listener: _,
-        origin: _,
+        disposed: _,
+        trigger: _,
         session: cleanup_session,
         disposal,
         world,

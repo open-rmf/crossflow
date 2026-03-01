@@ -384,6 +384,11 @@ impl RequestId {
         let Self { session, source, seq } = self;
         RouteSource { session, source, seq, port }
     }
+
+    pub fn to_message_route<'a>(self, port: OutputPort<'a>, target: Entity) -> MessageRoute<'a> {
+        let Self { session, source, seq } = self;
+        MessageRoute { session, source, seq, port, target }
+    }
 }
 
 impl<'a, Request, Streams: StreamPack> From<&'a BlockingService<Request, Streams>> for RequestId {

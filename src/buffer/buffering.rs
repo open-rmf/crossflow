@@ -47,7 +47,7 @@ pub trait Buffering: 'static + Send + Sync + Clone {
 
     fn gate_action(
         &self,
-        session: Entity,
+        req: RequestId,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
@@ -249,12 +249,12 @@ impl<T: 'static + Send + Sync> Buffering for Buffer<T> {
 
     fn gate_action(
         &self,
-        session: Entity,
+        req: RequestId,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
-        GateState::apply(self.id(), session, action, world, roster)
+        GateState::apply(self.id(), req, action, world, roster)
     }
 
     fn as_input(&self) -> SmallVec<[Entity; 8]> {
@@ -345,7 +345,7 @@ impl<T: 'static + Send + Sync + Clone> Buffering for CloneFromBuffer<T> {
 
     fn gate_action(
         &self,
-        session: Entity,
+        req: RequestId,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,

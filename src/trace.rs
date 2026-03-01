@@ -104,31 +104,6 @@ pub enum GetValueError {
     FailedSerialization(Arc<serde_json::Error>),
 }
 
-/// An event that gets transmitted whenever an operation receives an input or is
-/// activated some other way while tracing is on (meaning the operation entity
-/// has a [`Trace`] component).
-#[derive(Event, Clone, Debug)]
-pub struct OperationStarted {
-    /// The entity of the operation that was triggered.
-    pub operation: Entity,
-    /// The stack of session IDs that triggered the operation. The first entry
-    /// is the root session. Each subsequent entry is a child session of the
-    /// previous. There are two common ways to get a child session:
-    /// * In a series, earlier sessions in the chain are children of later
-    ///   sessions in the chain, so the last session of the chain is the root of
-    ///   the entire chain.
-    /// * When a scope operation is triggered, a new session is created. Its parent
-    ///   is the session of the message that triggered the scope operation. Every
-    ///   time a workflow is triggered it creates a new scope, and therefore also
-    ///   creates a child session.
-    pub session_stack: SmallVec<[Entity; 8]>,
-    /// Information about the operation that was triggered.
-    pub info: Arc<OperationInfo>,
-    /// The message that triggered the operation, if serialization is enabled
-    /// for it.
-    pub message: Option<JsonMessage>,
-}
-
 #[derive(Debug, Clone, Component)]
 pub struct OperationLabels {
     input: Arc<Vec<OperationRef>>,
@@ -300,18 +275,22 @@ impl MessageSent {
 pub struct OutputDisposed {
     /// Information about which output port did not yield any message for a
     /// request that came in.
-    pub output: TraceSource,
+    pub trigger: TraceSource,
+    pub disposed_operation: Entity,
+    pub disposed_in_session: Entity,
     pub disposal: Disposal,
 }
 
 impl OutputDisposed {
     pub(crate) fn trace(
-        output: RouteSource,
+        trigger: RouteSource,
+        disposed_operation: Entity,
+        disposed_in_session: Entity,
         disposal: Disposal,
         world: &mut World,
     ) {
-        let output = TraceSource::new(output, world);
-        world.trigger(TracedEvent::now(Self { output, disposal }));
+        let trigger = TraceSource::new(trigger, world);
+        world.trigger(TracedEvent::now(Self { trigger, disposed_operation, disposed_in_session, disposal }));
     }
 }
 
@@ -607,7 +586,7 @@ mod tests {
     use crate::{
         diagram::{testing::*, *},
         prelude::*,
-        trace::OperationStarted,
+        TracedEvent,
     };
     use bevy_app::{App, PostUpdate};
     use bevy_ecs::prelude::{Entity, EventReader, ResMut, Resource};
@@ -616,11 +595,11 @@ mod tests {
 
     #[derive(Clone, Resource, Default, Debug)]
     struct TraceRecorder {
-        record: Vec<OperationStarted>,
+        record: Vec<TracedEvent>,
     }
 
     fn record_traces(
-        mut trace_reader: EventReader<OperationStarted>,
+        mut trace_reader: EventReader<TracedEvent>,
         mut recorder: ResMut<TraceRecorder>,
     ) {
         for trace in trace_reader.read() {
