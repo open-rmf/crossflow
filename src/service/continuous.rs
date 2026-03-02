@@ -436,9 +436,15 @@ where
         self.index
     }
 
+    /// Unique identifier
+    pub fn id(&self) -> RequestId {
+        self.request.request_id
+    }
+
     /// An ID that uniquely identifies this order. Every order will have a unique
     /// ID even if they belong to the same session.
-    pub fn id(&self) -> Entity {
+    // TODO(@mxgrey): Consider whether this can be completely replaced with RequestId
+    pub fn task_id(&self) -> Entity {
         self.request.task_id
     }
 }

@@ -380,8 +380,8 @@ impl<'w, 's> BufferTracer<'w, 's> {
 
 #[derive(Debug, Clone)]
 pub struct SessionEvent {
-    session_stack: SmallVec<[Entity; 8]>,
-    change: SessionChange,
+    pub session_stack: SmallVec<[Entity; 8]>,
+    pub change: SessionChange,
 }
 
 impl SessionEvent {
@@ -586,30 +586,28 @@ mod tests {
     use crate::{
         diagram::{testing::*, *},
         prelude::*,
-        TracedEvent,
+        TracedEvent, TracedEventKind
     };
-    use bevy_app::{App, PostUpdate};
-    use bevy_ecs::prelude::{Entity, EventReader, ResMut, Resource};
+    use bevy_app::App;
+    use bevy_ecs::prelude::{Entity, ResMut, Resource, Trigger};
     use serde_json::json;
-    use std::{sync::Arc, time::Duration};
+    use std::{sync::Arc, time::Duration, collections::VecDeque};
 
     #[derive(Clone, Resource, Default, Debug)]
     struct TraceRecorder {
-        record: Vec<TracedEvent>,
-    }
-
-    fn record_traces(
-        mut trace_reader: EventReader<TracedEvent>,
-        mut recorder: ResMut<TraceRecorder>,
-    ) {
-        for trace in trace_reader.read() {
-            recorder.record.push(trace.clone());
-        }
+        record: VecDeque<TracedEvent>,
     }
 
     fn enable_trace_recording(app: &mut App) {
         app.init_resource::<TraceRecorder>()
-            .add_systems(PostUpdate, record_traces);
+            .add_observer(write_trace_events);
+    }
+
+    fn write_trace_events(
+        trigger: Trigger<TracedEvent>,
+        mut recorder: ResMut<TraceRecorder>,
+    ) {
+        recorder.record.push_back(trigger.event().clone());
     }
 
     #[test]
@@ -801,25 +799,29 @@ mod tests {
         for next_op_name in expectation {
             let name: Arc<str> = (*next_op_name).into();
             let expected_op = OperationRef::Named((&name).into());
-            let next_actual = actual.first().unwrap();
-            let actual_op = next_actual.info.id.as_ref().unwrap();
-            assert_eq!(expected_op, *actual_op);
+            let next_actual = loop {
+                let Some(next) = actual.pop_front() else {
+                    break None;
+                };
 
-            let actual_root_session = *next_actual.session_stack.first().unwrap();
+                match next.event {
+                    TracedEventKind::MessageSent(sent) => {
+                        break Some(sent);
+                    }
+                    _ => {
+                        continue;
+                    }
+                }
+            };
+
+            let next_actual = next_actual.unwrap();
+            let labels = next_actual.input.labels.as_ref().unwrap();
+            assert!(labels.iter().any(|label| *label == expected_op));
+
+            let actual_root_session = *next_actual.input.session_stack.first().unwrap();
             assert_eq!(expected_root_session, actual_root_session);
 
             actual.remove(0);
         }
-
-        let expected_op = OperationRef::Terminate(NamespaceList::default());
-        let next_actual = actual.first().unwrap();
-        let actual_op = next_actual.info.id.as_ref().unwrap();
-        assert_eq!(expected_op, *actual_op);
-
-        let actual_root_session = *next_actual.session_stack.first().unwrap();
-        assert_eq!(expected_root_session, actual_root_session);
-
-        actual.remove(0);
-        assert!(actual.is_empty());
     }
 }

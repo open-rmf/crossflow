@@ -111,7 +111,7 @@ where
 
     /// This is the session ID of the last request so far in the series.
     pub fn session_id(&self) -> Entity {
-        self.source
+        self.session
     }
 
     /// Capture the outcome of the series and all the stream data of the final
@@ -119,6 +119,7 @@ where
     #[must_use]
     pub fn capture(self) -> Capture<Response, Streams> {
         let target = self.target;
+        let session = self.session;
         let mut map = StreamTargetMap::default();
         let stream_receivers = Streams::take_streams(target, &mut map, self.commands);
         self.commands.entity(self.source).insert(map);
@@ -129,7 +130,7 @@ where
         Capture {
             outcome,
             streams: stream_receivers,
-            session: target,
+            session,
         }
     }
 

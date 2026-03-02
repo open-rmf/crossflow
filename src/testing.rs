@@ -272,8 +272,8 @@ impl TestingContext {
                 let now = Instant::now();
 
                 query.get_mut(&input.key).unwrap().for_each(|order| {
-                    let order_id = order.id();
-                    let t0 = *timers.entry(order_id).or_insert_with(|| {
+                    let task_id = order.task_id();
+                    let t0 = *timers.entry(task_id).or_insert_with(|| {
                         order.streams().send(());
                         now
                     });
@@ -281,7 +281,7 @@ impl TestingContext {
                     if now - t0 > duration {
                         let u = f(order.request());
                         order.respond(u);
-                        timers.remove(&order_id);
+                        timers.remove(&task_id);
                     }
                 });
             },

@@ -259,7 +259,7 @@ let f = |request: Vec<f32>| -> f32 {
     request.into_iter().fold(0.0, |a, b| a + b)
 };
 // Convert the closure into a Callback
-let callback = f.into_blocking_callback();
+let callback = f.into_callback();
 
 // Spawn a workflow and use the callback inside it
 let workflow = commands.spawn_io_workflow(
@@ -814,25 +814,25 @@ let workflow = commands.spawn_workflow(
 help_service_infer_type::<String, String, StreamOf<T>>(workflow);
 
 let deposit_apples = commands.spawn_service(
-    |In(input): BlockingServiceInput<Vec<Apple>, StreamOf<Apple>>| {
-        for apple in input.request {
-            input.streams.send(apple);
+    |BlockingService { request, streams, .. }: BlockingService<Vec<Apple>, StreamOf<Apple>>| {
+        for apple in request {
+            streams.send(apple);
         }
     }
 );
 
 let try_take_apple = commands.spawn_service(
     |
-        In(input): BlockingServiceInput<((), BufferKey<Apple>)>,
+        BlockingService { request, id, .. }: BlockingService<((), BufferKey<Apple>)>,
         mut access: BufferAccessMut<Apple>,
     | {
-        access.get_mut(&input.request.1).ok()?.pull()
+        access.get_mut(id, &request.1).ok()?.pull()
     }
 );
 
 let chop_apple = commands.spawn_service(
-    |In(input): BlockingServiceInput<Apple, StreamOf<AppleSlice>>| {
-        input.streams.send(AppleSlice { });
+    |BlockingService { streams, .. }: BlockingService<Apple, StreamOf<AppleSlice>>| {
+        streams.send(AppleSlice { });
     }
 );
 
@@ -879,8 +879,8 @@ let workflow = commands.spawn_workflow(
 // ANCHOR: navigation_streams_workflow
 // This service will have a mobile robot approach a door.
 let approach_door = commands.spawn_service(
-    |In(input): BlockingServiceInput<(), NavigationStreams>| {
-        input.streams.log.send(String::from("approaching door"));
+    |srv: BlockingService<(), NavigationStreams>| {
+        srv.streams.log.send(String::from("approaching door"));
         /* ... approach the door ... */
     }
 );
@@ -888,16 +888,16 @@ let approach_door = commands.spawn_service(
 // open_door is not a navigation service so it will only have one
 // output stream: log messages.
 let open_door = commands.spawn_service(
-    |In(input): BlockingServiceInput<(), StreamOf<String>>| {
-        input.streams.send(String::from("opening door"));
+    |BlockingService { streams, .. }: BlockingService<(), StreamOf<String>>| {
+        streams.send(String::from("opening door"));
         /* ... open the door ... */
     }
 );
 
 // This service will have a mobile robot move through a door.
 let move_through_door = commands.spawn_service(
-    |In(input): BlockingServiceInput<(), NavigationStreams>| {
-        input.streams.log.send(String::from("moving through door"));
+    |BlockingService { streams, .. }: BlockingService<(), NavigationStreams>| {
+        streams.log.send(String::from("moving through door"));
         /* ... move through the door ... */
     }
 );
@@ -962,13 +962,13 @@ let workflow = commands.spawn_io_workflow(
         help_service_infer_type::<(), (), ()>(workflow);
 
 let traffic_signal_service = commands.spawn_service(
-    |_: In<BlockingService<(), StreamOf<TrafficSignal>>>| { }
+    |_: BlockingService<(), StreamOf<TrafficSignal>>| { }
 );
 let approach_intersection = commands.spawn_service(
-    |_: In<BlockingService<()>>| { [1_f32, 2_f32] }
+    |_: BlockingService<()>| { [1_f32, 2_f32] }
 );
 let send_robot_command = commands.spawn_service(
-    |_: In<BlockingService<RobotCommand>>| -> Option<()> { None }
+    |_: BlockingService<RobotCommand>| -> Option<()> { None }
 );
 
 // ANCHOR: listen_example
@@ -983,12 +983,12 @@ struct IntersectionKeys {
 /// Define a device that evaluates whether or not the robot should proceed
 /// across the intersection.
 fn proceed_or_stop(
-    In(keys): In<IntersectionKeys>,
-    signal_access: BufferAccess<TrafficSignal>,
+    Blocking { request: keys, id, .. }: Blocking<IntersectionKeys>,
+    mut signal_access: BufferAccess<TrafficSignal>,
     mut arrival_access: BufferAccessMut<[f32; 2]>,
 ) -> Option<RobotCommand> {
-    let signal_buffer = signal_access.get(&keys.signal).ok()?;
-    let mut arrival_buffer = arrival_access.get_mut(&keys.arrival).ok()?;
+    let signal_buffer = signal_access.get(id, &keys.signal).ok()?;
+    let mut arrival_buffer = arrival_access.get_mut(id, &keys.arrival).ok()?;
 
     // Get a reference to the newest message if one is available
     let signal = signal_buffer.newest()?;
@@ -1152,9 +1152,9 @@ struct ImageStamped {
 }
 
 // ANCHOR: sum_fn
-fn sum(In(input): BlockingServiceInput<Vec<f32>>) -> f32 {
+fn sum(srv: BlockingService<Vec<f32>>) -> f32 {
     let mut sum = 0.0;
-    for value in input.request {
+    for value in srv.request {
         sum += value;
     }
     sum
@@ -1166,7 +1166,7 @@ fn sum(In(input): BlockingServiceInput<Vec<f32>>) -> f32 {
 struct Offset(Vec2);
 
 fn apply_offset(
-    In(input): BlockingServiceInput<Vec2>,
+    input: BlockingService<Vec2>,
     offsets: Query<&Offset>,
 ) -> Vec2 {
     let offset = offsets
@@ -1191,7 +1191,7 @@ struct ParsedStreams {
 }
 // ANCHOR_END: parsed_streams_struct
 
-fn parse_values(In(srv): BlockingServiceInput<String, ParsedStreams>) {
+fn parse_values(srv: BlockingService<String, ParsedStreams>) {
     if let Ok(value) = srv.request.parse::<u32>() {
         srv.streams.parsed_as_u32.send(value);
     }
@@ -1254,7 +1254,7 @@ fn print_streams(
 // ANCHOR_END: query_stream_storage
 
 // ANCHOR: trivial_async_service
-async fn trivial_async_service(In(srv): AsyncServiceInput<String>) -> String {
+async fn trivial_async_service(srv: AsyncService<String>) -> String {
     return srv.request;
 }
 // ANCHOR_END: trivial_async_service
@@ -1345,7 +1345,7 @@ fn fetch_page_title(
 
 // ANCHOR: hello_continuous_service
 fn hello_continuous_service(
-    In(srv): ContinuousServiceInput<String, String>,
+    srv: ContinuousService<String, String>,
     mut query: ContinuousQuery<String, String>,
 ) {
     let Some(mut orders) = query.get_mut(&srv.key) else {
@@ -1444,10 +1444,10 @@ fn navigate(
 
     // Create a callback for fetching the latest position
     let get_position = |
-        In(key): In<BufferKey<Vec2>>,
+        Blocking { request: key, id, .. }: Blocking<BufferKey<Vec2>>,
         access: BufferAccess<Vec2>,
     | {
-        access.get_newest(&key).cloned()
+        access.get_newest(id, &key).cloned()
     };
     let get_position = get_position.into_blocking_callback();
 
@@ -1498,7 +1498,8 @@ fn continuous_navigate(
 
     orders.for_each(|order| {
         let NavigationRequest { destination, robot_position_key } = order.request().clone();
-        let Some(position) = position_access.get_newest(&robot_position_key) else {
+        let id = order.id();
+        let Some(position) = position_access.get_newest(id, &robot_position_key) else {
             // Position is not available yet
             return;
         };
@@ -1524,13 +1525,13 @@ use crossflow::{prelude::*, testing::*};
 /// finishes running. Therefore any service that accesses the buffer after this
 /// service finishes is guaranteed to find the values present inside.
 fn push_values(
-    In(input): In<(Vec<i32>, BufferKey<i32>)>,
+    Blocking { request: (data, key), id, .. }: Blocking<(Vec<i32>, BufferKey<i32>)>,
     mut access: BufferAccessMut<i32>,
 ) {
-    let Ok(mut access) = access.get_mut(&input.1) else {
+    let Ok(mut access) = access.get_mut(id, &key) else {
         return;
     };
-    for value in input.0 {
+    for value in data {
         access.push(value);
     }
 }
@@ -1540,10 +1541,10 @@ fn push_values(
 /// read-only access cannot pull or modify the data inside the buffer in any
 /// way, it can only view and clone (if the data is cloneable) from the buffer.
 fn get_largest_value(
-    In(input): In<((), BufferKey<i32>)>,
-    access: BufferAccess<i32>,
+    Blocking { request, id, .. }: Blocking<((), BufferKey<i32>)>,
+    mut access: BufferAccess<i32>,
 ) -> Option<i32> {
-    let access = access.get(&input.1).ok()?;
+    let access = access.get(id, &request.1).ok()?;
     access.iter().max().cloned()
 }
 
@@ -1583,15 +1584,14 @@ struct WorkingHours {
 
 // ANCHOR: gate_example
 fn manage_opening_time(
-    In(input): In<(SystemTime, BufferKey<Order>)>,
+    Blocking { request: (time, key), id, .. }: Blocking<(SystemTime, BufferKey<Order>)>,
     mut gate: BufferGateAccessMut,
     hours: Res<WorkingHours>,
 ) {
-    let Ok(mut gate) = gate.get_mut(input.1) else {
+    let Ok(mut gate) = gate.get_mut(id, &key) else {
         return;
     };
 
-    let time = input.0;
     if time < hours.open || hours.close < time {
         gate.close_gate();
     } else {
@@ -1668,14 +1668,14 @@ fn fibonacci_stream_pack_example(
 
 #[allow(unused)]
 fn delivery_instructions_demo(commands: &mut Commands) {
-async fn my_service(In(input): AsyncServiceInput<String>) {
+async fn my_service(srv: AsyncService<String>) {
     // Create a future that will never finish
     let never = pending::<()>();
     // Wait on the never-ending future until a timeout finishes.
     // This creates an artifical delay for the async service.
     let _ = timeout(Duration::from_secs(2), never).await;
 
-    println!("{}", input.request);
+    println!("{}", srv.request);
 }
 
 // ANCHOR: always_serial_example
@@ -1911,10 +1911,10 @@ async fn navigate(
 
     // Create a callback for fetching the latest position
     let get_position = |
-        In(key): In<BufferKey<Vec2>>,
+        Blocking { request: key, id, .. }: Blocking<BufferKey<Vec2>>,
         access: BufferAccess<Vec2>,
     | {
-        access.get_newest(&key).cloned()
+        access.get_newest(id, &key).cloned()
     };
     let get_position = get_position.into_blocking_callback();
 
