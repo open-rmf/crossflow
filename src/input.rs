@@ -22,23 +22,23 @@ use bevy_ecs::{
 
 use smallvec::{smallvec, SmallVec};
 
-#[cfg(feature = "trace")]
 use std::{
     num::Wrapping,
     sync::Arc,
 };
 
+
 use backtrace::Backtrace;
 
 use crate::{
-    Broken, BufferStorage, Cancel, Cancellation, CancellationCause, DeferredRoster, Detached,
+    Broken, BufferStorage, Cancellation, CancellationCause, DeferredRoster, Detached,
     MiscellaneousFailure, OperationError, OperationRoster, OrBroken, SessionStatus,
-    UnhandledErrors, UnusedTarget, OutputPort, MessageSent, BufferWorldAccess,
+    UnhandledErrors, UnusedTarget, OutputPort, BufferWorldAccess,
     RequestId, BufferKeyTag, output_port, ManageCancellation, OperationResult, SequenceInSeries,
 };
 
 #[cfg(feature = "trace")]
-use crate::Trace;
+use crate::{Trace, MessageSent, TraceToggle, UniversalTraceToggle};
 
 pub type Seq = u32;
 
@@ -138,12 +138,13 @@ pub struct MessageRoute<'a> {
     pub target: Entity,
 }
 
+#[derive(Debug, Clone)]
 pub struct Routing<'a> {
     pub outputs: SmallVec<[RouteSource<'a>; 8]>,
     pub input: RouteTarget,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct RouteSource<'a> {
     pub session: Entity,
     pub source: Entity,
@@ -158,6 +159,7 @@ impl<'a> RouteSource<'a> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct RouteTarget {
     pub session: Entity,
     pub target: Entity,
@@ -270,6 +272,7 @@ impl ManageInput for World {
         let route: Routing = route.into();
         let target = route.input.target;
         if unsafe { self.sneak_input(route, data, true, roster)? } {
+            dbg!(target);
             roster.queue(target);
         }
         Ok(())
@@ -297,6 +300,7 @@ impl ManageInput for World {
         roster: &mut OperationRoster,
     ) -> Result<bool, OperationError> {
         let route: Routing = route.into();
+        dbg!(&route);
         let session = route.input.session;
         let target = route.input.target;
 
@@ -316,16 +320,31 @@ impl ManageInput for World {
             }
         }
 
+        dbg!();
+
+        #[cfg(feature = "trace")]
         let mut serialized_msg = None;
+
+        #[cfg(feature = "trace")]
         let mut perform_trace = false;
+
         #[cfg(feature = "trace")]
         {
-            if let Some(trace) = self.get::<Trace>(target) {
-                if trace.toggle().is_on() {
-                    perform_trace = true;
-                }
+            dbg!();
+            let toggle = if let Some(universal) = self.get_resource::<UniversalTraceToggle>().map(|u| **u).flatten() {
+                universal
+            } else if let Some(trace) = self.get::<Trace>(target) {
+                trace.toggle()
+            } else {
+                TraceToggle::Off
+            };
 
-                if trace.toggle().with_messages() {
+            if toggle.is_on() {
+                perform_trace = true;
+            }
+
+            if toggle.with_messages() {
+                if let Some(trace) = self.get::<Trace>(target) {
                     serialized_msg = trace.serialize_value(&data);
                 }
             }
@@ -346,13 +365,13 @@ impl ManageInput for World {
         if let Some(mut storage) = self.get_mut::<InputStorage<T>>(target) {
             let target_seq = storage.push(session, data);
 
+            dbg!(perform_trace);
             #[cfg(feature = "trace")]
             {
                 if perform_trace {
                     MessageSent::trace(route, target_seq, serialized_msg, self);
                 }
             }
-
         } else if self.get::<UnusedTarget>(target).is_none() {
             if let Some(detached) = self.get::<Detached>(target) {
                 if detached.is_detached() {
@@ -380,7 +399,7 @@ impl ManageInput for World {
             self.get_resource_or_insert_with(|| UnhandledErrors::default())
                 .miscellaneous
                 .push(MiscellaneousFailure {
-                    error: std::sync::Arc::new(anyhow::anyhow!(
+                    error: Arc::new(anyhow::anyhow!(
                         "Incorrect input type for operation [{:?}]: received [{}], expected [{}]",
                         target,
                         std::any::type_name::<T>(),
@@ -390,7 +409,7 @@ impl ManageInput for World {
                 });
             None.or_broken()?;
         }
-        Ok(true)
+        dbg!(Ok(true))
     }
 
     fn take_input<T: 'static + Send + Sync>(
@@ -467,7 +486,7 @@ impl ManageInput for World {
         if let Some(mut inputs) = self.get_mut::<InputStorage<T>>(source) {
             inputs
                 .reverse_queue
-                .retain(|Input { session: r, .. }| *r != session);
+                .retain(|Input { session: s, .. }| *s != session);
         }
     }
 
@@ -511,6 +530,8 @@ impl<T: 'static + Send + Sync> Command for SeriesRequest<T> {
                 node: start,
                 backtrace,
             });
+
+            world.get_resource_or_init::<DeferredRoster>();
             world.resource_scope::<DeferredRoster, _>(|world: &mut World, mut roster| {
                 world.emit_series_cancel(
                     RouteSource {
@@ -532,6 +553,7 @@ fn try_series_request<T: 'static + Send + Sync>(
     request: SeriesRequest<T>,
     world: &mut World,
 ) -> OperationResult {
+    world.get_resource_or_init::<DeferredRoster>();
     world.resource_scope::<DeferredRoster, _>(|world: &mut World, mut roster| {
         let SeriesRequest { start, session, data } = request;
         let seq = 0;
@@ -547,6 +569,7 @@ fn try_series_request<T: 'static + Send + Sync>(
             target: start,
         };
 
-        world.give_input(route, data, &mut *roster)
+        dbg!(&route);
+        dbg!(world.give_input(route, data, &mut *roster))
     })
 }

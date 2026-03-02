@@ -26,8 +26,10 @@ use crate::{
     UnhandledErrors, Unreachability, UnusedTarget, check_reachability, execute_operation,
     is_downstream_of, Routing, RouteSource, RouteTarget, output_port, MessageRoute, RequestId, StreamTarget,
     ManageSession, ManageDisposal, Disposal, DisposalStorage, OnCancel, OperationResultFilter,
-    SessionEvent,
 };
+
+#[cfg(feature = "trace")]
+use crate::SessionEvent;
 
 use smallvec::smallvec;
 
@@ -240,6 +242,7 @@ impl ScopeEndpoints {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct ScopedSession {
     /// ID for a session that was input to the scope
     parent_session: Entity,
@@ -269,7 +272,7 @@ impl ScopedSession {
 #[derive(Component)]
 pub(crate) struct ScopeSettingsStorage(pub(crate) ScopeSettings);
 
-#[derive(Component)]
+#[derive(Component, Debug, Clone, Copy)]
 pub(crate) enum ScopedSessionStatus {
     Ongoing,
     Terminated,
@@ -327,7 +330,7 @@ impl ScopedSessionStatus {
     }
 }
 
-#[derive(Component, Default)]
+#[derive(Component, Default, Debug)]
 struct ScopedSessionStorage(SmallVec<[ScopedSession; 8]>);
 
 #[derive(Component, Default)]
@@ -704,7 +707,7 @@ where
         .get_mut::<ScopedSessionStorage>()
         .or_broken()?
         .0
-        .push(ScopedSession::ongoing(parent_session, scoped_session, request_id));
+        .push(dbg!(ScopedSession::ongoing(parent_session, scoped_session, request_id)));
 
     let start_port = output_port::start();
     let route = Routing {
@@ -1264,6 +1267,7 @@ fn begin_cleanup_workflows<Response: 'static + Send + Sync>(
     }: FinalizeCleanupRequest,
 ) -> OperationResult {
     let scope = cleanup.cleaner;
+    dbg!(scope);
     let scoped_session = cleanup.session;
     let mut scope_mut = world.get_entity_mut(scope).or_broken()?;
     scope_mut
@@ -1565,6 +1569,8 @@ where
 
         let scope = source_mut.get::<InScope>().or_broken()?.scope();
         let mut pairs = world.get_mut::<ScopedSessionStorage>(scope).or_broken()?;
+        dbg!(&*pairs);
+        dbg!((scoped_session, source, seq));
         let pair = pairs
             .0
             .iter_mut()
@@ -2223,25 +2229,29 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
                 },
             };
             world.give_input(route, data, roster)?;
-        } else {
-            // Make certain there is nothing related to the scoped session
-            // lingering in the terminal node.
-            world.cleanup_inputs::<T>(CleanInputsOf {
-                session: scoped_session,
-                source: terminate,
-            });
-            world
-                .get_mut::<Staging<T>>(terminate)
-                .or_broken()?
-                .0
-                .remove(&scoped_session);
         }
 
+        // Make certain there is nothing related to the scoped session
+        // lingering in the terminal node.
+        dbg!((terminate, scoped_session));
+        world.cleanup_inputs::<T>(CleanInputsOf {
+            session: scoped_session,
+            source: terminate,
+        });
+        dbg!((terminate, scoped_session));
+        world
+            .get_mut::<Staging<T>>(terminate)
+            .or_broken()?
+            .0
+            .remove(&scoped_session);
+
+        // Release the next service request that was blocked by this one.
         if let Some(blocker) = blocker {
             let serve_next = blocker.serve_next;
             serve_next(blocker, world, roster);
         }
 
+        // Clear any lingering data inside the buffers.
         clear_scope_buffers(scope, scoped_session, world)?;
         world.despawn_session(scoped_session);
         Ok(())

@@ -219,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fork_clone() {
+    fn test_fork_clone_diagram() {
         let mut fixture = DiagramTestFixture::new();
 
         let diagram = Diagram::from_json(json!({

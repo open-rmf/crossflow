@@ -32,7 +32,7 @@ use std::sync::Arc;
 
 use crate::{
     AddExecution, ChannelQueue, Detached, Finished, FlushWarning,
-    MiscellaneousFailure, OperationError, OperationRequest, OperationRoster,
+    OperationError, OperationRequest, OperationRoster,
     SeriesLifecycleChannel, ServiceHook, ServiceLifecycle, ServiceLifecycleChannel,
     UnhandledErrors, UnusedTarget, UnusedTargetDrop,
     WakeQueue, awaken_task, dispose_for_despawned_service, execute_operation,
@@ -136,6 +136,7 @@ fn flush_execution_impl(
         }
 
         while let Some(source) = roster.queue.pop_front() {
+            dbg!(source);
             execute_operation(OperationRequest {
                 source,
                 world,

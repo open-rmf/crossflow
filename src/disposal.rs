@@ -33,9 +33,9 @@ use smallvec::SmallVec;
 use thiserror::Error as ThisError;
 
 use crate::{
-    Cancellation, DisposalFailure, OperationResult, OperationRoster, OrBroken, OutputPort,
-    UnhandledErrors, UnusedTarget, RequestId, ManageCancellation, RouteSource,
-    DisposalUpdate, DisposalListener, OperationError, Broken, IdentifierRef,
+    Cancellation, OperationResult, OperationRoster, OrBroken,
+    RequestId, ManageCancellation, RouteSource,
+    DisposalUpdate, DisposalListener, OperationError, IdentifierRef,
 };
 
 #[cfg(feature = "trace")]

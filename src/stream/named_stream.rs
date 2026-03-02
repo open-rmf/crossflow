@@ -339,7 +339,7 @@ where
     Container: 'static + Send + Sync + IntoIterator<Item = NamedValue<S::Input>>,
 {
     fn apply(self, world: &mut World) {
-        world.get_resource_or_insert_with(DeferredRoster::default);
+        world.get_resource_or_init::<DeferredRoster>();
         world.resource_scope::<DeferredRoster, _>(|world, mut deferred| {
             for data in self.container {
                 let NamedValue { name, value } = data;

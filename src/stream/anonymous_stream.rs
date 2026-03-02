@@ -256,7 +256,7 @@ where
 {
     fn apply(self, world: &mut World) {
         let RequestId { session, source, seq } = self.request_id;
-        world.get_resource_or_insert_with(DeferredRoster::default);
+        world.get_resource_or_init::<DeferredRoster>();
         world.resource_scope::<DeferredRoster, _>(|world, mut deferred| {
             let port = output_port::anonymous_stream(std::any::type_name::<S>());
             for data in self.container {

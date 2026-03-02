@@ -305,7 +305,7 @@ impl Command for NotifyBufferUpdate {
                     return;
                 }
 
-                world.get_resource_or_insert_with(DeferredRoster::default);
+                world.get_resource_or_init::<DeferredRoster>();
                 world.resource_scope::<DeferredRoster, _>(|world: &mut World, mut deferred| {
                     let Self { buffer, req, session, accessor } = self;
                     // We filter out the target that produced the key that was used to

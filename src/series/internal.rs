@@ -34,7 +34,7 @@ use crate::{
     Cancel, Cancellation, DisposalListener, DisposalUpdate,
     ManageCancellation, MiscellaneousFailure, OnCancel, OperationError, OperationExecuteStorage,
     OperationRequest, OperationResult, OperationResultFilter, OperationSetup, SetupFailure,
-    UnhandledErrors, UnusedTarget, OrBroken, ManageSession, DeferredRoster,
+    UnhandledErrors, UnusedTarget, OrBroken, ManageSession, DeferredRoster, SessionStatus,
 };
 
 #[cfg(feature = "trace")]
@@ -49,6 +49,7 @@ pub(crate) trait Executable {
 pub(crate) struct SeriesSessionBundle {
     disposal_listener: DisposalListener,
     sequence: SequenceInSeries,
+    status: SessionStatus,
 }
 
 /// Ordered sequence of operations in a series
@@ -75,6 +76,7 @@ impl SeriesSessionBundle {
         Self {
             disposal_listener: DisposalListener(series_session_disposal_listener),
             sequence: Default::default(),
+            status: SessionStatus::Active,
         }
     }
 }
@@ -173,6 +175,7 @@ impl Command for AddToSeries {
     fn apply(self, world: &mut World) -> () {
         let node = self.target;
         if let Err(OperationError::Broken(backtrace)) = self.try_apply(world) {
+            world.get_resource_or_init::<DeferredRoster>();
             world.resource_scope::<DeferredRoster, _>(|world, mut roster| {
                 world.emit_broken(node, backtrace, &mut *roster);
             });

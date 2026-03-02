@@ -641,7 +641,7 @@ pub trait BufferWorldAccess {
     /// This does not track the fact that the buffer is accessed, even if
     /// tracing is turned on. You should only use this if you are certain that
     /// you do not want to know that the buffer was accessed.
-    fn buffer_view_untracked<T>(
+    fn buffer_view_untraced<T>(
         &self,
         key: &BufferKeyTag,
     ) -> Result<BufferView<'_, T>, BufferError>
@@ -721,10 +721,10 @@ impl BufferWorldAccess for World {
             tracer_state.apply(self);
         }
 
-        self.buffer_view_untracked(key)
+        self.buffer_view_untraced(key)
     }
 
-    fn buffer_view_untracked<T>(
+    fn buffer_view_untraced<T>(
         &self,
         key: &BufferKeyTag,
     ) -> Result<BufferView<'_, T>, BufferError>

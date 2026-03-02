@@ -22,9 +22,10 @@ use crate::{
 };
 
 use bevy_ecs::{
-    prelude::{Component, Entity, Event, World, ChildOf, Query, Commands},
+    prelude::{Component, Entity, Event, World, ChildOf, Query, Commands, Resource, Res},
     system::SystemParam,
 };
+use bevy_derive::{Deref, DerefMut};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -35,6 +36,22 @@ use std::{
     time::{Instant, SystemTime},
 };
 use thiserror::Error as ThisError;
+
+/// The trace toggle settings of this resource override any other trace settings.
+/// This is typically used to turn on debugging in cases where tracing is not
+/// normally used.
+#[derive(Clone, Copy, Debug, Default, Resource, Deref, DerefMut)]
+pub struct UniversalTraceToggle(Option<TraceToggle>);
+
+impl UniversalTraceToggle {
+    pub fn on() -> Self {
+        Self(Some(TraceToggle::On))
+    }
+
+    pub fn with_messages() -> Self {
+        Self(Some(TraceToggle::Messages))
+    }
+}
 
 /// A component attached to workflow operation entities in order to trace their
 /// activities.
@@ -322,6 +339,7 @@ pub(crate) struct BufferTracer<'w, 's> {
     trace: Query<'w, 's, &'static Trace>,
     child_of: Query<'w, 's, &'static ChildOf>,
     labels: Query<'w, 's, &'static OperationLabels>,
+    universal: Option<Res<'w, UniversalTraceToggle>>,
     commands: Commands<'w, 's>,
 }
 
@@ -332,22 +350,24 @@ impl<'w, 's> BufferTracer<'w, 's> {
         key: &BufferKeyTag,
         access: BufferAccessRecord,
     ) {
-        let Ok(buffer_trace) = self.trace.get(key.buffer) else {
-            // This buffer is not being traced, so don't track any of its changes.
+        let toggle = if let Some(universal) = self.universal.as_ref().map(|u| ***u).flatten() {
+            universal
+        } else if let Ok(buffer_trace) = self.trace.get(key.buffer) {
+            buffer_trace.toggle
+        } else {
             return;
         };
 
-        if !buffer_trace.toggle().is_on() {
-            // This buffer is not being traced, so don't track any of its
-            // changes.
+        if !toggle.is_on() {
             return;
         }
 
+        let buffer_trace = self.trace.get(key.buffer).ok();
         let buffer_labels = self.labels.get(key.buffer).ok().map(|l| l.input.clone());
         let accessor_labels = self.labels.get(req.source).ok().map(|l| l.input.clone());
 
-        let value_serializer = if buffer_trace.toggle().with_messages() {
-            buffer_trace.serialize_value
+        let value_serializer = if toggle.with_messages() {
+            buffer_trace.map(|t| t.serialize_value).flatten()
         } else {
             None
         };

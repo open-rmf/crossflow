@@ -665,6 +665,15 @@ pub(crate) mod tests {
         let mut capture =
             context.command(|commands| commands.request(request, provider.clone()).capture());
 
+        use bevy_ecs::prelude::Trigger;
+        use crate::TracedEvent;
+        context.app.world_mut().add_observer(
+            |event: Trigger<TracedEvent>| {
+                println!("{:?}", event.event);
+            }
+        );
+        context.app.world_mut().insert_resource(crate::UniversalTraceToggle::with_messages());
+
         context.run_with_conditions(&mut capture.outcome, Duration::from_secs(2));
         assert!(capture.outcome.is_available());
         context.assert_no_errors();

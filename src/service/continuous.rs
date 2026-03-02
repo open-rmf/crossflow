@@ -612,7 +612,7 @@ where
     Streams: StreamPack,
 {
     fn apply(self, world: &mut World) {
-        world.get_resource_or_insert_with(DeferredRoster::default);
+        world.get_resource_or_init::<DeferredRoster>();
         world.resource_scope::<DeferredRoster, _>(|world: &mut World, mut deferred| {
             let mut remove: SmallVec<[(usize, Entity); 16]> = SmallVec::new();
             for DeliverResponse {
