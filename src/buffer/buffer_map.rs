@@ -1214,7 +1214,7 @@ mod tests {
         if world.buffer_view(id, &keys.generic).ok()?.is_empty() {
             return None;
         }
-        if world.any_buffer_view(&keys.any).ok()?.is_empty() {
+        if world.any_buffer_view(id, &keys.any).ok()?.is_empty() {
             return None;
         }
 

@@ -891,10 +891,10 @@ mod tests {
 
     fn check_if_reached(
         Blocking { request: keys, id, .. }: Blocking<ReachedKeys>,
-        update_buffer: BufferAccess<JsonMessage>,
+        mut update_buffer: BufferAccess<JsonMessage>,
         mut goal_buffer: BufferAccessMut<GoalTracker>,
     ) {
-        let Some(update) = update_buffer.get_newest(&keys.navigation_update) else {
+        let Some(update) = update_buffer.get_newest(id, &keys.navigation_update) else {
             return;
         };
 

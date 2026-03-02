@@ -833,8 +833,8 @@ mod tests {
                 |builder: &mut Builder, _config: ()| -> Node<Vec<BufferKey<i64>>, usize, ()> {
                     {
                         builder.create_node(
-                            (|Blocking { request, .. }: Blocking<Vec<BufferKey<i64>>>, access: BufferAccess<i64>| {
-                                access.get(&request[0]).unwrap().len()
+                            (|Blocking { request, id, .. }: Blocking<Vec<BufferKey<i64>>>, mut access: BufferAccess<i64>| {
+                                access.get(id, &request[0]).unwrap().len()
                             })
                             .into_callback(),
                         )

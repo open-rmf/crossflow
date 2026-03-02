@@ -384,7 +384,7 @@ mod tests {
         Accessor, AnyBufferKey, AnyBufferWorldAccess, BufferAccess, BufferAccessMut, BufferKey,
         BufferWorldAccess, Diagram, DiagramErrorCode, Blocking, JsonBufferKey,
         JsonBufferWorldAccess, JsonMessage, Node, NodeBuilderOptions, IntoCallback,
-        diagram::testing::DiagramTestFixture,
+        diagram::testing::DiagramTestFixture, RequestId,
     };
 
     /// create a new [`DiagramTestFixture`] with some extra builders.
@@ -520,22 +520,22 @@ mod tests {
     }
 
     fn count_json_buffer_entries(
-        Blocking { request: ((), key), .. }: Blocking<((), JsonBufferKey)>,
+        Blocking { request: ((), key), id, .. }: Blocking<((), JsonBufferKey)>,
         world: &mut World,
     ) -> usize {
-        world.json_buffer_view(&key).unwrap().len()
+        world.json_buffer_view(id, &key).unwrap().len()
     }
 
-    fn listen_count_json_buffer_entries(Blocking { request: key, .. }: Blocking<JsonBufferKey>, world: &mut World) -> usize {
-        world.json_buffer_view(&key).unwrap().len()
+    fn listen_count_json_buffer_entries(Blocking { request: key, id, .. }: Blocking<JsonBufferKey>, world: &mut World) -> usize {
+        world.json_buffer_view(id, &key).unwrap().len()
     }
 
-    fn count_any_buffer_entries(In(((), key)): In<((), AnyBufferKey)>, world: &mut World) -> usize {
-        world.any_buffer_view(&key).unwrap().len()
+    fn count_any_buffer_entries(Blocking { request: ((), key), id, .. }: Blocking<((), AnyBufferKey)>, world: &mut World) -> usize {
+        world.any_buffer_view(id, &key).unwrap().len()
     }
 
-    fn listen_count_any_buffer_entries(In(key): In<AnyBufferKey>, world: &mut World) -> usize {
-        world.any_buffer_view(&key).unwrap().len()
+    fn listen_count_any_buffer_entries(Blocking { request: key, id, .. }: Blocking<AnyBufferKey>, world: &mut World) -> usize {
+        world.any_buffer_view(id, &key).unwrap().len()
     }
 
     #[test]
@@ -824,7 +824,7 @@ mod tests {
             input: Blocking<BufferKey<i64>>,
             mut access: BufferAccessMut<i64>,
         ) -> i64 {
-            access.get_mut(input.id, &input.request.key).unwrap().pull().unwrap()
+            access.get_mut(input.id, &input.request).unwrap().pull().unwrap()
         }
 
         fixture
@@ -876,8 +876,8 @@ mod tests {
     fn test_vec_listen() {
         let mut fixture = new_fixture();
 
-        fn listen_buffer(In(request): In<Vec<BufferKey<i64>>>, access: BufferAccess<i64>) -> usize {
-            access.get(&request[0]).unwrap().len()
+        fn listen_buffer(Blocking { request, id, .. }: Blocking<Vec<BufferKey<i64>>>, mut access: BufferAccess<i64>) -> usize {
+            access.get(id, &request[0]).unwrap().len()
         }
 
         fixture
@@ -888,7 +888,7 @@ mod tests {
             .register_node_builder(
                 NodeBuilderOptions::new("listen_buffer"),
                 |builder, _config: ()| -> Node<Vec<BufferKey<i64>>, usize, ()> {
-                    builder.create_node(listen_buffer.into_blocking_callback())
+                    builder.create_node(listen_buffer.into_callback())
                 },
             )
             .with_listen()
@@ -1017,10 +1017,10 @@ mod tests {
                 move |builder, _config: ()| {
                     let expected = expected.clone();
                     builder.create_node(
-                        (move |In((_, keys)): In<((), TestAccessor)>, world: &mut World| {
-                            wait_for_all(keys, world, &expected)
+                        (move |Blocking { request: (_, keys), id, .. }: Blocking<((), TestAccessor)>, world: &mut World| {
+                            wait_for_all(keys, id, world, &expected)
                         })
-                        .into_blocking_callback(),
+                        .into_callback(),
                     )
                 },
             )
@@ -1117,10 +1117,10 @@ mod tests {
                 move |builder, _config: ()| {
                     let expected = expected.clone();
                     builder.create_node(
-                        (move |In(keys): In<TestAccessor>, world: &mut World| {
-                            wait_for_all(keys, world, &expected)
+                        (move |Blocking { request: keys, id, .. }: Blocking<TestAccessor>, world: &mut World| {
+                            wait_for_all(keys, id, world, &expected)
                         })
-                        .into_blocking_callback(),
+                        .into_callback(),
                     )
                 },
             )
@@ -1192,28 +1192,29 @@ mod tests {
 
     fn wait_for_all(
         keys: TestAccessor,
+        id: RequestId,
         world: &mut World,
         expected: &JsonMessage,
     ) -> Result<(), ()> {
-        if let Some(integer) = world.buffer_view(&keys.integer).unwrap().newest() {
+        if let Some(integer) = world.buffer_view(id, &keys.integer).unwrap().newest() {
             assert_eq!(*integer, 5);
         } else {
             return Err(());
         }
 
-        if let Some(string) = world.buffer_view(&keys.string).unwrap().newest() {
+        if let Some(string) = world.buffer_view(id, &keys.string).unwrap().newest() {
             assert_eq!(string, "hello");
         } else {
             return Err(());
         }
 
-        if let Ok(Some(json)) = world.json_buffer_view(&keys.json).unwrap().newest() {
+        if let Ok(Some(json)) = world.json_buffer_view(id, &keys.json).unwrap().newest() {
             assert_eq!(&json, expected);
         } else {
             return Err(());
         }
 
-        if let Some(any) = world.any_buffer_view(&keys.any).unwrap().newest() {
+        if let Some(any) = world.any_buffer_view(id, &keys.any).unwrap().newest() {
             assert_eq!(any.downcast_ref::<JsonMessage>().unwrap(), expected);
         } else {
             return Err(());
@@ -1236,14 +1237,15 @@ mod tests {
                 |builder, config: i64| {
                     let callback =
                         move |input: Blocking<((), TestInferAccessor)>,
-                              string_access: BufferAccess<String>,
+                              mut string_access: BufferAccess<String>,
                               mut integer_access: BufferAccessMut<i64>| {
                             let keys = input.request.1;
+                            let id = input.id;
                             let mut buffer = integer_access.get_mut(input.id, &keys.integer).unwrap();
                             if let Some(integer) = buffer.newest_mut() {
                                 if *integer >= config {
                                     let string = string_access
-                                        .get(&keys.string)
+                                        .get(id, &keys.string)
                                         .unwrap()
                                         .newest()
                                         .cloned()
@@ -1263,7 +1265,7 @@ mod tests {
                             Err(())
                         };
 
-                    builder.create_node(callback.into_blocking_callback())
+                    builder.create_node(callback.into_callback())
                 },
             )
             .with_buffer_access()
@@ -1286,7 +1288,7 @@ mod tests {
                             buffer.push(config.clone());
                         };
 
-                    builder.create_node(callback.into_blocking_callback())
+                    builder.create_node(callback.into_callback())
                 },
             )
             .with_buffer_access()

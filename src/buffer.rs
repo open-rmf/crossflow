@@ -493,7 +493,7 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
         {
             self.tracer.trace(req.into(), key.tag(), BufferAccessRecord::Viewed);
         }
-        self.untracked_get(key)
+        self.get_untraced(key)
     }
 
     /// Get a view into a buffer.
@@ -502,7 +502,7 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
     /// allows it to use an immutable borrow. Using this method is generally
     /// discouraged unless you are certain that you do not want to track the
     /// activity.
-    pub fn untracked_get<'a>(
+    pub fn get_untraced<'a>(
         &'a self,
         key: &BufferKey<T>,
     ) -> Result<BufferView<'a, T>, QueryEntityError> {
@@ -517,11 +517,11 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
         {
             self.tracer.trace(req.into(), key.tag(), BufferAccessRecord::Viewed);
         }
-        self.untracked_get_newest(key)
+        self.get_newest_untraced(key)
     }
 
-    pub fn untracked_get_newest<'a>(&'a self, key: &BufferKey<T>) -> Option<&'a T> {
-        self.untracked_get(key).ok().map(|view| view.newest()).flatten()
+    pub fn get_newest_untraced<'a>(&'a self, key: &BufferKey<T>) -> Option<&'a T> {
+        self.get_untraced(key).ok().map(|view| view.newest()).flatten()
     }
 }
 
@@ -641,7 +641,7 @@ pub trait BufferWorldAccess {
     /// This does not track the fact that the buffer is accessed, even if
     /// tracing is turned on. You should only use this if you are certain that
     /// you do not want to know that the buffer was accessed.
-    fn untracked_buffer_view<T>(
+    fn buffer_view_untracked<T>(
         &self,
         key: &BufferKeyTag,
     ) -> Result<BufferView<'_, T>, BufferError>
@@ -718,12 +718,13 @@ impl BufferWorldAccess for World {
             let mut tracer_state: SystemState<BufferTracer> = SystemState::new(self);
             let mut tracer = tracer_state.get_mut(self);
             tracer.trace(req.into(), key, BufferAccessRecord::Viewed);
+            tracer_state.apply(self);
         }
 
-        self.untracked_buffer_view(key)
+        self.buffer_view_untracked(key)
     }
 
-    fn untracked_buffer_view<T>(
+    fn buffer_view_untracked<T>(
         &self,
         key: &BufferKeyTag,
     ) -> Result<BufferView<'_, T>, BufferError>

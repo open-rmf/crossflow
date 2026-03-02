@@ -935,7 +935,7 @@ mod tests {
         reg.register_node_builder(
             NodeBuilderOptions::new("stream_test"),
             |builder, _config: ()| {
-                builder.create_map(|input: BlockingServiceMarker<f64, TestStreamRegistration>| {
+                builder.create_map(|input: Blocking<f64, TestStreamRegistration>| {
                     let value = input.request;
                     input.streams.foo_stream.send(value as i64);
                     input.streams.bar_stream.send(value);

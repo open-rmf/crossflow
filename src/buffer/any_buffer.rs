@@ -44,6 +44,9 @@ use crate::{
     BufferView, BufferWorldAccess,
 };
 
+#[cfg(feature = "trace")]
+use crate::{BufferTracer, BufferAccessRecord};
+
 /// A [`Buffer`] whose message type has been anonymized. Joining with this buffer
 /// type will yield an [`AnyMessageBox`].
 #[derive(Clone, Copy)]
@@ -599,7 +602,18 @@ pub trait AnyBufferWorldAccess {
     /// For technical reasons this requires direct [`World`] access, but you can
     /// do other read-only queries on the world while holding onto the
     /// [`AnyBufferView`].
-    fn any_buffer_view(&self, key: &AnyBufferKey) -> Result<AnyBufferView<'_>, BufferError>;
+    ///
+    /// It requires mutable world access because it traces access to the buffer
+    /// if the tracing feature is enabled. If you want to view the buffer with
+    /// non-mutable access, you can use `any_buffer_view_untraced`, but the
+    /// viewing activity will not be traced.
+    fn any_buffer_view(&mut self, req: RequestId, key: &AnyBufferKey) -> Result<AnyBufferView<'_>, BufferError>;
+
+    /// Call this to get read-only access to any buffer.
+    ///
+    /// This buffer viewing will not be traced, which may be confusing if you
+    /// review a log of the workflow activity.
+    fn any_buffer_view_untraced(&self, key: &AnyBufferKey) -> Result<AnyBufferView<'_>, BufferError>;
 
     /// Call this to get mutable access to any buffer.
     ///
@@ -614,7 +628,19 @@ pub trait AnyBufferWorldAccess {
 }
 
 impl AnyBufferWorldAccess for World {
-    fn any_buffer_view(&self, key: &AnyBufferKey) -> Result<AnyBufferView<'_>, BufferError> {
+    fn any_buffer_view(&mut self, req: RequestId, key: &AnyBufferKey) -> Result<AnyBufferView<'_>, BufferError> {
+        #[cfg(feature = "trace")]
+        {
+            let mut tracer_state: SystemState<BufferTracer> = SystemState::new(self);
+            let mut tracer = tracer_state.get_mut(self);
+            tracer.trace(req.into(), &key.tag, BufferAccessRecord::Viewed);
+            tracer_state.apply(self);
+        }
+
+        key.interface.create_any_buffer_view(key, self)
+    }
+
+    fn any_buffer_view_untraced(&self, key: &AnyBufferKey) -> Result<AnyBufferView<'_>, BufferError> {
         key.interface.create_any_buffer_view(key, self)
     }
 
@@ -1343,8 +1369,8 @@ mod tests {
         key.into()
     }
 
-    fn get_buffer_count(Blocking { request: key, .. }: Blocking<AnyBufferKey>, world: &mut World) -> usize {
-        world.any_buffer_view(&key).unwrap().len()
+    fn get_buffer_count(Blocking { request: key, id, .. }: Blocking<AnyBufferKey>, world: &mut World) -> usize {
+        world.any_buffer_view(id, &key).unwrap().len()
     }
 
     #[test]

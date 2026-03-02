@@ -450,7 +450,7 @@ fn impl_joined(
             fn fetch_for_join(
                 &self,
                 req: ::crossflow::RequestId,
-                session: Entity,
+                session: ::crossflow::Entity,
                 world: &mut ::crossflow::re_exports::World,
             ) -> ::std::result::Result<Self::Item, ::crossflow::OperationError> {
                 #(

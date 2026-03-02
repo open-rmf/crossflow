@@ -23,7 +23,7 @@ use serde_json::Value;
 
 use crate::{
     Builder, ForRemaining, FromSequential, FromSpecific, InferenceContext, ListSplitKey,
-    MapSplitKey, OperationResult, SplitDispatcher, Splittable, is_default,
+    MapSplitKey, OperationResult, SplitDispatcher, Splittable, is_default, BasicIdentification,
 };
 
 use super::{
@@ -149,6 +149,7 @@ impl Splittable for Value {
     type Key = MapSplitKey<String>;
     type Label = JsonPosition;
     type Item = Value;
+    type Id = BasicIdentification;
 
     fn validate(_: &Self::Key) -> bool {
         true
