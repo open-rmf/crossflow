@@ -27,6 +27,7 @@ use crate::{
     ForkTargetStorage, Input, InputBundle, ManageInput, MiscellaneousFailure, Operation,
     OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
     OperationSetup, OrBroken, ReachabilityResult, SingleInputStorage, UnhandledErrors,
+    RequestId, output_port,
 };
 
 pub(crate) struct ForkClone<Response: 'static + Send + Sync + Clone> {
@@ -64,30 +65,26 @@ impl<T: 'static + Send + Sync + Clone> Operation for ForkClone<T> {
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input {
-            session,
-            data: input,
-        } = source_mut.take_input::<T>()?;
-        let targets = source_mut.get::<ForkTargetStorage>().or_broken()?.0.clone();
+        let Input { session, data: input, seq } = world.take_input::<T>(source)?;
+        let targets = world.get::<ForkTargetStorage>(source).or_broken()?.0.clone();
 
-        let mut send_value = |value: T, target: Entity| -> Result<(), OperationError> {
-            world
-                .get_entity_mut(target)
-                .or_broken()?
-                .give_input(session, value, roster)
+        let request_id = RequestId { session, source, seq };
+        let mut send_value = |value: T, target: Entity, index: usize| -> Result<(), OperationError> {
+            let port = output_port::next_index(index);
+            let route = request_id.to_message_route(&port, target);
+            world.give_input(route, value, roster)
         };
 
         // Distributing the values like this is a bit convoluted, but it ensures
         // that we are not producing any more clones of the input than what is
         // strictly necessary. This may be valuable if cloning the value is
         // expensive.
-        for target in targets[..targets.len() - 1].iter() {
-            send_value(input.clone(), *target)?;
+        for (index, target) in targets[..targets.len() - 1].iter().enumerate() {
+            send_value(input.clone(), *target, index)?;
         }
 
         if let Some(last_target) = targets.last() {
-            send_value(input, *last_target)?;
+            send_value(input, *last_target, targets.len() - 1)?;
         }
 
         Ok(())

@@ -21,12 +21,13 @@ use crate::{
     ManageInput, OperateService, Operation, OperationCleanup, OperationReachability,
     OperationRequest, OperationResult, OperationSetup, OrBroken, ProviderStorage,
     ReachabilityResult, InScope, ServiceInstructions, ServiceRequest, SingleInputStorage,
-    SingleTargetStorage, StreamPack, StreamTargetMap, dispatch_service,
+    SingleTargetStorage, StreamPack, StreamTargetMap, dispatch_service, RequestId,
+    output_port, Routing, RouteSource, RouteTarget,
 };
 
-use bevy_ecs::prelude::{Command, Component, Entity};
+use bevy_ecs::prelude::{Command, Component, Entity, ChildOf};
 
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 
 use std::collections::HashMap;
 
@@ -66,27 +67,31 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
         let Input {
             session,
             data: (request, service),
             seq,
-        } = source_mut
-            .take_input::<(Request, ServiceInstructions<Request, Response, Streams>)>()?;
+        } = world.take_input::<(Request, ServiceInstructions<Request, Response, Streams>)>(source)?;
+        let request_id = RequestId { session, source, seq };
 
-        let scope = source_mut.get::<InScope>().or_broken()?.scope();
+        let source_ref = world.get_entity(source).or_broken()?;
+        let scope = source_ref.get::<InScope>().or_broken()?.scope();
         let provider = service.provider();
         let instructions = service.instructions().cloned();
 
-        let stream_targets = source_mut
+        let stream_targets = source_ref
             .get::<StreamTargetMap>()
             .cloned()
             .unwrap_or_else(|| StreamTargetMap::default());
 
         let finish = world
-            .spawn((InputBundle::<Response>::new(), InjectionSource(source)))
+            .spawn((
+                InputBundle::<Response>::new(),
+                InjectionId(request_id),
+                ChildOf(source),
+            ))
             .id();
-        AddExecution::new(None, finish, InjectionFinish::<Response>::new()).apply(world);
+        AddExecution::new(finish, InjectionFinish::<Response>::new()).apply(world);
 
         let task = world
             .spawn((
@@ -100,14 +105,14 @@ where
             ))
             .id();
 
+        let port = output_port::inject();
+        let route = request_id.to_message_route(&port, task);
         // SAFETY: We must do a sneak_input here because we do not want the
         // roster to register the task as an operation. In fact it does not
         // implement Operation at all. It is just a temporary container for the
         // input and the stream targets.
         let execute = unsafe {
-            world
-                .entity_mut(task)
-                .sneak_input(session, request, false, roster)?
+            world.sneak_input(route, request, false, roster)?
         };
 
         if !execute {
@@ -244,7 +249,7 @@ struct InjectionStorage {
 #[derive(Component, Default)]
 struct AwaitingCleanup {
     // Map from cleanup_id to the upstream cleaner
-    map: HashMap<Entity, Cleanup>,
+    map: HashMap<RequestId, Cleanup>,
 }
 
 impl InjectionStorage {
@@ -266,10 +271,10 @@ struct Injected {
 }
 
 #[derive(Component)]
-struct InjectionSource(Entity);
+struct InjectionId(RequestId);
 
 struct InjectionFinish<Response> {
-    _ignore: std::marker::PhantomData<fn(Response)>,
+    _ignore: std::marker::PhantomData<Response>,
 }
 
 impl<Response> InjectionFinish<Response> {
@@ -295,11 +300,11 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { session, data, seq } = source_mut.take_input::<Response>()?;
-        let injector = source_mut.get::<InjectionSource>().or_broken()?.0;
-        source_mut.despawn();
-        let mut injector_mut = world.get_entity_mut(injector).or_broken()?;
+        let Input { session: injection_session, data, seq } = world.take_input::<Response>(source)?;
+        let req = world.get::<InjectionId>(source).or_broken()?.0;
+        world.despawn(source);
+
+        let mut injector_mut = world.get_entity_mut(req.source).or_broken()?;
         let target = injector_mut.get::<SingleTargetStorage>().or_broken()?.get();
         let mut storage = injector_mut.get_mut::<InjectionStorage>().or_broken()?;
         let injected = *storage
@@ -308,13 +313,23 @@ where
             .find(|injected| injected.finish == source)
             .or_broken()?;
         storage.list.retain(|injected| injected.finish != source);
-        world.transfer_disposals(injected.task, injector)?;
+        world.transfer_disposals(injected.task, req.source)?;
         world.despawn(injected.task);
 
-        world
-            .get_entity_mut(target)
-            .or_broken()?
-            .give_input(session, data, roster)?;
+        let port = output_port::next();
+        let finish = output_port::finish();
+        let injector_output = req.to_route_source(&port);
+        let finish_output = RouteSource {
+            session: injection_session,
+            source,
+            seq,
+            port: &finish,
+        };
+        let route = Routing {
+            outputs: smallvec![injector_output, finish_output],
+            input: RouteTarget { session: req.session, target },
+        };
+        world.give_input(route, data, roster)?;
 
         Ok(())
     }

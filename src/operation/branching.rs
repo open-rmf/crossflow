@@ -20,7 +20,8 @@ use bevy_ecs::prelude::{Component, Entity, World};
 use crate::{
     Disposal, ForkTargetStorage, Input, InputBundle, ManageDisposal, ManageInput, Operation,
     OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationRoster,
-    OperationSetup, OrBroken, ReachabilityResult, SingleInputStorage, Seq, MessageRoute, output_port,
+    OperationSetup, OrBroken, ReachabilityResult, SingleInputStorage, Seq, output_port,
+    RequestId,
 };
 
 use smallvec::{smallvec, SmallVec};
@@ -166,44 +167,31 @@ where
         #[allow(clippy::get_first)]
         let target_a = *targets.0.get(0).or_broken()?;
         let target_b = *targets.0.get(1).or_broken()?;
+        let req = RequestId { session, source, seq };
 
+        let port_a = output_port::name_str(ports[0]);
         match a {
             Ok(a) => {
-                let route = MessageRoute {
-                    session,
-                    source,
-                    seq,
-                    port: &output_port::name_str(ports[0]),
-                    target: target_a,
-                };
+                let route = req.to_message_route(&port_a, target_a);
                 world.give_input(route, a, roster)?;
             },
             Err(reason) => {
+                let route = req.to_route_source(&port_a);
                 let disposal = Disposal::branching(source, target_a, reason);
-                world
-                    .get_entity_mut(source)
-                    .or_broken()?
-                    .emit_disposal(session, disposal, roster);
+                world.emit_disposal(route, disposal, roster);
             }
         }
 
+        let port_b = output_port::name_str(ports[1]);
         match b {
             Ok(b) => {
-                let route = MessageRoute {
-                    session,
-                    source,
-                    seq,
-                    port: &output_port::name_str(ports[1]),
-                    target: target_b,
-                };
+                let route = req.to_message_route(&port_b, target_b);
                 world.give_input(route, b, roster)?;
             },
             Err(reason) => {
+                let route = req.to_route_source(&port_b);
                 let disposal = Disposal::branching(source, target_b, reason);
-                world
-                    .get_entity_mut(source)
-                    .or_broken()?
-                    .emit_disposal(session, disposal, roster);
+                world.emit_disposal(route, disposal, roster);
             }
         }
 

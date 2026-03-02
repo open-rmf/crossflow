@@ -28,7 +28,7 @@ use crate::{
     Accessing, BufferKeyBuilder, ChannelQueue, Input, InputBundle, ManageInput, Operation,
     OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
     OperationSetup, OrBroken, ReachabilityResult, InScope, SingleInputStorage,
-    SingleTargetStorage, Seq,
+    SingleTargetStorage, Seq, MessageRoute, output_port,
 };
 
 pub(crate) struct OperateBufferAccess<T, B>
@@ -107,10 +107,16 @@ where
         let keys = get_access_keys::<B>(source, session, seq, world)?;
 
         let target = world.get::<SingleTargetStorage>(source).or_broken()?.get();
-        world
-            .get_entity_mut(target)
-            .or_broken()?
-            .give_input(session, (data, keys), roster)
+
+        let port = output_port::next();
+        let route = MessageRoute {
+            session,
+            source,
+            seq,
+            port: &port,
+            target,
+        };
+        world.give_input(route, (data, keys), roster)
     }
 
     fn cleanup(mut clean: OperationCleanup) -> OperationResult {

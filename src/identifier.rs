@@ -295,19 +295,31 @@ pub mod output_port {
 
     /// Get an output key
     pub const fn next() -> [IdentifierRef<'static>; 1] {
-        [IdentifierRef::name_str("next")]
+        name_str("next")
+    }
+
+    pub const fn finish() -> [IdentifierRef<'static>; 1] {
+        name_str("finish")
+    }
+
+    pub const fn inject() -> [IdentifierRef<'static>; 1] {
+        name_str("inject")
     }
 
     pub const fn cancel() -> [IdentifierRef<'static>; 1] {
-        [IdentifierRef::name_str("cancel")]
+        name_str("cancel")
     }
 
     pub const fn broken() -> [IdentifierRef<'static>; 1] {
-        [IdentifierRef::name_str("broken")]
+        name_str("broken")
     }
 
     pub const fn dispose() -> [IdentifierRef<'static>; 1] {
-        [IdentifierRef::name_str("dispose")]
+        name_str("dispose")
+    }
+
+    pub const fn unavailable() -> [IdentifierRef<'static>; 1] {
+        name_str("unavailable")
     }
 
     pub const fn stream_out<'a>(stream: &'a str) -> [IdentifierRef<'a>; 2] {
@@ -320,11 +332,11 @@ pub mod output_port {
     /// This is used as a pseudo output port that refers to all streams coming
     /// out of a node. It's used when reporting unused stream disposals.
     pub const fn all_stream_out() -> [IdentifierRef<'static>; 1] {
-        [IdentifierRef::name_str("stream_out")]
+        name_str("stream_out")
     }
 
     pub const fn missing_values() -> [IdentifierRef<'static>; 1] {
-        [IdentifierRef::name_str("missing_values")]
+        name_str("missing_values")
     }
 
     pub const fn anonymous_stream<'a>(type_name: &'a str) -> [IdentifierRef<'a>; 2] {

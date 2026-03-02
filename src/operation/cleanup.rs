@@ -87,12 +87,10 @@ impl<'a> OperationCleanup<'a> {
     }
 
     pub fn cleanup_disposals(&mut self) -> OperationResult {
-        let mut source_mut = self.world.get_entity_mut(self.source).or_broken()?;
-
-        let scope = source_mut.get::<InScope>().or_broken()?.scope();
+        let scope = self.world.get::<InScope>(self.source).or_broken()?.scope();
         if self.cleanup.cleaner == scope {
             // Only erase disposals if the cleanup is being triggered by the scope
-            source_mut.clear_disposals(self.cleanup.session);
+            self.world.clear_disposals(self.cleanup.session, self.source);
         }
         Ok(())
     }

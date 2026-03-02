@@ -21,7 +21,7 @@ use crate::{
     Accessing, BufferAccessStorage, BufferKeyUsage, FunnelInputStorage, Input, InputBundle,
     ManageInput, Operation, OperationCleanup, OperationReachability, OperationRequest,
     OperationResult, OperationSetup, OrBroken, ReachabilityResult, SingleInputStorage,
-    SingleTargetStorage, buffer_key_usage, get_access_keys,
+    SingleTargetStorage, buffer_key_usage, get_access_keys, output_port, MessageRoute,
 };
 
 pub(crate) struct Listen<B> {
@@ -67,18 +67,20 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let Input { session, .. } = world
-            .get_entity_mut(source)
-            .or_broken()?
-            .take_input::<()>()?;
-
-        let keys = get_access_keys::<B>(source, session, world)?;
+        let Input { session, seq, .. } = world.take_input::<()>(source)?;
+        let keys = get_access_keys::<B>(source, session, seq, world)?;
 
         let target = world.get::<SingleTargetStorage>(source).or_broken()?.get();
-        world
-            .get_entity_mut(target)
-            .or_broken()?
-            .give_input(session, keys, roster)
+
+        let port = output_port::next();
+        let route = MessageRoute {
+            session,
+            source,
+            seq,
+            port: &port,
+            target,
+        };
+        world.give_input(route, keys, roster)
     }
 
     fn cleanup(mut clean: OperationCleanup) -> OperationResult {

@@ -19,8 +19,8 @@ use bevy_ecs::prelude::{Component, Entity};
 
 use crate::{
     FunnelInputStorage, Input, InputBundle, Joining, ManageInput, Operation, OperationCleanup,
-    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ReachabilityResult, SingleInputStorage, SingleTargetStorage, MessageRoute, output_port,
+    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken, RequestId,
+    ReachabilityResult, SingleInputStorage, SingleTargetStorage, output_port,
 };
 
 pub(crate) struct Join<Buffers> {
@@ -74,19 +74,15 @@ where
             .0
             .clone();
 
+        let req = RequestId { session, source, seq };
+        let port = output_port::next();
         loop {
             if buffers.buffered_count(session, world)? < 1 {
                 return Ok(());
             }
 
-            let output = buffers.fetch_for_join(session, world)?;
-            let route = MessageRoute {
-                session,
-                source,
-                seq,
-                port: &output_port::next(),
-                target,
-            };
+            let output = buffers.fetch_for_join(req, session, world)?;
+            let route = req.to_message_route(&port, target);
             world.give_input(route, output, roster)?;
         }
     }
@@ -172,8 +168,8 @@ mod tests {
 
             let set_buffer = |input: Blocking<(u64, BufferKey<u64>)>,
                               mut access: BufferAccessMut<u64>| {
-                let mut buffer = access.get_mut(input.id, &input.1).unwrap();
-                for i in 1..=input.0 {
+                let mut buffer = access.get_mut(input.id, &input.request.1).unwrap();
+                for i in 1..=input.request.0 {
                     buffer.push(i);
                 }
             };

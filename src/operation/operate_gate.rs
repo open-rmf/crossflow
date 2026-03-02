@@ -94,7 +94,7 @@ where
             .0
             .clone();
 
-        buffers.gate_action(request_id, action, world, roster)?;
+        buffers.gate_action(request_id, session, action, world, roster)?;
 
         let port = output_port::next();
         world.give_input(request_id.to_message_route(&port, target), data, roster)?;
@@ -185,7 +185,7 @@ where
             .0
             .clone();
 
-        buffers.gate_action(request_id, action, world, roster)?;
+        buffers.gate_action(request_id, session, action, world, roster)?;
 
         let port = output_port::next();
         let route = request_id.to_message_route(&port, target);
