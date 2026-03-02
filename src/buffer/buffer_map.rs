@@ -508,13 +508,14 @@ impl<T: BufferMapStruct> Buffering for T {
 
     fn gate_action(
         &self,
+        req: RequestId,
         session: Entity,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
         for buffer in self.buffer_list() {
-            GateState::apply(buffer.id(), session, action, world, roster)?;
+            GateState::apply(buffer.id(), req, session, action, world, roster)?;
         }
         Ok(())
     }
@@ -720,12 +721,12 @@ impl Joining for BufferMap {
     fn fetch_for_join(
         &self,
         req: RequestId,
-        key: &BufferKeyTag,
+        session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
         let mut value = HashMap::new();
         for (name, buffer) in self.iter() {
-            value.insert(name.clone(), buffer.fetch_for_join(req, key, world)?);
+            value.insert(name.clone(), buffer.fetch_for_join(req, session, world)?);
         }
 
         Ok(value)
@@ -1201,16 +1202,16 @@ mod tests {
         Blocking { request: keys, id, .. }: Blocking<TestKeys<&'static str>>,
         world: &mut World,
     ) -> Option<TestJoinedValue<&'static str>> {
-        if world.buffer_view(&keys.integer).ok()?.is_empty() {
+        if world.buffer_view(id, &keys.integer).ok()?.is_empty() {
             return None;
         }
-        if world.buffer_view(&keys.float).ok()?.is_empty() {
+        if world.buffer_view(id, &keys.float).ok()?.is_empty() {
             return None;
         }
-        if world.buffer_view(&keys.string).ok()?.is_empty() {
+        if world.buffer_view(id, &keys.string).ok()?.is_empty() {
             return None;
         }
-        if world.buffer_view(&keys.generic).ok()?.is_empty() {
+        if world.buffer_view(id, &keys.generic).ok()?.is_empty() {
             return None;
         }
         if world.any_buffer_view(&keys.any).ok()?.is_empty() {

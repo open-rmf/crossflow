@@ -109,22 +109,19 @@ where
         });
         map.f = Some(f);
 
-        let mut unused_streams = UnusedStreams::new(source);
+        let request_id = RequestId { session, source, seq };
+        let mut unused_streams = UnusedStreams::new(request_id);
         Streams::process_stream_buffers(
             streams,
-            source,
-            seq,
-            session,
+            request_id,
             &mut unused_streams,
             world,
             roster,
         )?;
         if !unused_streams.streams.is_empty() {
-            world.get_entity_mut(source).or_broken()?.emit_disposal(
-                session,
-                unused_streams.into(),
-                roster,
-            );
+            let port = output_port::all_stream_out();
+            let route = request_id.to_route_source(&port);
+            world.emit_disposal(route, unused_streams.into(), roster);
         }
 
         let route = MessageRoute {
@@ -234,7 +231,8 @@ where
             .take()
             .or_broken()?;
 
-        let channel = Channel::new(source, seq, session, sender.clone());
+        let request_id = RequestId { session, source, seq };
+        let channel = Channel::new(request_id, sender.clone());
         let streams = channel.for_streams::<Streams>(world)?;
 
         let task = spawn_task(
@@ -257,8 +255,7 @@ where
         let task_source = world.spawn(()).id();
         OperateTask::<_, Streams>::new(
             task_source,
-            session,
-            source,
+            request_id,
             target,
             task,
             cancel_sender,

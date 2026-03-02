@@ -410,7 +410,7 @@ impl<'a> AnyBufferView<'a> {
 pub struct AnyBufferMut<'w, 's, 'a> {
     manager: Box<dyn AnyBufferManagement + 'a>,
     buffer: Entity,
-    request_id: RequestId,
+    req: RequestId,
     session: Entity,
     accessor: Option<Entity>,
     commands: &'a mut Commands<'w, 's>,
@@ -583,6 +583,7 @@ impl<'w, 's, 'a> Drop for AnyBufferMut<'w, 's, 'a> {
         if self.modified {
             self.commands.queue(NotifyBufferUpdate::new(
                 self.buffer,
+                self.req,
                 self.session,
                 self.accessor,
             ));
@@ -895,7 +896,7 @@ impl<'w, 's, T: 'static + Send + Sync + Any> AnyBufferAccessMut<'w, 's>
 
         Ok(AnyBufferMut {
             manager: Box::new(manager),
-            request_id: req,
+            req,
             buffer: key.tag.buffer,
             session: key.tag.session,
             accessor: Some(key.tag.accessor),
@@ -1230,12 +1231,13 @@ impl Buffering for AnyBuffer {
 
     fn gate_action(
         &self,
+        req: RequestId,
         session: Entity,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
-        GateState::apply(self.id(), session, action, world, roster)
+        GateState::apply(self.id(), req, session, action, world, roster)
     }
 
     fn as_input(&self) -> SmallVec<[Entity; 8]> {
@@ -1253,15 +1255,21 @@ impl Joining for AnyBuffer {
     fn fetch_for_join(
         &self,
         req: RequestId,
-        key: &BufferKeyTag,
+        session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
+        let key = BufferKeyTag {
+            buffer: self.id(),
+            session,
+            accessor: self.id(),
+            lifecycle: None,
+        };
         match self.join_behavior {
             JoinBehavior::Pull => {
-                self.interface.pull(req, key, world)
+                self.interface.pull(req, &key, world)
             }
             JoinBehavior::Clone => {
-                self.interface.clone_from_buffer(req, key, world)
+                self.interface.clone_from_buffer(req, &key, world)
             }
         }
     }

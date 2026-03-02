@@ -147,7 +147,7 @@ impl BuildDiagramOperation for SplitSchema {
 
 impl Splittable for Value {
     type Key = MapSplitKey<String>;
-    type Identifier = JsonPosition;
+    type Label = JsonPosition;
     type Item = Value;
 
     fn validate(_: &Self::Key) -> bool {
@@ -160,7 +160,7 @@ impl Splittable for Value {
 
     fn split(
         self,
-        mut dispatcher: SplitDispatcher<'_, Self::Key, Self::Identifier, Self::Item>,
+        mut dispatcher: SplitDispatcher<'_, Self::Key, Self::Label, Self::Item>,
     ) -> OperationResult {
         match self {
             Value::Array(array) => {

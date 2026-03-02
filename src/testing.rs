@@ -36,6 +36,7 @@ use crate::{
     FlushParameters, GetBufferedSessionsFn, Joining, OperationError, OperationResult,
     OperationRoster, Outcome, Promise, ProvideOnce, RequestExt, RunCommandsOnWorldExt, Scope,
     Service, SpawnWorkflowExt, StreamOf, StreamPack, UnhandledErrors, WorkflowSettings,
+    RequestId,
 };
 
 pub struct TestingContext {
@@ -440,8 +441,8 @@ pub fn print_debug<T: std::fmt::Debug>(header: impl Into<String>) -> impl Fn(Blo
     let header = header.into();
     move |input| {
         println!(
-            "[source: {:?}, session: {:?}] {}: {:?}",
-            input.id.source, input.session, header, input.request,
+            "[source: {:?}, session: {:?}, seq: {:?}] {}: {:?}",
+            input.id.source, input.id.session, input.id.seq, header, input.request,
         );
         input.request
     }
@@ -605,12 +606,13 @@ impl<T: 'static + Send + Sync> Buffering for NonCopyBuffer<T> {
 
     fn gate_action(
         &self,
+        req: RequestId,
         session: Entity,
         action: crate::Gate,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
-        self.inner.gate_action(session, action, world, roster)
+        self.inner.gate_action(req, session, action, world, roster)
     }
 
     fn verify_scope(&self, scope: Entity) {
@@ -622,10 +624,11 @@ impl<T: 'static + Send + Sync> Joining for NonCopyBuffer<T> {
     type Item = T;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
-        self.inner.fetch_for_join(session, world)
+        self.inner.fetch_for_join(req, session, world)
     }
 }
 

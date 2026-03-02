@@ -1042,6 +1042,7 @@ where
         if self.modified {
             self.manager.commands.queue(NotifyBufferUpdate::new(
                 self.buffer,
+                self.manager.req,
                 self.manager.session,
                 self.accessor,
             ));

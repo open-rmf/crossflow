@@ -418,7 +418,7 @@ impl Plugin for CrossflowPlugin {
 
         #[cfg(feature = "trace")]
         {
-            app.add_event::<OperationStarted>();
+            app.add_event::<TracedEvent>();
         }
     }
 }
@@ -448,6 +448,7 @@ pub mod prelude {
     pub use crate::{
         Async, AsyncService, Blocking, BlockingService, Capture, ContinuousQuery,
         ContinuousService, CrossflowExecutorApp, CrossflowPlugin, Outcome,
+        Identification,
         buffer::{
             Accessible, Accessor, AnyBuffer, AnyBufferKey, AnyBufferMut, AnyBufferWorldAccess,
             AnyMessageBox, AsAnyBuffer, Buffer, BufferAccess, BufferAccessMut, BufferGateAccess,

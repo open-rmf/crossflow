@@ -48,6 +48,7 @@ pub trait Buffering: 'static + Send + Sync + Clone {
     fn gate_action(
         &self,
         req: RequestId,
+        session: Entity,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
@@ -250,11 +251,12 @@ impl<T: 'static + Send + Sync> Buffering for Buffer<T> {
     fn gate_action(
         &self,
         req: RequestId,
+        session: Entity,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
-        GateState::apply(self.id(), req, action, world, roster)
+        GateState::apply(self.id(), req, session, action, world, roster)
     }
 
     fn as_input(&self) -> SmallVec<[Entity; 8]> {
@@ -346,11 +348,12 @@ impl<T: 'static + Send + Sync + Clone> Buffering for CloneFromBuffer<T> {
     fn gate_action(
         &self,
         req: RequestId,
+        session: Entity,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
-        GateState::apply(self.id(), session, action, world, roster)
+        GateState::apply(self.id(), req, session, action, world, roster)
     }
 
     fn as_input(&self) -> SmallVec<[Entity; 8]> {
@@ -373,11 +376,17 @@ impl<T: 'static + Send + Sync + Clone> Joining for CloneFromBuffer<T> {
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
-        world
-            .get_entity(self.id())
+        let key = BufferKeyTag {
+            buffer: self.id(),
+            session,
+            accessor: self.id(),
+            lifecycle: None,
+        };
+        let value = world.unchecked_buffer_view::<T>(req, &key)
             .or_broken()?
-            .clone_from_buffer(req, session)
-            .and_then(|r| r.or_broken())
+            .newest()
+            .or_broken()?;
+        Ok(value.clone())
     }
 }
 
@@ -457,6 +466,7 @@ macro_rules! impl_buffered_for_tuple {
 
             fn gate_action(
                 &self,
+                req: RequestId,
                 session: Entity,
                 action: Gate,
                 world: &mut World,
@@ -464,7 +474,7 @@ macro_rules! impl_buffered_for_tuple {
             ) -> OperationResult {
                 let ($($T,)*) = self;
                 $(
-                    $T.gate_action(session, action, world, roster)?;
+                    $T.gate_action(req, session, action, world, roster)?;
                 )*
                 Ok(())
             }
@@ -600,13 +610,14 @@ impl<T: Buffering, const N: usize> Buffering for [T; N] {
 
     fn gate_action(
         &self,
+        req: RequestId,
         session: Entity,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
         for buffer in self {
-            buffer.gate_action(session, action, world, roster)?;
+            buffer.gate_action(req, session, action, world, roster)?;
         }
         Ok(())
     }
@@ -721,13 +732,14 @@ impl<T: Buffering, const N: usize> Buffering for SmallVec<[T; N]> {
 
     fn gate_action(
         &self,
+        req: RequestId,
         session: Entity,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
         for buffer in self {
-            buffer.gate_action(session, action, world, roster)?;
+            buffer.gate_action(req, session, action, world, roster)?;
         }
         Ok(())
     }
@@ -840,13 +852,14 @@ impl<B: Buffering> Buffering for Vec<B> {
 
     fn gate_action(
         &self,
+        req: RequestId,
         session: Entity,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
         for buffer in self {
-            buffer.gate_action(session, action, world, roster)?;
+            buffer.gate_action(req, session, action, world, roster)?;
         }
         Ok(())
     }

@@ -35,7 +35,7 @@ use thiserror::Error as ThisError;
 use crate::{
     Cancellation, DisposalFailure, OperationResult, OperationRoster, OrBroken, OutputPort,
     UnhandledErrors, UnusedTarget, RequestId, ManageCancellation, RouteSource,
-    DisposalUpdate, DisposalListener, OperationError, Broken,
+    DisposalUpdate, DisposalListener, OperationError, Broken, IdentifierRef,
 };
 
 #[cfg(feature = "trace")]
@@ -136,7 +136,7 @@ impl Disposal {
 
     pub fn incomplete_split(
         split_node: Entity,
-        missing_keys: SmallVec<[Option<Arc<str>>; 16]>,
+        missing_keys: SmallVec<[Vec<IdentifierRef<'static>>; 8]>,
     ) -> Self {
         IncompleteSplit {
             split_node,
@@ -469,7 +469,7 @@ pub struct IncompleteSplit {
     /// The node that does the splitting
     pub split_node: Entity,
     /// The debug text of each key that was missing in the split
-    pub missing_keys: SmallVec<[Option<Arc<str>>; 16]>,
+    pub missing_keys: SmallVec<[Vec<IdentifierRef<'static>>; 8]>,
 }
 
 impl From<IncompleteSplit> for DisposalCause {

@@ -28,7 +28,7 @@ use crate::{
     Accessing, BufferKeyBuilder, ChannelQueue, Input, InputBundle, ManageInput, Operation,
     OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
     OperationSetup, OrBroken, ReachabilityResult, InScope, SingleInputStorage,
-    SingleTargetStorage,
+    SingleTargetStorage, Seq,
 };
 
 pub(crate) struct OperateBufferAccess<T, B>
@@ -103,12 +103,8 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let Input { session, data } = world
-            .get_entity_mut(source)
-            .or_broken()?
-            .take_input::<T>()?;
-
-        let keys = get_access_keys::<B>(source, session, world)?;
+        let Input { session, data, seq } = world.take_input::<T>(source)?;
+        let keys = get_access_keys::<B>(source, session, seq, world)?;
 
         let target = world.get::<SingleTargetStorage>(source).or_broken()?.get();
         world
@@ -135,6 +131,7 @@ where
 pub(crate) fn get_access_keys<B>(
     source: Entity,
     session: Entity,
+    seq: Seq,
     world: &mut World,
 ) -> Result<B::Key, OperationError>
 where
@@ -157,7 +154,7 @@ where
         Entry::Vacant(vacant) => {
             made_key = true;
             let builder =
-                BufferKeyBuilder::with_tracking(scope, session, source, sender, Arc::new(()));
+                BufferKeyBuilder::with_tracking(scope, session, source, seq, sender, Arc::new(()));
             let new_key = vacant.insert(s.buffers.create_key(&builder));
             B::deep_clone_key(new_key)
         }

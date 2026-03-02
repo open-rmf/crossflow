@@ -137,10 +137,10 @@ mod tests {
             .app
             .spawn_continuous_service(Update, exclusive_closure);
 
-        let exclusive_closure = |_: In<()>, _: &mut World| {};
+        let exclusive_closure = |_: Blocking<()>, _: &mut World| {};
         let _exclusive_closure_blocking_cb = exclusive_closure.into_callback();
 
-        let exclusive_closure = |_: In<()>, _: &mut World| async move {};
+        let exclusive_closure = |_: Async<()>, _: &mut World| async move {};
         let _exclusive_closure_async_cb = exclusive_closure.into_callback();
     }
 

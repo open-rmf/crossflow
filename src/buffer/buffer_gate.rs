@@ -187,6 +187,7 @@ impl<'w, 's, 'a> Drop for BufferGateMut<'w, 's, 'a> {
         if self.modified {
             self.commands.queue(NotifyBufferUpdate::new(
                 self.buffer,
+                self.request_id,
                 self.session,
                 self.accessor,
             ));

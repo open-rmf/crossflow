@@ -34,7 +34,7 @@ use crate::{
     AddOperation, Blocker, Broken, ChannelItem, ChannelQueue, Cleanup, Disposal, ManageInput,
     Operation, OperationCleanup, OperationError, OperationReachability, OperationRequest,
     OperationResult, OperationRoster, OperationSetup, OrBroken, ReachabilityResult, InScope,
-    StreamPack, UnhandledErrors, ManageDisposal, RequestId, output_port,
+    StreamPack, UnhandledErrors, ManageDisposal, RequestId, output_port, MessageRoute,
     async_execution::{CancelSender, TaskHandle, task_cancel_sender},
 };
 
@@ -108,15 +108,19 @@ impl<Response: 'static + Send + Sync, Streams: StreamPack> OperateTask<Response,
 
     pub(crate) fn add(self, world: &mut World, roster: &mut OperationRoster) {
         let source = self.source;
-        let scope = world.get::<InScope>(self.node).map(|s| s.scope());
+        let scope = world.get::<InScope>(self.node()).map(|s| s.scope());
         let mut source_mut = world.entity_mut(source);
-        source_mut.insert(ChildOf(self.node));
+        source_mut.insert(ChildOf(self.node()));
         if let Some(scope) = scope {
             source_mut.insert(InScope::new(scope));
         }
 
         AddOperation::new(None, source, self).apply(world);
         roster.queue(source);
+    }
+
+    fn node(&self) -> Entity {
+        self.request_id.source
     }
 }
 
@@ -134,7 +138,7 @@ where
         let source = self.source;
         let request_id = self.request_id;
         let session = self.request_id.session;
-        let node = self.request_id.node;
+        let node = self.node();
         let task = self.task.take();
         let unblock = self.blocker.take();
         let sender = self.sender.clone();
@@ -178,8 +182,8 @@ where
         });
 
         let mut source_mut = world.entity_mut(source);
-        let node = self.node;
-        let session = self.session;
+        let node = self.node();
+        let session = self.request_id.session;
         source_mut
             .insert((
                 self,
@@ -223,8 +227,9 @@ where
         }
         let mut task = operation.task.take().or_broken()?;
         let target = operation.target;
-        let session = operation.session;
-        let node = operation.node;
+        let session = operation.request_id.session;
+        let node = operation.node();
+        let request_id = operation.request_id;
         let being_cleaned = operation.being_cleaned;
         // We take out unblock here just in case the entity gets despawned and/or
         // the OperateTask component gets dropped before we reach the end of the
@@ -246,9 +251,9 @@ where
                 // Task has finished. We will defer its input until after the
                 // ChannelQueue has been processed so that any streams from this
                 // task will be delivered before the final output.
-                let r = world
-                    .entity_mut(target)
-                    .defer_input(session, result, roster);
+                let port = output_port::next();
+                let route = request_id.to_message_route(&port, target);
+                let r = world.defer_input(route, result, roster);
 
                 world
                     .get_mut::<OperateTask<Response, Streams>>(source)
@@ -273,7 +278,10 @@ where
                         // trigger this disposal if we detected that a
                         // reachability test happened while this task was
                         // running.
-                        roster.disposed(scope.scope(), source, session);
+                        let disposal = Disposal::async_node_with_streams();
+                        let port = output_port::all_stream_out();
+                        let route = request_id.to_route_source(&port);
+                        world.emit_disposal(route, disposal, roster);
                     }
                 }
 
@@ -301,8 +309,7 @@ where
 
                     let operation = OperateTask::<_, Streams>::new(
                         source,
-                        session,
-                        node,
+                        request_id,
                         target,
                         task,
                         cancel_sender,
@@ -328,7 +335,7 @@ where
             .or_broken()?;
         operation.being_cleaned = Some(cleanup);
         operation.finished_normally = true;
-        let node = operation.node;
+        let node = operation.node();
         let task = operation.task.take();
         let unblock = operation.blocker.take();
         let sender = operation.sender.clone();

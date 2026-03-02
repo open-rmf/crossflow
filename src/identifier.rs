@@ -23,6 +23,8 @@ use std::{
 
 pub use crossflow_derive::{Accessor, Joined};
 
+use crate::{ListSplitKey, MapSplitKey};
+
 #[cfg(feature = "diagram")]
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +54,105 @@ impl<'a> From<IdentifierRef<'a>> for Identifier {
         match value {
             IdentifierRef::Name(name) => Self::Name(name.as_ref().into()),
             IdentifierRef::Index(index) => Self::Index(index),
+        }
+    }
+}
+
+pub trait Identification<Value> {
+    fn to_identifier(value: Value) -> Vec<Identifier>;
+}
+
+/// This is a struct that explicitly provides conversions into [`Identifier`] for
+/// known Rust primitives. This exists as a workaround for the lack of template
+/// specialization in Rust.
+///
+/// You can also use this trait to implement identification for custom data types.
+pub struct BasicIdentification;
+
+impl Identification<Arc<str>> for BasicIdentification {
+    fn to_identifier(value: Arc<str>) -> Vec<Identifier> {
+        vec![Identifier::Name(value)]
+    }
+}
+
+impl Identification<Box<str>> for BasicIdentification {
+    fn to_identifier(value: Box<str>) -> Vec<Identifier> {
+        vec![Identifier::Name(value.into())]
+    }
+}
+
+impl<'a> Identification<&'a str> for BasicIdentification {
+    fn to_identifier(value: &'a str) -> Vec<Identifier> {
+        vec![Identifier::Name(value.into())]
+    }
+}
+
+impl Identification<String> for BasicIdentification {
+    fn to_identifier(value: String) -> Vec<Identifier> {
+        vec![Identifier::Name(value.into())]
+    }
+}
+
+impl Identification<u8> for BasicIdentification {
+    fn to_identifier(value: u8) -> Vec<Identifier> {
+        vec![Identifier::Index(value as usize)]
+    }
+}
+
+impl Identification<u16> for BasicIdentification {
+    fn to_identifier(value: u16) -> Vec<Identifier> {
+        vec![Identifier::Index(value as usize)]
+    }
+}
+
+impl Identification<u32> for BasicIdentification {
+    fn to_identifier(value: u32) -> Vec<Identifier> {
+        vec![Identifier::Index(value as usize)]
+    }
+}
+
+impl Identification<u64> for BasicIdentification {
+    fn to_identifier(value: u64) -> Vec<Identifier> {
+        vec![Identifier::Index(value as usize)]
+    }
+}
+
+impl Identification<usize> for BasicIdentification {
+    fn to_identifier(value: usize) -> Vec<Identifier> {
+        vec![Identifier::Index(value as usize)]
+    }
+}
+
+impl Identification<ListSplitKey> for BasicIdentification {
+    fn to_identifier(value: ListSplitKey) -> Vec<Identifier> {
+        match value {
+            ListSplitKey::Sequential(seq) => {
+                vec!["sequential".into(), Identifier::Index(seq)]
+            }
+            ListSplitKey::Remaining => {
+                vec!["remaining".into()]
+            }
+        }
+    }
+}
+
+impl<K: Clone> Identification<MapSplitKey<K>> for BasicIdentification
+where
+    BasicIdentification: Identification<K>,
+{
+    fn to_identifier(value: MapSplitKey<K>) -> Vec<Identifier> {
+        match value {
+            MapSplitKey::Sequential(seq) => {
+                vec!["sequential".into(), Identifier::Index(seq)]
+            }
+            MapSplitKey::Specific(key) => {
+                let mut id = vec!["keyed".into()];
+                id.extend(BasicIdentification::to_identifier(key.clone()));
+                id
+            }
+            MapSplitKey::Remaining => {
+                vec!["remaining".into()]
+            }
         }
     }
 }
@@ -216,6 +317,16 @@ pub mod output_port {
         ]
     }
 
+    /// This is used as a pseudo output port that refers to all streams coming
+    /// out of a node. It's used when reporting unused stream disposals.
+    pub const fn all_stream_out() -> [IdentifierRef<'static>; 1] {
+        [IdentifierRef::name_str("stream_out")]
+    }
+
+    pub const fn missing_values() -> [IdentifierRef<'static>; 1] {
+        [IdentifierRef::name_str("missing_values")]
+    }
+
     pub const fn anonymous_stream<'a>(type_name: &'a str) -> [IdentifierRef<'a>; 2] {
         [
             IdentifierRef::name_str("anonymous_stream"),
@@ -278,5 +389,13 @@ pub mod output_port {
 
     pub const fn remaining() -> [IdentifierRef<'static>; 1] {
         name_str("remaining")
+    }
+
+    pub const fn buffer_update() -> [IdentifierRef<'static>; 2] {
+        [IdentifierRef::name_str("builtin"), IdentifierRef::name_str("buffer_update")]
+    }
+
+    pub const fn drop() -> [IdentifierRef<'static>; 1] {
+        name_str("drop")
     }
 }

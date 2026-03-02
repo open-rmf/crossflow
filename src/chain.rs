@@ -28,7 +28,7 @@ use crate::{
     Collect, CreateCancelFilter, CreateDisposalFilter, ForkTargetStorage, Gate, GateRequest,
     InputSlot, IntoAsyncMap, IntoCallback, IntoBlockingMap, Node, Noop,
     OperateBufferAccess, OperateCancel, OperateDynamicGate, OperateQuietCancel, OperateSplit,
-    OperateStaticGate, Output, ProvideOnce, Provider, Scope, ScopeSettings, Sendish,
+    OperateStaticGate, Output, ProvideOnce, Provider, Scope, ScopeSettings, Sendish, BasicIdentification, Identification,
     ServiceInstructions, Spread, StreamPack, StreamTargetMap, Trim, TrimBranch, UnusedTarget,
     make_option_branching, make_result_branching,
 };
@@ -1018,6 +1018,7 @@ where
     K: 'static + Send + Sync + Eq + std::hash::Hash + Clone + std::fmt::Debug,
     V: 'static + Send + Sync,
     T: 'static + Send + Sync + IntoIterator<Item = (K, V)>,
+    BasicIdentification: Identification<K>
 {
     /// If the chain's response type can be turned into an iterator that returns
     /// `(key, value)` pairs, then this will split it in a map-like way, whether

@@ -198,7 +198,7 @@ where
         }
 
         if !unused_streams.streams.is_empty() {
-            let port = output_port::name_str("stream_out");
+            let port = output_port::all_stream_out();
             let route = request_id.to_route_source(&port);
             world.emit_disposal(route, unused_streams.into(), roster);
         }

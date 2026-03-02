@@ -42,8 +42,8 @@ use crate::{
     BufferMapLayoutHints, BufferMapStruct, BufferStorage, Bufferable, Buffering, Builder,
     CloneFromBuffer, DrainBuffer, DynamicBufferMapLayoutHints, Gate, GateState, IncompatibleLayout,
     InspectBufferSessions, JoinBehavior, Joined, Joining, ManageBufferSessions, MessageTypeHint, BufferManager,
-    MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate, OperationError,
-    OperationResult, OrBroken, TypeInfo, add_listener_to_source, RequestId,
+    MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate, OperationError, OrBroken,
+    OperationResult, TypeInfo, add_listener_to_source, RequestId, BufferWorldAccess,
 };
 
 /// A [`Buffer`] whose message type has been anonymized, but which is known to
@@ -505,6 +505,7 @@ impl<'w, 's, 'a> Drop for JsonBufferMut<'w, 's, 'a> {
         if self.modified {
             self.commands.queue(NotifyBufferUpdate::new(
                 self.buffer,
+                self.manager.json_req(),
                 self.session,
                 self.accessor,
             ));
@@ -664,6 +665,7 @@ trait JsonBufferManagement: JsonBufferViewing {
         &'a mut self,
         range: AnyRange,
     ) -> Box<dyn DrainJsonBufferInterface + 'a>;
+    fn json_req(&self) -> RequestId;
 }
 
 impl<T> JsonBufferViewing for BufferView<'_, T>
@@ -774,6 +776,10 @@ where
     ) -> Box<dyn DrainJsonBufferInterface + 'a> {
         Box::new(self.drain(range))
     }
+
+    fn json_req(&self) -> RequestId {
+        self.req
+    }
 }
 
 trait JsonMutInterface {
@@ -820,14 +826,16 @@ trait JsonBufferAccessInterface {
 
     fn pull(
         &self,
-        buffer_mut: &mut EntityWorldMut,
-        session: Entity,
+        req: RequestId,
+        key: &BufferKeyTag,
+        world: &mut World,
     ) -> Result<JsonMessage, OperationError>;
 
     fn clone_from_buffer(
         &self,
-        buffer_ref: &EntityRef,
-        session: Entity,
+        req: RequestId,
+        key: &BufferKeyTag,
+        world: &mut World,
     ) -> Result<JsonMessage, OperationError>;
 
     fn create_json_buffer_view<'a>(
@@ -947,24 +955,29 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonBufferAccessIn
 
     fn pull(
         &self,
-        buffer_mut: &mut EntityWorldMut,
-        session: Entity,
+        req: RequestId,
+        key: &BufferKeyTag,
+        world: &mut World,
     ) -> Result<JsonMessage, OperationError> {
-        let value = buffer_mut.pull_from_buffer::<T>(session)?;
+        let value = world.unchecked_buffer_mut::<T, _>(req, key, |mut buffer| {
+            buffer.pull()
+        })
+            .or_broken()?
+            .or_broken()?;
+
         serde_json::to_value(value).or_broken()
     }
 
     fn clone_from_buffer(
         &self,
-        buffer_ref: &EntityRef,
-        session: Entity,
+        req: RequestId,
+        key: &BufferKeyTag,
+        world: &mut World,
     ) -> Result<JsonMessage, OperationError> {
-        let value = buffer_ref
-            .get::<BufferStorage<T>>()
+        let value = world.unchecked_buffer_view::<T>(req, key)
             .or_broken()?
-            .newest(session)
+            .newest()
             .or_broken()?;
-
         serde_json::to_value(value).or_broken()
     }
 
@@ -1111,12 +1124,13 @@ impl Buffering for JsonBuffer {
 
     fn gate_action(
         &self,
+        req: RequestId,
         session: Entity,
         action: Gate,
         world: &mut World,
         roster: &mut crate::OperationRoster,
     ) -> OperationResult {
-        GateState::apply(self.id(), session, action, world, roster)
+        GateState::apply(self.id(), req, session, action, world, roster)
     }
 
     fn as_input(&self) -> smallvec::SmallVec<[Entity; 8]> {
@@ -1133,17 +1147,22 @@ impl Joining for JsonBuffer {
     type Item = JsonMessage;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
+        let key = BufferKeyTag {
+            buffer: self.id(),
+            session,
+            accessor: self.id(),
+            lifecycle: None,
+        };
         match self.join_behavior {
             JoinBehavior::Pull => {
-                let mut buffer_mut = world.get_entity_mut(self.id()).or_broken()?;
-                self.interface.pull(&mut buffer_mut, session)
+                self.interface.pull(req, &key, world)
             }
             JoinBehavior::Clone => {
-                let buffer_ref = world.get_entity(self.id()).or_broken()?;
-                self.interface.clone_from_buffer(&buffer_ref, session)
+                self.interface.clone_from_buffer(req, &key, world)
             }
         }
     }
@@ -1269,13 +1288,14 @@ impl Joining for HashMap<String, JsonBuffer> {
     type Item = serde_json::Map<String, JsonMessage>;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
         self.iter()
             .map(|(key, value)| {
                 value
-                    .fetch_for_join(session, world)
+                    .fetch_for_join(req, session, world)
                     .map(|v| (key.clone(), v))
             })
             .collect()
@@ -1331,6 +1351,7 @@ impl Joining for HashMap<IdentifierRef<'static>, JsonBuffer> {
     type Item = JsonMessage;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
@@ -1346,12 +1367,12 @@ impl Joining for HashMap<IdentifierRef<'static>, JsonBuffer> {
                         array.resize(*index + 1, JsonMessage::Null);
                     }
 
-                    array[*index] = buffer.fetch_for_join(session, world)?;
+                    array[*index] = buffer.fetch_for_join(req, session, world)?;
                 }
                 IdentifierRef::Name(name) => {
                     object.insert(
                         name.as_ref().to_owned(),
-                        buffer.fetch_for_join(session, world)?,
+                        buffer.fetch_for_join(req, session, world)?,
                     );
                 }
             }

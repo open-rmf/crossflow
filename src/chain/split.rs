@@ -23,7 +23,7 @@ use std::{
 };
 use thiserror::Error as ThisError;
 
-use crate::{Builder, Chain, ConnectToSplit, OperationResult, Output, UnusedTarget};
+use crate::{Builder, Chain, ConnectToSplit, OperationResult, Output, UnusedTarget, Identification, BasicIdentification};
 
 /// Implementing this trait on a struct will allow the [`Chain::split`] operation
 /// to be performed on [outputs][crate::Output] of that type.
@@ -31,14 +31,19 @@ pub trait Splittable: Sized {
     /// The key used to identify different elements in the split
     type Key: 'static + Send + Sync + Eq + Hash + Clone + Debug;
 
-    /// An identifier that will be included along with the item in the messages
-    /// that are produced by the split. In other words, each message in the split
-    /// will be a tuple of (Identiifer, Item). You can then choose to map away
-    /// the identifier if you don't need it.
+    /// A label that will be included along with the item in the messages that
+    /// are produced by the split. In other words, each message in the split
+    /// will be a tuple of (Label, Item). You can then choose to map away
+    /// the label if you don't need it.
     ///
     /// This may be different from the key, because a key can represent entire
     /// groups of items.
-    type Identifier: 'static + Send + Sync;
+    type Label: 'static + Send + Sync;
+
+    /// A policy type that is able to convert Key into Identifiers. This is used
+    /// for the built-in execution tracing feature to identify which messages
+    /// are being associated with which keys.
+    type Id: Identification<Self::Key>;
 
     /// The type that the value gets split into
     type Item: 'static + Send + Sync;
@@ -57,7 +62,7 @@ pub trait Splittable: Sized {
     /// Split the value into its parts
     fn split(
         self,
-        dispatcher: SplitDispatcher<'_, Self::Key, Self::Identifier, Self::Item>,
+        dispatcher: SplitDispatcher<'_, Self::Key, Self::Label, Self::Item>,
     ) -> OperationResult;
 }
 
@@ -95,7 +100,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Splittable> SplitBuilder<'w, 's, 'a, 'b, T> {
     pub fn chain_for<U>(
         &mut self,
         key: T::Key,
-        f: impl FnOnce(Chain<(T::Identifier, T::Item)>) -> U,
+        f: impl FnOnce(Chain<(T::Label, T::Item)>) -> U,
     ) -> SplitChainResult<U> {
         let output = match self.output_for(key) {
             Ok(output) => output,
@@ -111,7 +116,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Splittable> SplitBuilder<'w, 's, 'a, 'b, T> {
     pub fn specific_chain<U>(
         &mut self,
         specific_key: <T::Key as FromSpecific>::SpecificKey,
-        f: impl FnOnce(Chain<(T::Identifier, T::Item)>) -> U,
+        f: impl FnOnce(Chain<(T::Label, T::Item)>) -> U,
     ) -> SplitChainResult<U>
     where
         T::Key: FromSpecific,
@@ -125,7 +130,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Splittable> SplitBuilder<'w, 's, 'a, 'b, T> {
     pub fn sequential_chain<U>(
         &mut self,
         sequence_number: usize,
-        f: impl FnOnce(Chain<(T::Identifier, T::Item)>) -> U,
+        f: impl FnOnce(Chain<(T::Label, T::Item)>) -> U,
     ) -> SplitChainResult<U>
     where
         T::Key: FromSequential,
@@ -143,7 +148,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Splittable> SplitBuilder<'w, 's, 'a, 'b, T> {
     /// [`Self::remaining_output`] has been used.
     pub fn remaining_chain<U>(
         &mut self,
-        f: impl FnOnce(Chain<(T::Identifier, T::Item)>) -> U,
+        f: impl FnOnce(Chain<(T::Label, T::Item)>) -> U,
     ) -> SplitChainResult<U>
     where
         T::Key: ForRemaining,
@@ -159,7 +164,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Splittable> SplitBuilder<'w, 's, 'a, 'b, T> {
     /// [`SplitBuilder`] as an iterator.
     pub fn next_chain<U>(
         mut self,
-        f: impl FnOnce(T::Key, Chain<(T::Identifier, T::Item)>) -> U,
+        f: impl FnOnce(T::Key, Chain<(T::Label, T::Item)>) -> U,
     ) -> SplitChainResult<U> {
         let Some((key, output)) = self.next() else {
             return Err(SplitConnectionError::KeyOutOfBounds);
@@ -172,7 +177,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Splittable> SplitBuilder<'w, 's, 'a, 'b, T> {
     pub fn branch_for(
         mut self,
         key: T::Key,
-        f: impl FnOnce(Chain<(T::Identifier, T::Item)>),
+        f: impl FnOnce(Chain<(T::Label, T::Item)>),
     ) -> SplitBranchResult<'w, 's, 'a, 'b, T> {
         let output = match self.output_for(key) {
             Ok(output) => output,
@@ -188,7 +193,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Splittable> SplitBuilder<'w, 's, 'a, 'b, T> {
     pub fn specific_branch(
         self,
         specific_key: <T::Key as FromSpecific>::SpecificKey,
-        f: impl FnOnce(Chain<(T::Identifier, T::Item)>),
+        f: impl FnOnce(Chain<(T::Label, T::Item)>),
     ) -> SplitBranchResult<'w, 's, 'a, 'b, T>
     where
         T::Key: FromSpecific,
@@ -202,7 +207,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Splittable> SplitBuilder<'w, 's, 'a, 'b, T> {
     pub fn sequential_branch(
         self,
         sequence_number: usize,
-        f: impl FnOnce(Chain<(T::Identifier, T::Item)>),
+        f: impl FnOnce(Chain<(T::Label, T::Item)>),
     ) -> SplitBranchResult<'w, 's, 'a, 'b, T>
     where
         T::Key: FromSequential,
@@ -220,7 +225,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Splittable> SplitBuilder<'w, 's, 'a, 'b, T> {
     /// [`Self::remaining_output`] has been used.
     pub fn remaining_branch(
         self,
-        f: impl FnOnce(Chain<(T::Identifier, T::Item)>),
+        f: impl FnOnce(Chain<(T::Label, T::Item)>),
     ) -> SplitBranchResult<'w, 's, 'a, 'b, T>
     where
         T::Key: ForRemaining,
@@ -236,7 +241,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Splittable> SplitBuilder<'w, 's, 'a, 'b, T> {
     /// [`SplitBuilder`] as an iterator.
     pub fn next_branch(
         mut self,
-        f: impl FnOnce(T::Key, Chain<(T::Identifier, T::Item)>),
+        f: impl FnOnce(T::Key, Chain<(T::Label, T::Item)>),
     ) -> SplitBranchResult<'w, 's, 'a, 'b, T> {
         let Some((key, output)) = self.next() else {
             return Err((self, SplitConnectionError::KeyOutOfBounds));
@@ -250,7 +255,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Splittable> SplitBuilder<'w, 's, 'a, 'b, T> {
     pub fn output_for(
         &mut self,
         key: T::Key,
-    ) -> Result<Output<(T::Identifier, T::Item)>, SplitConnectionError> {
+    ) -> Result<Output<(T::Label, T::Item)>, SplitConnectionError> {
         if !T::validate(&key) {
             return Err(SplitConnectionError::KeyOutOfBounds);
         }
@@ -274,7 +279,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Splittable> SplitBuilder<'w, 's, 'a, 'b, T> {
     pub fn specific_output(
         &mut self,
         specific_key: <T::Key as FromSpecific>::SpecificKey,
-    ) -> Result<Output<(T::Identifier, T::Item)>, SplitConnectionError>
+    ) -> Result<Output<(T::Label, T::Item)>, SplitConnectionError>
     where
         T::Key: FromSpecific,
     {
@@ -287,7 +292,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Splittable> SplitBuilder<'w, 's, 'a, 'b, T> {
     pub fn sequential_output(
         &mut self,
         sequence_number: usize,
-    ) -> Result<Output<(T::Identifier, T::Item)>, SplitConnectionError>
+    ) -> Result<Output<(T::Label, T::Item)>, SplitConnectionError>
     where
         T::Key: FromSequential,
     {
@@ -303,7 +308,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Splittable> SplitBuilder<'w, 's, 'a, 'b, T> {
     /// also return an error after [`Self::remaining_branch`] has been used.
     pub fn remaining_output(
         &mut self,
-    ) -> Result<Output<(T::Identifier, T::Item)>, SplitConnectionError>
+    ) -> Result<Output<(T::Label, T::Item)>, SplitConnectionError>
     where
         T::Key: ForRemaining,
     {
@@ -326,7 +331,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Splittable> SplitBuilder<'w, 's, 'a, 'b, T> {
 }
 
 impl<'w, 's, 'a, 'b, T: 'static + Splittable> Iterator for SplitBuilder<'w, 's, 'a, 'b, T> {
-    type Item = (T::Key, Output<(T::Identifier, T::Item)>);
+    type Item = (T::Key, Output<(T::Label, T::Item)>);
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let next_key = T::next(&self.outputs.last_key)?;
@@ -544,7 +549,8 @@ where
     T::Item: 'static + Send + Sync,
 {
     type Key = ListSplitKey;
-    type Identifier = usize;
+    type Label = usize;
+    type Id = BasicIdentification;
     type Item = T::Item;
 
     fn validate(_: &Self::Key) -> bool {
@@ -566,7 +572,7 @@ where
 
     fn split(
         self,
-        mut dispatcher: SplitDispatcher<'_, Self::Key, Self::Identifier, Self::Item>,
+        mut dispatcher: SplitDispatcher<'_, Self::Key, Self::Label, Self::Item>,
     ) -> OperationResult {
         for (index, value) in self.contents.into_iter().enumerate() {
             match dispatcher.outputs_for(&ListSplitKey::Sequential(index)) {
@@ -587,8 +593,9 @@ where
 
 impl<T: 'static + Send + Sync> Splittable for Vec<T> {
     type Key = ListSplitKey;
-    type Identifier = usize;
+    type Label = usize;
     type Item = T;
+    type Id = BasicIdentification;
 
     fn validate(_: &Self::Key) -> bool {
         // Vec has no restrictions on what index is valid
@@ -601,7 +608,7 @@ impl<T: 'static + Send + Sync> Splittable for Vec<T> {
 
     fn split(
         self,
-        dispatcher: SplitDispatcher<'_, Self::Key, Self::Identifier, Self::Item>,
+        dispatcher: SplitDispatcher<'_, Self::Key, Self::Label, Self::Item>,
     ) -> OperationResult {
         SplitAsList::new(self).split(dispatcher)
     }
@@ -609,8 +616,9 @@ impl<T: 'static + Send + Sync> Splittable for Vec<T> {
 
 impl<T: 'static + Send + Sync, const N: usize> Splittable for smallvec::SmallVec<[T; N]> {
     type Key = ListSplitKey;
-    type Identifier = usize;
+    type Label = usize;
     type Item = T;
+    type Id = BasicIdentification;
 
     fn validate(_: &Self::Key) -> bool {
         // SmallVec has no restrictions on what index is valid
@@ -623,7 +631,7 @@ impl<T: 'static + Send + Sync, const N: usize> Splittable for smallvec::SmallVec
 
     fn split(
         self,
-        dispatcher: SplitDispatcher<'_, Self::Key, Self::Identifier, Self::Item>,
+        dispatcher: SplitDispatcher<'_, Self::Key, Self::Label, Self::Item>,
     ) -> OperationResult {
         SplitAsList::new(self).split(dispatcher)
     }
@@ -631,8 +639,9 @@ impl<T: 'static + Send + Sync, const N: usize> Splittable for smallvec::SmallVec
 
 impl<T: 'static + Send + Sync, const N: usize> Splittable for [T; N] {
     type Key = ListSplitKey;
-    type Identifier = usize;
+    type Label = usize;
     type Item = T;
+    type Id = BasicIdentification;
 
     fn validate(key: &Self::Key) -> bool {
         // Static arrays have a firm limit of N
@@ -654,7 +663,7 @@ impl<T: 'static + Send + Sync, const N: usize> Splittable for [T; N] {
 
     fn split(
         self,
-        dispatcher: SplitDispatcher<'_, Self::Key, Self::Identifier, Self::Item>,
+        dispatcher: SplitDispatcher<'_, Self::Key, Self::Label, Self::Item>,
     ) -> OperationResult {
         SplitAsList::new(self).split(dispatcher)
     }
@@ -758,10 +767,12 @@ where
     K: 'static + Send + Sync + Eq + Hash + Clone + Debug,
     V: 'static + Send + Sync,
     M: 'static + Send + Sync + IntoIterator<Item = (K, V)>,
+    BasicIdentification: Identification<K>,
 {
     type Key = MapSplitKey<K>;
-    type Identifier = K;
+    type Label = K;
     type Item = V;
+    type Id = BasicIdentification;
 
     fn validate(_: &Self::Key) -> bool {
         // We have no way of knowing what the key bounds are for an arbitrary map
@@ -774,7 +785,7 @@ where
 
     fn split(
         self,
-        mut dispatcher: SplitDispatcher<'_, Self::Key, Self::Identifier, Self::Item>,
+        mut dispatcher: SplitDispatcher<'_, Self::Key, Self::Label, Self::Item>,
     ) -> OperationResult {
         let mut next_seq = 0;
         for (specific_key, value) in self.contents.into_iter() {
@@ -813,10 +824,12 @@ impl<K, V> Splittable for HashMap<K, V>
 where
     K: 'static + Send + Sync + Eq + Hash + Clone + Debug,
     V: 'static + Send + Sync,
+    BasicIdentification: Identification<K>,
 {
     type Key = MapSplitKey<K>;
-    type Identifier = K;
+    type Label = K;
     type Item = V;
+    type Id = BasicIdentification;
 
     fn validate(_: &Self::Key) -> bool {
         true
@@ -828,7 +841,7 @@ where
 
     fn split(
         self,
-        dispatcher: SplitDispatcher<'_, Self::Key, Self::Identifier, Self::Item>,
+        dispatcher: SplitDispatcher<'_, Self::Key, Self::Label, Self::Item>,
     ) -> OperationResult {
         SplitAsMap::new(self).split(dispatcher)
     }
@@ -838,10 +851,12 @@ impl<K, V> Splittable for BTreeMap<K, V>
 where
     K: 'static + Send + Sync + Eq + Hash + Clone + Debug,
     V: 'static + Send + Sync,
+    BasicIdentification: Identification<K>,
 {
     type Key = MapSplitKey<K>;
-    type Identifier = K;
+    type Label = K;
     type Item = V;
+    type Id = BasicIdentification;
 
     fn validate(_: &Self::Key) -> bool {
         true
@@ -853,7 +868,7 @@ where
 
     fn split(
         self,
-        dispatcher: SplitDispatcher<'_, Self::Key, Self::Identifier, Self::Item>,
+        dispatcher: SplitDispatcher<'_, Self::Key, Self::Label, Self::Item>,
     ) -> OperationResult {
         SplitAsMap::new(self).split(dispatcher)
     }

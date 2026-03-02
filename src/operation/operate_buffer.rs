@@ -19,15 +19,15 @@ use bevy_ecs::prelude::{Bundle, Command, Component, Entity, World};
 
 use std::collections::HashMap;
 
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 
 use crate::{
     Broken, BufferAccessors, BufferSettings, BufferStorage, DeferredRoster, ForkTargetStorage,
     Gate, GateActionStorage, Input, InputBundle, InspectBufferSessions, ManageBufferSessions, ManageInput,
     Operation, OperationCleanup, OperationError, OperationReachability, OperationRequest,
     OperationResult, OperationRoster, OperationSetup, OrBroken, ReachabilityResult, RequestId,
-    SingleInputStorage, UnhandledErrors, MessageRoute, output_port, BufferWorldAccess,
-    BufferKeyTag,
+    SingleInputStorage, UnhandledErrors, output_port, BufferWorldAccess,
+    BufferKeyTag, Routing, RouteTarget,
 };
 
 #[derive(Bundle)]
@@ -129,11 +129,11 @@ impl GateState {
     pub fn apply(
         buffer: Entity,
         req: RequestId,
+        session: Entity,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
-        let RequestId { session, .. } = req;
         let mut states = world.get_mut::<GateState>(buffer).or_broken()?;
         let state = states.map.entry(session).or_insert(Gate::Open);
         if *state == action {
@@ -277,6 +277,7 @@ fn get_buffered_sessions<T: 'static + Send + Sync>(
 pub(crate) struct NotifyBufferUpdate {
     buffer: Entity,
     req: RequestId,
+    session: Entity,
     /// This field is used to prevent notifications from going to the accessor
     /// that produced the key which was used for modification. That way users
     /// don't end up with unintentional infinite loops in their workflow. If
@@ -286,10 +287,11 @@ pub(crate) struct NotifyBufferUpdate {
 }
 
 impl NotifyBufferUpdate {
-    pub(crate) fn new(buffer: Entity, req: RequestId, accessor: Option<Entity>) -> Self {
+    pub(crate) fn new(buffer: Entity, req: RequestId, session: Entity, accessor: Option<Entity>) -> Self {
         Self {
             buffer,
             req,
+            session,
             accessor,
         }
     }
@@ -299,38 +301,33 @@ impl Command for NotifyBufferUpdate {
     fn apply(self, world: &mut World) {
         let r = match world.get::<GateState>(self.buffer) {
             Some(gate_state) => {
-                if gate_state.is_closed(self.session) {
+                if gate_state.is_closed(self.req.session) {
                     return;
                 }
 
                 world.get_resource_or_insert_with(DeferredRoster::default);
                 world.resource_scope::<DeferredRoster, _>(|world: &mut World, mut deferred| {
+                    let Self { buffer, req, session, accessor } = self;
                     // We filter out the target that produced the key that was used to
                     // make the modification. This prevents unintentional infinite loops
                     // from forming in the workflow.
                     let targets: SmallVec<[_; 16]> = world
-                        .get::<ForkTargetStorage>(self.buffer)
+                        .get::<ForkTargetStorage>(buffer)
                         .or_broken()?
                         .0
                         .iter()
-                        .filter(|t| !self.accessor.is_some_and(|a| a == **t))
+                        .filter(|t| !accessor.is_some_and(|a| a == **t))
                         .cloned()
                         .collect();
 
-                    let route = MessageRoute {
-                        session,
-                        source: self.buffer,
-                        seq,
-                        port: &port,
-                        target,
-                    };
-
+                    let port = output_port::buffer_update();
+                    let output = req.to_route_source(&port);
                     for target in targets {
-                        world.give_input(
-                            self.session,
-                            (),
-                            &mut deferred.0,
-                        )?;
+                        let route = Routing {
+                            outputs: smallvec![output],
+                            input: RouteTarget { session, target },
+                        };
+                        world.give_input(route, (), &mut *deferred)?;
                     }
 
                     Ok(())
