@@ -1212,11 +1212,11 @@ pub(crate) fn validate_scope_reachability(
         return Ok(true);
     }
 
-    // if check_reachability(scoped_session, cancel_scope, None, world)? {
-    //     // The cancel operation can still be reached, so the scope is
-    //     // considered reachable.
-    //     return Ok(true);
-    // }
+    if check_reachability(scoped_session, cancel_scope, None, world)? {
+        // The cancel operation can still be reached, so the scope is
+        // considered reachable.
+        return Ok(true);
+    }
 
     // The terminal node cannot be reached so we should cancel this scope.
     let mut disposals = Vec::new();
@@ -2819,5 +2819,51 @@ mod tests {
 
         let r = context.resolve_request(vec![0, 1, 2, 3, 4, 5], workflow);
         assert_eq!(r.as_slice(), &[0, 1, 2]);
+    }
+
+    #[test]
+    fn test_scope_reaches_cancel() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let (ok_sender, mut ok_receiver) = tokio::sync::mpsc::unbounded_channel();
+        let (err_sender, mut err_receiver) = tokio::sync::mpsc::unbounded_channel();
+        let workflow = context.spawn_io_workflow(move |scope: Scope<Result<(), ()>, ()>, builder| {
+            builder
+                .chain(scope.start)
+                .fork_result(
+                    |chain: Chain<_>| {
+                        chain
+                        .map_block(|_| {
+                            5.0
+                        })
+                        .map_block(move |value| {
+                            ok_sender.send(value).unwrap();
+                        })
+                        .connect(scope.terminate);
+                    },
+                    |chain: Chain<_>| {
+                        chain
+                        .map_block(|_| {
+                            2.0
+                        })
+                        .map_block(move |value| {
+                            err_sender.send(value).unwrap();
+                        })
+                        .then_quiet_cancel();
+                    }
+                );
+        });
+
+        assert!(ok_receiver.try_recv().is_err());
+        assert!(err_receiver.try_recv().is_err());
+        let r = context.try_resolve_request(Err(()), workflow, Duration::from_secs(2));
+        assert!(r.is_err());
+        assert!(ok_receiver.try_recv().is_err());
+        assert_eq!(err_receiver.try_recv().unwrap(), 2.0);
+
+        assert!(err_receiver.try_recv().is_err());
+        context.resolve_request(Ok(()), workflow);
+        assert_eq!(ok_receiver.try_recv().unwrap(), 5.0);
+        assert!(err_receiver.try_recv().is_err());
     }
 }
