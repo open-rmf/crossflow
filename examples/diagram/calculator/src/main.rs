@@ -19,13 +19,13 @@
 use crossflow_diagram_editor::basic_executor::{self, DiagramElementRegistry, Error};
 
 // define new module for the generated code
-pub mod calculator {
+pub mod crossflow_service {
     // include generated code
-    include!(concat!(env!("OUT_DIR"), "/crossflow.calculator.rs"));
+    include!(concat!(env!("OUT_DIR"), "/crossflow_service.rs"));
 }
 
 // import the struct from the new module
-use calculator::CrossflowServiceConfig;
+use crossflow_service::CrossflowServiceConfig;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // create an instance of the config and print it out as an example

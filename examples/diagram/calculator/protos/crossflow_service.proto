@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package crossflow.calculator;
+package crossflow_service;
 
 message CrossflowServiceConfig {
   string skill_registry_address = 1;
