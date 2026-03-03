@@ -21,6 +21,18 @@ use prost::Message;
 use std::fs::File;
 use std::io::Read;
 
+#[derive(Clone, PartialEq, ::prost::Message)]
+struct RuntimeConfigWrapper {
+    #[prost(message, optional, tag = "6")]
+    pub any: Option<AnyWrapper>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+struct AnyWrapper {
+    #[prost(bytes = "vec", tag = "2")]
+    pub value: Vec<u8>,
+}
+
 // define new module for the generated code
 pub mod crossflow_service {
     // include generated code
@@ -44,7 +56,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut file = File::open("/etc/intrinsic/runtime_config.pb")?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
-        Ok(CrossflowServiceConfig::decode_length_delimited(&buffer[..])?)
+
+        let wrapper = RuntimeConfigWrapper::decode(&buffer[..])?;
+        let config_bytes = wrapper.any.ok_or("config not found in wrapper")?.value;
+        Ok(CrossflowServiceConfig::decode(&config_bytes[..])?)
     })();
     match result {
         Ok(config) => println!("Successfully parsed config: {:?}", config),
