@@ -1529,19 +1529,6 @@ mod tests {
     fn test_unused_branch() {
         let mut context = TestingContext::minimal_plugins();
 
-        use bevy_ecs::prelude::Trigger;
-        use crate::{TracedEvent, TracedEventKind};
-        #[derive(bevy_ecs::prelude::Resource, Default)]
-        struct TraceRecorder(Vec<TracedEventKind>);
-        context.app.world_mut().insert_resource(TraceRecorder::default());
-        context.app.world_mut().add_observer(
-            |event: Trigger<TracedEvent>, mut trace: ResMut<TraceRecorder>| {
-                println!("{:?}", event.event());
-                trace.0.push(event.event().event.clone());
-            }
-        );
-        context.app.world_mut().insert_resource(crate::UniversalTraceToggle::with_messages());
-
         let workflow =
             context.spawn_io_workflow(|scope: Scope<Vec<Result<i64, ()>>, i64>, builder| {
                 builder
@@ -1553,8 +1540,6 @@ mod tests {
         let test_set = vec![Err(()), Err(()), Ok(5), Err(()), Ok(10)];
 
         let r = context.resolve_request(test_set, workflow);
-        println!("{:#?}", &context.app.world().resource::<TraceRecorder>().0);
-
         assert_eq!(r, 5);
     }
 }

@@ -28,7 +28,10 @@ use bevy_ecs::{
 
 use backtrace::Backtrace;
 
-use std::collections::{HashMap, HashSet, VecDeque, hash_map::Entry};
+use std::{
+    collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
+    sync::Arc,
+};
 
 use smallvec::SmallVec;
 
@@ -208,6 +211,15 @@ impl FromIterator<Entity> for ForkTargetStorage {
 #[derive(Component)]
 pub(crate) struct UnusedTarget;
 
+#[derive(Component, Debug, Clone, Deref)]
+pub struct OperationType(Arc<str>);
+
+impl OperationType {
+    pub fn new(op_type: Arc<str>) -> Self {
+        Self(op_type)
+    }
+}
+
 #[derive(Default)]
 pub struct OperationRoster {
     /// Operation sources that should be triggered
@@ -226,6 +238,11 @@ pub struct OperationRoster {
     /// Despawn these entities while no other operation is running. This is used
     /// to cleanup detached executions that receive no input.
     pub(crate) deferred_despawn: Vec<Entity>,
+    /// Check whether the disposals in this queue have affected a scope's
+    /// reachability. These are queued in a roster because the reachability
+    /// checks cannot be nested inside the execution of an operation or else we
+    /// might get the wrong impression for whether that operation is reachable.
+    pub(crate) reachable: VecDeque<Reachable>,
 }
 
 impl OperationRoster {
@@ -257,6 +274,10 @@ impl OperationRoster {
         self.deferred_despawn.push(source);
     }
 
+    pub(crate) fn reachable(&mut self, r: Reachable) {
+        self.reachable.push_back(r);
+    }
+
     pub fn is_empty(&self) -> bool {
         self.queue.is_empty()
             && self.awake.is_empty()
@@ -264,6 +285,7 @@ impl OperationRoster {
             && self.unblock.is_empty()
             && self.cleanup_finished.is_empty()
             && self.deferred_despawn.is_empty()
+            && self.reachable.is_empty()
     }
 
     pub fn append(&mut self, other: &mut Self) {
@@ -275,6 +297,7 @@ impl OperationRoster {
         self.unblock.append(&mut other.unblock);
         self.cleanup_finished.append(&mut other.cleanup_finished);
         self.deferred_despawn.append(&mut other.deferred_despawn);
+        self.reachable.append(&mut other.reachable);
     }
 
     /// Remove all instances of the target from the roster. This prevents a
@@ -282,6 +305,7 @@ impl OperationRoster {
     pub fn purge(&mut self, target: Entity) {
         self.queue.retain(|e| *e != target);
         self.deferred_queue.retain(|e| *e != target);
+        self.reachable.retain(|r| r.scope != target);
     }
 
     /// Move all items from the deferred queue into the immediate queue
@@ -312,6 +336,14 @@ impl std::fmt::Debug for Blocker {
             .field("label", &self.label)
             .finish()
     }
+}
+
+/// A queue item for checking if a session for a scope is still reachable after
+/// a disposal has occurred.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Reachable {
+    pub(crate) scope: Entity,
+    pub(crate) scoped_session: Entity,
 }
 
 #[derive(Clone, Debug)]
@@ -493,6 +525,11 @@ pub trait Operation {
     /// This is primarily used to determine if a Join has stalled out or if
     /// a request will never be able to terminate.
     fn is_reachable(reachability: OperationReachability) -> ReachabilityResult;
+
+    /// Specify a type name for the operation. This will be stored
+    fn operation_type(&self) -> Arc<str> {
+        std::any::type_name::<Self>().into()
+    }
 }
 
 pub trait OrBroken: Sized {
@@ -600,13 +637,12 @@ impl<Op: Operation> AddOperation<Op> {
 impl<Op: Operation + 'static + Sync + Send> Command for AddOperation<Op> {
     fn apply(self, world: &mut World) {
         let mut source_mut = world.entity_mut(self.source);
+        let op_type = OperationType(self.operation.operation_type());
         source_mut.insert((
             OperationExecuteStorage(perform_operation::<Op>),
             OperationCleanupStorage(Op::cleanup),
             OperationReachabilityStorage(Op::is_reachable),
-            OperationType {
-                name: std::any::type_name::<Op>(),
-            },
+            op_type,
         ));
         if let Some(scope) = self.scope {
             source_mut
@@ -648,11 +684,6 @@ pub(crate) struct OperationExecuteStorage(pub(crate) fn(OperationRequest));
 
 #[derive(Component)]
 pub(crate) struct OperationReachabilityStorage(fn(OperationReachability) -> ReachabilityResult);
-
-#[derive(Component, Deref, Debug)]
-pub(crate) struct OperationType {
-    name: &'static str,
-}
 
 pub fn execute_operation(request: OperationRequest) {
     let Some(operator) = request.world.get::<OperationExecuteStorage>(request.source) else {

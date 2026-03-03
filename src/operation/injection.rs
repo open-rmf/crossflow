@@ -154,7 +154,7 @@ where
         let session = cleanup.session;
         let cleanup_id = cleanup.cleanup_id;
         let mut storage = world.get_mut::<InjectionStorage>(source).or_broken()?;
-        let nodes: SmallVec<[Entity; 16]> = storage
+        let tasks: SmallVec<[Entity; 16]> = storage
             .list
             .iter()
             .filter_map(|injected| {
@@ -167,7 +167,7 @@ where
             .collect();
         storage.list.retain(|injected| injected.session != session);
 
-        if nodes.is_empty() {
+        if tasks.is_empty() {
             // No cleanup needed, just notify right away
             cleanup.notify_cleaned(world, roster)?;
             return Ok(());
@@ -176,14 +176,14 @@ where
         world
             .get_mut::<CleanupContents>(source)
             .or_broken()?
-            .add_cleanup(cleanup_id, nodes.clone());
+            .add_cleanup(cleanup_id, tasks.clone());
         world
             .get_mut::<AwaitingCleanup>(source)
             .or_broken()?
             .map
             .insert(cleanup_id, cleanup);
 
-        for node in nodes.iter().copied() {
+        for node in tasks.iter().copied() {
             let cleanup = Cleanup {
                 cleaner: source,
                 node,

@@ -18,7 +18,7 @@
 use crate::{
     JsonMessage, OperationRef, TraceToggle, TypeInfo, OutputPort, Seq, OutputRef,
     Routing, OutputKey, RequestId, BufferKeyTag, RouteSource, Cancellation, Disposal,
-    Broken,
+    Broken, IdentifierRef, OperationType,
 };
 
 use bevy_ecs::{
@@ -167,7 +167,10 @@ pub struct TraceSource {
     pub session_stack: SmallVec<[Entity; 8]>,
     pub source: Entity,
     pub seq: Seq,
+    pub port: SmallVec<[IdentifierRef<'static>; 2]>,
     pub labels: Option<Arc<Vec<OutputRef>>>,
+    /// Information about what kind of operation produced the message
+    pub operation_type: Arc<str>,
 }
 
 impl TraceSource {
@@ -177,14 +180,25 @@ impl TraceSource {
     ) -> Self {
         let output_port = route_source.port;
         let session_stack = get_session_stack_from_world(route_source.session, world);
+        let port = route_source
+            .port
+            .iter()
+            .map(|p| p.to_owned())
+            .collect();
+        let operation_type = world
+            .get::<OperationType>(route_source.source)
+            .map(|op| (**op).clone())
+            .unwrap_or_else(|| "<unknown>".into());
 
         TraceSource {
             session_stack,
             source: route_source.source,
             seq: route_source.seq,
+            port,
             labels: world.get::<OperationLabels>(route_source.source)
                 .map(move |labels| labels.outputs(output_port))
                 .flatten(),
+            operation_type,
         }
     }
 }
@@ -205,6 +219,7 @@ pub struct TraceTarget {
     pub target: Entity,
     pub seq: Seq,
     pub labels: Option<Arc<Vec<OperationRef>>>,
+    pub operation_type: Arc<str>,
 }
 
 impl TraceTarget {
@@ -213,12 +228,18 @@ impl TraceTarget {
         world: &mut World,
     ) -> Self {
         let RequestId { session, source, seq } = request_id;
+        let operation_type = world
+            .get::<OperationType>(source)
+            .map(|op| (**op).clone())
+            .unwrap_or_else(|| "<unknown>".into());
+
         Self {
             session_stack: get_session_stack_from_world(session, world),
             target: source,
             seq,
             labels: world.get::<OperationLabels>(source)
                 .map(|labels| labels.input()),
+            operation_type,
         }
     }
 }
@@ -339,6 +360,7 @@ pub(crate) struct BufferTracer<'w, 's> {
     trace: Query<'w, 's, &'static Trace>,
     child_of: Query<'w, 's, &'static ChildOf>,
     labels: Query<'w, 's, &'static OperationLabels>,
+    op_type: Query<'w, 's, &'static OperationType>,
     universal: Option<Res<'w, UniversalTraceToggle>>,
     commands: Commands<'w, 's>,
 }
@@ -379,12 +401,19 @@ impl<'w, 's> BufferTracer<'w, 's> {
             get_session_stack(key.session, &self.child_of)
         };
 
+        let operation_type = self
+            .op_type
+            .get(key.buffer)
+            .map(|op| (**op).clone())
+            .unwrap_or_else(|_| "<unknown>".into());
+
         let buffer_event = BufferEvent {
             accessor: TraceTarget {
                 session_stack: accessor_session_stack,
                 target: req.source,
                 seq: req.seq,
                 labels: accessor_labels,
+                operation_type,
             },
             buffer: TraceBuffer {
                 session_stack: buffer_session_stack,
@@ -441,6 +470,19 @@ impl SessionEvent {
         let event = SessionEvent {
             session_stack,
             change: SessionChange::Cancelled { source, cancellation },
+        };
+
+        world.trigger(TracedEvent::now(event));
+    }
+
+    pub(crate) fn cleanup(
+        session: Entity,
+        world: &mut World,
+    ) {
+        let session_stack = get_session_stack_from_world(session, world);
+        let event = SessionEvent {
+            session_stack,
+            change: SessionChange::BeginCleanup,
         };
 
         world.trigger(TracedEvent::now(event));

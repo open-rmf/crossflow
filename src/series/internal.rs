@@ -35,7 +35,7 @@ use crate::{
     ManageCancellation, MiscellaneousFailure, OnCancel, OperationError, OperationExecuteStorage,
     OperationRequest, OperationResult, OperationResultFilter, OperationSetup, SetupFailure,
     UnhandledErrors, UnusedTarget, OrBroken, ManageSession, DeferredRoster, SessionStatus,
-    Cancellable,
+    Cancellable, OperationType,
 };
 
 #[cfg(feature = "trace")]
@@ -44,6 +44,11 @@ use crate::SessionEvent;
 pub(crate) trait Executable {
     fn setup(self, info: OperationSetup) -> OperationResult;
     fn execute(request: OperationRequest) -> OperationResult;
+
+    /// Specify a type name for the operation. This will be stored
+    fn operation_type(&self) -> Arc<str> {
+        std::any::type_name::<Self>().into()
+    }
 }
 
 #[derive(Bundle)]
@@ -52,6 +57,7 @@ pub(crate) struct SeriesSessionBundle {
     cancellable: Cancellable,
     sequence: SequenceInSeries,
     status: SessionStatus,
+    op_type: OperationType,
 }
 
 /// Ordered sequence of operations in a series
@@ -80,6 +86,7 @@ impl SeriesSessionBundle {
             cancellable: Cancellable::new(cancel_series),
             sequence: Default::default(),
             status: SessionStatus::Active,
+            op_type: OperationType::new("SeriesSession".into()),
         }
     }
 }
@@ -126,6 +133,9 @@ impl<E: Executable> AddExecution<E> {
 
 impl<E: Executable + 'static + Sync + Send> Command for AddExecution<E> {
     fn apply(self, world: &mut World) {
+        let operation_type = self.execution.operation_type();
+        world.entity_mut(self.target).insert(OperationType::new(operation_type));
+
         if let Err(error) = self.execution.setup(OperationSetup {
             source: self.target,
             world,

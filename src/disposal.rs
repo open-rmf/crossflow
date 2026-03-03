@@ -537,10 +537,8 @@ impl ManageDisposal for World {
             }
         }
 
-        dbg!(disposed_in_session);
         if let Some(listener) = self.get::<DisposalListener>(disposed_in_session).map(|l| l.0) {
             for disposed in disposed_operations.iter().copied() {
-                dbg!(disposed_in_session);
                 if let Err(OperationError::Broken(backtrace)) = listener(DisposalUpdate {
                     session: disposed_in_session,
                     listener: disposed_in_session,
@@ -553,11 +551,9 @@ impl ManageDisposal for World {
                     self.emit_broken(disposed_in_session, backtrace, roster);
                 }
             }
-        } else {
-            // If the session does not have a disposal listener then something
-            // is broken.
-            let info: Vec<_> = self.inspect_entity(disposed_in_session).unwrap().collect();
-            dbg!(info);
+        } else if self.get_entity(disposed_in_session).is_ok() {
+            // If the session is still spawned but does not have a disposal
+            // listener then something is broken.
             self.emit_broken(disposed_in_session, Some(Backtrace::new()), roster);
         }
     }

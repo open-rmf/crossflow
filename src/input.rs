@@ -38,7 +38,7 @@ use crate::{
 };
 
 #[cfg(feature = "trace")]
-use crate::{Trace, MessageSent, TraceToggle, UniversalTraceToggle};
+use crate::{Trace, MessageSent, TraceToggle, UniversalTraceToggle, TracedEvent};
 
 pub type Seq = u32;
 
@@ -272,7 +272,6 @@ impl ManageInput for World {
         let route: Routing = route.into();
         let target = route.input.target;
         if unsafe { self.sneak_input(route, data, true, roster)? } {
-            dbg!(target);
             roster.queue(target);
         }
         Ok(())
@@ -300,7 +299,6 @@ impl ManageInput for World {
         roster: &mut OperationRoster,
     ) -> Result<bool, OperationError> {
         let route: Routing = route.into();
-        dbg!(&route);
         let session = route.input.session;
         let target = route.input.target;
 
@@ -320,8 +318,6 @@ impl ManageInput for World {
             }
         }
 
-        dbg!();
-
         #[cfg(feature = "trace")]
         let mut serialized_msg = None;
 
@@ -330,7 +326,6 @@ impl ManageInput for World {
 
         #[cfg(feature = "trace")]
         {
-            dbg!();
             let toggle = if let Some(universal) = self.get_resource::<UniversalTraceToggle>().map(|u| **u).flatten() {
                 universal
             } else if let Some(trace) = self.get::<Trace>(target) {
@@ -365,7 +360,6 @@ impl ManageInput for World {
         if let Some(mut storage) = self.get_mut::<InputStorage<T>>(target) {
             let target_seq = storage.push(session, data);
 
-            dbg!(perform_trace);
             #[cfg(feature = "trace")]
             {
                 if perform_trace {
@@ -407,9 +401,20 @@ impl ManageInput for World {
                     )),
                     backtrace: Some(Backtrace::new()),
                 });
+
+            #[cfg(feature = "trace")]
+            {
+                TracedEvent::trace(
+                    Broken {
+                        node: target,
+                        backtrace: Some(Backtrace::new()),
+                    },
+                    self,
+                );
+            }
             None.or_broken()?;
         }
-        dbg!(Ok(true))
+        Ok(true)
     }
 
     fn take_input<T: 'static + Send + Sync>(
@@ -569,7 +574,6 @@ fn try_series_request<T: 'static + Send + Sync>(
             target: start,
         };
 
-        dbg!(&route);
-        dbg!(world.give_input(route, data, &mut *roster))
+        world.give_input(route, data, &mut *roster)
     })
 }

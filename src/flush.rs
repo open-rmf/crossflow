@@ -24,18 +24,13 @@ use bevy_ecs::{
 
 use smallvec::SmallVec;
 
-use anyhow::anyhow;
-
-use backtrace::Backtrace;
-
-use std::sync::Arc;
-
 use crate::{
     AddExecution, ChannelQueue, Detached, Finished, FlushWarning,
     OperationError, OperationRequest, OperationRoster,
     SeriesLifecycleChannel, ServiceHook, ServiceLifecycle, ServiceLifecycleChannel,
     UnhandledErrors, UnusedTarget, UnusedTargetDrop,
     WakeQueue, awaken_task, dispose_for_despawned_service, execute_operation,
+    validate_scope_reachability, ReachableRequest, ManageCancellation,
 };
 
 #[cfg(feature = "single_threaded_async")]
@@ -136,7 +131,6 @@ fn flush_execution_impl(
         }
 
         while let Some(source) = roster.queue.pop_front() {
-            dbg!(source);
             execute_operation(OperationRequest {
                 source,
                 world,
@@ -174,6 +168,14 @@ fn flush_execution_impl(
 fn garbage_cleanup(world: &mut World, roster: &mut OperationRoster) {
     while let Some(cleanup) = roster.cleanup_finished.pop() {
         cleanup.trigger(world, roster);
+    }
+
+    while let Some(reachable) = roster.reachable.pop_front() {
+        if let Err(OperationError::Broken(backtrace)) = validate_scope_reachability(
+            ReachableRequest { reachable, world, roster }
+        ) {
+            world.emit_broken(reachable.scope, backtrace, roster);
+        }
     }
 }
 
