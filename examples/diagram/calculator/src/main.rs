@@ -18,7 +18,24 @@
 // ANCHOR: calculator_example
 use crossflow_diagram_editor::basic_executor::{self, DiagramElementRegistry, Error};
 
+// define new module for the generated code
+pub mod calculator {
+    // include generated code
+    include!(concat!(env!("OUT_DIR"), "/crossflow.calculator.rs"));
+}
+
+// import the struct from the new module
+use calculator::CrossflowServiceConfig;
+
 fn main() -> Result<(), Box<dyn Error>> {
+    // create an instance of the config and print it out as an example
+    let config = CrossflowServiceConfig {
+        skill_registry_address: String::from("127.0.0.1:50051"),
+        solution_service_address: String::from("127.0.0.1:50052"),
+        multiply_by_3: 43,
+    };
+    println!("Successfully created config: {:?}", config);
+
     // Create a new regsitry with the default message types pre-registered.
     let mut registry = DiagramElementRegistry::new();
 

@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package crossflow.calculator;
+
+message CrossflowServiceConfig {
+  string skill_registry_address = 1;
+  string solution_service_address = 2;
+  int64 multiply_by_3 = 3;
+}
