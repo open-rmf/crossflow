@@ -887,15 +887,6 @@ mod tests {
     fn test_fork_clone() {
         let mut context = TestingContext::minimal_plugins();
 
-        use bevy_ecs::prelude::Trigger;
-        use crate::TracedEvent;
-        context.app.world_mut().add_observer(
-            |event: Trigger<TracedEvent>| {
-                println!("{:?}", event.event);
-            }
-        );
-        context.app.world_mut().insert_resource(crate::UniversalTraceToggle::with_messages());
-
         let workflow = context.spawn_io_workflow(|scope, builder| {
             let fork = scope.start.fork_clone(builder);
             let branch_a = fork.clone_output(builder);

@@ -35,6 +35,7 @@ use crate::{
     ManageCancellation, MiscellaneousFailure, OnCancel, OperationError, OperationExecuteStorage,
     OperationRequest, OperationResult, OperationResultFilter, OperationSetup, SetupFailure,
     UnhandledErrors, UnusedTarget, OrBroken, ManageSession, DeferredRoster, SessionStatus,
+    Cancellable,
 };
 
 #[cfg(feature = "trace")]
@@ -48,6 +49,7 @@ pub(crate) trait Executable {
 #[derive(Bundle)]
 pub(crate) struct SeriesSessionBundle {
     disposal_listener: DisposalListener,
+    cancellable: Cancellable,
     sequence: SequenceInSeries,
     status: SessionStatus,
 }
@@ -75,6 +77,7 @@ impl SeriesSessionBundle {
     pub(crate) fn new() -> Self {
         Self {
             disposal_listener: DisposalListener(series_session_disposal_listener),
+            cancellable: Cancellable::new(cancel_series),
             sequence: Default::default(),
             status: SessionStatus::Active,
         }

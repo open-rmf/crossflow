@@ -1306,7 +1306,7 @@ mod tests {
     }
 
     #[test]
-    fn test_disconnected() {
+    fn test_disconnected_diagram() {
         let mut fixture = DiagramTestFixture::new();
 
         let diagram = Diagram::from_json(json!({

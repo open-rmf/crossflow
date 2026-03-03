@@ -22,7 +22,7 @@ use crate::{
     ParentSession, ProviderStorage, ReachabilityResult, Service, ServiceRequest, ServiceTrait,
     SessionStatus, SingleTargetStorage, StreamPack, begin_scope, dispose_for_despawned_service,
     insert_new_order, pop_next_delivery, RequestId, ManageCancellation, RouteSource,
-    output_port, ManageDisposal,
+    output_port, ManageDisposal, ManageSession,
 };
 
 use bevy_ecs::prelude::{ChildOf, Component, Entity, World};
@@ -118,18 +118,15 @@ where
             data: request,
             seq,
         } = world.take_input::<Request>(source)?;
-        let scoped_session = world
-            .spawn((
-                ParentSession::new(session),
-                ChildOf(session),
-                SessionStatus::Active,
-            ))
-            .id();
+
+        let scope = world.get::<WorkflowStorage>(provider).or_broken()?.scope;
+        let scoped_session = world.spawn_scoped_session(session, scope, seq);
 
         let result = serve_workflow_impl::<Request, Response, Streams>(
             request,
             session,
             scoped_session,
+            scope,
             seq,
             ServiceRequest {
                 provider,
@@ -144,9 +141,7 @@ where
         );
 
         if result.is_err() {
-            if let Ok(scoped_session_mut) = world.get_entity_mut(scoped_session) {
-                scoped_session_mut.despawn();
-            }
+            world.despawn_session(scoped_session);
         }
 
         result
@@ -157,6 +152,7 @@ fn serve_workflow_impl<Request, Response, Streams>(
     request: Request,
     parent_session: Entity,
     scoped_session: Entity,
+    scope: Entity,
     seq: Seq,
     ServiceRequest {
         provider,
@@ -175,7 +171,7 @@ where
     Response: 'static + Send + Sync,
     Streams: StreamPack,
 {
-    let workflow = *world.get::<WorkflowStorage>(provider).or_broken()?;
+
     let Some(mut delivery) = world.get_mut::<Delivery<Request>>(provider) else {
         // The workflow has been despawned, so we should treat the request
         // as cancelled.
@@ -244,7 +240,7 @@ where
         source,
         target,
         scoped_session,
-        workflow.scope,
+        scope,
         blocker,
         world,
         roster,
