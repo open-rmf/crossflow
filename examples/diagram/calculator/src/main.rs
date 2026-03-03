@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut file = File::open("/etc/intrinsic/runtime_config.pb")?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
-        Ok(CrossflowServiceConfig::decode(&buffer[..])?)
+        Ok(CrossflowServiceConfig::decode_length_delimited(&buffer[..])?)
     })();
     match result {
         Ok(config) => println!("Successfully parsed config: {:?}", config),
