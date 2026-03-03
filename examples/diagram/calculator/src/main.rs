@@ -17,6 +17,9 @@
 
 // ANCHOR: calculator_example
 use crossflow_diagram_editor::basic_executor::{self, DiagramElementRegistry, Error};
+use prost::Message;
+use std::fs::File;
+use std::io::Read;
 
 // define new module for the generated code
 pub mod crossflow_service {
@@ -28,13 +31,25 @@ pub mod crossflow_service {
 use crossflow_service::CrossflowServiceConfig;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // create an instance of the config and print it out as an example
+// create an instance of the config and print it out as an example
     let config = CrossflowServiceConfig {
         skill_registry_address: String::from("127.0.0.1:50051"),
         solution_service_address: String::from("127.0.0.1:50052"),
         multiply_by_3: 43,
     };
     println!("Successfully created config: {:?}", config);
+
+    // parse a .pb file as a CrossflowServiceConfig, and print it out
+    let result = (|| -> Result<CrossflowServiceConfig, Box<dyn std::error::Error>> {
+        let mut file = File::open("/etc/intrinsic/runtime_config.pb")?;
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer)?;
+        Ok(CrossflowServiceConfig::decode(&buffer[..])?)
+    })();
+    match result {
+        Ok(config) => println!("Successfully parsed config: {:?}", config),
+        Err(e) => println!("Failed to parse config: {}", e),
+    }
 
     // Create a new regsitry with the default message types pre-registered.
     let mut registry = DiagramElementRegistry::new();
