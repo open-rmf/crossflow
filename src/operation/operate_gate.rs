@@ -176,7 +176,7 @@ where
         let Input { session, data, seq } = world.take_input::<T>(source)?;
         let request_id = RequestId { session, source, seq };
 
-        let mut source_ref = world.get_entity(source).or_broken()?;
+        let source_ref = world.get_entity(source).or_broken()?;
         let target = source_ref.get::<SingleTargetStorage>().or_broken()?.get();
         let action = source_ref.get::<GateActionStorage>().or_broken()?.0;
         let buffers = source_ref

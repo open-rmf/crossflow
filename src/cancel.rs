@@ -520,13 +520,15 @@ fn cancel_operation(
 
     match world.get::<OnCancel>(target).map(|c| c.0).or_broken() {
         Ok(on_cancel) => {
-            on_cancel(Cancel {
+            if let Err(OperationError::Broken(backtrace)) = on_cancel(Cancel {
                 target: target,
                 session: session,
                 cancellation,
                 world,
                 roster,
-            });
+            }) {
+                world.emit_broken(target, backtrace, roster);
+            }
         }
         Err(error) => {
             world.get_resource_or_init::<UnhandledErrors>()

@@ -34,7 +34,7 @@ use crate::{
     AddOperation, Blocker, Broken, ChannelItem, ChannelQueue, Cleanup, Disposal, ManageInput,
     Operation, OperationCleanup, OperationError, OperationReachability, OperationRequest,
     OperationResult, OperationRoster, OperationSetup, OrBroken, ReachabilityResult, InScope,
-    StreamPack, UnhandledErrors, ManageDisposal, RequestId, output_port, MessageRoute,
+    StreamPack, UnhandledErrors, ManageDisposal, RequestId, output_port,
     async_execution::{CancelSender, TaskHandle, task_cancel_sender},
 };
 

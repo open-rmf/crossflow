@@ -396,7 +396,7 @@ impl<'w, 's> BufferTracer<'w, 's> {
             return;
         }
 
-        let buffer_trace = self.trace.get(key.buffer).ok();
+        // let buffer_trace = self.trace.get(key.buffer).ok();
         let buffer_labels = self.labels.get(key.buffer).ok().map(|l| l.input.clone());
         let accessor_labels = self.labels.get(req.source).ok().map(|l| l.input.clone());
 

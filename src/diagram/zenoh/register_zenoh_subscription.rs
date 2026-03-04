@@ -17,7 +17,7 @@
 
 use super::*;
 
-use bevy_ecs::prelude::{In, Res, World};
+use bevy_ecs::prelude::{Res, World};
 use futures_lite::future::race;
 use std::time::Duration;
 use thiserror::Error as ThisError;
