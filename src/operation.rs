@@ -17,7 +17,7 @@
 
 use crate::{
     Broken, DeliveryLabelId, InspectInput, SetupFailure, StreamTargetMap, UnhandledErrors, RequestId,
-    Disposal, RouteSource, ManageCancellation,
+    Disposal, RouteSource, ManageCancellation, RouteSourceOwned,
 };
 
 use bevy_derive::Deref;
@@ -243,6 +243,8 @@ pub struct OperationRoster {
     /// checks cannot be nested inside the execution of an operation or else we
     /// might get the wrong impression for whether that operation is reachable.
     pub(crate) reachable: VecDeque<Reachable>,
+    /// Notify relevant sessions about disposals
+    pub(crate) disposals: VecDeque<DisposalInformation>,
 }
 
 impl OperationRoster {
@@ -286,6 +288,7 @@ impl OperationRoster {
             && self.cleanup_finished.is_empty()
             && self.deferred_despawn.is_empty()
             && self.reachable.is_empty()
+            && self.disposals.is_empty()
     }
 
     pub fn append(&mut self, other: &mut Self) {
@@ -298,6 +301,7 @@ impl OperationRoster {
         self.cleanup_finished.append(&mut other.cleanup_finished);
         self.deferred_despawn.append(&mut other.deferred_despawn);
         self.reachable.append(&mut other.reachable);
+        self.disposals.append(&mut other.disposals);
     }
 
     /// Remove all instances of the target from the roster. This prevents a
@@ -306,6 +310,7 @@ impl OperationRoster {
         self.queue.retain(|e| *e != target);
         self.deferred_queue.retain(|e| *e != target);
         self.reachable.retain(|r| r.scope != target);
+        self.disposals.retain(|d| d.listener != target);
     }
 
     /// Move all items from the deferred queue into the immediate queue
@@ -640,7 +645,7 @@ impl<Op: Operation + 'static + Sync + Send> Command for AddOperation<Op> {
         let op_type = OperationType(self.operation.operation_type());
         source_mut.insert((
             OperationExecuteStorage(perform_operation::<Op>),
-            OperationCleanupStorage(Op::cleanup),
+            OnCleanup(Op::cleanup),
             OperationReachabilityStorage(Op::is_reachable),
             op_type,
         ));
@@ -829,18 +834,23 @@ pub fn is_downstream_of(source: Entity, target: Entity, world: &World) -> bool {
 }
 
 pub struct DisposalUpdate<'a> {
+    pub info: DisposalInformation,
+    pub world: &'a mut World,
+    pub roster: &'a mut OperationRoster,
+}
+
+#[derive(Clone, Debug)]
+pub struct DisposalInformation {
     /// The operation that is being updated about the disposal
     pub listener: Entity,
     /// The operation that triggered the disposal
-    pub trigger: RouteSource<'a>,
+    pub trigger: RouteSourceOwned,
     /// The operation whose potential outputs may have been disposed
     pub disposed: Entity,
     /// The session that has experienced a disposal
     pub session: Entity,
     /// Information about the disposal
     pub disposal: Disposal,
-    pub world: &'a mut World,
-    pub roster: &'a mut OperationRoster,
 }
 
 #[derive(Component)]

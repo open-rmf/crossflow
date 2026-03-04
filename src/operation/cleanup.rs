@@ -18,7 +18,7 @@
 use crate::{
     Accessing, BufferAccessStorage, ManageDisposal, ManageInput, MiscellaneousFailure,
     OperationError, OperationResult, OperationRoster, OrBroken, InScope, UnhandledErrors,
-    CleanInputsOf, RequestId,
+    CleanInputsOf, RequestId, InSeries,
 };
 
 use bevy_ecs::prelude::{Component, Entity, World};
@@ -59,9 +59,13 @@ impl<'a> OperationCleanup<'a> {
         }
     }
 
-    pub fn clean(&mut self) {
-        let Some(cleanup) = self.world.get::<OperationCleanupStorage>(self.source) else {
-            return;
+    /// Instruct the operation `node` to clean itself for `session`.
+    ///
+    /// Returns true/false based on whether the operation has any cleanup
+    /// capabilities.
+    pub fn clean(&mut self) -> bool {
+        let Some(cleanup) = self.world.get::<OnCleanup>(self.source) else {
+            return false;
         };
 
         let cleanup = cleanup.0;
@@ -76,6 +80,8 @@ impl<'a> OperationCleanup<'a> {
                 .operations
                 .push(error);
         }
+
+        true
     }
 
     pub fn cleanup_inputs<T: 'static + Send + Sync>(&mut self) -> OperationResult {
@@ -87,6 +93,13 @@ impl<'a> OperationCleanup<'a> {
     }
 
     pub fn cleanup_disposals(&mut self) -> OperationResult {
+        if self.world.get::<InSeries>(self.source).is_some() {
+            // Ignore disposal cleanup for operations that are in a series rather
+            // than in a scope. These operations will be dropped as soon as the
+            // series is finished.
+            return Ok(());
+        }
+
         let scope = self.world.get::<InScope>(self.source).or_broken()?.scope();
         if self.cleanup.cleaner == scope {
             // Only erase disposals if the cleanup is being triggered by the scope
@@ -132,7 +145,7 @@ impl<'a> OperationCleanup<'a> {
 }
 
 /// The contents that an operation is willing to clean.
-#[derive(Default, Component)]
+#[derive(Debug, Default, Component)]
 pub struct CleanupContents {
     awaiting_cleanup: HashMap<RequestId, SmallVec<[Entity; 16]>>,
 }
@@ -162,7 +175,7 @@ pub struct FinalizeCleanupRequest<'a> {
 }
 
 #[derive(Component)]
-pub(crate) struct OperationCleanupStorage(pub(super) fn(OperationCleanup) -> OperationResult);
+pub(crate) struct OnCleanup(pub(super) fn(OperationCleanup) -> OperationResult);
 
 #[derive(Component, Clone, Copy)]
 pub struct FinalizeCleanup(pub(crate) fn(FinalizeCleanupRequest) -> OperationResult);

@@ -15,15 +15,42 @@
  *
 */
 
-use bevy_ecs::prelude::{World, Entity};
+use bevy_ecs::prelude::{World, Entity, Component};
 
-use crate::{ScopedSessionBundle, Seq};
+use crate::{ScopedSessionBundle, Seq, Cancellation};
 
 #[cfg(feature = "trace")]
 use crate::{SessionEvent, RequestId};
 
 #[cfg(feature = "trace")]
 use bevy_ecs::prelude::Command;
+
+#[derive(Component)]
+pub enum SessionStatus {
+    /// The session is active and behaving normally
+    Active,
+    /// The session is in the process of being cleaned
+    Cleaning,
+    /// The series session has been dropped, with this entity as the last in
+    /// line to be executed
+    Dropped {
+        stop_at: Entity,
+        cancellation: Cancellation,
+    },
+}
+
+impl SessionStatus {
+    pub fn is_active(&self) -> bool {
+        matches!(self, Self::Active)
+    }
+
+    pub fn cancellation(&self) -> Option<Cancellation> {
+        match self {
+            Self::Dropped { cancellation, .. } => Some(cancellation.clone()),
+            _ => None
+        }
+    }
+}
 
 pub trait ManageSession {
     /// Spawn a session that will be used inside a scope

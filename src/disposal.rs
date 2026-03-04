@@ -34,7 +34,7 @@ use thiserror::Error as ThisError;
 
 use crate::{
     Cancellation, OperationResult, OperationRoster, OrBroken,
-    RequestId, ManageCancellation, RouteSource,
+    RequestId, ManageCancellation, RouteSource, DisposalInformation,
     DisposalUpdate, DisposalListener, OperationError, IdentifierRef,
 };
 
@@ -537,24 +537,14 @@ impl ManageDisposal for World {
             }
         }
 
-        if let Some(listener) = self.get::<DisposalListener>(disposed_in_session).map(|l| l.0) {
-            for disposed in disposed_operations.iter().copied() {
-                if let Err(OperationError::Broken(backtrace)) = listener(DisposalUpdate {
-                    session: disposed_in_session,
-                    listener: disposed_in_session,
-                    trigger,
-                    disposed,
-                    disposal: disposal.clone(),
-                    world: self,
-                    roster,
-                }) {
-                    self.emit_broken(disposed_in_session, backtrace, roster);
-                }
-            }
-        } else if self.get_entity(disposed_in_session).is_ok() {
-            // If the session is still spawned but does not have a disposal
-            // listener then something is broken.
-            self.emit_broken(disposed_in_session, Some(Backtrace::new()), roster);
+        for disposed in disposed_operations.iter().copied() {
+            roster.disposals.push_back(DisposalInformation {
+                session: disposed_in_session,
+                listener: disposed_in_session,
+                trigger: trigger.to_owned(),
+                disposed,
+                disposal: disposal.clone(),
+            });
         }
     }
 

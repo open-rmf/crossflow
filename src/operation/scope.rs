@@ -24,9 +24,9 @@ use crate::{
     OperationRoster, OperationSetup, OrBroken, ReachabilityResult, ScopeSettings, CleanInputsOf,
     SingleInputStorage, SingleTargetStorage, StreamEffect, StreamRequest, StreamTargetMap,
     UnhandledErrors, Unreachability, UnusedTarget, check_reachability, execute_operation,
-    is_downstream_of, Routing, RouteSource, RouteTarget, output_port, MessageRoute, RequestId, StreamTarget,
+    is_downstream_of, Routing, RouteSource, RouteTarget, output_port, RequestId, StreamTarget,
     ManageSession, ManageDisposal, Disposal, DisposalStorage, OnCancel, OperationResultFilter,
-    OperationType, Reachable,
+    OperationType, Reachable, SessionStatus, DisposalInformation,
 };
 
 #[cfg(feature = "trace")]
@@ -80,24 +80,28 @@ pub struct ScopedSessionBundle {
 /// scope's disposal listener
 fn scoped_session_disposal_listener(
     DisposalUpdate {
+        info: DisposalInformation {
             // listener and session are equivalent when a session is being notified of a disposal
             listener: _,
             disposed: origin,
             trigger,
             session,
             disposal,
-            world,
-            roster,
-        }: DisposalUpdate,
+        },
+        world,
+        roster,
+    }: DisposalUpdate,
 ) -> OperationResult {
     let scope = world.get::<SessionOfScope>(session).or_broken()?.scope();
     let listener = world.get::<DisposalListener>(scope).or_broken()?.0;
     listener(DisposalUpdate {
-        listener: scope,
-        disposed: origin,
-        trigger,
-        session,
-        disposal,
+        info: DisposalInformation {
+            listener: scope,
+            disposed: origin,
+            trigger,
+            session,
+            disposal,
+        },
         world,
         roster,
     })
@@ -168,12 +172,6 @@ impl SessionOfScope {
     pub fn scope(&self) -> Entity {
         self.0
     }
-}
-
-#[derive(Component)]
-pub enum SessionStatus {
-    Active,
-    Cleaning,
 }
 
 pub(crate) struct OperateScope {
@@ -1137,11 +1135,13 @@ fn cancel_one(
 
 fn scoped_disposal_listener(
     DisposalUpdate {
-        listener: scope,
-        disposed,
-        trigger,
-        session,
-        disposal,
+        info: DisposalInformation {
+            listener: scope,
+            disposed,
+            trigger,
+            session,
+            disposal,
+        },
         world,
         roster,
     }: DisposalUpdate,
@@ -1168,11 +1168,13 @@ fn scoped_disposal_listener(
         };
         let f = disposal_listener.0;
         f(DisposalUpdate {
-            listener: *node,
-            disposed,
-            trigger,
-            session,
-            disposal: disposal.clone(),
+            info: DisposalInformation {
+                listener: *node,
+                disposed,
+                trigger: trigger.clone(),
+                session,
+                disposal: disposal.clone(),
+            },
             world,
             roster,
         })?;
@@ -1831,12 +1833,14 @@ where
 
 fn cleanup_workflow_session_disposal_listener(
     DisposalUpdate {
-        // listener and session are equivalent when a session is being notified of a disposal
-        listener: _,
-        disposed: _,
-        trigger: _,
-        session: cleanup_session,
-        disposal,
+        info: DisposalInformation {
+            // listener and session are equivalent when a session is being notified of a disposal
+            listener: _,
+            disposed: _,
+            trigger: _,
+            session: cleanup_session,
+            disposal,
+        },
         world,
         roster,
     }: DisposalUpdate

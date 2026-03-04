@@ -37,7 +37,7 @@ pub(crate) use finished::*;
 mod insert;
 pub(crate) use insert::*;
 
-mod internal;
+pub(crate) mod internal;
 pub(crate) use internal::*;
 
 mod map;
@@ -563,22 +563,6 @@ mod tests {
         // an incorrect handling of detached series when giving input.
         let mut context = TestingContext::minimal_plugins();
 
-
-        use bevy_ecs::prelude::Trigger;
-        use crate::{TracedEvent, TracedEventKind};
-
-        #[derive(bevy_ecs::prelude::Resource, Default)]
-        struct TraceRecorder(Vec<TracedEventKind>);
-        context.app.world_mut().insert_resource(TraceRecorder::default());
-        context.app.world_mut().add_observer(
-            |event: Trigger<TracedEvent>, mut trace: ResMut<TraceRecorder>| {
-                println!("{:#?}", event.event().event);
-                trace.0.push(event.event().event.clone());
-            }
-        );
-        context.app.world_mut().insert_resource(crate::UniversalTraceToggle::with_messages());
-
-
         let service = context.spawn_delayed_map(Duration::from_millis(1), |n| *n + 1);
 
         context.command(|commands| {
@@ -591,11 +575,6 @@ mod tests {
             context.no_unhandled_errors(),
             "Unhandled errors: {:#?}",
             context.get_unhandled_errors(),
-        );
-
-        println!(
-            "\n\n ----------- FULL TRACE -----------------\n{:#?}",
-            &context.app.world().resource::<TraceRecorder>().0
         );
 
         // The promise and sender only exist because run_with_conditions requires
@@ -620,6 +599,7 @@ mod tests {
     #[test]
     fn test_delivery_instructions() {
         let mut context = TestingContext::minimal_plugins();
+
         let service = context.spawn_delayed_map_with_viewer(
             Duration::from_secs_f32(0.01),
             |counter: &Arc<Mutex<u64>>| {

@@ -24,7 +24,7 @@ use tokio::sync::mpsc::{
     UnboundedReceiver as TokioReceiver, UnboundedSender as TokioSender, unbounded_channel,
 };
 
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 
 use anyhow::anyhow;
 
@@ -35,7 +35,9 @@ use crate::{
     ManageCancellation, MiscellaneousFailure, OnCancel, OperationError, OperationExecuteStorage,
     OperationRequest, OperationResult, OperationResultFilter, OperationSetup, SetupFailure,
     UnhandledErrors, UnusedTarget, OrBroken, ManageSession, DeferredRoster, SessionStatus,
-    Cancellable, OperationType,
+    Cancellable, OperationType, CleanupContents, FinalizeCleanup, FinalizeCleanupRequest,
+    Cleanup, OperationRoster, Broken, OnCleanup, OperationCleanup, RequestId, Detached,
+    UnusedTargetDrop, DisposalInformation,
 };
 
 #[cfg(feature = "trace")]
@@ -58,11 +60,17 @@ pub(crate) struct SeriesSessionBundle {
     sequence: SequenceInSeries,
     status: SessionStatus,
     op_type: OperationType,
+    progress: ProgressInSeries,
+    cleanup: CleanupContents,
+    finalize_cleanup: FinalizeCleanup,
 }
 
 /// Ordered sequence of operations in a series
-#[derive(Default, Clone, Debug, Component)]
-pub(crate) struct SequenceInSeries(Vec<Entity>);
+#[derive(Default, Clone, Debug, Component, Deref)]
+pub struct SequenceInSeries(Vec<Entity>);
+
+#[derive(Default, Clone, Debug, Component, Deref)]
+pub struct ProgressInSeries(pub(crate) Option<Entity>);
 
 #[derive(Clone, Copy, Debug, Component, Deref)]
 pub struct InSeries(Entity);
@@ -87,17 +95,74 @@ impl SeriesSessionBundle {
             sequence: Default::default(),
             status: SessionStatus::Active,
             op_type: OperationType::new("SeriesSession".into()),
+            progress: Default::default(),
+            cleanup: Default::default(),
+            finalize_cleanup: FinalizeCleanup(finalize_series_cleanup),
         }
     }
 }
 
+fn finalize_series_cleanup(
+    FinalizeCleanupRequest {
+        cleanup: Cleanup { session: series, .. },
+        world,
+        roster,
+    }: FinalizeCleanupRequest,
+) -> OperationResult {
+    // The series is finished cleaning up, so cancel and despawn the session
+    let cancellation = world
+        .get_mut::<SessionStatus>(series)
+        .or_broken()?
+        .cancellation()
+        .or_broken()?;
+
+    finalize_series_cancel(series, cancellation, world, roster)
+}
+
+pub(crate) fn finalize_series_cancel(
+    series: Entity,
+    cancellation: Cancellation,
+    world: &mut World,
+    roster: &mut OperationRoster,
+) -> OperationResult {
+    if let Some(operations) = world.get::<SequenceInSeries>(series) {
+        if let Some(last_op) = operations.last().cloned() {
+            if let Some(on_cancel) = world.get::<OnCancel>(last_op).map(|c| c.0) {
+                let r = on_cancel(Cancel {
+                    target: last_op,
+                    session: Some(series),
+                    cancellation,
+                    world,
+                    roster,
+                });
+
+                if let Err(OperationError::Broken(backtrace)) = r {
+                    world.get_resource_or_init::<UnhandledErrors>()
+                        .broken
+                        .push(Broken { node: last_op, backtrace });
+                }
+            };
+        }
+    }
+
+    #[cfg(feature = "trace")]
+    {
+        SessionEvent::despawned(series, world);
+    }
+
+    world.despawn_session(series);
+    Ok(())
+}
+
 fn series_session_disposal_listener(
     DisposalUpdate {
-        listener: _,
-        trigger,
-        disposed: _,
-        session,
-        disposal,
+        info: DisposalInformation {
+            listener: _,
+            trigger,
+            disposed: _,
+            session,
+            disposal,
+        },
         world,
         roster,
     }: DisposalUpdate,
@@ -111,7 +176,7 @@ fn series_session_disposal_listener(
     // reach its end.
     if !disposal.cause.is_stream_disposal() {
         let cancellation = Cancellation::unreachable(session, session, vec![disposal]);
-        world.emit_series_cancel(trigger, session, cancellation, roster);
+        world.emit_series_cancel(trigger.as_borrowed(), session, cancellation, roster);
     }
 
     Ok(())
@@ -243,31 +308,79 @@ pub(crate) fn cancel_series(cancel: Cancel) -> OperationResult {
         world,
         roster,
     } = cancel;
-    if let Some(operations) = world.get::<SequenceInSeries>(session) {
-        let operations: SmallVec<[Entity; 8]> = operations.0.iter().cloned().collect();
-        for op in operations {
-            let Some(on_cancel) = world.get::<OnCancel>(op).map(|c| c.0) else {
-                continue;
-            };
+    if let Some(ProgressInSeries(Some(progress))) = world.get::<ProgressInSeries>(session) {
+        // Make sure no outputs from this operation can make progress, or else
+        // the series might continue in a broken state.
+        let progress = *progress;
+        roster.purge(progress);
 
-            on_cancel(Cancel {
-                target: op,
-                session: Some(session),
-                cancellation: cancellation.clone(),
-                world,
-                roster,
-            })
-            .ignore_not_ready()?;
+        let cleanup_id = RequestId { session, source: session, seq: 0 };
+        world.get_mut::<CleanupContents>(session).or_broken()?.add_cleanup(
+            cleanup_id,
+            smallvec![progress],
+        );
+
+        // Attempt to cleanup the in-progress operation, in case it is long-running
+        let is_cleaning = OperationCleanup::new(
+            session,
+            progress,
+            session,
+            cleanup_id,
+            world,
+            roster,
+        )
+            .clean();
+
+        if is_cleaning {
+            // Return and wait to receive the cleanup notification from the operation
+            *world.get_mut::<SessionStatus>(session).or_broken()? = SessionStatus::Dropped {
+                stop_at: progress,
+                cancellation,
+            };
+            return Ok(());
         }
     }
 
-    #[cfg(feature = "trace")]
-    {
-        SessionEvent::despawned(session, world);
-    }
+    finalize_series_cancel(session, cancellation, world, roster)?;
 
-    world.despawn_session(session);
     Ok(())
+}
+
+fn clean_series_from_progress_point(
+    series: Entity,
+    progress: Entity,
+    cancellation: &Cancellation,
+    world: &mut World,
+    roster: &mut OperationRoster,
+) -> Result<bool, OperationError> {
+    // Make sure no outputs from this operation can make progress, or else
+    // the series might continue in a broken state.
+    roster.purge(progress);
+
+    let cleanup_id = RequestId { session: series, source: series, seq: 0 };
+    world.get_mut::<CleanupContents>(series).or_broken()?.add_cleanup(
+        cleanup_id,
+        smallvec![progress],
+    );
+
+    // Attempt to cleanup the in-progress operation, in case it is long-running
+    let is_cleaning = OperationCleanup::new(
+        series,
+        progress,
+        series,
+        cleanup_id,
+        world,
+        roster,
+    )
+        .clean();
+
+    if is_cleaning {
+        *world.get_mut::<SessionStatus>(series).or_broken()? = SessionStatus::Dropped {
+            stop_at: progress,
+            cancellation: cancellation.clone(),
+        };
+    }
+    Ok(is_cleaning)
 }
 
 #[derive(Resource)]
@@ -341,4 +454,82 @@ pub(crate) fn add_lifecycle_dependency(source: Entity, target: Entity, world: &m
                 })
         }
     }
+}
+
+pub(crate) fn drop_series_target(
+    target: Entity,
+    world: &mut World,
+    roster: &mut OperationRoster,
+    unused: bool,
+) -> OperationResult {
+    let mut dropped_operations = Vec::new();
+    if world.get_entity(target).is_err() {
+        // The session has already despawned
+        return Ok(());
+    }
+    let series = world.get::<InSeries>(target).or_broken()?.series();
+    let sequence = world.get::<SequenceInSeries>(series).or_broken()?;
+
+    let mut reached_drop = None;
+    for op in sequence.iter().rev() {
+        if let Some(detachment) = world.get::<Detached>(*op) {
+            if detachment.is_detached() {
+                break;
+            }
+        }
+
+        dropped_operations.push(*op);
+
+        if let Some(ProgressInSeries(Some(progress))) = world.get::<ProgressInSeries>(series) {
+            if *op == *progress {
+                reached_drop = Some(*progress);
+                // Stop dropping anything that comes before the last progress point
+                break;
+            }
+        }
+    }
+
+    dropped_operations.reverse();
+    let drop_up_to = dropped_operations.first().copied();
+    if !dropped_operations.is_empty() && unused {
+        world
+            .get_resource_or_insert_with(UnhandledErrors::default)
+            .unused_targets
+            .push(UnusedTargetDrop {
+                unused_target: target,
+                dropped_operations,
+            });
+    }
+
+    let cancellation = Cancellation::target_dropped(target);
+
+    if let Some(progress) = reached_drop {
+        let is_cleaning = clean_series_from_progress_point(series, progress, &cancellation, world, roster)?;
+        if is_cleaning {
+            // Return and wait to receive the cleanup notification from the operation
+            return Ok(());
+        }
+
+        // We are dropping up to the current progress point and it doesn't need
+        // to be cleaned, so we should just proceed with cancelling the series.
+        return finalize_series_cancel(series, cancellation, world, roster);
+    }
+
+    // If we reach this point, the series is still making progress through a
+    // detached part of its sequence, so we need to let that keep running and
+    // only cancel after that part of the series finishes.
+    if let Some(new_final) = drop_up_to {
+        // We only dropped up to a specific point, which has not yet been reached
+        // by the series. We should change the status of the session so that it
+        // automatically gets cancelled when it reaches this point.
+        *world.get_mut::<SessionStatus>(series).or_broken()? = SessionStatus::Dropped {
+            stop_at: new_final,
+            cancellation,
+        };
+        return Ok(());
+    };
+
+    // If we reach this point, the series has not even started to run, so we
+    // should just cancel it immediately.
+    finalize_series_cancel(series, cancellation, world, roster)
 }

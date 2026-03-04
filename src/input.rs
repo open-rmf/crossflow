@@ -35,6 +35,7 @@ use crate::{
     MiscellaneousFailure, OperationError, OperationRoster, OrBroken, SessionStatus,
     UnhandledErrors, UnusedTarget, OutputPort, BufferWorldAccess,
     RequestId, BufferKeyTag, output_port, ManageCancellation, OperationResult, SequenceInSeries,
+    ManageSession, ProgressInSeries, finalize_series_cancel, IdentifierRef,
 };
 
 #[cfg(feature = "trace")]
@@ -156,6 +157,36 @@ impl<'a> RouteSource<'a> {
     pub fn request_id(&self) -> RequestId {
         let Self { session, source, seq, .. } = *self;
         RequestId { session, source, seq }
+    }
+
+    pub fn to_owned(self) -> RouteSourceOwned {
+        let Self { session, source, seq, port } = self;
+        RouteSourceOwned {
+            session,
+            source,
+            seq,
+            port: port.iter().map(|p| p.to_owned()).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RouteSourceOwned {
+    pub session: Entity,
+    pub source: Entity,
+    pub seq: Seq,
+    pub port: SmallVec<[IdentifierRef<'static>; 2]>,
+}
+
+impl RouteSourceOwned {
+    pub fn as_borrowed(&self) -> RouteSource<'_> {
+        let Self { session, source, seq, port } = self;
+        RouteSource {
+            session: *session,
+            source: *source,
+            seq: *seq,
+            port: port.as_slice(),
+        }
     }
 }
 
@@ -303,19 +334,26 @@ impl ManageInput for World {
         let target = route.input.target;
 
         if only_if_active {
-            let active_session =
-                if let Some(session_status) = self.get::<SessionStatus>(session) {
-                    matches!(session_status, SessionStatus::Active)
-                } else {
-                    false
-                };
-
-            if !active_session {
-                // The session being sent is not active, either it is being cleaned
-                // or already despawned. Therefore we should not propogate any inputs
-                // related to it.
+            if let Some(status) = self.get::<SessionStatus>(session) {
+                if let SessionStatus::Dropped { stop_at, cancellation } = status {
+                    if *stop_at == target {
+                        // The input is reaching the point where the series
+                        // dropped, so cancel the series here.
+                        finalize_series_cancel(session, cancellation.clone(), self, roster)?;
+                        return Ok(false);
+                    }
+                } else if !status.is_active() {
+                    // The session is no longer active, so do not send the input
+                    return Ok(false);
+                }
+            } else {
+                // This session seems to already be despawned
                 return Ok(false);
             }
+        }
+
+        if let Some(mut progress) = self.get_mut::<ProgressInSeries>(session) {
+            progress.0 = Some(target);
         }
 
         #[cfg(feature = "trace")]
@@ -372,7 +410,7 @@ impl ManageInput for World {
                     // The input is going to a detached series that will not
                     // react any further. We need to tell that detached series
                     // to despawn since it is no longer needed.
-                    roster.defer_despawn(target);
+                    self.despawn_session(session);
 
                     // No error occurred, but the caller should not queue the
                     // operation into the roster because it is being despawned.

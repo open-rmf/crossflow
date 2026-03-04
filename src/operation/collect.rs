@@ -26,6 +26,7 @@ use crate::{
     OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationRoster,
     OperationSetup, OrBroken, ReachabilityResult, SingleInputStorage, SingleTargetStorage,
     is_downstream_of, output_port, Routing, RouteSource, Seq, RouteTarget, ManageDisposal,
+    DisposalInformation,
 };
 
 pub(crate) struct Collect<T, const N: usize> {
@@ -197,11 +198,13 @@ impl<T, const N: usize> CollectionStorage<T, N> {
 
 fn collection_disposal_listener<T, const N: usize>(
     DisposalUpdate {
-        listener: source,
-        trigger: _,
-        disposed,
-        session,
-        disposal: _,
+        info: DisposalInformation {
+            listener: source,
+            trigger: _,
+            disposed,
+            session,
+            disposal: _,
+        },
         world,
         roster,
     }: DisposalUpdate,

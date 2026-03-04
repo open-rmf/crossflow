@@ -54,6 +54,10 @@ impl Cancellation {
         }
     }
 
+    pub fn target_dropped(target: Entity) -> Self {
+        CancellationCause::TargetDropped(target).into()
+    }
+
     pub fn unreachable(scope: Entity, session: Entity, disposals: Vec<Disposal>) -> Self {
         Unreachability {
             scope,

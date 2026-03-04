@@ -25,7 +25,7 @@ use std::future::Future;
 
 use crate::{
     Cancellable, Detached, SeriesRequest, IntoAsyncMap, IntoBlockingMapOnce, ProvideOnce, Series,
-    SessionStatus, StreamPack, UnusedTarget, cancel_series, SeriesSessionBundle,
+    SessionStatus, StreamPack, UnusedTarget, cancel_series, SeriesSessionBundle, series::internal::AddToSeries,
 };
 
 #[cfg(feature = "trace")]
@@ -99,6 +99,7 @@ impl<'w, 's> RequestExt<'w, 's> for Commands<'w, 's> {
         P::Streams: StreamPack,
     {
         let session = self.spawn(SeriesSessionBundle::new()).id();
+
         #[cfg(feature = "trace")]
         {
             self.queue(TraceSeriesSessionSpawned { session });
@@ -112,6 +113,8 @@ impl<'w, 's> RequestExt<'w, 's> for Commands<'w, 's> {
             ))
             .id();
 
+        self.queue(AddToSeries::new(session, source));
+
         let target = self
             .spawn((
                 ChildOf(session),
@@ -119,6 +122,8 @@ impl<'w, 's> RequestExt<'w, 's> for Commands<'w, 's> {
                 UnusedTarget,
             ))
             .id();
+
+        self.queue(AddToSeries::new(session, target));
 
         provider.connect(None, source, target, self);
         self.queue(SeriesRequest {
