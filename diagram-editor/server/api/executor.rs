@@ -12,7 +12,7 @@ use axum::{
     routing::{self},
 };
 use bevy_ecs::{prelude::Entity, schedule::IntoScheduleConfigs};
-use crossflow::{Diagram, DiagramElementRegistry, OperationStarted, Outcome, RequestExt, trace};
+use crossflow::{Diagram, DiagramElementRegistry, TracedEvent, Outcome, RequestExt, trace};
 use serde::{Deserialize, Serialize};
 use std::{
     error::Error,
@@ -35,7 +35,7 @@ type WorkflowResponseResult =
     Result<(Outcome<serde_json::Value>, Entity), Box<dyn Error + Send + Sync>>;
 type WorkflowResponseSender = tokio::sync::oneshot::Sender<WorkflowResponseResult>;
 
-type WorkflowFeedback = OperationStarted;
+type WorkflowFeedback = TracedEvent;
 
 #[derive(bevy_ecs::component::Component)]
 struct FeedbackSender(tokio::sync::broadcast::Sender<WorkflowFeedback>);
@@ -320,26 +320,13 @@ fn execute_requests(
 }
 
 fn debug_feedback(
-    mut op_started: bevy_ecs::event::EventReader<trace::OperationStarted>,
-    feedback_query: bevy_ecs::system::Query<&FeedbackSender>,
+    mut op_started: bevy_ecs::event::EventReader<trace::TracedEvent>,
+    feedback_query: bevy_ecs::system::Query<(Entity, &FeedbackSender)>,
 ) {
     for ev in op_started.read() {
-        // not sure if it is working as intended, but the root session is in the 2nd last
-        // item, not the last as described in `session_stack` docs.
-        let session = match ev.session_stack.iter().rev().skip(1).next() {
-            Some(session) => session,
-            None => {
-                continue;
-            }
-        };
-        match feedback_query.get(*session) {
-            Ok(feedback_tx) => {
-                if let Err(e) = feedback_tx.0.send(ev.clone()) {
-                    error!("{}", e);
-                }
-            }
-            Err(_) => {
-                // the session has no feedback channel
+        for (session, channel) in &feedback_query {
+            if ev.event.is_for_session(session) {
+                let _ = channel.0.send(ev.clone());
             }
         }
     }

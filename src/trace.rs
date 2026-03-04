@@ -325,7 +325,7 @@ pub struct OutputDisposed {
     /// request that came in.
     pub trigger: TraceSource,
     pub disposed_operation: Entity,
-    pub disposed_in_session: Entity,
+    pub disposed_in_session: SmallVec<[Entity; 8]>,
     pub disposal: Disposal,
 }
 
@@ -338,6 +338,7 @@ impl OutputDisposed {
         world: &mut World,
     ) {
         let trigger = TraceSource::new(trigger, world);
+        let disposed_in_session = get_session_stack_from_world(disposed_in_session, world);
         world.trigger(TracedEvent::now(Self { trigger, disposed_operation, disposed_in_session, disposal }));
     }
 }
@@ -537,6 +538,43 @@ pub enum TracedEventKind {
     /// Something in the execution structure is broken. This indicates a severe
     /// implementation error.
     Broken(Broken),
+}
+
+impl TracedEventKind {
+    pub fn is_for_session(&self, session: Entity) -> bool {
+        match self {
+            Self::MessageSent(msg) => {
+                if msg.input.session_stack.contains(&session) {
+                    return true;
+                }
+
+                for out in &msg.output {
+                    if out.session_stack.contains(&session) {
+                        return true;
+                    }
+                }
+            }
+            Self::SessionEvent(s) => {
+                return s.session_stack.contains(&session);
+            }
+            Self::BufferEvent(b) => {
+                if b.buffer.session_stack.contains(&session) {
+                    return true;
+                }
+
+                return b.accessor.session_stack.contains(&session);
+            }
+            Self::OutputDisposed(d) => {
+                return d.disposed_in_session.contains(&session);
+            }
+            Self::Broken(_) => {
+                // For now we consider broken to always be relevant to all sessions
+                return true;
+            }
+        }
+
+        false
+    }
 }
 
 impl From<MessageSent> for TracedEventKind {

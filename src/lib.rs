@@ -210,7 +210,7 @@ extern crate self as crossflow;
 /// struct Precision(i32);
 ///
 /// fn rounding_service(
-///     In(BlockingService{request, provider, ..}): BlockingServiceInput<f64>,
+///     BlockingService{request, provider, ..}: BlockingService<f64>,
 ///     service_precision: Query<&Precision>,
 ///     global_precision: Res<Precision>,
 /// ) -> f64 {

@@ -41,26 +41,22 @@ use std::{
 /// parameters, change trackers, or mutable captured variables), that internal state will
 /// be shared among all its clones.
 ///
-/// There are three ways to instantiate a callback:
-///
-/// ## [`.as_callback()`](AsCallback)
-///
-/// If you have a Bevy system with an input parameter of `In<`[`BlockingCallback`]`>`
-/// or `In<`[`AsyncCallback`]`>` then you can convert it into a [`Callback`]
-/// object by applying `.as_callback()`.
+/// To instantiate a callback, write a Bevy system function whose input parameter
+/// is either [`Blocking`] or [`Async`], then call [`.into_callback()`](IntoCallback)
+/// on it:
 ///
 /// ```rust
 /// use crossflow::{prelude::*, testing::Integer};
 /// use bevy_ecs::prelude::*;
 ///
 /// fn add_integer(
-///     In(input): In<BlockingCallback<i32>>,
+///     Blocking { request, .. }: Blocking<i32>,
 ///     integer: Res<Integer>,
 /// ) -> i32 {
-///     input.request + integer.value
+///     request + integer.value
 /// }
 ///
-/// let callback = add_integer.as_callback();
+/// let callback = add_integer.into_callback();
 /// ```
 ///
 /// ```rust
@@ -69,65 +65,14 @@ use std::{
 /// use std::future::Future;
 ///
 /// fn add_integer_async(
-///     In(input): In<AsyncCallback<i32>>,
+///     Async { request, .. }: Async<i32>,
 ///     integer: Res<Integer>,
 /// ) -> impl Future<Output = i32> + use<> {
 ///     let value = integer.value;
-///     async move { input.request + value }
+///     async move { request + value }
 /// }
 ///
-/// let async_callback = add_integer_async.as_callback();
-/// ```
-///
-/// ## [`.into_blocking_callback()`](IntoBlockingCallback)
-///
-/// Any Bevy system can be converted into a blocking [`Callback`] by applying
-/// `.into_blocking_callback()` to it. The `Request` type of the callback will
-/// be whatever the input type of the system is (the `T` inside of `In<T>`). The
-/// `Response` type of the callback will be whatever the return value of the
-/// callback is.
-///
-/// A blocking callback is always run as an exclusive system (even if it does not
-/// use exclusive system parameters), so it will block  all other systems from
-/// running until it is finished.
-///
-/// ```rust
-/// use crossflow::{prelude::*, testing::Integer};
-/// use bevy_ecs::prelude::*;
-///
-/// fn add_integer(
-///     In(input): In<i32>,
-///     integer: Res<Integer>,
-/// ) -> i32 {
-///     input + integer.value
-/// }
-///
-/// let callback = add_integer.into_blocking_callback();
-/// ```
-///
-/// ## [`.into_async_callback()`](IntoAsyncCallback)
-///
-/// If you have a Bevy system whose return type implements the [`Future`] trait,
-/// it can be converted into an async [`Callback`] object by applying
-/// `.into_async_callback()` to it. The `Response` type of the callback will be
-/// `<T as Future>::Output` where `T` is the return type of the system. The `Future`
-/// returned by the system will be polled in the async compute task pool (unless
-/// you activate the `single_threaded_async` feature).
-///
-/// ```rust
-/// use crossflow::{prelude::*, testing::Integer};
-/// use bevy_ecs::prelude::*;
-/// use std::future::Future;
-///
-/// fn add_integer(
-///     In(input): In<i32>,
-///     integer: Res<Integer>,
-/// ) -> impl Future<Output = i32> + use<> {
-///     let value = integer.value;
-///     async move { input + value }
-/// }
-///
-/// let callback = add_integer.into_async_callback();
+/// let async_callback = add_integer_async.into_callback();
 /// ```
 pub struct Callback<Request, Response, Streams = ()> {
     pub(crate) inner: Arc<Mutex<InnerCallback<Request, Response, Streams>>>,

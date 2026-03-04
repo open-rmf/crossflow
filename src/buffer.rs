@@ -433,22 +433,22 @@ impl std::fmt::Debug for BufferKeyTag {
 /// use crossflow::{prelude::*, testing::*};
 ///
 /// fn get_largest_value(
-///     In(input): In<((), BufferKey<i32>)>,
-///     access: BufferAccess<i32>,
+///     Blocking { request: (_, key), id, .. }: Blocking<((), BufferKey<i32>)>,
+///     mut access: BufferAccess<i32>,
 /// ) -> Option<i32> {
-///     let access = access.get(&input.1).ok()?;
+///     let access = access.get(id, &key).ok()?;
 ///     access.iter().max().cloned()
 /// }
 ///
 /// fn push_values(
-///     In(input): In<(Vec<i32>, BufferKey<i32>)>,
+///     Blocking { request: (values, key), id, .. }: Blocking<(Vec<i32>, BufferKey<i32>)>,
 ///     mut access: BufferAccessMut<i32>,
 /// ) {
-///     let Ok(mut access) = access.get_mut(&input.1) else {
+///     let Ok(mut access) = access.get_mut(id, &key) else {
 ///         return;
 ///     };
 ///
-///     for value in input.0 {
+///     for value in values {
 ///         access.push(value);
 ///     }
 /// }
@@ -460,9 +460,9 @@ impl std::fmt::Debug for BufferKeyTag {
 ///     builder
 ///         .chain(scope.start)
 ///         .with_access(buffer)
-///         .then(push_values.into_blocking_callback())
+///         .then(push_values.into_callback())
 ///         .with_access(buffer)
-///         .then(get_largest_value.into_blocking_callback())
+///         .then(get_largest_value.into_callback())
 ///         .connect(scope.terminate);
 /// });
 ///
@@ -536,22 +536,22 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
 /// use crossflow::{prelude::*, testing::*};
 ///
 /// fn get_largest_value(
-///     In(input): In<((), BufferKey<i32>)>,
-///     access: BufferAccess<i32>,
+///     Blocking { request: (_, key), id, .. }: Blocking<((), BufferKey<i32>)>,
+///     mut access: BufferAccess<i32>,
 /// ) -> Option<i32> {
-///     let access = access.get(&input.1).ok()?;
+///     let access = access.get(id, &key).ok()?;
 ///     access.iter().max().cloned()
 /// }
 ///
 /// fn push_values(
-///     In(input): In<(Vec<i32>, BufferKey<i32>)>,
+///     Blocking { request: (values, key), id, .. }: Blocking<(Vec<i32>, BufferKey<i32>)>,
 ///     mut access: BufferAccessMut<i32>,
 /// ) {
-///     let Ok(mut access) = access.get_mut(&input.1) else {
+///     let Ok(mut access) = access.get_mut(id, &key) else {
 ///         return;
 ///     };
 ///
-///     for value in input.0 {
+///     for value in values {
 ///         access.push(value);
 ///     }
 /// }
@@ -563,9 +563,9 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
 ///     builder
 ///         .chain(scope.start)
 ///         .with_access(buffer)
-///         .then(push_values.into_blocking_callback())
+///         .then(push_values.into_callback())
 ///         .with_access(buffer)
-///         .then(get_largest_value.into_blocking_callback())
+///         .then(get_largest_value.into_callback())
 ///         .connect(scope.terminate);
 /// });
 ///

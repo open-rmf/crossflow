@@ -255,7 +255,7 @@ let workflow = commands.spawn_io_workflow(
 
 // ANCHOR: sum_callback_workflow
 // Define a closure to perform a sum
-let f = |request: Vec<f32>| -> f32 {
+let f = |Blocking { request, .. }: Blocking<Vec<f32>>| -> f32 {
     request.into_iter().fold(0.0, |a, b| a + b)
 };
 // Convert the closure into a Callback
@@ -1035,7 +1035,7 @@ let workflow = commands.spawn_io_workflow(
             .listen(IntersectionKeys::select_buffers(signal, arrived))
             // When an update happens, provide both buffer keys to a node that
             // will evaluate if the robot is ready to cross
-            .then(proceed_or_stop.into_blocking_callback())
+            .then(proceed_or_stop.into_callback())
             // If no decision can be made yet (e.g. one of the buffers is
             // unavailable) then just dispose this message
             .dispose_on_none()
@@ -1166,15 +1166,15 @@ fn sum(srv: BlockingService<Vec<f32>>) -> f32 {
 struct Offset(Vec2);
 
 fn apply_offset(
-    input: BlockingService<Vec2>,
+    BlockingService { request, provider, .. }: BlockingService<Vec2>,
     offsets: Query<&Offset>,
 ) -> Vec2 {
     let offset = offsets
-        .get(input.provider)
+        .get(provider)
         .map(|offset| **offset)
         .unwrap_or(Vec2::ZERO);
 
-    input.request + offset
+    request + offset
 }
 // ANCHOR_END: apply_offset_fn
 
@@ -1260,7 +1260,7 @@ async fn trivial_async_service(srv: AsyncService<String>) -> String {
 // ANCHOR_END: trivial_async_service
 
 // ANCHOR: page_title_service
-async fn page_title_service(In(srv): AsyncServiceInput<String>) -> Option<String> {
+async fn page_title_service(srv: AsyncService<String>) -> Option<String> {
     let response = trpl::get(&srv.request).await;
     let response_text = response.text().await;
     trpl::Html::parse(&response_text)
@@ -1292,7 +1292,7 @@ struct PageTitleRequest {
 
 /// A service that fetches the page title of a URL and stores that into an Entity.
 async fn insert_page_title(
-    In(srv): AsyncServiceInput<PageTitleRequest>
+    srv: AsyncService<PageTitleRequest>
 ) -> Result<(), ()> {
     let response = trpl::get(&srv.request.url).await;
     let response_text = response.text().await;
@@ -1321,7 +1321,7 @@ struct Url(String);
 
 use std::future::Future;
 fn fetch_page_title(
-    In(srv): AsyncServiceInput<Entity>,
+    srv: AsyncService<Entity>,
     url: Query<&Url>,
 ) -> impl Future<Output = Result<String, ()>> + use<> {
     // Use a query to get the Url component of this entity
@@ -1435,7 +1435,7 @@ struct NavigationRequest {
 }
 
 fn navigate(
-    In(input): AsyncServiceInput<NavigationRequest, NavigationStreams>,
+    AsyncService { request, streams, channel, .. }: AsyncService<NavigationRequest, NavigationStreams>,
     nav_graph: Res<NavigationGraph>,
 ) -> impl Future<Output = Result<(), NavigationError>> + use<> {
     // Clone the navigation graph resource so we can move the clone into the
@@ -1445,21 +1445,21 @@ fn navigate(
     // Create a callback for fetching the latest position
     let get_position = |
         Blocking { request: key, id, .. }: Blocking<BufferKey<Vec2>>,
-        access: BufferAccess<Vec2>,
+        mut access: BufferAccess<Vec2>,
     | {
         access.get_newest(id, &key).cloned()
     };
-    let get_position = get_position.into_blocking_callback();
+    let get_position = get_position.into_callback();
 
     // Unpack the input into simpler variables
-    let NavigationRequest { destination, robot_position_key } = input.request;
-    let location_stream = input.streams.location;
+    let NavigationRequest { destination, robot_position_key } = request;
+    let location_stream = streams.location;
 
     // Begin an async block that will run in the AsyncComputeTaskPool
     async move {
         loop {
             // Fetch the latest position using the async channel
-            let position = input.channel.request_outcome(
+            let position = channel.request_outcome(
                 robot_position_key.clone(),
                 get_position.clone()
             )
@@ -1486,9 +1486,9 @@ fn navigate(
 
 // ANCHOR: continuous_streams_example
 fn continuous_navigate(
-    In(srv): ContinuousServiceInput<NavigationRequest, Result<(), NavigationError>, NavigationStreams>,
+    srv: ContinuousService<NavigationRequest, Result<(), NavigationError>, NavigationStreams>,
     mut continuous: ContinuousQuery<NavigationRequest, Result<(), NavigationError>, NavigationStreams>,
-    position_access: BufferAccess<Vec2>,
+    mut position_access: BufferAccess<Vec2>,
     nav_graph: Res<NavigationGraph>,
 ) {
     let Some(mut orders) = continuous.get_mut(&srv.key) else {
@@ -1555,9 +1555,9 @@ let workflow = context.spawn_io_workflow(|scope, builder| {
     builder
         .chain(scope.start)
         .with_access(buffer)
-        .then(push_values.into_blocking_callback())
+        .then(push_values.into_callback())
         .with_access(buffer)
-        .then(get_largest_value.into_blocking_callback())
+        .then(get_largest_value.into_callback())
         .connect(scope.terminate);
 });
 
@@ -1588,7 +1588,7 @@ fn manage_opening_time(
     mut gate: BufferGateAccessMut,
     hours: Res<WorkingHours>,
 ) {
-    let Ok(mut gate) = gate.get_mut(id, &key) else {
+    let Ok(mut gate) = gate.get_mut(id, key) else {
         return;
     };
 
@@ -1602,15 +1602,12 @@ fn manage_opening_time(
 
 // ANCHOR: fibonacci_example
 fn fibonacci_example(
-    In(input): BlockingServiceInput<u32, StreamOf<u32>>
+    BlockingService { request: order, streams, .. }: BlockingService<u32, StreamOf<u32>>
 ) {
-    let order = input.request;
-    let stream = input.streams;
-
     let mut current = 0;
     let mut next = 1;
     for _ in 0..order {
-        stream.send(current);
+        streams.send(current);
 
         let sum = current + next;
         current = next;
@@ -1621,12 +1618,12 @@ fn fibonacci_example(
 
 // ANCHOR: fibonacci_string_example
 fn fibonacci_string_example(
-    In(input): BlockingServiceInput<u32, (StreamOf<u32>, StreamOf<String>)>,
+    BlockingService {
+        request: order,
+        streams: (u32_stream, string_stream),
+        ..
+    }: BlockingService<u32, (StreamOf<u32>, StreamOf<String>)>,
 ) {
-    let order = input.request;
-    let u32_stream = input.streams.0;
-    let string_stream = input.streams.1;
-
     let mut current = 0;
     let mut next = 1;
     for _ in 0..order {
@@ -1648,11 +1645,8 @@ struct FibonacciStreams {
 }
 
 fn fibonacci_stream_pack_example(
-    In(input): BlockingServiceInput<u32, FibonacciStreams>,
+    BlockingService { request: order, streams, .. }: BlockingService<u32, FibonacciStreams>,
 ) {
-    let order = input.request;
-    let streams = input.streams;
-
     let mut current = 0;
     let mut next = 1;
     for _ in 0..order {
@@ -1752,24 +1746,24 @@ struct Greeting {
 
 // Make an fn that defines the callback implementation
 fn perform_greeting(
-    In(input): BlockingCallbackInput<String>,
+    Blocking { request, .. }: Blocking<String>,
     greeting: Res<Greeting>,
 ) -> String {
-    let name = input.request;
+    let name = request;
     let prefix = &greeting.prefix;
     format!("{prefix}{name}")
 }
 
 // Convert the fn into a callback.
 // This is necessary to initialize the fn as a bevy system.
-let callback = perform_greeting.as_callback();
+let callback = perform_greeting.into_callback();
 
 // Use the callback in a request
 let outcome = commands.request(String::from("Bob"), callback).outcome();
 // ANCHOR_END: callback_example
 
 // ANCHOR: async_callback_example
-async fn page_title_callback(In(srv): AsyncCallbackInput<String>) -> Option<String> {
+async fn page_title_callback(srv: Async<String>) -> Option<String> {
     let response = trpl::get(&srv.request).await;
     let response_text = response.text().await;
     trpl::Html::parse(&response_text)
@@ -1784,24 +1778,23 @@ let outcome = commands.request(String::from("https://example.com"), callback).ou
 // ANCHOR: closure_callback_example
 // Make an closure that defines the callback implementation
 let perform_greeting = |
-    In(input): BlockingCallbackInput<String>,
+    Blocking { request: name, .. }: Blocking<String>,
     greeting: Res<Greeting>,
 | {
-    let name = input.request;
     let prefix = &greeting.prefix;
     format!("{prefix}{name}")
 };
 
 // Convert the fn into a callback.
 // This is necessary to initialize the fn as a bevy system.
-let callback = perform_greeting.as_callback();
+let callback = perform_greeting.into_callback();
 
 // Use the callback in a request
 let outcome = commands.request(String::from("Bob"), callback).outcome();
 // ANCHOR_END: closure_callback_example
 
 // ANCHOR: async_closure_callback_example
-let page_title_callback = |In(srv): AsyncCallbackInput<String>| {
+let page_title_callback = |srv: Async<String>| {
     async move {
         let response = trpl::get(&srv.request).await;
         let response_text = response.text().await;
@@ -1811,7 +1804,7 @@ let page_title_callback = |In(srv): AsyncCallbackInput<String>| {
     }
 };
 
-let callback = page_title_callback.as_callback();
+let callback = page_title_callback.into_callback();
 let outcome = commands.request(String::from("https://example.com"), callback).outcome();
 // ANCHOR_END: async_closure_callback_example
 }
@@ -1824,7 +1817,7 @@ struct Greeting {
 
 // ANCHOR: agnostic_blocking_example
 fn perform_greeting(
-    In(name): In<String>,
+    Blocking { request: name, .. }: Blocking<String>,
     greeting: Res<Greeting>,
 ) -> String {
     let prefix = &greeting.prefix;
@@ -1832,13 +1825,11 @@ fn perform_greeting(
 }
 
 // Use as service
-let greeting_service = commands.spawn_service(
-    perform_greeting.into_blocking_service()
-);
+let greeting_service = commands.spawn_service(perform_greeting);
 let outcome = commands.request(String::from("Bob"), greeting_service).outcome();
 
 // Use as callback
-let greeting_callback = perform_greeting.into_blocking_callback();
+let greeting_callback = perform_greeting.into_callback();
 let outcome = commands.request(String::from("Bob"), greeting_callback).outcome();
 // ANCHOR_END: agnostic_blocking_example
 
@@ -1847,7 +1838,7 @@ struct Url(String);
 
 // ANCHOR: agnostic_async_example
 fn get_page_element(
-    In(element): In<String>,
+    Async { request: element, .. }: Async<String>,
     url: Res<Url>,
 ) -> impl Future<Output = Option<String>> + use<> {
     let url = (**url).clone();
@@ -1860,13 +1851,11 @@ fn get_page_element(
 let element = String::from("title");
 
 // Use as service
-let title_service = commands.spawn_service(
-    get_page_element.into_async_service()
-);
+let title_service = commands.spawn_service(get_page_element);
 let outcome = commands.request(element.clone(), title_service).outcome();
 
 // Use as callback
-let title_callback = get_page_element.into_async_callback();
+let title_callback = get_page_element.into_callback();
 let outcome = commands.request(element, title_callback).outcome();
 // ANCHOR_END: agnostic_async_example
 
@@ -1878,14 +1867,11 @@ async fn fetch_content_from_url(_: String) -> Option<HashMap<String, String>> {
 
 fn map_demo(commands: &mut Commands) {
 // ANCHOR: fibonacci_map_example
-fn fibonacci_map_example(input: BlockingMap<u32, StreamOf<u32>>) {
-    let order = input.request;
-    let stream = input.streams;
-
+fn fibonacci_map_example(Blocking { request: order, streams, .. }: Blocking<u32, StreamOf<u32>>) {
     let mut current = 0;
     let mut next = 1;
     for _ in 0..order {
-        stream.send(current);
+        streams.send(current);
 
         let sum = current + next;
         current = next;
@@ -1893,17 +1879,16 @@ fn fibonacci_map_example(input: BlockingMap<u32, StreamOf<u32>>) {
     }
 }
 
-let outcome = commands.request(10, fibonacci_map_example.as_map()).outcome();
+let outcome = commands.request(10, fibonacci_map_example.into_map()).outcome();
 // ANCHOR_END: fibonacci_map_example
 
 // ANCHOR: navigate_map_example
 async fn navigate(
-    input: AsyncMap<NavigationRequest, NavigationStreams>,
+    Async { request, channel, streams, .. }: Async<NavigationRequest, NavigationStreams>,
 ) -> Result<(), NavigationError> {
     // Clone the navigation graph resource so we can move the clone into the
     // async block.
-    let nav_graph = input
-        .channel
+    let nav_graph = channel
         .world(|world| {
             world.resource::<NavigationGraph>().clone()
         })
@@ -1912,19 +1897,19 @@ async fn navigate(
     // Create a callback for fetching the latest position
     let get_position = |
         Blocking { request: key, id, .. }: Blocking<BufferKey<Vec2>>,
-        access: BufferAccess<Vec2>,
+        mut access: BufferAccess<Vec2>,
     | {
         access.get_newest(id, &key).cloned()
     };
-    let get_position = get_position.into_blocking_callback();
+    let get_position = get_position.into_callback();
 
     // Unpack the input into simpler variables
-    let NavigationRequest { destination, robot_position_key } = input.request;
-    let location_stream = input.streams.location;
+    let NavigationRequest { destination, robot_position_key } = request;
+    let location_stream = streams.location;
 
     loop {
         // Fetch the latest position using the async channel
-        let position = input.channel.request_outcome(
+        let position = channel.request_outcome(
             robot_position_key.clone(),
             get_position.clone()
         )
