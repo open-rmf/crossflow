@@ -24,10 +24,11 @@ use crate::{
     AddExecution, AddOperation, Builder, DefaultStreamBufferContainer, InnerChannel, InputSlot,
     NamedStreamRedirect, NamedStreamTargets, NamedTarget, NamedValue, OperationResult,
     OperationRoster, OrBroken, Output, Push, Receiver, RedirectScopeStream, RedirectWorkflowStream,
-    ReportUnhandled, SendNamedStreams, SingleInputStorage, StreamAvailability, StreamEffect,
-    StreamPack, StreamRequest, StreamTargetMap, TakenStream, UnusedStreams, UnusedTarget, RequestId,
+    ReportUnhandled, RequestId, SendNamedStreams, SingleInputStorage, StreamAvailability,
+    StreamEffect, StreamPack, StreamRequest, StreamTargetMap, TakenStream, UnusedStreams,
+    UnusedTarget,
     dyn_node::{DynStreamInputPack, DynStreamOutputPack},
-    send_named_stream, output_port,
+    output_port, send_named_stream,
 };
 
 /// A wrapper to turn any stream type into a named stream. Each item that moves
@@ -175,7 +176,15 @@ impl<S: StreamEffect> StreamPack for DynamicallyNamedStream<S> {
             S::side_effect(value, &mut request)
                 .and_then(|value| {
                     target
-                        .map(|t| t.send_output(NamedValue { name: name.clone(), value }, request))
+                        .map(|t| {
+                            t.send_output(
+                                NamedValue {
+                                    name: name.clone(),
+                                    value,
+                                },
+                                request,
+                            )
+                        })
                         .unwrap_or(Ok(()))
                 })
                 .report_unhandled(request_id.source, world);
@@ -188,11 +197,7 @@ impl<S: StreamEffect> StreamPack for DynamicallyNamedStream<S> {
         Ok(())
     }
 
-    fn defer_buffers(
-        buffer: Self::StreamBuffers,
-        request_id: RequestId,
-        commands: &mut Commands,
-    ) {
+    fn defer_buffers(buffer: Self::StreamBuffers, request_id: RequestId, commands: &mut Commands) {
         commands.queue(SendNamedStreams::<
             S,
             DefaultStreamBufferContainer<NamedValue<S::Input>>,

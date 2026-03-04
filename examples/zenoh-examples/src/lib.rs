@@ -115,10 +115,7 @@ pub fn zenoh_publisher_node<T: 'static + Send + Sync + Message + std::fmt::Debug
 ) -> Node<T, Result<(), ArcError>> {
     let publisher = builder
         .commands()
-        .request(
-            topic_name.clone(),
-            get_zenoh_publisher.into_callback(),
-        )
+        .request(topic_name.clone(), get_zenoh_publisher.into_callback())
         .outcome();
     let publisher = publisher.shared();
 
@@ -140,7 +137,10 @@ pub fn zenoh_publisher_node<T: 'static + Send + Sync + Message + std::fmt::Debug
 }
 
 fn get_zenoh_publisher(
-    Async { request: topic_name, .. }: Async<Arc<str>>,
+    Async {
+        request: topic_name,
+        ..
+    }: Async<Arc<str>>,
     session: Res<ZenohSession>,
 ) -> impl Future<Output = Result<Arc<AdvancedPublisher<'static>>, ArcError>> + use<> {
     let session_outcome = session.outcome.clone();

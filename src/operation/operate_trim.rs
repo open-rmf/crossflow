@@ -22,12 +22,12 @@ use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 
 use crate::{
-    Cancellation, CleanupContents, Disposal, FinalizeCleanup, FinalizeCleanupRequest, Input,
-    InputBundle, ManageCancellation, ManageInput, Operation, OperationCleanup, OperationError,
-    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ReachabilityResult, InScope, SingleInputStorage, SingleTargetStorage, ScopeEndpoints,
-    TrimBranch, TrimPoint, TrimPolicy, immediately_downstream_of, RequestId, RouteSource, output_port,
-    ManageDisposal,
+    Cancellation, CleanupContents, Disposal, FinalizeCleanup, FinalizeCleanupRequest, InScope,
+    Input, InputBundle, ManageCancellation, ManageDisposal, ManageInput, Operation,
+    OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
+    OperationSetup, OrBroken, ReachabilityResult, RequestId, RouteSource, ScopeEndpoints,
+    SingleInputStorage, SingleTargetStorage, TrimBranch, TrimPoint, TrimPolicy,
+    immediately_downstream_of, output_port,
 };
 
 pub(crate) struct Trim<T> {
@@ -119,7 +119,11 @@ impl<T: 'static + Send + Sync> Operation for Trim<T> {
         }: OperationRequest,
     ) -> OperationResult {
         let Input { session, data, seq } = world.take_input::<T>(source)?;
-        let cleanup_id = RequestId { source, session, seq };
+        let cleanup_id = RequestId {
+            source,
+            session,
+            seq,
+        };
 
         let source_ref = world.get_entity(source).or_broken()?;
         let trim = source_ref.get::<TrimStorage>().or_broken()?;
@@ -138,7 +142,10 @@ impl<T: 'static + Send + Sync> Operation for Trim<T> {
             }
             None => {
                 let scope = world.get::<InScope>(source).or_broken()?.scope();
-                let scope_entry = world.get::<ScopeEndpoints>(scope).or_broken()?.enter_scope();
+                let scope_entry = world
+                    .get::<ScopeEndpoints>(scope)
+                    .or_broken()?
+                    .enter_scope();
                 match calculate_nodes(scope_entry, &trim.branches, world) {
                     Ok(Ok(nodes)) => {
                         world.get_mut::<TrimStorage>(source).or_broken()?.nodes =
@@ -238,7 +245,11 @@ impl<T: 'static + Send + Sync> Trim<T> {
         // After performing a trim, it's possible that the terminal node is no
         // longer reachable, so we should always emit a disposal.
         let disposal = Disposal::trimming(cleanup.cleaner, nodes.clone());
-        let request_id = RequestId { session, source, seq };
+        let request_id = RequestId {
+            session,
+            source,
+            seq,
+        };
         let dispose_port = output_port::dispose();
         world.notify_trim(
             request_id.to_route_source(&dispose_port),

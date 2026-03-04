@@ -55,7 +55,9 @@ fn main() {
 struct Offset(Vec2);
 
 fn apply_offset(
-    BlockingService { request, provider, .. }: BlockingService<Vec2>,
+    BlockingService {
+        request, provider, ..
+    }: BlockingService<Vec2>,
     offsets: Query<&Offset>,
 ) -> Vec2 {
     let offset = offsets

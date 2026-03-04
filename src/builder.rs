@@ -22,15 +22,15 @@ use std::future::Future;
 use smallvec::SmallVec;
 
 use crate::{
-    Accessible, Accessing, Accessor, AddOperation, IntoMap, Buffer, BufferKeys, BufferLocation,
-    BufferMap, BufferSettings, Bufferable, Buffering, Chain, Collect, ForkClone, ForkCloneOutput,
+    Accessible, Accessing, Accessor, AddOperation, Buffer, BufferKeys, BufferLocation, BufferMap,
+    BufferSettings, Bufferable, Buffering, Chain, Collect, ForkClone, ForkCloneOutput,
     ForkOptionOutput, ForkResultOutput, ForkTargetStorage, Gate, GateRequest, IncompatibleLayout,
-    Injection, InputSlot, IntoAsyncMap, IntoBlockingMap, Joinable, Joined, Node, OperateBuffer,
-    OperateCancel, OperateDynamicGate, OperateQuietCancel, OperateScope, OperateSplit,
-    OperateStaticGate, Output, Provider, RequestOfMap, ResponseOfMap, Scope, ScopeEndpoints,
-    ScopeSettings, ScopeSettingsStorage, Sendish, ServiceInstructions, SplitOutputs, Splittable,
-    StreamPack, StreamTargetMap, StreamsOfMap, Trim, TrimBranch, UnusedTarget, Unzippable,
-    make_option_branching, make_result_branching,
+    Injection, InputSlot, IntoAsyncMap, IntoBlockingMap, IntoMap, Joinable, Joined, Node,
+    OperateBuffer, OperateCancel, OperateDynamicGate, OperateQuietCancel, OperateScope,
+    OperateSplit, OperateStaticGate, Output, Provider, RequestOfMap, ResponseOfMap, Scope,
+    ScopeEndpoints, ScopeSettings, ScopeSettingsStorage, Sendish, ServiceInstructions,
+    SplitOutputs, Splittable, StreamPack, StreamTargetMap, StreamsOfMap, Trim, TrimBranch,
+    UnusedTarget, Unzippable, make_option_branching, make_result_branching,
 };
 
 pub(crate) mod connect;
@@ -1268,15 +1268,9 @@ mod tests {
         scope: Scope<(), TimeStats>,
         builder: &mut Builder,
     ) -> (Output<Instant>, InputSlot<Instant>) {
-        let initial_time = builder
-            .commands()
-            .spawn_service(get_initial_time);
-        let finish_time = builder
-            .commands()
-            .spawn_service(finish_time_range);
-        let collect_samples = builder
-            .commands()
-            .spawn_service(collect_samples);
+        let initial_time = builder.commands().spawn_service(get_initial_time);
+        let finish_time = builder.commands().spawn_service(finish_time_range);
+        let collect_samples = builder.commands().spawn_service(collect_samples);
 
         let samples = builder.create_buffer(BufferSettings::keep_all());
 
@@ -1366,7 +1360,12 @@ mod tests {
         Instant::now()
     }
 
-    fn finish_time_range(Blocking { request: initial_time, .. }: Blocking<Instant>) -> TimeRange {
+    fn finish_time_range(
+        Blocking {
+            request: initial_time,
+            ..
+        }: Blocking<Instant>,
+    ) -> TimeRange {
         TimeRange {
             initial_time,
             finish_time: Instant::now(),
@@ -1374,7 +1373,9 @@ mod tests {
     }
 
     fn collect_samples(
-        Blocking { request: key, id, .. }: Blocking<BufferKey<TimeRange>>,
+        Blocking {
+            request: key, id, ..
+        }: Blocking<BufferKey<TimeRange>>,
         mut access: BufferAccess<TimeRange>,
     ) -> Option<TimeStats> {
         let samples = access.get(id, &key).unwrap();

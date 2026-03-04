@@ -153,7 +153,10 @@ pub enum ZenohQuerierError {
 
 impl DiagramElementRegistry {
     pub(super) fn register_zenoh_querier(&mut self, ensure_session: EnsureZenohSession) {
-        let create_querier = |Async { request: config, .. }: Async<ZenohQuerierConfig>, session: Res<ZenohSession>| {
+        let create_querier = |Async {
+                                  request: config, ..
+                              }: Async<ZenohQuerierConfig>,
+                              session: Res<ZenohSession>| {
             let session_outcome = session.outcome.clone();
             async move {
                 let session = session_outcome
@@ -207,8 +210,8 @@ impl DiagramElementRegistry {
                         .outcome()
                         .shared();
 
-                    let node = builder.create_map(
-                        move |input: Async<JsonMessage, ZenohNodeStreams>| {
+                    let node =
+                        builder.create_map(move |input: Async<JsonMessage, ZenohNodeStreams>| {
                             let querier = querier.clone();
                             let parameters = Arc::clone(&parameters);
                             let encoder = encoder.clone();
@@ -261,8 +264,7 @@ impl DiagramElementRegistry {
                                 let cancel = cancellation_receiver.recv();
                                 race(querying, receive_cancel(cancel)).await
                             }
-                        },
-                    );
+                        });
 
                     Ok(node)
                 },

@@ -21,8 +21,8 @@ use variadics_please::all_tuples;
 use std::sync::Arc;
 
 use crate::{
-    Builder, InnerChannel, OperationError, OperationResult, OperationRoster, StreamAvailability,
-    StreamTargetMap, UnusedStreams, RequestId,
+    Builder, InnerChannel, OperationError, OperationResult, OperationRoster, RequestId,
+    StreamAvailability, StreamTargetMap, UnusedStreams,
     dyn_node::{DynStreamInputPack, DynStreamOutputPack},
 };
 
@@ -95,11 +95,7 @@ pub trait StreamPack: 'static + Send + Sync {
         roster: &mut OperationRoster,
     ) -> OperationResult;
 
-    fn defer_buffers(
-        buffer: Self::StreamBuffers,
-        request_id: RequestId,
-        commands: &mut Commands,
-    );
+    fn defer_buffers(buffer: Self::StreamBuffers, request_id: RequestId, commands: &mut Commands);
 
     fn set_stream_availability(availability: &mut StreamAvailability);
 

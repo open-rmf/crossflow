@@ -108,7 +108,11 @@ mod tests {
     }
 
     fn push_value(
-        Blocking { request: (value, key), id, .. }: Blocking<(i32, BufferKey<i32>)>,
+        Blocking {
+            request: (value, key),
+            id,
+            ..
+        }: Blocking<(i32, BufferKey<i32>)>,
         mut access: BufferAccessMut<i32>,
     ) {
         access.get_mut(id, &key).unwrap().push(value);

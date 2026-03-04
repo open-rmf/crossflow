@@ -15,12 +15,12 @@
  *
 */
 
-use bevy_ecs::prelude::{World, Entity, Component};
+use bevy_ecs::prelude::{Component, Entity, World};
 
-use crate::{ScopedSessionBundle, Seq, Cancellation};
+use crate::{Cancellation, ScopedSessionBundle, Seq};
 
 #[cfg(feature = "trace")]
-use crate::{SessionEvent, RequestId};
+use crate::{RequestId, SessionEvent};
 
 #[cfg(feature = "trace")]
 use bevy_ecs::prelude::Command;
@@ -47,19 +47,14 @@ impl SessionStatus {
     pub fn cancellation(&self) -> Option<Cancellation> {
         match self {
             Self::Dropped { cancellation, .. } => Some(cancellation.clone()),
-            _ => None
+            _ => None,
         }
     }
 }
 
 pub trait ManageSession {
     /// Spawn a session that will be used inside a scope
-    fn spawn_scoped_session(
-        &mut self,
-        parent_session: Entity,
-        scope: Entity,
-        seq: Seq,
-    ) -> Entity;
+    fn spawn_scoped_session(&mut self, parent_session: Entity, scope: Entity, seq: Seq) -> Entity;
 
     /// Spawn a session that will be used for the buffer cleanup workflow of a
     /// scope.
@@ -74,13 +69,10 @@ pub trait ManageSession {
 }
 
 impl ManageSession for World {
-    fn spawn_scoped_session(
-        &mut self,
-        parent_session: Entity,
-        scope: Entity,
-        seq: Seq,
-    ) -> Entity {
-        let scoped_session = self.spawn(ScopedSessionBundle::new(parent_session, scope)).id();
+    fn spawn_scoped_session(&mut self, parent_session: Entity, scope: Entity, seq: Seq) -> Entity {
+        let scoped_session = self
+            .spawn(ScopedSessionBundle::new(parent_session, scope))
+            .id();
         #[cfg(feature = "trace")]
         {
             let scope_request = RequestId {
@@ -100,7 +92,12 @@ impl ManageSession for World {
         begin_cleanup: Entity,
         seq: Seq,
     ) -> Entity {
-        let cleanup_session = self.spawn(ScopedSessionBundle::for_cleanup(parent_session, begin_cleanup)).id();
+        let cleanup_session = self
+            .spawn(ScopedSessionBundle::for_cleanup(
+                parent_session,
+                begin_cleanup,
+            ))
+            .id();
         #[cfg(feature = "trace")]
         {
             let scope_request = RequestId {

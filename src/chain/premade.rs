@@ -15,15 +15,12 @@
  *
 */
 
-use bevy_ecs::{
-    prelude::Entity,
-    query::QueryEntityError,
-};
+use bevy_ecs::{prelude::Entity, query::QueryEntityError};
 
 use smallvec::SmallVec;
 use thiserror::Error;
 
-use crate::{BufferAccessMut, BufferKey, Blocking};
+use crate::{Blocking, BufferAccessMut, BufferKey};
 
 #[derive(Debug, Error)]
 pub enum BufferAccessError {
@@ -36,7 +33,9 @@ pub enum BufferAccessError {
 }
 
 pub(super) fn consume_buffer<const N: usize, T>(
-    Blocking { request: key, id, .. }: Blocking<BufferKey<T>>,
+    Blocking {
+        request: key, id, ..
+    }: Blocking<BufferKey<T>>,
     mut access: BufferAccessMut<T>,
 ) -> SmallVec<[T; N]>
 where
@@ -50,7 +49,11 @@ where
 }
 
 pub fn push_into_buffer<T: 'static + Send + Sync>(
-    Blocking { request: (input, key), id, .. }: Blocking<(T, BufferKey<T>)>,
+    Blocking {
+        request: (input, key),
+        id,
+        ..
+    }: Blocking<(T, BufferKey<T>)>,
     mut access: BufferAccessMut<T>,
 ) -> Result<(), BufferAccessError> {
     access

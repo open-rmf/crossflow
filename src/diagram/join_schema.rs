@@ -24,7 +24,7 @@ use super::{
     JsonMessage, NextOperation, OperationName,
 };
 use crate::{
-    IdentifierRef, BufferMap, BufferMapLayout, BufferMapLayoutHints, Builder, DynOutput,
+    BufferMap, BufferMapLayout, BufferMapLayoutHints, Builder, DynOutput, IdentifierRef,
     InferenceContext, Joined, MessageRegistry, TraceSettings, default_as_false, is_default,
     is_false, output_ref,
 };

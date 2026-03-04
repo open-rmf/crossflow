@@ -20,9 +20,8 @@ use std::borrow::Cow;
 use bevy_ecs::prelude::{Component, Entity};
 
 use crate::{
-    Collection, Executable, Input, InputBundle, ManageInput, NamedValue, OperationRequest,
-    OperationResult, OperationSetup, OrBroken, Storage, add_lifecycle_dependency,
-    ManageSession,
+    Collection, Executable, Input, InputBundle, ManageInput, ManageSession, NamedValue,
+    OperationRequest, OperationResult, OperationSetup, OrBroken, Storage, add_lifecycle_dependency,
 };
 
 pub(crate) struct Push<T> {

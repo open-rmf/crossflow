@@ -24,11 +24,11 @@ use smallvec::SmallVec;
 use std::error::Error;
 
 use crate::{
-    Accessing, AddOperation, IntoMap, Buffer, BufferKey, BufferKeys, Bufferable, Buffering, Builder,
-    Collect, CreateCancelFilter, CreateDisposalFilter, ForkTargetStorage, Gate, GateRequest,
-    InputSlot, IntoAsyncMap, IntoCallback, IntoBlockingMap, Node, Noop,
-    OperateBufferAccess, OperateCancel, OperateDynamicGate, OperateQuietCancel, OperateSplit,
-    OperateStaticGate, Output, ProvideOnce, Provider, Scope, ScopeSettings, Sendish, BasicIdentification, Identification,
+    Accessing, AddOperation, BasicIdentification, Buffer, BufferKey, BufferKeys, Bufferable,
+    Buffering, Builder, Collect, CreateCancelFilter, CreateDisposalFilter, ForkTargetStorage, Gate,
+    GateRequest, Identification, InputSlot, IntoAsyncMap, IntoBlockingMap, IntoCallback, IntoMap,
+    Node, Noop, OperateBufferAccess, OperateCancel, OperateDynamicGate, OperateQuietCancel,
+    OperateSplit, OperateStaticGate, Output, ProvideOnce, Provider, Scope, ScopeSettings, Sendish,
     ServiceInstructions, Spread, StreamPack, StreamTargetMap, Trim, TrimBranch, UnusedTarget,
     make_option_branching, make_result_branching,
 };
@@ -1018,7 +1018,7 @@ where
     K: 'static + Send + Sync + Eq + std::hash::Hash + Clone + std::fmt::Debug,
     V: 'static + Send + Sync,
     T: 'static + Send + Sync + IntoIterator<Item = (K, V)>,
-    BasicIdentification: Identification<K>
+    BasicIdentification: Identification<K>,
 {
     /// If the chain's response type can be turned into an iterator that returns
     /// `(key, value)` pairs, then this will split it in a map-like way, whether
@@ -1406,7 +1406,9 @@ mod tests {
     // integer value of those elements. We don't use the collect operation for
     // this test so that we can test each of those operations in isolation.
     fn watch_for_quantity(
-        Blocking { request: key, id, .. }: Blocking<BufferKey<i32>>,
+        Blocking {
+            request: key, id, ..
+        }: Blocking<BufferKey<i32>>,
         mut access: BufferAccessMut<i32>,
     ) -> Option<SmallVec<[i32; 16]>> {
         let mut buffer = access.get_mut(id, &key).unwrap();

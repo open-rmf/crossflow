@@ -16,11 +16,11 @@
 */
 
 use crate::{
-    AddOperation, Async, Blocking, Channel, ChannelQueue, Input, ManageDisposal, Seq, RequestId,
-    ManageInput, OperateCallback, OperateTask, OperationError, OperationRoster,
-    ProvideOnce, Provider, Sendish, StreamPack, UnusedStreams, MessageRoute, output_port,
+    AddOperation, Async, Blocking, Channel, ChannelQueue, Input, ManageDisposal, ManageInput,
+    MessageRoute, OperateCallback, OperateTask, OperationError, OperationRoster, ProvideOnce,
+    Provider, RequestId, Sendish, Seq, StreamPack, UnusedStreams,
     async_execution::{spawn_task, task_cancel_sender},
-    make_stream_buffers_from_world,
+    make_stream_buffers_from_world, output_port,
 };
 
 use bevy_ecs::{
@@ -124,11 +124,16 @@ impl<'a> CallbackRequest<'a> {
         seq: Seq,
         unused_streams: UnusedStreams,
     ) -> Result<(), OperationError> {
-        let request_id = RequestId { session, source: self.source, seq };
+        let request_id = RequestId {
+            session,
+            source: self.source,
+            seq,
+        };
         if !unused_streams.streams.is_empty() {
             let port = output_port::name_str("stream_out");
             let route = request_id.to_route_source(&port);
-            self.world.emit_disposal(route, unused_streams.into(), self.roster);
+            self.world
+                .emit_disposal(route, unused_streams.into(), self.roster);
         }
 
         let route = MessageRoute {
@@ -163,7 +168,11 @@ impl<'a> CallbackRequest<'a> {
         let cancel_sender = task_cancel_sender(self.world);
         OperateTask::<_, Streams>::new(
             task_id,
-            RequestId { session, source: self.source, seq },
+            RequestId {
+                session,
+                source: self.source,
+                seq,
+            },
             self.target,
             task,
             cancel_sender,
@@ -184,7 +193,14 @@ impl<'a> CallbackRequest<'a> {
             .get_resource_or_insert_with(ChannelQueue::new)
             .sender
             .clone();
-        let channel = Channel::new(RequestId { source: self.source, seq, session }, sender);
+        let channel = Channel::new(
+            RequestId {
+                source: self.source,
+                seq,
+                session,
+            },
+            sender,
+        );
         let streams = channel.for_streams::<Streams>(self.world)?;
         Ok((channel, streams))
     }
@@ -235,7 +251,11 @@ where
             seq,
         } = input.get_request()?;
         let source = input.source;
-        let request_id = RequestId { source, seq, session };
+        let request_id = RequestId {
+            source,
+            seq,
+            session,
+        };
 
         if !self.initialized {
             self.system.initialize(input.world);
@@ -257,7 +277,11 @@ where
         let mut unused_streams = UnusedStreams::new(request_id);
         Streams::process_stream_buffers(
             streams,
-            RequestId { session, source: input.source, seq },
+            RequestId {
+                session,
+                source: input.source,
+                seq,
+            },
             &mut unused_streams,
             input.world,
             input.roster,
@@ -300,7 +324,11 @@ where
                 request,
                 streams,
                 channel,
-                id: RequestId { source: input.source, seq, session },
+                id: RequestId {
+                    source: input.source,
+                    seq,
+                    session,
+                },
             },
             input.world,
         );

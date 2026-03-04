@@ -12,7 +12,7 @@ use axum::{
     routing::{self},
 };
 use bevy_ecs::{prelude::Entity, schedule::IntoScheduleConfigs};
-use crossflow::{Diagram, DiagramElementRegistry, TracedEvent, Outcome, RequestExt, trace};
+use crossflow::{Diagram, DiagramElementRegistry, Outcome, RequestExt, TracedEvent, trace};
 use serde::{Deserialize, Serialize};
 use std::{
     error::Error,

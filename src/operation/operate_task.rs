@@ -31,11 +31,12 @@ use tokio::sync::mpsc::{
 use smallvec::SmallVec;
 
 use crate::{
-    AddOperation, Blocker, Broken, ChannelItem, ChannelQueue, Cleanup, Disposal, ManageInput,
-    Operation, OperationCleanup, OperationError, OperationReachability, OperationRequest,
-    OperationResult, OperationRoster, OperationSetup, OrBroken, ReachabilityResult, InScope,
-    StreamPack, UnhandledErrors, ManageDisposal, RequestId, output_port,
+    AddOperation, Blocker, Broken, ChannelItem, ChannelQueue, Cleanup, Disposal, InScope,
+    ManageDisposal, ManageInput, Operation, OperationCleanup, OperationError,
+    OperationReachability, OperationRequest, OperationResult, OperationRoster, OperationSetup,
+    OrBroken, ReachabilityResult, RequestId, StreamPack, UnhandledErrors,
     async_execution::{CancelSender, TaskHandle, task_cancel_sender},
+    output_port,
 };
 
 struct JobWaker {
@@ -159,7 +160,11 @@ where
                             let disposal =
                                 disposal.unwrap_or_else(|| Disposal::task_despawned(source, node));
                             let port = output_port::next();
-                            world.emit_disposal(request_id.to_route_source(&port), disposal, roster);
+                            world.emit_disposal(
+                                request_id.to_route_source(&port),
+                                disposal,
+                                roster,
+                            );
                         }
                     },
                 ))

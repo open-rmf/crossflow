@@ -16,8 +16,8 @@
 */
 
 use crate::{
-    Broken, DeliveryLabelId, InspectInput, SetupFailure, StreamTargetMap, UnhandledErrors, RequestId,
-    Disposal, ManageCancellation, RouteSourceOwned,
+    Broken, DeliveryLabelId, Disposal, InspectInput, ManageCancellation, RequestId,
+    RouteSourceOwned, SetupFailure, StreamTargetMap, UnhandledErrors,
 };
 
 use bevy_derive::Deref;
@@ -310,7 +310,8 @@ impl OperationRoster {
         self.queue.retain(|e| *e != target);
         self.deferred_queue.retain(|e| *e != target);
         self.reachable.retain(|r| r.scope != target);
-        self.disposals.retain(|d| d.listener != target && d.session != target);
+        self.disposals
+            .retain(|d| d.listener != target && d.session != target);
     }
 
     /// Move all items from the deferred queue into the immediate queue

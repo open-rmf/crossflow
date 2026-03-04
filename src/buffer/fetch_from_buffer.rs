@@ -21,9 +21,9 @@ use smallvec::SmallVec;
 
 use crate::{
     Accessing, AnyBuffer, AsAnyBuffer, Buffer, BufferKey, BufferKeyBuilder, BufferKeyLifecycle,
-    BufferLocation, Bufferable, Buffering, Builder, CloneFromBuffer, Gate, InputSlot,
-    JoinBehavior, Joining, MessageTypeHint, OperationError,
-    OperationResult, OperationRoster, OrBroken, RequestId, BufferWorldAccess, BufferKeyTag,
+    BufferKeyTag, BufferLocation, BufferWorldAccess, Bufferable, Buffering, Builder,
+    CloneFromBuffer, Gate, InputSlot, JoinBehavior, Joining, MessageTypeHint, OperationError,
+    OperationResult, OperationRoster, OrBroken, RequestId,
 };
 
 /// This is an alternative to the [`Buffer`] and [`CloneFromBuffer`] structs
@@ -157,9 +157,8 @@ fn pull_for_join<T: 'static + Send + Sync>(
         accessor: buffer.id(),
         lifecycle: None,
     };
-    world.unchecked_buffer_mut::<T, _>(req, &key, |mut buffer| {
-        buffer.pull()
-    })
+    world
+        .unchecked_buffer_mut::<T, _>(req, &key, |mut buffer| buffer.pull())
         .or_broken()?
         .or_broken()
 }
@@ -176,7 +175,8 @@ pub(super) fn clone_for_join<T: 'static + Send + Sync + Clone>(
         accessor: buffer.id(),
         lifecycle: None,
     };
-    let value = world.unchecked_buffer_view::<T>(req, &key)
+    let value = world
+        .unchecked_buffer_view::<T>(req, &key)
         .or_broken()?
         .newest()
         .or_broken()?;

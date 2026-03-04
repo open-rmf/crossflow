@@ -16,8 +16,8 @@
 */
 
 use crate::{
-    AddOperation, OperateAsyncMap, OperateBlockingMap, ProvideOnce,
-    Provider, Sendish, StreamPack, Blocking, Async,
+    AddOperation, Async, Blocking, OperateAsyncMap, OperateBlockingMap, ProvideOnce, Provider,
+    Sendish, StreamPack,
 };
 
 use bevy_ecs::prelude::{Commands, Entity};

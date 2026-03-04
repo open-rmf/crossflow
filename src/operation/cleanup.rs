@@ -16,9 +16,9 @@
 */
 
 use crate::{
-    Accessing, BufferAccessStorage, ManageDisposal, ManageInput, MiscellaneousFailure,
-    OperationError, OperationResult, OperationRoster, OrBroken, InScope, UnhandledErrors,
-    CleanInputsOf, RequestId, InSeries,
+    Accessing, BufferAccessStorage, CleanInputsOf, InScope, InSeries, ManageDisposal, ManageInput,
+    MiscellaneousFailure, OperationError, OperationResult, OperationRoster, OrBroken, RequestId,
+    UnhandledErrors,
 };
 
 use bevy_ecs::prelude::{Component, Entity, World};
@@ -87,7 +87,7 @@ impl<'a> OperationCleanup<'a> {
     pub fn cleanup_inputs<T: 'static + Send + Sync>(&mut self) -> OperationResult {
         self.world.cleanup_inputs::<T>(CleanInputsOf {
             session: self.cleanup.session,
-            source: self.source
+            source: self.source,
         });
         Ok(())
     }
@@ -103,7 +103,8 @@ impl<'a> OperationCleanup<'a> {
         let scope = self.world.get::<InScope>(self.source).or_broken()?.scope();
         if self.cleanup.cleaner == scope {
             // Only erase disposals if the cleanup is being triggered by the scope
-            self.world.clear_disposals(self.cleanup.session, self.source);
+            self.world
+                .clear_disposals(self.cleanup.session, self.source);
         }
         Ok(())
     }
@@ -113,11 +114,7 @@ impl<'a> OperationCleanup<'a> {
         B: Accessing + 'static + Send + Sync,
         B::Key: 'static + Send + Sync,
     {
-        let scope = self
-            .world
-            .get::<InScope>(self.source)
-            .or_broken()?
-            .scope();
+        let scope = self.world.get::<InScope>(self.source).or_broken()?.scope();
         if self.cleanup.cleaner == scope {
             // If the scope is telling us to clean up, then we should fully
             // remove the key for this session. Otherwise we should not remove

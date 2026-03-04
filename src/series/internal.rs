@@ -24,20 +24,19 @@ use tokio::sync::mpsc::{
     UnboundedReceiver as TokioReceiver, UnboundedSender as TokioSender, unbounded_channel,
 };
 
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 
 use anyhow::anyhow;
 
 use std::sync::Arc;
 
 use crate::{
-    Cancel, Cancellation, DisposalListener, DisposalUpdate,
-    ManageCancellation, MiscellaneousFailure, OnCancel, OperationError, OperationExecuteStorage,
-    OperationRequest, OperationResult, OperationSetup, SetupFailure,
-    UnhandledErrors, UnusedTarget, OrBroken, ManageSession, DeferredRoster, SessionStatus,
-    Cancellable, OperationType, CleanupContents, FinalizeCleanup, FinalizeCleanupRequest,
-    Cleanup, OperationRoster, Broken, OperationCleanup, RequestId, Detached,
-    UnusedTargetDrop, DisposalInformation,
+    Broken, Cancel, Cancellable, Cancellation, Cleanup, CleanupContents, DeferredRoster, Detached,
+    DisposalInformation, DisposalListener, DisposalUpdate, FinalizeCleanup, FinalizeCleanupRequest,
+    ManageCancellation, ManageSession, MiscellaneousFailure, OnCancel, OperationCleanup,
+    OperationError, OperationExecuteStorage, OperationRequest, OperationResult, OperationRoster,
+    OperationSetup, OperationType, OrBroken, RequestId, SessionStatus, SetupFailure,
+    UnhandledErrors, UnusedTarget, UnusedTargetDrop,
 };
 
 #[cfg(feature = "trace")]
@@ -104,7 +103,9 @@ impl SeriesSessionBundle {
 
 fn finalize_series_cleanup(
     FinalizeCleanupRequest {
-        cleanup: Cleanup { session: series, .. },
+        cleanup: Cleanup {
+            session: series, ..
+        },
         world,
         roster,
     }: FinalizeCleanupRequest,
@@ -137,9 +138,13 @@ pub(crate) fn finalize_series_cancel(
                 });
 
                 if let Err(OperationError::Broken(backtrace)) = r {
-                    world.get_resource_or_init::<UnhandledErrors>()
+                    world
+                        .get_resource_or_init::<UnhandledErrors>()
                         .broken
-                        .push(Broken { node: last_op, backtrace });
+                        .push(Broken {
+                            node: last_op,
+                            backtrace,
+                        });
                 }
             };
         }
@@ -156,13 +161,14 @@ pub(crate) fn finalize_series_cancel(
 
 fn series_session_disposal_listener(
     DisposalUpdate {
-        info: DisposalInformation {
-            listener: _,
-            trigger,
-            disposed: _,
-            session,
-            disposal,
-        },
+        info:
+            DisposalInformation {
+                listener: _,
+                trigger,
+                disposed: _,
+                session,
+                disposal,
+            },
         world,
         roster,
     }: DisposalUpdate,
@@ -189,17 +195,16 @@ pub(crate) struct AddExecution<E: Executable> {
 
 impl<E: Executable> AddExecution<E> {
     pub(crate) fn new(target: Entity, execution: E) -> Self {
-        Self {
-            target,
-            execution,
-        }
+        Self { target, execution }
     }
 }
 
 impl<E: Executable + 'static + Sync + Send> Command for AddExecution<E> {
     fn apply(self, world: &mut World) {
         let operation_type = self.execution.operation_type();
-        world.entity_mut(self.target).insert(OperationType::new(operation_type));
+        world
+            .entity_mut(self.target)
+            .insert(OperationType::new(operation_type));
 
         if let Err(error) = self.execution.setup(OperationSetup {
             source: self.target,
@@ -270,8 +275,14 @@ impl AddToSeries {
     }
 
     fn try_apply(self, world: &mut World) -> OperationResult {
-        world.get_mut::<SequenceInSeries>(self.series).or_broken()?.push(self.target);
-        world.get_entity_mut(self.target).or_broken()?.insert(InSeries(self.series));
+        world
+            .get_mut::<SequenceInSeries>(self.series)
+            .or_broken()?
+            .push(self.target);
+        world
+            .get_entity_mut(self.target)
+            .or_broken()?
+            .insert(InSeries(self.series));
         Ok(())
     }
 }
@@ -314,22 +325,19 @@ pub(crate) fn cancel_series(cancel: Cancel) -> OperationResult {
         let progress = *progress;
         roster.purge(progress);
 
-        let cleanup_id = RequestId { session, source: session, seq: 0 };
-        world.get_mut::<CleanupContents>(session).or_broken()?.add_cleanup(
-            cleanup_id,
-            smallvec![progress],
-        );
+        let cleanup_id = RequestId {
+            session,
+            source: session,
+            seq: 0,
+        };
+        world
+            .get_mut::<CleanupContents>(session)
+            .or_broken()?
+            .add_cleanup(cleanup_id, smallvec![progress]);
 
         // Attempt to cleanup the in-progress operation, in case it is long-running
-        let is_cleaning = OperationCleanup::new(
-            session,
-            progress,
-            session,
-            cleanup_id,
-            world,
-            roster,
-        )
-            .clean();
+        let is_cleaning =
+            OperationCleanup::new(session, progress, session, cleanup_id, world, roster).clean();
 
         if is_cleaning {
             // Return and wait to receive the cleanup notification from the operation
@@ -357,22 +365,19 @@ fn clean_series_from_progress_point(
     // the series might continue in a broken state.
     roster.purge(progress);
 
-    let cleanup_id = RequestId { session: series, source: series, seq: 0 };
-    world.get_mut::<CleanupContents>(series).or_broken()?.add_cleanup(
-        cleanup_id,
-        smallvec![progress],
-    );
+    let cleanup_id = RequestId {
+        session: series,
+        source: series,
+        seq: 0,
+    };
+    world
+        .get_mut::<CleanupContents>(series)
+        .or_broken()?
+        .add_cleanup(cleanup_id, smallvec![progress]);
 
     // Attempt to cleanup the in-progress operation, in case it is long-running
-    let is_cleaning = OperationCleanup::new(
-        series,
-        progress,
-        series,
-        cleanup_id,
-        world,
-        roster,
-    )
-        .clean();
+    let is_cleaning =
+        OperationCleanup::new(series, progress, series, cleanup_id, world, roster).clean();
 
     if is_cleaning {
         *world.get_mut::<SessionStatus>(series).or_broken()? = SessionStatus::Dropped {
@@ -504,7 +509,8 @@ pub(crate) fn drop_series_target(
     let cancellation = Cancellation::target_dropped(target);
 
     if let Some(progress) = reached_drop {
-        let is_cleaning = clean_series_from_progress_point(series, progress, &cancellation, world, roster)?;
+        let is_cleaning =
+            clean_series_from_progress_point(series, progress, &cancellation, world, roster)?;
         if is_cleaning {
             // Return and wait to receive the cleanup notification from the operation
             return Ok(());

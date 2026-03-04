@@ -25,10 +25,10 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::{
-    Accessing, BufferKeyBuilder, ChannelQueue, Input, InputBundle, ManageInput, Operation,
-    OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
-    OperationSetup, OrBroken, ReachabilityResult, InScope, SingleInputStorage,
-    SingleTargetStorage, Seq, MessageRoute, output_port,
+    Accessing, BufferKeyBuilder, ChannelQueue, InScope, Input, InputBundle, ManageInput,
+    MessageRoute, Operation, OperationCleanup, OperationError, OperationReachability,
+    OperationRequest, OperationResult, OperationSetup, OrBroken, ReachabilityResult, Seq,
+    SingleInputStorage, SingleTargetStorage, output_port,
 };
 
 pub(crate) struct OperateBufferAccess<T, B>

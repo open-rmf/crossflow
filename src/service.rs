@@ -919,7 +919,9 @@ mod tests {
     }
 
     fn sys_blocking_service(
-        BlockingService { request, provider, .. }: BlockingService<String>,
+        BlockingService {
+            request, provider, ..
+        }: BlockingService<String>,
         people: Query<&TestPeople>,
         multipliers: Query<&Multiplier>,
     ) -> u64 {
@@ -965,11 +967,7 @@ mod tests {
         _commands: Commands<'w, 's>,
     }
 
-    fn service_with_generic<P: SystemParam>(
-        _: BlockingService<()>,
-        _: StaticSystemParam<P>,
-    ) {
-    }
+    fn service_with_generic<P: SystemParam>(_: BlockingService<()>, _: StaticSystemParam<P>) {}
 
     #[test]
     fn test_generic_service() {

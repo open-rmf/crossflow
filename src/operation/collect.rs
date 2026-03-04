@@ -22,11 +22,11 @@ use std::collections::HashMap;
 use smallvec::SmallVec;
 
 use crate::{
-    Disposal, DisposalListener, DisposalUpdate, Input, InputBundle, ManageInput, Operation,
-    OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationRoster,
-    OperationSetup, OrBroken, ReachabilityResult, SingleInputStorage, SingleTargetStorage,
-    is_downstream_of, output_port, Routing, RouteSource, Seq, RouteTarget, ManageDisposal,
-    DisposalInformation,
+    Disposal, DisposalInformation, DisposalListener, DisposalUpdate, Input, InputBundle,
+    ManageDisposal, ManageInput, Operation, OperationCleanup, OperationReachability,
+    OperationRequest, OperationResult, OperationRoster, OperationSetup, OrBroken,
+    ReachabilityResult, RouteSource, RouteTarget, Routing, Seq, SingleInputStorage,
+    SingleTargetStorage, is_downstream_of, output_port,
 };
 
 pub(crate) struct Collect<T, const N: usize> {
@@ -97,22 +97,21 @@ where
 
         if max.is_some_and(|max| len >= max) {
             // We have obtained enough elements to send off the collection.
-            let (seqs, message): (SmallVec<[Seq; N]>, SmallVec<[T; N]>) = progress
-                .drain(..)
-                .collect();
+            let (seqs, message): (SmallVec<[Seq; N]>, SmallVec<[T; N]>) =
+                progress.drain(..).collect();
 
             let port = output_port::next();
             let route = Routing {
-                outputs: seqs.into_iter().map(|seq| RouteSource {
-                    session,
-                    source,
-                    seq,
-                    port: &port,
-                }).collect(),
-                input: RouteTarget {
-                    session,
-                    target,
-                },
+                outputs: seqs
+                    .into_iter()
+                    .map(|seq| RouteSource {
+                        session,
+                        source,
+                        seq,
+                        port: &port,
+                    })
+                    .collect(),
+                input: RouteTarget { session, target },
             };
             world.give_input(route, message, roster)?;
             return Ok(());
@@ -123,7 +122,16 @@ where
         if !is_upstream_active::<T>(session, source, None, world)? {
             // This node is not reachable, so we need to either give an output
             // or emit a disposal.
-            on_unreachable_collection::<T, N>(source, session, Some(seq), target, min, len, world, roster)?;
+            on_unreachable_collection::<T, N>(
+                source,
+                session,
+                Some(seq),
+                target,
+                min,
+                len,
+                world,
+                roster,
+            )?;
         }
 
         // The collection node is still reachable so we can just wait until the
@@ -198,13 +206,14 @@ impl<T, const N: usize> CollectionStorage<T, N> {
 
 fn collection_disposal_listener<T, const N: usize>(
     DisposalUpdate {
-        info: DisposalInformation {
-            listener: source,
-            trigger: _,
-            disposed,
-            session,
-            disposal: _,
-        },
+        info:
+            DisposalInformation {
+                listener: source,
+                trigger: _,
+                disposed,
+                session,
+                disposal: _,
+            },
         world,
         roster,
     }: DisposalUpdate,
@@ -286,7 +295,12 @@ fn on_unreachable_collection<T: 'static + Send + Sync, const N: usize>(
         };
 
         let port = output_port::dispose();
-        let route = RouteSource { session, source, seq, port: &port };
+        let route = RouteSource {
+            session,
+            source,
+            seq,
+            port: &port,
+        };
         world.emit_disposal(route, disposal, roster);
         return Ok(());
     }
@@ -306,16 +320,16 @@ fn on_unreachable_collection<T: 'static + Send + Sync, const N: usize>(
 
     let port = output_port::next();
     let route = Routing {
-        outputs: seqs.into_iter().map(|seq| RouteSource {
-            session,
-            source,
-            seq,
-            port: &port,
-        }).collect(),
-        input: RouteTarget {
-            session,
-            target,
-        },
+        outputs: seqs
+            .into_iter()
+            .map(|seq| RouteSource {
+                session,
+                source,
+                seq,
+                port: &port,
+            })
+            .collect(),
+        input: RouteTarget { session, target },
     };
     world.give_input(route, message, roster)?;
     Ok(())

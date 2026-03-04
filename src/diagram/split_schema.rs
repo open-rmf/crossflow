@@ -22,8 +22,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    Builder, ForRemaining, FromSequential, FromSpecific, InferenceContext, ListSplitKey,
-    MapSplitKey, OperationResult, SplitDispatcher, Splittable, is_default, BasicIdentification,
+    BasicIdentification, Builder, ForRemaining, FromSequential, FromSpecific, InferenceContext,
+    ListSplitKey, MapSplitKey, OperationResult, SplitDispatcher, Splittable, is_default,
 };
 
 use super::{

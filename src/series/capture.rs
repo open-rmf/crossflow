@@ -20,9 +20,9 @@ use bevy_ecs::prelude::Component;
 use tokio::sync::oneshot;
 
 use crate::{
-    Cancellation, Executable, Input, InputBundle, ManageInput, Cancellable,
-    OperationRequest, OperationResult, OperationSetup, OrBroken, Cancel,
-    SeriesLifecycleChannel, async_execution::spawn_task, ManageSession,
+    Cancel, Cancellable, Cancellation, Executable, Input, InputBundle, ManageInput, ManageSession,
+    OperationRequest, OperationResult, OperationSetup, OrBroken, SeriesLifecycleChannel,
+    async_execution::spawn_task,
 };
 
 pub(crate) struct CaptureOutcome<T> {
@@ -90,7 +90,14 @@ impl<T: 'static + Send + Sync> Executable for CaptureOutcome<T> {
     }
 }
 
-fn cancel_recv_target<T>(Cancel { target, cancellation, world, .. }: Cancel) -> OperationResult
+fn cancel_recv_target<T>(
+    Cancel {
+        target,
+        cancellation,
+        world,
+        ..
+    }: Cancel,
+) -> OperationResult
 where
     T: 'static + Send + Sync,
 {

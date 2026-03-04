@@ -16,10 +16,10 @@
 */
 
 use crate::{
-    Cancellation, Input, InputBundle, ManageCancellation, ManageInput, Operation, OperationCleanup,
-    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ReachabilityResult, SingleInputStorage, InScope, ScopeEndpoints, SingleTargetStorage,
-    RouteSource, output_port,
+    Cancellation, InScope, Input, InputBundle, ManageCancellation, ManageInput, Operation,
+    OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationSetup,
+    OrBroken, ReachabilityResult, RouteSource, ScopeEndpoints, SingleInputStorage,
+    SingleTargetStorage, output_port,
 };
 
 /// Create an operation that will cancel a scope. The incoming message will be
@@ -135,7 +135,10 @@ fn setup_cancel_operation<T: 'static + Send + Sync>(
     let scope = **world.get::<InScope>(source).or_broken()?;
 
     let cancel_target = world.get::<ScopeEndpoints>(scope).or_broken()?.cancel_scope;
-    world.get_mut::<SingleInputStorage>(cancel_target).or_broken()?.add(source);
+    world
+        .get_mut::<SingleInputStorage>(cancel_target)
+        .or_broken()?
+        .add(source);
 
     world.entity_mut(source).insert((
         InputBundle::<T>::new(),

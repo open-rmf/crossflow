@@ -445,9 +445,7 @@ mod tests {
             .no_deserializing()
             .register_node_builder(
                 NodeBuilderOptions::new("wait_for_matching"),
-                |builder, _config: ()| {
-                    builder.create_node(wait_for_matching.into_callback())
-                },
+                |builder, _config: ()| builder.create_node(wait_for_matching.into_callback()),
             )
             .with_listen()
             .with_result();
@@ -565,12 +563,16 @@ mod tests {
     }
 
     fn wait_for_matching(
-        Blocking { request: keys, id, .. }: Blocking<PubSubTestKeys>,
+        Blocking {
+            request: keys, id, ..
+        }: Blocking<PubSubTestKeys>,
         mut access_expectation: BufferAccess<Vec<JsonMessage>>,
         mut access_actual: BufferAccess<JsonMessage>,
         mut timer: Local<Option<Instant>>,
     ) -> Result<Result<(), String>, ()> {
-        let expectation = access_expectation.get_newest(id, &keys.expectation).unwrap();
+        let expectation = access_expectation
+            .get_newest(id, &keys.expectation)
+            .unwrap();
         let actual = access_actual.get(id, &keys.actual).unwrap();
 
         if actual.len() < expectation.len() {

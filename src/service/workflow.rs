@@ -16,13 +16,12 @@
 */
 
 use crate::{
-    Blocker, Cancellation, Deliver, Delivery, DeliveryOrder, DeliveryUpdate, Disposal,
-    ExitTarget, ExitTargetStorage, Input, ManageInput, OperationCleanup, OperationError,
-    OperationReachability, OperationRequest, OperationResult, OperationRoster, OrBroken, Seq,
-    ProviderStorage, ReachabilityResult, Service, ServiceRequest, ServiceTrait,
-    SingleTargetStorage, StreamPack, begin_scope, dispose_for_despawned_service,
-    insert_new_order, pop_next_delivery, RequestId, ManageCancellation, RouteSource,
-    output_port, ManageDisposal, ManageSession,
+    Blocker, Cancellation, Deliver, Delivery, DeliveryOrder, DeliveryUpdate, Disposal, ExitTarget,
+    ExitTargetStorage, Input, ManageCancellation, ManageDisposal, ManageInput, ManageSession,
+    OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
+    OperationRoster, OrBroken, ProviderStorage, ReachabilityResult, RequestId, RouteSource, Seq,
+    Service, ServiceRequest, ServiceTrait, SingleTargetStorage, StreamPack, begin_scope,
+    dispose_for_despawned_service, insert_new_order, output_port, pop_next_delivery,
 };
 
 use bevy_ecs::prelude::{Component, Entity, World};
@@ -171,7 +170,6 @@ where
     Response: 'static + Send + Sync,
     Streams: StreamPack,
 {
-
     let Some(mut delivery) = world.get_mut::<Delivery<Request>>(provider) else {
         // The workflow has been despawned, so we should treat the request
         // as cancelled.
@@ -182,7 +180,11 @@ where
     let update = insert_new_order::<Request>(
         delivery.as_mut(),
         DeliveryOrder {
-            request_id: RequestId { session: parent_session, source, seq },
+            request_id: RequestId {
+                session: parent_session,
+                source,
+                seq,
+            },
             task_id: scoped_session,
             request,
             instructions,
@@ -190,11 +192,19 @@ where
     );
 
     let (request, blocker, seq) = match update {
-        DeliveryUpdate::Immediate { blocking, request, seq } => {
+        DeliveryUpdate::Immediate {
+            blocking,
+            request,
+            seq,
+        } => {
             let serve_next = serve_next_workflow_request::<Request, Response, Streams>;
             let blocker = blocking.map(|label| Blocker {
                 provider,
-                request_id: RequestId { session: parent_session, source, seq },
+                request_id: RequestId {
+                    session: parent_session,
+                    source,
+                    seq,
+                },
                 label,
                 serve_next,
             });
@@ -204,7 +214,11 @@ where
             cancelled, stop, ..
         } => {
             for cancelled in cancelled {
-                let disposal = Disposal::supplanted(RequestId { session: parent_session, source, seq });
+                let disposal = Disposal::supplanted(RequestId {
+                    session: parent_session,
+                    source,
+                    seq,
+                });
                 let port = output_port::next();
                 let route = cancelled.request_id.to_route_source(&port);
                 world.emit_disposal(route, disposal, roster);
@@ -220,7 +234,11 @@ where
                         port: &output_port::name_str("supplant"),
                     },
                     stop.task_id,
-                    Cancellation::supplanted(RequestId { session: parent_session, source, seq }),
+                    Cancellation::supplanted(RequestId {
+                        session: parent_session,
+                        source,
+                        seq,
+                    }),
                     roster,
                 );
             }
@@ -269,7 +287,11 @@ where
         scoped_session,
         ExitTarget {
             target,
-            request_id: RequestId { source, session: input.session, seq: input.seq },
+            request_id: RequestId {
+                source,
+                session: input.session,
+                seq: input.seq,
+            },
             parent_session,
             blocker,
         },
@@ -318,7 +340,11 @@ fn serve_next_workflow_request<Request, Response, Streams>(
             return;
         };
 
-        let RequestId { session: parent_session, source, seq } = blocker.request_id;
+        let RequestId {
+            session: parent_session,
+            source,
+            seq,
+        } = blocker.request_id;
         let Some(target) = world.get::<SingleTargetStorage>(source) else {
             // This will not be able to run, so we should move onto the next
             // item in the queue.

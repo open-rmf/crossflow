@@ -17,7 +17,9 @@
 
 use bevy_ecs::prelude::ChildOf;
 
-use crate::{Executable, OperationRequest, OperationResult, OperationSetup, OrBroken, ManageSession};
+use crate::{
+    Executable, ManageSession, OperationRequest, OperationResult, OperationSetup, OrBroken,
+};
 
 /// During an execution flush, this executable gets automatically added to the end of
 /// any chain which has an unused target but was also marked as detached. This

@@ -40,9 +40,7 @@ fn main() {
 
     let process_door_request = app.world_mut().spawn_service(process_request);
     let door_controller = app.spawn_continuous_service(Update, door_controller);
-    let door_state_notifier = app
-        .world_mut()
-        .spawn_service(door_state_notifier);
+    let door_state_notifier = app.world_mut().spawn_service(door_state_notifier);
 
     for door_name in args.names {
         let request_topic_name = format!("door_request/{door_name}");
@@ -254,7 +252,9 @@ struct DoorStateBuffers {
 }
 
 fn door_state_notifier(
-    Blocking { request: key, id, .. }: Blocking<DoorStateBuffers>,
+    Blocking {
+        request: key, id, ..
+    }: Blocking<DoorStateBuffers>,
     mut sessions_access: BufferAccess<DoorSessions>,
     mut status_access: BufferAccess<protos::door_state::Status>,
 ) -> Option<protos::DoorState> {

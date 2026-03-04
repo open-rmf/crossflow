@@ -25,10 +25,11 @@ use smallvec::SmallVec;
 
 use crate::{
     AddOperation, BeginCleanupWorkflow, Buffer, BufferAccessors, BufferKey, BufferKeyBuilder,
-    BufferKeyLifecycle, BufferStorage, Builder, Chain, CleanupWorkflowConditions, CloneFromBuffer,
-    ForkTargetStorage, Gate, GateState, InputSlot, InspectBufferSessions, Join, Listen, ManageBufferSessions, Node,
-    OperateBufferAccess, OperationError, OperationResult, OperationRoster, OrBroken, Output, Scope,
-    ScopeSettings, SingleInputStorage, UnusedTarget, RequestId, BufferKeyTag, BufferWorldAccess,
+    BufferKeyLifecycle, BufferKeyTag, BufferStorage, BufferWorldAccess, Builder, Chain,
+    CleanupWorkflowConditions, CloneFromBuffer, ForkTargetStorage, Gate, GateState, InputSlot,
+    InspectBufferSessions, Join, Listen, ManageBufferSessions, Node, OperateBufferAccess,
+    OperationError, OperationResult, OperationRoster, OrBroken, Output, RequestId, Scope,
+    ScopeSettings, SingleInputStorage, UnusedTarget,
 };
 
 pub trait Buffering: 'static + Send + Sync + Clone {
@@ -287,9 +288,10 @@ impl<T: 'static + Send + Sync> Joining for Buffer<T> {
             lifecycle: None,
         };
 
-        world.unchecked_buffer_mut(req, &key, |mut buffer| {
-            buffer.pull().or_broken()
-        }).or_broken().flatten()
+        world
+            .unchecked_buffer_mut(req, &key, |mut buffer| buffer.pull().or_broken())
+            .or_broken()
+            .flatten()
     }
 }
 
@@ -382,7 +384,8 @@ impl<T: 'static + Send + Sync + Clone> Joining for CloneFromBuffer<T> {
             accessor: self.id(),
             lifecycle: None,
         };
-        let value = world.unchecked_buffer_view::<T>(req, &key)
+        let value = world
+            .unchecked_buffer_view::<T>(req, &key)
             .or_broken()?
             .newest()
             .or_broken()?;

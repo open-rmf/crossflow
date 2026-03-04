@@ -27,13 +27,11 @@ use backtrace::Backtrace;
 use smallvec::SmallVec;
 
 use crate::{
-    AddExecution, ChannelQueue, Detached, Finished, FlushWarning,
-    OperationError, OperationRequest, OperationRoster,
+    AddExecution, ChannelQueue, Detached, DisposalListener, DisposalUpdate, Finished, FlushWarning,
+    ManageCancellation, OperationError, OperationRequest, OperationRoster, ReachableRequest,
     SeriesLifecycleChannel, ServiceHook, ServiceLifecycle, ServiceLifecycleChannel,
-    UnhandledErrors, UnusedTarget,
-    WakeQueue, awaken_task, dispose_for_despawned_service, execute_operation,
-    validate_scope_reachability, ReachableRequest, ManageCancellation,
-    drop_series_target, DisposalUpdate, DisposalListener,
+    UnhandledErrors, UnusedTarget, WakeQueue, awaken_task, dispose_for_despawned_service,
+    drop_series_target, execute_operation, validate_scope_reachability,
 };
 
 #[cfg(feature = "single_threaded_async")]
@@ -176,7 +174,11 @@ fn garbage_cleanup(world: &mut World, roster: &mut OperationRoster) {
     while let Some(info) = roster.disposals.pop_front() {
         let listener = info.listener;
         if let Some(listen) = world.get::<DisposalListener>(info.listener).map(|l| l.0) {
-            if let Err(OperationError::Broken(backtrace)) = listen(DisposalUpdate { info, world, roster }) {
+            if let Err(OperationError::Broken(backtrace)) = listen(DisposalUpdate {
+                info,
+                world,
+                roster,
+            }) {
                 world.emit_broken(listener, backtrace, roster);
             }
         } else if world.get_entity(listener).is_ok() {
@@ -187,9 +189,13 @@ fn garbage_cleanup(world: &mut World, roster: &mut OperationRoster) {
     }
 
     while let Some(reachable) = roster.reachable.pop_front() {
-        if let Err(OperationError::Broken(backtrace)) = validate_scope_reachability(
-            ReachableRequest { reachable, world, roster }
-        ) {
+        if let Err(OperationError::Broken(backtrace)) =
+            validate_scope_reachability(ReachableRequest {
+                reachable,
+                world,
+                roster,
+            })
+        {
             world.emit_broken(reachable.scope, backtrace, roster);
         }
     }
@@ -282,7 +288,9 @@ fn collect_from_channels(
     }
 
     for target in drop_targets.drain(..) {
-        if let Err(OperationError::Broken(backtrace)) = drop_series_target(target, world, roster, true) {
+        if let Err(OperationError::Broken(backtrace)) =
+            drop_series_target(target, world, roster, true)
+        {
             world.emit_broken(target, backtrace, roster);
         }
     }
@@ -293,7 +301,9 @@ fn collect_from_channels(
     }
 
     for target in drop_targets {
-        if let Err(OperationError::Broken(backtrace)) = drop_series_target(target, world, roster, false) {
+        if let Err(OperationError::Broken(backtrace)) =
+            drop_series_target(target, world, roster, false)
+        {
             world.emit_broken(target, backtrace, roster);
         }
     }
@@ -301,7 +311,6 @@ fn collect_from_channels(
     #[cfg(feature = "single_threaded_async")]
     SingleThreadedExecution::world_poll(world, parameters.single_threaded_poll_limit);
 }
-
 
 /// This resource is used to queue up operations in the roster in situations
 /// where the regular roster is not available.

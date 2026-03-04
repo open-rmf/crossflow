@@ -22,8 +22,8 @@ use std::{
 };
 
 use crate::{
-    AnyBuffer, IdentifierRef, BufferMap, Builder, BuilderScopeContext, JsonMessage, PortRef,
-    Scope, StreamPack, dyn_node::DynStreamInputPack,
+    AnyBuffer, BufferMap, Builder, BuilderScopeContext, IdentifierRef, JsonMessage, PortRef, Scope,
+    StreamPack, dyn_node::DynStreamInputPack,
 };
 
 #[cfg(feature = "trace")]

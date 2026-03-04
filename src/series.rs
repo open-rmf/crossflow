@@ -23,9 +23,9 @@ use bevy_ecs::{
 use std::future::Future;
 
 use crate::{
-    AsMapOnce, IntoAsyncMapOnce, IntoBlockingMapOnce, Outcome, Promise, ProvideOnce,
-    Sendish, StreamPack, StreamTargetMap, UnusedTarget,
-    series::internal::{AddExecutableToSeries, AddToSeries}
+    AsMapOnce, IntoAsyncMapOnce, IntoBlockingMapOnce, Outcome, Promise, ProvideOnce, Sendish,
+    StreamPack, StreamTargetMap, UnusedTarget,
+    series::internal::{AddExecutableToSeries, AddToSeries},
 };
 
 mod detach;
@@ -187,11 +187,7 @@ where
 
         let target = self
             .commands
-            .spawn((
-                ChildOf(session),
-                Detached::default(),
-                UnusedTarget,
-            ))
+            .spawn((ChildOf(session), Detached::default(), UnusedTarget))
             .id();
 
         self.commands.queue(AddToSeries::new(session, target));
@@ -333,8 +329,11 @@ where
 
     /// Used internally to implement various ways of capturing an outcome.
     pub(crate) fn send_outcome(self, capture: CaptureOutcome<Response>) {
-        self.commands
-            .queue(AddExecutableToSeries::new(self.session, self.target, capture));
+        self.commands.queue(AddExecutableToSeries::new(
+            self.session,
+            self.target,
+            capture,
+        ));
     }
 
     // TODO(@mxgrey): Consider offering ways for users to respond to cancellations.

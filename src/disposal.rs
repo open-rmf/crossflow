@@ -31,8 +31,8 @@ use smallvec::SmallVec;
 use thiserror::Error as ThisError;
 
 use crate::{
-    Cancellation, OperationResult, OperationRoster, OrBroken,
-    RequestId, RouteSource, DisposalInformation, IdentifierRef,
+    Cancellation, DisposalInformation, IdentifierRef, OperationResult, OperationRoster, OrBroken,
+    RequestId, RouteSource,
 };
 
 #[cfg(feature = "trace")]
@@ -86,9 +86,7 @@ impl Disposal {
         .into()
     }
 
-    pub fn supplanted(
-        supplanted_by: RequestId,
-    ) -> Self {
+    pub fn supplanted(supplanted_by: RequestId) -> Self {
         Supplanted { supplanted_by }.into()
     }
 
@@ -552,7 +550,11 @@ impl ManageDisposal for World {
     }
 
     fn transfer_disposals(&mut self, from: Entity, to: Entity) -> OperationResult {
-        if let Some(from_storage) = self.get_entity_mut(from).or_broken()?.take::<DisposalStorage>() {
+        if let Some(from_storage) = self
+            .get_entity_mut(from)
+            .or_broken()?
+            .take::<DisposalStorage>()
+        {
             let mut to_mut = self.get_entity_mut(to).or_broken()?;
             match to_mut.get_mut::<DisposalStorage>() {
                 Some(mut to_storage) => {

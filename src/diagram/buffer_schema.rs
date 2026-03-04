@@ -381,10 +381,10 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        Accessor, AnyBufferKey, AnyBufferWorldAccess, BufferAccess, BufferAccessMut, BufferKey,
-        BufferWorldAccess, Diagram, DiagramErrorCode, Blocking, JsonBufferKey,
-        JsonBufferWorldAccess, JsonMessage, Node, NodeBuilderOptions, IntoCallback,
-        diagram::testing::DiagramTestFixture, RequestId,
+        Accessor, AnyBufferKey, AnyBufferWorldAccess, Blocking, BufferAccess, BufferAccessMut,
+        BufferKey, BufferWorldAccess, Diagram, DiagramErrorCode, IntoCallback, JsonBufferKey,
+        JsonBufferWorldAccess, JsonMessage, Node, NodeBuilderOptions, RequestId,
+        diagram::testing::DiagramTestFixture,
     };
 
     /// create a new [`DiagramTestFixture`] with some extra builders.
@@ -520,21 +520,42 @@ mod tests {
     }
 
     fn count_json_buffer_entries(
-        Blocking { request: ((), key), id, .. }: Blocking<((), JsonBufferKey)>,
+        Blocking {
+            request: ((), key),
+            id,
+            ..
+        }: Blocking<((), JsonBufferKey)>,
         world: &mut World,
     ) -> usize {
         world.json_buffer_view(id, &key).unwrap().len()
     }
 
-    fn listen_count_json_buffer_entries(Blocking { request: key, id, .. }: Blocking<JsonBufferKey>, world: &mut World) -> usize {
+    fn listen_count_json_buffer_entries(
+        Blocking {
+            request: key, id, ..
+        }: Blocking<JsonBufferKey>,
+        world: &mut World,
+    ) -> usize {
         world.json_buffer_view(id, &key).unwrap().len()
     }
 
-    fn count_any_buffer_entries(Blocking { request: ((), key), id, .. }: Blocking<((), AnyBufferKey)>, world: &mut World) -> usize {
+    fn count_any_buffer_entries(
+        Blocking {
+            request: ((), key),
+            id,
+            ..
+        }: Blocking<((), AnyBufferKey)>,
+        world: &mut World,
+    ) -> usize {
         world.any_buffer_view(id, &key).unwrap().len()
     }
 
-    fn listen_count_any_buffer_entries(Blocking { request: key, id, .. }: Blocking<AnyBufferKey>, world: &mut World) -> usize {
+    fn listen_count_any_buffer_entries(
+        Blocking {
+            request: key, id, ..
+        }: Blocking<AnyBufferKey>,
+        world: &mut World,
+    ) -> usize {
         world.any_buffer_view(id, &key).unwrap().len()
     }
 
@@ -595,7 +616,8 @@ mod tests {
                 NodeBuilderOptions::new("wait_2_strings"),
                 |builder, _config: ()| {
                     let n = builder.create_node(
-                        (|Blocking { request, id, .. }: Blocking<Vec<BufferKey<String>>>, mut access: BufferAccess<String>| {
+                        (|Blocking { request, id, .. }: Blocking<Vec<BufferKey<String>>>,
+                          mut access: BufferAccess<String>| {
                             if access.get(id, &request[0]).unwrap().len() < 2 {
                                 None
                             } else {
@@ -824,7 +846,11 @@ mod tests {
             input: Blocking<BufferKey<i64>>,
             mut access: BufferAccessMut<i64>,
         ) -> i64 {
-            access.get_mut(input.id, &input.request).unwrap().pull().unwrap()
+            access
+                .get_mut(input.id, &input.request)
+                .unwrap()
+                .pull()
+                .unwrap()
         }
 
         fixture
@@ -834,9 +860,7 @@ mod tests {
             .no_deserializing()
             .register_node_builder(
                 NodeBuilderOptions::new("pull_generic_buffer"),
-                |builder, _config: ()| {
-                    builder.create_node(count_generic_buffer.into_callback())
-                },
+                |builder, _config: ()| builder.create_node(count_generic_buffer.into_callback()),
             )
             .with_listen()
             .with_common_response();
@@ -876,7 +900,10 @@ mod tests {
     fn test_vec_listen() {
         let mut fixture = new_fixture();
 
-        fn listen_buffer(Blocking { request, id, .. }: Blocking<Vec<BufferKey<i64>>>, mut access: BufferAccess<i64>) -> usize {
+        fn listen_buffer(
+            Blocking { request, id, .. }: Blocking<Vec<BufferKey<i64>>>,
+            mut access: BufferAccess<i64>,
+        ) -> usize {
             access.get(id, &request[0]).unwrap().len()
         }
 
@@ -1017,7 +1044,12 @@ mod tests {
                 move |builder, _config: ()| {
                     let expected = expected.clone();
                     builder.create_node(
-                        (move |Blocking { request: (_, keys), id, .. }: Blocking<((), TestAccessor)>, world: &mut World| {
+                        (move |Blocking {
+                                   request: (_, keys),
+                                   id,
+                                   ..
+                               }: Blocking<((), TestAccessor)>,
+                               world: &mut World| {
                             wait_for_all(keys, id, world, &expected)
                         })
                         .into_callback(),
@@ -1117,7 +1149,10 @@ mod tests {
                 move |builder, _config: ()| {
                     let expected = expected.clone();
                     builder.create_node(
-                        (move |Blocking { request: keys, id, .. }: Blocking<TestAccessor>, world: &mut World| {
+                        (move |Blocking {
+                                   request: keys, id, ..
+                               }: Blocking<TestAccessor>,
+                               world: &mut World| {
                             wait_for_all(keys, id, world, &expected)
                         })
                         .into_callback(),
@@ -1241,7 +1276,8 @@ mod tests {
                               mut integer_access: BufferAccessMut<i64>| {
                             let keys = input.request.1;
                             let id = input.id;
-                            let mut buffer = integer_access.get_mut(input.id, &keys.integer).unwrap();
+                            let mut buffer =
+                                integer_access.get_mut(input.id, &keys.integer).unwrap();
                             if let Some(integer) = buffer.newest_mut() {
                                 if *integer >= config {
                                     let string = string_access

@@ -28,13 +28,14 @@ use smallvec::SmallVec;
 use std::collections::HashMap;
 
 use crate::{
-    Blocker, Broken, ContinuousService, DeferredRoster, Deliver, Delivery,
-    DeliveryOrder, DeliveryUpdate, Disposal, Input, IntoContinuousService, IntoServiceBuilder,
-    ManageInput, OperationCleanup, OperationError, OperationReachability, OperationRequest,
-    OperationResult, OperationRoster, OrBroken, ProviderStorage, ReachabilityResult, InScope,
-    ServiceBuilder, ServiceBundle, ServiceRequest, ServiceTrait, SingleTargetStorage, StreamOf,
-    StreamPack, StreamTargetMap, UnhandledErrors, dispose_for_despawned_service,
-    insert_new_order, pop_next_delivery, MessageRoute, output_port, Seq, RequestId, ManageDisposal
+    Blocker, Broken, ContinuousService, DeferredRoster, Deliver, Delivery, DeliveryOrder,
+    DeliveryUpdate, Disposal, InScope, Input, IntoContinuousService, IntoServiceBuilder,
+    ManageDisposal, ManageInput, MessageRoute, OperationCleanup, OperationError,
+    OperationReachability, OperationRequest, OperationResult, OperationRoster, OrBroken,
+    ProviderStorage, ReachabilityResult, RequestId, Seq, ServiceBuilder, ServiceBundle,
+    ServiceRequest, ServiceTrait, SingleTargetStorage, StreamOf, StreamPack, StreamTargetMap,
+    UnhandledErrors, dispose_for_despawned_service, insert_new_order, output_port,
+    pop_next_delivery,
 };
 
 pub use bevy_ecs::schedule::ScheduleConfigs;
@@ -517,7 +518,10 @@ impl<Request> ContinuousQueueStorage<Request> {
             return Ok(false);
         };
 
-        Ok(queue.inner.iter().any(|order| order.request_id.session == session))
+        Ok(queue
+            .inner
+            .iter()
+            .any(|order| order.request_id.session == session))
     }
 
     fn cleanup(provider: Entity, session: Entity, world: &mut World) -> OperationResult
@@ -529,7 +533,9 @@ impl<Request> ContinuousQueueStorage<Request> {
             return Ok(());
         };
 
-        queue.inner.retain(|order| order.request_id.session != session);
+        queue
+            .inner
+            .retain(|order| order.request_id.session != session);
         Ok(())
     }
 }
@@ -623,7 +629,11 @@ where
                 task_id,
             } in self.responses
             {
-                let RequestId { session, source, seq } = request_id;
+                let RequestId {
+                    session,
+                    source,
+                    seq,
+                } = request_id;
                 remove.push((index, provider));
                 let r = try_give_response(source, seq, session, data, world, &mut deferred);
                 if let Err(OperationError::Broken(backtrace)) = r {
@@ -760,7 +770,11 @@ where
         let update = insert_new_order::<Request>(
             delivery.as_mut(),
             DeliveryOrder {
-                request_id: RequestId { session, source, seq },
+                request_id: RequestId {
+                    session,
+                    source,
+                    seq,
+                },
                 task_id,
                 request,
                 instructions: instructions.clone(),
@@ -768,11 +782,19 @@ where
         );
 
         let (request, seq, blocker) = match update {
-            DeliveryUpdate::Immediate { blocking, request, seq } => {
+            DeliveryUpdate::Immediate {
+                blocking,
+                request,
+                seq,
+            } => {
                 let serve_next = serve_next_continuous_request::<Request, Response, Streams>;
                 let blocker = blocking.map(|label| Blocker {
                     provider,
-                    request_id: RequestId { session, source, seq },
+                    request_id: RequestId {
+                        session,
+                        source,
+                        seq,
+                    },
                     label,
                     serve_next,
                 });
@@ -784,7 +806,11 @@ where
                 label,
             } => {
                 for cancelled in cancelled {
-                    let disposal = Disposal::supplanted(RequestId { session, source, seq });
+                    let disposal = Disposal::supplanted(RequestId {
+                        session,
+                        source,
+                        seq,
+                    });
                     let port = output_port::next();
                     let route = cancelled.request_id.to_route_source(&port);
                     world.emit_disposal(route, disposal, roster);
@@ -822,7 +848,11 @@ where
                         });
                     }
 
-                    let disposal = Disposal::supplanted(RequestId { session, source, seq });
+                    let disposal = Disposal::supplanted(RequestId {
+                        session,
+                        source,
+                        seq,
+                    });
                     let port = output_port::next();
                     let route = stop.request_id.to_route_source(&port);
                     world.emit_disposal(route, disposal, roster);
@@ -876,7 +906,11 @@ where
         .or_broken()?;
     queue.inner.push(ContinuousOrder {
         data: request,
-        request_id: RequestId { session, source, seq },
+        request_id: RequestId {
+            session,
+            source,
+            seq,
+        },
         task_id,
         unblock: blocker,
     });
@@ -912,7 +946,11 @@ fn serve_next_continuous_request<Request, Response, Streams>(
             return;
         };
 
-        let RequestId { session, source, seq } = blocker.request_id;
+        let RequestId {
+            session,
+            source,
+            seq,
+        } = blocker.request_id;
         let Some(target) = world.get::<SingleTargetStorage>(source) else {
             // This will not be able to run, so we should move onto the next
             // item in the queue.

@@ -18,9 +18,9 @@
 use bevy_ecs::prelude::Entity;
 
 use crate::{
-    Input, InputBundle, ManageInput, Operation, OperationCleanup, OperationReachability,
-    OperationRequest, OperationResult, OperationSetup, OrBroken, ReachabilityResult,
-    SingleInputStorage, SingleTargetStorage, MessageRoute, output_port,
+    Input, InputBundle, ManageInput, MessageRoute, Operation, OperationCleanup,
+    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
+    ReachabilityResult, SingleInputStorage, SingleTargetStorage, output_port,
 };
 
 pub(crate) struct Noop<T> {

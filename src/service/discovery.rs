@@ -142,7 +142,16 @@ mod tests {
 
         let service_finder = context.command(|commands| {
             commands.spawn_service(
-                |_: Blocking<()>, discover: ServiceDiscovery<f64, f64, ()>| {
+                |_: Blocking<()>, discover: ServiceDiscovery<f64, f64, ()>| discover.iter().next(),
+            )
+        });
+
+        let found_service = context.resolve_request((), service_finder).unwrap();
+        assert_eq!(doubling_service.provider(), found_service.provider());
+
+        let service_finder = context.command(|commands| {
+            commands.spawn_service(
+                |_: Blocking<()>, discover: ServiceDiscovery<f64, f64, Require<NumberStreams>>| {
                     discover.iter().next()
                 },
             )
@@ -153,20 +162,7 @@ mod tests {
 
         let service_finder = context.command(|commands| {
             commands.spawn_service(
-                |_: Blocking<()>,
-                 discover: ServiceDiscovery<f64, f64, Require<NumberStreams>>| {
-                    discover.iter().next()
-                },
-            )
-        });
-
-        let found_service = context.resolve_request((), service_finder).unwrap();
-        assert_eq!(doubling_service.provider(), found_service.provider());
-
-        let service_finder = context.command(|commands| {
-            commands.spawn_service(
-                |_: Blocking<()>,
-                 discover: ServiceDiscovery<f64, f64, Option<NumberStreams>>| {
+                |_: Blocking<()>, discover: ServiceDiscovery<f64, f64, Option<NumberStreams>>| {
                     discover.iter().next()
                 },
             )

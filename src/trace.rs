@@ -16,16 +16,16 @@
 */
 
 use crate::{
-    JsonMessage, OperationRef, TraceToggle, TypeInfo, OutputPort, Seq, OutputRef,
-    Routing, OutputKey, RequestId, BufferKeyTag, RouteSource, Cancellation, Disposal,
-    Broken, IdentifierRef, OperationType,
+    Broken, BufferKeyTag, Cancellation, Disposal, IdentifierRef, JsonMessage, OperationRef,
+    OperationType, OutputKey, OutputPort, OutputRef, RequestId, RouteSource, Routing, Seq,
+    TraceToggle, TypeInfo,
 };
 
+use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{
-    prelude::{Component, Entity, Event, World, ChildOf, Query, Commands, Resource, Res},
+    prelude::{ChildOf, Commands, Component, Entity, Event, Query, Res, Resource, World},
     system::SystemParam,
 };
-use bevy_derive::{Deref, DerefMut};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -175,17 +175,10 @@ pub struct TraceSource {
 }
 
 impl TraceSource {
-    fn new(
-        route_source: RouteSource,
-        world: &mut World,
-    ) -> Self {
+    fn new(route_source: RouteSource, world: &mut World) -> Self {
         let output_port = route_source.port;
         let session_stack = get_session_stack_from_world(route_source.session, world);
-        let port = route_source
-            .port
-            .iter()
-            .map(|p| p.to_owned())
-            .collect();
+        let port = route_source.port.iter().map(|p| p.to_owned()).collect();
         let operation_type = world
             .get::<OperationType>(route_source.source)
             .map(|op| (**op).clone())
@@ -199,7 +192,8 @@ impl TraceSource {
             source: route_source.source,
             seq: route_source.seq,
             port,
-            labels: world.get::<OperationLabels>(route_source.source)
+            labels: world
+                .get::<OperationLabels>(route_source.source)
                 .map(move |labels| labels.outputs(output_port))
                 .flatten(),
             operation_type,
@@ -229,24 +223,24 @@ pub struct TraceTarget {
 }
 
 impl TraceTarget {
-    fn new(
-        request_id: RequestId,
-        world: &mut World,
-    ) -> Self {
-        let RequestId { session, source, seq } = request_id;
+    fn new(request_id: RequestId, world: &mut World) -> Self {
+        let RequestId {
+            session,
+            source,
+            seq,
+        } = request_id;
         let operation_type = world
             .get::<OperationType>(source)
             .map(|op| (**op).clone())
             .unwrap_or_else(|| "<unknown>".into());
-        let info = world
-            .get::<Trace>(source)
-            .map(|t| t.info.clone());
+        let info = world.get::<Trace>(source).map(|t| t.info.clone());
 
         Self {
             session_stack: get_session_stack_from_world(session, world),
             target: source,
             seq,
-            labels: world.get::<OperationLabels>(source)
+            labels: world
+                .get::<OperationLabels>(source)
                 .map(|labels| labels.input()),
             operation_type,
             info,
@@ -312,7 +306,11 @@ impl MessageSent {
             world,
         );
 
-        let event = MessageSent { output, input, message };
+        let event = MessageSent {
+            output,
+            input,
+            message,
+        };
         world.trigger(TracedEvent::now(event));
     }
 }
@@ -339,7 +337,12 @@ impl OutputDisposed {
     ) {
         let trigger = TraceSource::new(trigger, world);
         let disposed_in_session = get_session_stack_from_world(disposed_in_session, world);
-        world.trigger(TracedEvent::now(Self { trigger, disposed_operation, disposed_in_session, disposal }));
+        world.trigger(TracedEvent::now(Self {
+            trigger,
+            disposed_operation,
+            disposed_in_session,
+            disposal,
+        }));
     }
 }
 
@@ -378,12 +381,7 @@ pub(crate) struct BufferTracer<'w, 's> {
 }
 
 impl<'w, 's> BufferTracer<'w, 's> {
-    pub(crate) fn trace(
-        &mut self,
-        req: RequestId,
-        key: &BufferKeyTag,
-        access: BufferAccessRecord,
-    ) {
+    pub(crate) fn trace(&mut self, req: RequestId, key: &BufferKeyTag, access: BufferAccessRecord) {
         let toggle = if let Some(universal) = self.universal.as_ref().map(|u| ***u).flatten() {
             universal
         } else if let Ok(buffer_trace) = self.trace.get(key.buffer) {
@@ -418,11 +416,7 @@ impl<'w, 's> BufferTracer<'w, 's> {
             .get(key.buffer)
             .map(|op| (**op).clone())
             .unwrap_or_else(|_| "<unknown>".into());
-        let info = self
-            .info
-            .get(key.buffer)
-            .ok()
-            .map(|t| t.info.clone());
+        let info = self.info.get(key.buffer).ok().map(|t| t.info.clone());
 
         let buffer_event = BufferEvent {
             accessor: TraceTarget {
@@ -487,16 +481,16 @@ impl SessionEvent {
         let session_stack = get_session_stack_from_world(session, world);
         let event = SessionEvent {
             session_stack,
-            change: SessionChange::Cancelled { source, cancellation },
+            change: SessionChange::Cancelled {
+                source,
+                cancellation,
+            },
         };
 
         world.trigger(TracedEvent::now(event));
     }
 
-    pub(crate) fn cleanup(
-        session: Entity,
-        world: &mut World,
-    ) {
+    pub(crate) fn cleanup(session: Entity, world: &mut World) {
         let session_stack = get_session_stack_from_world(session, world);
         let event = SessionEvent {
             session_stack,
@@ -674,10 +668,7 @@ impl OperationInfo {
     }
 }
 
-fn get_session_stack(
-    mut session: Entity,
-    child_of: &Query<&ChildOf>,
-) -> SmallVec<[Entity; 8]> {
+fn get_session_stack(mut session: Entity, child_of: &Query<&ChildOf>) -> SmallVec<[Entity; 8]> {
     let mut session_stack = SmallVec::new();
     session_stack.push(session);
     while let Ok(child_of) = child_of.get(session) {
@@ -688,10 +679,7 @@ fn get_session_stack(
     session_stack
 }
 
-fn get_session_stack_from_world(
-    session: Entity,
-    world: &mut World,
-) -> SmallVec<[Entity; 8]> {
+fn get_session_stack_from_world(session: Entity, world: &mut World) -> SmallVec<[Entity; 8]> {
     let mut child_of_state = world.query::<&ChildOf>();
     let child_of = child_of_state.query(world);
     get_session_stack(session, &child_of)
@@ -701,14 +689,14 @@ fn get_session_stack_from_world(
 mod tests {
 
     use crate::{
+        TracedEvent, TracedEventKind,
         diagram::{testing::*, *},
         prelude::*,
-        TracedEvent, TracedEventKind
     };
     use bevy_app::App;
     use bevy_ecs::prelude::{Entity, ResMut, Resource, Trigger};
     use serde_json::json;
-    use std::{sync::Arc, time::Duration, collections::VecDeque};
+    use std::{collections::VecDeque, sync::Arc, time::Duration};
 
     #[derive(Clone, Resource, Default, Debug)]
     struct TraceRecorder {
@@ -720,10 +708,7 @@ mod tests {
             .add_observer(write_trace_events);
     }
 
-    fn write_trace_events(
-        trigger: Trigger<TracedEvent>,
-        mut recorder: ResMut<TraceRecorder>,
-    ) {
+    fn write_trace_events(trigger: Trigger<TracedEvent>, mut recorder: ResMut<TraceRecorder>) {
         recorder.record.push_back(trigger.event().clone());
     }
 
@@ -923,8 +908,10 @@ mod tests {
 
                 match next.event {
                     TracedEventKind::MessageSent(sent) => {
-                        if let Some(info) = &sent.input.info && let Some(id) = &info.id {
-                            break Some((id.clone(), sent.input.session_stack))
+                        if let Some(info) = &sent.input.info
+                            && let Some(id) = &info.id
+                        {
+                            break Some((id.clone(), sent.input.session_stack));
                         }
                     }
                     _ => {

@@ -20,26 +20,22 @@ use bevy_ecs::{
     world::{EntityRef, EntityWorldMut, World},
 };
 
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 
-use std::{
-    num::Wrapping,
-    sync::Arc,
-};
-
+use std::{num::Wrapping, sync::Arc};
 
 use backtrace::Backtrace;
 
 use crate::{
-    Broken, BufferStorage, Cancellation, CancellationCause, DeferredRoster, Detached,
-    MiscellaneousFailure, OperationError, OperationRoster, OrBroken, SessionStatus,
-    UnhandledErrors, UnusedTarget, OutputPort, BufferWorldAccess,
-    RequestId, BufferKeyTag, output_port, ManageCancellation, OperationResult, SequenceInSeries,
-    ManageSession, ProgressInSeries, finalize_series_cancel, IdentifierRef,
+    Broken, BufferKeyTag, BufferStorage, BufferWorldAccess, Cancellation, CancellationCause,
+    DeferredRoster, Detached, IdentifierRef, ManageCancellation, ManageSession,
+    MiscellaneousFailure, OperationError, OperationResult, OperationRoster, OrBroken, OutputPort,
+    ProgressInSeries, RequestId, SequenceInSeries, SessionStatus, UnhandledErrors, UnusedTarget,
+    finalize_series_cancel, output_port,
 };
 
 #[cfg(feature = "trace")]
-use crate::{Trace, MessageSent, TraceToggle, UniversalTraceToggle, TracedEvent};
+use crate::{MessageSent, Trace, TraceToggle, TracedEvent, UniversalTraceToggle};
 
 pub type Seq = u32;
 
@@ -155,12 +151,26 @@ pub struct RouteSource<'a> {
 
 impl<'a> RouteSource<'a> {
     pub fn request_id(&self) -> RequestId {
-        let Self { session, source, seq, .. } = *self;
-        RequestId { session, source, seq }
+        let Self {
+            session,
+            source,
+            seq,
+            ..
+        } = *self;
+        RequestId {
+            session,
+            source,
+            seq,
+        }
     }
 
     pub fn to_owned(self) -> RouteSourceOwned {
-        let Self { session, source, seq, port } = self;
+        let Self {
+            session,
+            source,
+            seq,
+            port,
+        } = self;
         RouteSourceOwned {
             session,
             source,
@@ -180,7 +190,12 @@ pub struct RouteSourceOwned {
 
 impl RouteSourceOwned {
     pub fn as_borrowed(&self) -> RouteSource<'_> {
-        let Self { session, source, seq, port } = self;
+        let Self {
+            session,
+            source,
+            seq,
+            port,
+        } = self;
         RouteSource {
             session: *session,
             source: *source,
@@ -278,10 +293,7 @@ pub trait ManageInput {
         source: Entity,
     ) -> Result<Option<Input<T>>, OperationError>;
 
-    fn cleanup_inputs<T: 'static + Send + Sync>(
-        &mut self,
-        clean: CleanInputsOf,
-    );
+    fn cleanup_inputs<T: 'static + Send + Sync>(&mut self, clean: CleanInputsOf);
 
     fn increment_input_seq<T: 'static + Send + Sync>(
         &mut self,
@@ -335,7 +347,11 @@ impl ManageInput for World {
 
         if only_if_active {
             if let Some(status) = self.get::<SessionStatus>(session) {
-                if let SessionStatus::Dropped { stop_at, cancellation } = status {
+                if let SessionStatus::Dropped {
+                    stop_at,
+                    cancellation,
+                } = status
+                {
                     if *stop_at == target {
                         // The input is reaching the point where the series
                         // dropped, so cancel the series here.
@@ -364,7 +380,11 @@ impl ManageInput for World {
 
         #[cfg(feature = "trace")]
         {
-            let toggle = if let Some(universal) = self.get_resource::<UniversalTraceToggle>().map(|u| **u).flatten() {
+            let toggle = if let Some(universal) = self
+                .get_resource::<UniversalTraceToggle>()
+                .map(|u| **u)
+                .flatten()
+            {
                 universal
             } else if let Some(trace) = self.get::<Trace>(target) {
                 trace.toggle()
@@ -502,7 +522,11 @@ impl ManageInput for World {
                 }
 
                 for Input { data, seq, session } in reverse_remaining.into_iter().rev() {
-                    let req = RequestId { source, seq, session };
+                    let req = RequestId {
+                        source,
+                        seq,
+                        session,
+                    };
                     let key = BufferKeyTag {
                         buffer: source,
                         accessor: source,
@@ -537,7 +561,10 @@ impl ManageInput for World {
         &mut self,
         source: Entity,
     ) -> Result<Seq, OperationError> {
-        Ok(self.get_mut::<InputStorage<T>>(source).or_broken()?.increment_seq())
+        Ok(self
+            .get_mut::<InputStorage<T>>(source)
+            .or_broken()?
+            .increment_seq())
     }
 }
 
@@ -598,11 +625,18 @@ fn try_series_request<T: 'static + Send + Sync>(
 ) -> OperationResult {
     world.get_resource_or_init::<DeferredRoster>();
     world.resource_scope::<DeferredRoster, _>(|world: &mut World, mut roster| {
-        let SeriesRequest { start, session, data } = request;
+        let SeriesRequest {
+            start,
+            session,
+            data,
+        } = request;
         let seq = 0;
         let port = output_port::name_str("request");
 
-        world.get_mut::<SequenceInSeries>(session).or_broken()?.push(start);
+        world
+            .get_mut::<SequenceInSeries>(session)
+            .or_broken()?
+            .push(start);
 
         let route = MessageRoute {
             session,
