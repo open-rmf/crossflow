@@ -139,7 +139,6 @@ mod tests {
 
         let exclusive_closure = |_: Async<()>, _: &mut World| async move {};
         let _exclusive_closure_async_cb = exclusive_closure.into_callback();
-
     }
 
     fn blocking_exclusive_system(_: Blocking<i32>, _: &mut World) {}
@@ -223,11 +222,7 @@ mod tests {
     ) {
     }
 
-    fn blocking_no_args(_: Blocking<i32>) {
+    fn blocking_no_args(_: Blocking<i32>) {}
 
-    }
-
-    async fn async_no_args(_: Async<i32>) {
-
-    }
+    async fn async_no_args(_: Async<i32>) {}
 }
