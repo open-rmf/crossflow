@@ -52,7 +52,7 @@ where
     }
 }
 
-/// A newtype to mark the definition of a BlockingMap.
+/// A newtype to mark the definition of a blocking map.
 ///
 /// Maps cannot contain Bevy Systems; they can only contain objects that
 /// implement [`FnOnce`].

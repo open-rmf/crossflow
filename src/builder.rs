@@ -92,7 +92,7 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
         }
     }
 
-    /// Create a [node](Node) that provides a [blocking map](crate::BlockingMap).
+    /// Create a [node](Node) that provides a [blocking map](crate::Blocking).
     pub fn create_map_block<T, U>(
         &mut self,
         f: impl FnMut(T) -> U + 'static + Send + Sync,
@@ -104,7 +104,7 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
         self.create_node(f.into_blocking_map())
     }
 
-    /// Create a [node](Node) that provides an [async map](crate::AsyncMap).
+    /// Create a [node](Node) that provides an [async map](crate::Async).
     pub fn create_map_async<T, Task>(
         &mut self,
         f: impl FnMut(T) -> Task + 'static + Send + Sync,
@@ -118,11 +118,11 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
     }
 
     /// Create a map (either a [blocking map][1] or an
-    /// [async map][2]) by providing a function that takes [`BlockingMap`][1] or
-    /// [AsyncMap][2] as its only argument.
+    /// [async map][2]) by providing a function that takes [`Blocking`][1] or
+    /// [Async][2] as its only argument.
     ///
-    /// [1]: crate::BlockingMap
-    /// [2]: crate::AsyncMap
+    /// [1]: crate::Blocking
+    /// [2]: crate::Async
     pub fn create_map<M, F: IntoMap<M>>(
         &mut self,
         f: F,

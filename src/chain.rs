@@ -134,8 +134,8 @@ impl<'w, 's, 'a, 'b, T: 'static + Send + Sync> Chain<'w, 's, 'a, 'b, T> {
         }
     }
 
-    /// Apply a function whose input is [`BlockingMap<T>`](crate::BlockingMap)
-    /// or [`AsyncMap<T>`](crate::AsyncMap).
+    /// Apply a function whose input is [`Blocking<T>`](crate::Blocking)
+    /// or [`Async<T>`](crate::Async).
     pub fn map<M, F: IntoMap<M>>(
         self,
         f: F,

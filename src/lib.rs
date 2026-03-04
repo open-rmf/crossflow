@@ -250,8 +250,8 @@ pub struct AsyncService<Request, Streams: StreamPack = ()> {
     /// The input data of the request
     pub request: Request,
     /// Stream channels that will let you send stream information. This will
-    /// usually be a [`StreamChannel`] or a (possibly nested) tuple of
-    /// `StreamChannel`s, whichever matches the [`StreamPack`] description.
+    /// usually be a [`NamedStreamChannel`] or a (possibly nested) tuple of
+    /// `NamedStreamChannel`s, whichever matches the [`StreamPack`] description.
     pub streams: Streams::StreamChannels,
     /// The channel that allows querying and syncing with the world while the
     /// service runs asynchronously.
@@ -338,8 +338,8 @@ pub struct Async<Request, Streams: StreamPack = ()> {
     /// The input data of the request
     pub request: Request,
     /// Stream channels that will let you send stream information. This will
-    /// usually be a [`StreamChannel`] or a (possibly nested) tuple of
-    /// `StreamChannel`s, whichever matches the [`StreamPack`] description.
+    /// usually be a [`NamedStreamChannel`] or a (possibly nested) tuple of
+    /// `NamedStreamChannel`s, whichever matches the [`StreamPack`] description.
     pub streams: Streams::StreamChannels,
     /// The channel that allows querying and syncing with the world while the
     /// callback executes asynchronously.

@@ -268,10 +268,6 @@ pub struct TraceBuffer {
 
 /// An event that tracks when each message is sent for a request or within a
 /// workflow.
-///
-/// Set up [`TraceHandler`] to have a custom system handle these messages.
-/// Otherwise if you use the default [`TraceHandler`] then you can add a system
-/// to the App schedule to read this event.
 #[derive(Debug, Clone, Event)]
 pub struct MessageSent {
     /// Information about what output(s) the message is coming from. For most
@@ -601,6 +597,9 @@ impl From<Broken> for TracedEventKind {
     }
 }
 
+/// Top-level description of any traceable event that happens while executing.
+/// Add a world observer to this event to track what events take place while
+/// executing.
 #[derive(Debug, Clone, Event)]
 pub struct TracedEvent {
     pub event: TracedEventKind,

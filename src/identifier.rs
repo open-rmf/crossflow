@@ -275,8 +275,8 @@ impl<'a> PartialEq<Identifier> for IdentifierRef<'a> {
 
 pub type OutputPort<'a> = &'a [IdentifierRef<'a>];
 
-/// The output_id module provides utility functions for easily creating [`OutputId`]
-/// instances that avoid any memory allocations.
+/// The output_port module provides utility functions for easily creating
+/// [`OutputPort`] instances that avoid any memory allocations.
 pub mod output_port {
     use super::IdentifierRef;
 

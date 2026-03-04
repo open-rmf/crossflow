@@ -238,8 +238,8 @@ where
     }
 
     /// Apply a one-time map that implements one of
-    /// - [`FnOnce(BlockingMap<Request, Streams>) -> Response`](crate::BlockingMap)
-    /// - [`FnOnce(AsyncMap<Request, Streams>) -> impl Future<Response>`](crate::AsyncMap)
+    /// - [`FnOnce(Blocking<Request, Streams>) -> Response`](crate::Blocking)
+    /// - [`FnOnce(Async<Request, Streams>) -> impl Future<Response>`](crate::Async)
     ///
     /// If you do not care about providing streams then you can use
     /// [`Self::map_block`] or [`Self::map_async`] instead.

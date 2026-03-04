@@ -28,7 +28,7 @@ use bevy_ecs::prelude::{Commands, Entity};
 ///   - Exist as objects that can be shared and passed around, not associated with an [`Entity`]
 ///   - Can be stored inside [`Components`][1] or [`Resources`][2]
 ///   - Callbacks can view and modify anything in the `World` while running
-/// - [`Map`](crate::AsMap)
+/// - [`Map`](crate::IntoMap)
 ///   - Simple function to transform data
 ///   - Any single-input function, regular or async, can be used as a map
 ///   - Cannot view or modify the world (except by using the [async channel][3]) but has less overhead than `Services` or `Callbacks`
@@ -45,7 +45,7 @@ use bevy_ecs::prelude::{Commands, Entity};
 ///
 /// [1]: bevy_ecs::prelude::Component
 /// [2]: bevy_ecs::prelude::Resource
-/// [3]: crate::AsyncMap::channel
+/// [3]: crate::Channel
 /// [4]: bevy_ecs::prelude::World
 /// [5]: crate::Channel
 pub trait Provider: ProvideOnce {}
