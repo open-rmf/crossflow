@@ -25,6 +25,9 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+    - name: Update apt index
+      run: sudo apt-get update
+
     - name: Get apt dependencies
       run: sudo apt-get install protobuf-compiler
 
