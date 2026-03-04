@@ -1093,10 +1093,9 @@ fn cancel_one(
     world: &mut World,
     roster: &mut OperationRoster,
 ) -> OperationResult {
-    let mut scope_mut = world.get_entity_mut(scope).or_broken()?;
     let mut cleanup_id = None;
-    let relevant_scoped_sessions = scope_mut
-        .get_mut::<ScopedSessionStorage>()
+    let relevant_scoped_sessions = world
+        .get_mut::<ScopedSessionStorage>(scope)
         .or_broken()?
         .0
         .iter_mut()
@@ -1851,10 +1850,12 @@ fn cleanup_workflow_session_disposal_listener(
     // cleanup will not be able to finish. We therefore notify the finish cleanup
     // endpoint to cancel this cleanup session.
     let begin_cleanup = world.get::<SessionOfScope>(cleanup_session).or_broken()?.scope();
-    let finish_cleanup = world.get::<SingleTargetStorage>(begin_cleanup).or_broken()?.get();
+    let cleanup_for_scope = world.get::<CleanupForScope>(begin_cleanup).or_broken()?.0;
+    let finish_cleanup = world.get::<ScopeEndpoints>(cleanup_for_scope).or_broken()?.finish_scope_cleanup;
+
     let on_cancel = world.get::<OnCancel>(finish_cleanup).or_broken()?.0;
     on_cancel(Cancel {
-        target: begin_cleanup,
+        target: finish_cleanup,
         session: Some(cleanup_session),
         cancellation: Cancellation::unreachable(begin_cleanup, cleanup_session, vec![disposal]),
         world,
@@ -2295,7 +2296,7 @@ struct CleanupInputBufferStorage<B>(B);
 #[derive(Component)]
 struct CleanupForScope(Entity);
 
-#[derive(Component, Default)]
+#[derive(Component, Default, Debug)]
 struct AwaitingCleanupStorage(SmallVec<[AwaitingCleanup; 8]>);
 
 impl AwaitingCleanupStorage {
@@ -2770,6 +2771,8 @@ mod tests {
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
             let buffer = builder.create_buffer::<()>(Default::default());
+            builder.connect(scope.start, scope.terminate);
+
             builder.on_cleanup(buffer, |scope, builder| {
                 builder
                     .chain(scope.start)
@@ -2784,8 +2787,6 @@ mod tests {
                     .cancel_on_none()
                     .connect(scope.terminate);
             });
-
-            builder.connect(scope.start, scope.terminate);
         });
 
         let r = context.resolve_request(1.0, workflow);
