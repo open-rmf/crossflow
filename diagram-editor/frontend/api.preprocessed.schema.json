@@ -1,6 +1,24 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
+    "BufferAccessMetadata": {
+      "properties": {
+        "layout": {
+          "$ref": "#/$defs/BufferMapLayoutHints"
+        },
+        "request_message": {
+          "description": "The underlying request message type, excluding the buffer access",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "request_message",
+        "layout"
+      ],
+      "type": "object"
+    },
     "BufferAccessSchema": {
       "description": "Zip a message together with access to one or more buffers.\n\nThe receiving node must have an input type of `(Message, Keys)`\nwhere `Keys` implements the [`Accessor`][1] trait.\n\n[1]: crate::Accessor\n\n# Examples\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"fork_clone\",\n    \"ops\": {\n        \"fork_clone\": {\n            \"type\": \"fork_clone\",\n            \"next\": [\"num_output\", \"string_output\"]\n        },\n        \"num_output\": {\n            \"type\": \"node\",\n            \"builder\": \"num_output\",\n            \"next\": \"buffer_access\"\n        },\n        \"string_output\": {\n            \"type\": \"node\",\n            \"builder\": \"string_output\",\n            \"next\": \"string_buffer\"\n        },\n        \"string_buffer\": {\n            \"type\": \"buffer\"\n        },\n        \"buffer_access\": {\n            \"type\": \"buffer_access\",\n            \"buffers\": [\"string_buffer\"],\n            \"next\": \"with_buffer_access\"\n        },\n        \"with_buffer_access\": {\n            \"type\": \"node\",\n            \"builder\": \"with_buffer_access\",\n            \"next\": { \"builtin\": \"terminate\" }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```",
       "properties": {
@@ -876,6 +894,16 @@
     },
     "MessageOperationsMetadata": {
       "properties": {
+        "buffer_access": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BufferAccessMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "deserialize": {
           "type": [
             "object",
@@ -929,6 +957,16 @@
             }
           ]
         },
+        "listen": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BufferMapLayoutHints"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "serialize": {
           "type": [
             "object",
@@ -936,8 +974,10 @@
           ]
         },
         "split": {
+          "format": "uint",
+          "minimum": 0,
           "type": [
-            "object",
+            "integer",
             "null"
           ]
         },
