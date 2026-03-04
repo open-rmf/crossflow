@@ -171,6 +171,7 @@ pub struct TraceSource {
     pub labels: Option<Arc<Vec<OutputRef>>>,
     /// Information about what kind of operation produced the message
     pub operation_type: Arc<str>,
+    pub info: Option<Arc<OperationInfo>>,
 }
 
 impl TraceSource {
@@ -189,6 +190,9 @@ impl TraceSource {
             .get::<OperationType>(route_source.source)
             .map(|op| (**op).clone())
             .unwrap_or_else(|| "<unknown>".into());
+        let info = world
+            .get::<Trace>(route_source.source)
+            .map(|t| t.info.clone());
 
         TraceSource {
             session_stack,
@@ -199,6 +203,7 @@ impl TraceSource {
                 .map(move |labels| labels.outputs(output_port))
                 .flatten(),
             operation_type,
+            info,
         }
     }
 }
@@ -220,6 +225,7 @@ pub struct TraceTarget {
     pub seq: Seq,
     pub labels: Option<Arc<Vec<OperationRef>>>,
     pub operation_type: Arc<str>,
+    pub info: Option<Arc<OperationInfo>>,
 }
 
 impl TraceTarget {
@@ -232,6 +238,9 @@ impl TraceTarget {
             .get::<OperationType>(source)
             .map(|op| (**op).clone())
             .unwrap_or_else(|| "<unknown>".into());
+        let info = world
+            .get::<Trace>(source)
+            .map(|t| t.info.clone());
 
         Self {
             session_stack: get_session_stack_from_world(session, world),
@@ -240,6 +249,7 @@ impl TraceTarget {
             labels: world.get::<OperationLabels>(source)
                 .map(|labels| labels.input()),
             operation_type,
+            info,
         }
     }
 }
@@ -361,6 +371,7 @@ pub(crate) struct BufferTracer<'w, 's> {
     child_of: Query<'w, 's, &'static ChildOf>,
     labels: Query<'w, 's, &'static OperationLabels>,
     op_type: Query<'w, 's, &'static OperationType>,
+    info: Query<'w, 's, &'static Trace>,
     universal: Option<Res<'w, UniversalTraceToggle>>,
     commands: Commands<'w, 's>,
 }
@@ -406,6 +417,11 @@ impl<'w, 's> BufferTracer<'w, 's> {
             .get(key.buffer)
             .map(|op| (**op).clone())
             .unwrap_or_else(|_| "<unknown>".into());
+        let info = self
+            .info
+            .get(key.buffer)
+            .ok()
+            .map(|t| t.info.clone());
 
         let buffer_event = BufferEvent {
             accessor: TraceTarget {
@@ -414,6 +430,7 @@ impl<'w, 's> BufferTracer<'w, 's> {
                 seq: req.seq,
                 labels: accessor_labels,
                 operation_type,
+                info,
             },
             buffer: TraceBuffer {
                 session_stack: buffer_session_stack,
@@ -575,7 +592,7 @@ impl TracedEvent {
 }
 
 /// Information about an operation.
-#[derive(Serialize, Deserialize, JsonSchema, Debug)]
+#[derive(Serialize, Deserialize, JsonSchema, Debug, Default)]
 pub struct OperationInfo {
     /// The identifier of this operation which is unique within the workflow
     id: Option<OperationRef>,
@@ -868,7 +885,9 @@ mod tests {
 
                 match next.event {
                     TracedEventKind::MessageSent(sent) => {
-                        break Some(sent);
+                        if let Some(info) = &sent.input.info && let Some(id) = &info.id {
+                            break Some((id.clone(), sent.input.session_stack))
+                        }
                     }
                     _ => {
                         continue;
@@ -876,14 +895,11 @@ mod tests {
                 }
             };
 
-            let next_actual = next_actual.unwrap();
-            let labels = next_actual.input.labels.as_ref().unwrap();
-            assert!(labels.iter().any(|label| *label == expected_op));
+            let (id, actual_session_stack) = next_actual.unwrap();
+            assert_eq!(expected_op, id);
 
-            let actual_root_session = *next_actual.input.session_stack.first().unwrap();
+            let actual_root_session = *actual_session_stack.first().unwrap();
             assert_eq!(expected_root_session, actual_root_session);
-
-            actual.remove(0);
         }
     }
 }
