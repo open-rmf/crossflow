@@ -47,12 +47,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let config = CrossflowServiceConfig {
         skill_registry_address: String::from("127.0.0.1:50051"),
         solution_service_address: String::from("127.0.0.1:50052"),
-        diagram_path: String::from("examples/diagram/calculator/diagrams/multiply_by_3.json"),
+        diagram_path: String::from("examples/multiply_by_3.json"),
         request: String::from("10"),
     };
     println!("Successfully created config: {:?}", config);
 
-    let mut diagram_path: String = String::from("examples/diagram/calculator/diagrams/multiply_by_3.json");
+    let mut diagram_path: String = String::from("examples/multiply_by_3.json");
     let mut request: String = String::from("10");
 
     // parse a .pb file as a CrossflowServiceConfig, and print it out
