@@ -400,11 +400,11 @@ impl<'w, 's> BufferTracer<'w, 's> {
         let buffer_labels = self.labels.get(key.buffer).ok().map(|l| l.input.clone());
         let accessor_labels = self.labels.get(req.source).ok().map(|l| l.input.clone());
 
-        let value_serializer = if toggle.with_messages() {
-            buffer_trace.map(|t| t.serialize_value).flatten()
-        } else {
-            None
-        };
+        // let value_serializer = if toggle.with_messages() {
+        //     buffer_trace.map(|t| t.serialize_value).flatten()
+        // } else {
+        //     None
+        // };
 
         let accessor_session_stack = get_session_stack(req.session, &self.child_of);
         let buffer_session_stack = if key.session == req.session {

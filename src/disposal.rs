@@ -16,11 +16,9 @@
 */
 
 use bevy_ecs::{
-    prelude::{Component, Entity, World, Children},
+    prelude::{Component, Entity, World},
     world::{EntityRef, EntityWorldMut},
 };
-
-use backtrace::Backtrace;
 
 use std::{
     collections::HashMap,
@@ -34,8 +32,7 @@ use thiserror::Error as ThisError;
 
 use crate::{
     Cancellation, OperationResult, OperationRoster, OrBroken,
-    RequestId, ManageCancellation, RouteSource, DisposalInformation,
-    DisposalUpdate, DisposalListener, OperationError, IdentifierRef,
+    RequestId, RouteSource, DisposalInformation, IdentifierRef,
 };
 
 #[cfg(feature = "trace")]

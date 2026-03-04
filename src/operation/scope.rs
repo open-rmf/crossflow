@@ -969,6 +969,12 @@ impl IncrementalScopeBuilder {
             ));
 
             commands.queue(AddOperation::new(
+                Some(inner.scope_id),
+                inner.endpoints.cancel_scope,
+                CancelScope { scope: inner.scope_id },
+            ));
+
+            commands.queue(AddOperation::new(
                 // We do not consider the finish cancel node to be "inside" the
                 // scope, otherwise it will get cleaned up prematurely
                 None,
@@ -1207,14 +1213,14 @@ pub(crate) fn validate_scope_reachability(
     let terminate = endpoints.terminate;
     let cancel_scope = endpoints.cancel_scope;
 
-    if check_reachability(scoped_session, terminate, None, world)? {
-        // The terminate operation can still be reached, so the scope is
+    if check_reachability(scoped_session, cancel_scope, None, world)? {
+        // The cancel operation can still be reached, so the scope is
         // considered reachable.
         return Ok(true);
     }
 
-    if check_reachability(scoped_session, cancel_scope, None, world)? {
-        // The cancel operation can still be reached, so the scope is
+    if check_reachability(scoped_session, terminate, None, world)? {
+        // The terminate operation can still be reached, so the scope is
         // considered reachable.
         return Ok(true);
     }
@@ -2243,6 +2249,11 @@ impl<T: 'static + Send + Sync> FinishCleanup<T> {
                 },
             };
             world.give_input(route, data, roster)?;
+
+            let disposal = Disposal::async_node_with_streams();
+            let port = output_port::all_stream_out();
+            let route = scope_request_id.to_route_source(&port);
+            world.emit_disposal(route, disposal, roster);
         }
 
         // Purge all memory of the scoped session

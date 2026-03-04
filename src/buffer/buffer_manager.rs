@@ -87,16 +87,13 @@ pub(crate) struct BufferManager<'w, 's, 'a, T> {
     pub(crate) session: Entity,
     pub(crate) commands: &'a mut Commands<'w, 's>,
     #[cfg(feature = "trace")]
+    #[allow(unused)]
     trace: Option<&'a Trace>,
 }
 
 impl<'w, 's, 'a, T> BufferManager<'w, 's, 'a, T> {
     pub(crate) fn len(&self) -> usize {
         self.storage.count(self.session)
-    }
-
-    pub(crate) fn active_sessions(&self) -> SmallVec<[Entity; 16]> {
-        self.storage.active_sessions()
     }
 
     pub(crate) fn iter(&self) -> IterBufferView<'_, T>
@@ -184,14 +181,6 @@ impl<'w, 's, 'a, T> BufferManager<'w, 's, 'a, T> {
         }
 
         Some(reverse_queue.remove(0).message)
-    }
-
-    pub(crate) fn consume(&mut self) -> SmallVec<[T; 16]> {
-        let Some(reverse_queue) = self.storage.reverse_queues.get_mut(&self.session) else {
-            return SmallVec::new();
-        };
-
-        reverse_queue.drain(..).map(|e| e.message).collect()
     }
 
     pub(crate) fn iter_mut(&mut self) -> IterBufferMut<'_, T>
@@ -320,6 +309,7 @@ pub(crate) struct BufferStorage<T> {
 }
 
 pub(crate) struct BufferEntry<T> {
+    #[allow(unused)]
     pub(crate) seq: Seq,
     pub(crate) message: T,
 }

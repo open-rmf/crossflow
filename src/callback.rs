@@ -310,22 +310,6 @@ where
     }
 }
 
-struct MapCallback<F: 'static + Send> {
-    callback: F,
-}
-
-impl<Request, Response, Streams, F> CallbackTrait<Request, Response, Streams> for MapCallback<F>
-where
-    F: FnMut(CallbackRequest) -> Result<(), OperationError> + 'static + Send,
-    Request: 'static + Send + Sync,
-    Response: 'static + Send + Sync,
-    Streams: 'static + Send + Sync,
-{
-    fn call(&mut self, request: CallbackRequest) -> Result<(), OperationError> {
-        (self.callback)(request)
-    }
-}
-
 pub struct BlockingMapCallbackMarker<M>(std::marker::PhantomData<fn(M)>);
 pub struct AsyncMapCallbackMarker<M>(std::marker::PhantomData<fn(M)>);
 

@@ -28,7 +28,7 @@ use smallvec::smallvec;
 use crate::{
     CancelFailure, DisplayDebugSlice, Disposal, Filtered, OperationError, OperationResult,
     OperationRoster, Supplanted, UnhandledErrors, RouteSource, RequestId,
-    SessionOfScope, RouteTarget, ManageSession, InScope, InSeries,
+    SessionOfScope, RouteTarget, InScope, InSeries,
     ScopeEndpoints, OrBroken, ManageInput, Routing,
 };
 

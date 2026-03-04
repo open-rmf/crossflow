@@ -27,7 +27,7 @@ use crate::{
 };
 
 use bevy_ecs::{
-    prelude::{Component, Entity, In, World},
+    prelude::{Component, Entity, World},
     system::{BoxedSystem, EntityCommands, IntoSystem},
     world::EntityWorldMut,
 };

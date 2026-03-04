@@ -21,7 +21,7 @@ use crate::{
     Cancellation, Disposal, Input, InputBundle, ManageCancellation, ManageDisposal, ManageInput,
     Operation, OperationCleanup, OperationReachability, OperationRequest, OperationResult,
     OperationSetup, OrBroken, ReachabilityResult, SingleInputStorage, SingleTargetStorage,
-    MessageRoute, RouteSource, output_port, RequestId,
+    MessageRoute, RouteSource, output_port,
 };
 
 use std::error::Error;

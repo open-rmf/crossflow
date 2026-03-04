@@ -64,11 +64,9 @@ where
         }: OperationRequest,
     ) -> OperationResult {
         let Input { session, data, seq } = world.take_input::<I>(source)?;
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let target = source_mut.get::<SingleTargetStorage>().or_broken()?.get();
+        let target = world.get::<SingleTargetStorage>(source).or_broken()?.get();
 
         let mut at_least_one = false;
-        let mut target_mut = world.get_entity_mut(target).or_broken()?;
         for datum in data {
             at_least_one = true;
             let route = MessageRoute {

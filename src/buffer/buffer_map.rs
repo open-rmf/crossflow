@@ -31,7 +31,7 @@ use crate::{
     Accessing, AnyBuffer, AnyBufferKey, AnyMessageBox, AsAnyBuffer, Buffer, BufferKeyBuilder,
     BufferKeyLifecycle, Bufferable, Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer,
     Gate, GateState, Joining, Node, OperationError, OperationResult, OperationRoster, TypeInfo,
-    add_listener_to_source, IdentifierRef, RequestId, BufferKeyTag,
+    add_listener_to_source, IdentifierRef, RequestId,
 };
 
 #[cfg(feature = "diagram")]

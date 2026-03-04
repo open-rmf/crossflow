@@ -33,10 +33,10 @@ use std::sync::Arc;
 use crate::{
     Cancel, Cancellation, DisposalListener, DisposalUpdate,
     ManageCancellation, MiscellaneousFailure, OnCancel, OperationError, OperationExecuteStorage,
-    OperationRequest, OperationResult, OperationResultFilter, OperationSetup, SetupFailure,
+    OperationRequest, OperationResult, OperationSetup, SetupFailure,
     UnhandledErrors, UnusedTarget, OrBroken, ManageSession, DeferredRoster, SessionStatus,
     Cancellable, OperationType, CleanupContents, FinalizeCleanup, FinalizeCleanupRequest,
-    Cleanup, OperationRoster, Broken, OnCleanup, OperationCleanup, RequestId, Detached,
+    Cleanup, OperationRoster, Broken, OperationCleanup, RequestId, Detached,
     UnusedTargetDrop, DisposalInformation,
 };
 

@@ -137,7 +137,6 @@ where
 
         let source = self.source;
         let request_id = self.request_id;
-        let session = self.request_id.session;
         let node = self.node();
         let task = self.task.take();
         let unblock = self.blocker.take();
@@ -227,7 +226,6 @@ where
         }
         let mut task = operation.task.take().or_broken()?;
         let target = operation.target;
-        let session = operation.request_id.session;
         let node = operation.node();
         let request_id = operation.request_id;
         let being_cleaned = operation.being_cleaned;
@@ -262,7 +260,7 @@ where
                 cleanup_task(source, node, unblock, being_cleaned, world, roster);
 
                 if Streams::has_streams() {
-                    if let Some(scope) = world.get::<InScope>(node) {
+                    if world.get::<InScope>(node).is_some() {
                         // When an async task with any number of streams >= 1 is
                         // finished, we should always do a disposal notification
                         // to force a reachability check. Normally there are

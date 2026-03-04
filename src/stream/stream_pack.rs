@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use crate::{
     Builder, InnerChannel, OperationError, OperationResult, OperationRoster, StreamAvailability,
-    StreamTargetMap, UnusedStreams, Seq, RequestId,
+    StreamTargetMap, UnusedStreams, RequestId,
     dyn_node::{DynStreamInputPack, DynStreamOutputPack},
 };
 

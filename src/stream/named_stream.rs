@@ -30,7 +30,7 @@ use crate::{
     OperationResult, OperationRoster, OperationSetup, OrBroken, Output, Push, Receiver,
     RedirectScopeStream, RedirectWorkflowStream, ReportUnhandled, InScope, SingleInputStorage,
     StreamEffect, StreamRedirect, StreamRequest, StreamTargetMap, TakenStream, UnusedStreams,
-    UnusedTarget, RequestId, Seq, output_port, StreamTarget,
+    UnusedTarget, RequestId, output_port, StreamTarget,
 };
 
 pub struct NamedStream<S: StreamEffect>(std::marker::PhantomData<fn(S)>);

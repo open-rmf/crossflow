@@ -23,7 +23,7 @@ use anyhow::Error as Anyhow;
 
 use std::{borrow::Cow, sync::Arc};
 
-use crate::{Broken, Cancel, Disposal, OperationError, Cancellation, RequestId};
+use crate::{Broken, Disposal, OperationError, Cancellation, RequestId};
 
 use thiserror::Error as ThisError;
 

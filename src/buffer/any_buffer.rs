@@ -25,7 +25,7 @@ use std::{
 };
 
 use bevy_ecs::{
-    prelude::{Commands, Entity, EntityRef, EntityWorldMut, Mut, World},
+    prelude::{Commands, Entity, EntityRef, EntityWorldMut, World},
     system::SystemState,
 };
 

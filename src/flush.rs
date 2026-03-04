@@ -28,12 +28,11 @@ use smallvec::SmallVec;
 
 use crate::{
     AddExecution, ChannelQueue, Detached, Finished, FlushWarning,
-    OperationError, OperationRequest, OperationRoster, SequenceInSeries,
+    OperationError, OperationRequest, OperationRoster,
     SeriesLifecycleChannel, ServiceHook, ServiceLifecycle, ServiceLifecycleChannel,
-    UnhandledErrors, UnusedTarget, UnusedTargetDrop,
+    UnhandledErrors, UnusedTarget,
     WakeQueue, awaken_task, dispose_for_despawned_service, execute_operation,
-    validate_scope_reachability, ReachableRequest, ManageCancellation, InSeries,
-    OperationResult, OrBroken, ProgressInSeries, OperationCleanup, RequestId,
+    validate_scope_reachability, ReachableRequest, ManageCancellation,
     drop_series_target, DisposalUpdate, DisposalListener,
 };
 

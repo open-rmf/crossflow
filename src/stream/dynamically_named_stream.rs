@@ -25,7 +25,7 @@ use crate::{
     NamedStreamRedirect, NamedStreamTargets, NamedTarget, NamedValue, OperationResult,
     OperationRoster, OrBroken, Output, Push, Receiver, RedirectScopeStream, RedirectWorkflowStream,
     ReportUnhandled, SendNamedStreams, SingleInputStorage, StreamAvailability, StreamEffect,
-    StreamPack, StreamRequest, StreamTargetMap, TakenStream, UnusedStreams, UnusedTarget, Seq, RequestId,
+    StreamPack, StreamRequest, StreamTargetMap, TakenStream, UnusedStreams, UnusedTarget, RequestId,
     dyn_node::{DynStreamInputPack, DynStreamOutputPack},
     send_named_stream, output_port,
 };

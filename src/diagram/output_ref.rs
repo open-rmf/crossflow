@@ -15,7 +15,6 @@
  *
 */
 
-use bevy_derive::Deref;
 use smallvec::{SmallVec, smallvec};
 use std::{
     borrow::{Borrow, Cow},
