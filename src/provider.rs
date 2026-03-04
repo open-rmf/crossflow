@@ -95,6 +95,9 @@ mod tests {
         let _blocking_exclusive_callback_with_param =
             blocking_exclusive_callback_with_param.into_callback();
 
+        let _blocking_no_args_service = context.app.spawn_service(blocking_no_args);
+        let _blocking_no_args_callback = blocking_no_args.into_callback();
+
         let _async_exclusive_system_srv = context.app.spawn_service(async_exclusive_system);
         let _async_exclusive_system_with_param_srv =
             context.app.spawn_service(async_exclusive_system_with_param);
@@ -109,6 +112,9 @@ mod tests {
         let _async_exclusive_callback = async_exclusive_callback.into_callback();
         let _async_exclusive_callback_with_param =
             async_exclusive_callback_with_param.into_callback();
+
+        let _async_no_args_service = context.app.spawn_service(async_no_args);
+        let _async_no_args_callback = async_no_args.into_callback();
 
         let _exclusive_continuous_service = context
             .app
@@ -133,6 +139,7 @@ mod tests {
 
         let exclusive_closure = |_: Async<()>, _: &mut World| async move {};
         let _exclusive_closure_async_cb = exclusive_closure.into_callback();
+
     }
 
     fn blocking_exclusive_system(_: Blocking<i32>, _: &mut World) {}
@@ -214,5 +221,13 @@ mod tests {
         _: &mut SystemState<ContinuousQuery<i32, ()>>,
         _: &mut QueryState<&mut TestComponent>,
     ) {
+    }
+
+    fn blocking_no_args(_: Blocking<i32>) {
+
+    }
+
+    async fn async_no_args(_: Async<i32>) {
+
     }
 }

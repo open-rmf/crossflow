@@ -377,7 +377,7 @@ impl ListenRegistration {
 
 #[cfg(test)]
 mod tests {
-    use bevy_ecs::{prelude::World, system::In};
+    use bevy_ecs::prelude::World;
     use serde_json::json;
 
     use crate::{

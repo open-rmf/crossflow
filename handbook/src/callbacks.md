@@ -19,8 +19,8 @@ There are three key differences between a service and a callback:
 
 ### How to use
 
-To use a callback, simply define the callback either as a `fn` or a closure, and then apply `.as_callback()` to its name.
-Note the use of [`BlockingCallbackInput`] instead of [`BlockingServiceInput`]:
+To use a callback, simply define the callback either as a `fn` or a closure, and then apply `.into_callback()` to its name.
+Note the use of [`Blocking`] instead of [`BlockingService`]:
 
 ```rust,no_run,noplayground
 {{#include ./examples/handbook_snippets/src/native-snippets.rs:callback_example}}
@@ -28,7 +28,7 @@ Note the use of [`BlockingCallbackInput`] instead of [`BlockingServiceInput`]:
 
 ##### Async
 
-Async callbacks are implemented in much the same way as [async services](./spawn-async-services.md), just replacing [`AsyncServiceInput`] with [`AsyncCallbackInput`]:
+Async callbacks are implemented in much the same way as [async services](./spawn-async-services.md), just replacing [`AsyncService`] with [`Async`]:
 
 ```rust,no_run,noplayground
 {{#include ./examples/handbook_snippets/src/native-snippets.rs:async_callback_example}}
@@ -76,19 +76,14 @@ And here's an example for an async function:
 {{#include ./examples/handbook_snippets/src/native-snippets.rs:agnostic_async_example}}
 ```
 
-> [!CAUTION]
-> `.into_async_callback()` does not work for systems whose only system parameter is the [input].
-> Trying to convert such a function into a callback will result in a compilation error.
-> This problem is being tracked by [#159](https://github.com/open-rmf/crossflow/issues/159).
-
 [`Service`]: https://docs.rs/crossflow/latest/crossflow/service/struct.Service.html
 [RAII]: https://en.wikipedia.org/wiki/Resource_acquisition_is_initialization
 [Bevy systems]: https://bevy-cheatbook.github.io/programming/systems.html
 [`Commands`]: https://docs.rs/bevy/latest/bevy/prelude/struct.Commands.html
 [`Entity`]: https://docs.rs/bevy/latest/bevy/prelude/struct.Entity.html
 [provider]: https://docs.rs/crossflow/latest/crossflow/service/struct.Service.html#method.provider
-[`BlockingCallbackInput`]: https://docs.rs/crossflow/latest/crossflow/type.BlockingCallbackInput.html
-[`BlockingServiceInput`]: https://docs.rs/crossflow/latest/crossflow/type.BlockingServiceInput.html
-[`AsyncServiceInput`]: https://docs.rs/crossflow/latest/crossflow/type.AsyncServiceInput.html
-[`AsyncCallbackInput`]: https://docs.rs/crossflow/latest/crossflow/type.AsyncCallbackInput.html
+[`Blocking`]: https://docs.rs/crossflow/latest/crossflow/type.Blocking.html
+[`BlockingService`]: https://docs.rs/crossflow/latest/crossflow/type.BlockingService.html
+[`AsyncService`]: https://docs.rs/crossflow/latest/crossflow/type.AsyncService.html
+[`Async`]: https://docs.rs/crossflow/latest/crossflow/type.Async.html
 [input]: https://docs.rs/bevy/latest/bevy/ecs/system/struct.In.html

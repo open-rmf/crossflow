@@ -1602,12 +1602,12 @@ fn manage_opening_time(
 
 // ANCHOR: fibonacci_example
 fn fibonacci_example(
-    BlockingService { request: order, streams, .. }: BlockingService<u32, StreamOf<u32>>
+    BlockingService { request: order, streams: stream, .. }: BlockingService<u32, StreamOf<u32>>
 ) {
     let mut current = 0;
     let mut next = 1;
     for _ in 0..order {
-        streams.send(current);
+        stream.send(current);
 
         let sum = current + next;
         current = next;
@@ -1673,10 +1673,7 @@ async fn my_service(srv: AsyncService<String>) {
 }
 
 // ANCHOR: always_serial_example
-let service = commands.spawn_service(
-    my_service
-    .serial()
-);
+let service = commands.spawn_service(my_service.serial());
 // ANCHOR_END: always_serial_example
 
 // ANCHOR: delivery_label
