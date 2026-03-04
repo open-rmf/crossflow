@@ -54,10 +54,10 @@ pub enum Commands {
 #[derive(Parser, Debug)]
 pub struct RunArgs {
     #[arg(help = "path to the diagram to run")]
-    diagram: String,
+    pub diagram: String,
 
     #[arg(help = "json containing the request to the diagram")]
-    request: String,
+    pub request: String,
 }
 
 #[derive(Parser, Debug)]

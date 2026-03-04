@@ -47,9 +47,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let config = CrossflowServiceConfig {
         skill_registry_address: String::from("127.0.0.1:50051"),
         solution_service_address: String::from("127.0.0.1:50052"),
-        multiply_by_3: 43,
+        diagram_path: String::from("examples/diagram/calculator/diagrams/multiply_by_3.json"),
+        request: String::from("10"),
     };
     println!("Successfully created config: {:?}", config);
+
+    let mut diagram_path: String = String::from("examples/diagram/calculator/diagrams/multiply_by_3.json");
+    let mut request: String = String::from("10");
 
     // parse a .pb file as a CrossflowServiceConfig, and print it out
     let result = (|| -> Result<CrossflowServiceConfig, Box<dyn std::error::Error>> {
@@ -62,7 +66,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         Ok(CrossflowServiceConfig::decode(&config_bytes[..])?)
     })();
     match result {
-        Ok(config) => println!("Successfully parsed config: {:?}", config),
+        Ok(config) => {
+            println!("Successfully parsed config: {:?}", config);
+            diagram_path = config.diagram_path;
+            request = config.request;
+        },
         Err(e) => println!("Failed to parse config: {}", e),
     }
 
@@ -72,7 +80,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Register calculator-inspired node builders from the calculator_ops_catalog library.
     calculator_ops_catalog::register(&mut registry);
 
-    // Run the basic executor
-    basic_executor::run(registry)
+    // // Run the basic executor
+    // basic_executor::run(registry)
+
+    // Create args
+    let args = basic_executor::Args {
+        command: basic_executor::Commands::Run(basic_executor::RunArgs {
+            diagram: diagram_path,
+            request: request
+        })};
+
+    // Run with args
+    basic_executor::run_with_args(args, registry)
+
 }
 // ANCHOR_END: calculator_example
