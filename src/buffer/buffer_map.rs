@@ -30,8 +30,8 @@ use bevy_ecs::prelude::{Entity, World};
 use crate::{
     Accessing, AnyBuffer, AnyBufferKey, AnyMessageBox, AsAnyBuffer, Buffer, BufferKeyBuilder,
     BufferKeyLifecycle, Bufferable, Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer,
-    Gate, GateState, Joining, Node, OperationError, OperationResult, OperationRoster, TypeInfo,
-    add_listener_to_source, IdentifierRef, RequestId, BufferKeyTag,
+    Gate, GateState, IdentifierRef, Joining, Node, OperationError, OperationResult,
+    OperationRoster, RequestId, TypeInfo, add_listener_to_source,
 };
 
 #[cfg(feature = "diagram")]
@@ -46,7 +46,6 @@ use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 
 use super::BufferKey;
-
 
 pub type BufferMap = HashMap<IdentifierRef<'static>, AnyBuffer>;
 
@@ -326,6 +325,7 @@ impl<TypeRepr> MessageTypeHint<TypeRepr> {
         matches!(self, Self::Fallback(_))
     }
 
+    #[cfg(feature = "diagram")]
     fn inner(&self) -> &TypeRepr {
         match self {
             Self::Exact(inner) => inner,
@@ -1199,7 +1199,9 @@ mod tests {
     /// join here except so we can test that listening is working correctly for
     /// Accessor.
     fn join_via_listen(
-        Blocking { request: keys, id, .. }: Blocking<TestKeys<&'static str>>,
+        Blocking {
+            request: keys, id, ..
+        }: Blocking<TestKeys<&'static str>>,
         world: &mut World,
     ) -> Option<TestJoinedValue<&'static str>> {
         if world.buffer_view(id, &keys.integer).ok()?.is_empty() {

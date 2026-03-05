@@ -29,8 +29,8 @@ use tokio::sync::{
 use std::sync::Arc;
 
 use crate::{
-    OperationError, OperationRoster, Outcome, Promise, ProvideOnce, Reply, RequestExt, StreamPack, Seq,
-    RequestId,
+    OperationError, OperationRoster, Outcome, Promise, ProvideOnce, Reply, RequestExt, RequestId,
+    Seq, StreamPack,
 };
 
 /// Provides asynchronous access to the [`World`], allowing you to issue queries
@@ -160,10 +160,7 @@ impl Channel {
 
     pub(crate) fn new(request_id: RequestId, sender: TokioSender<ChannelItem>) -> Self {
         Self {
-            inner: Arc::new(InnerChannel {
-                request_id,
-                sender,
-            }),
+            inner: Arc::new(InnerChannel { request_id, sender }),
         }
     }
 }

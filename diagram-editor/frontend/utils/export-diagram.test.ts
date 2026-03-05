@@ -17,8 +17,13 @@ import testDiagram from './test-data/test-diagram.json';
 import testDiagramScope from './test-data/test-diagram-scope.json';
 
 const stubRegistry: DiagramElementMetadata = {
-  messages: {},
+  messages: [],
   nodes: {},
+  reverse_message_lookup: {
+    result: [],
+    split: [],
+    unzip: [],
+  },
   schemas: {},
   sections: {},
   trace_supported: false,
@@ -36,6 +41,7 @@ test('export diagram', async () => {
     new NodeManager(nodes),
     edges,
     {},
+    {},
   );
   expect(diagram).toEqual(testDiagram);
 });
@@ -47,7 +53,7 @@ test('export diagram with scope', async () => {
       graph: { nodes, edges },
     },
   ] = await loadDiagramJson(JSON.stringify(testDiagramScope));
-  let diagram = exportDiagram(stubRegistry, new NodeManager(nodes), edges, {});
+  let diagram = exportDiagram(stubRegistry, new NodeManager(nodes), edges, {}, {});
   expect(diagram).toEqual(testDiagramScope);
 
   const nodeManager = new NodeManager(nodes);
@@ -69,7 +75,7 @@ test('export diagram with scope', async () => {
     joinNamespaces(ROOT_NAMESPACE, 'scope'),
     'mul4',
   ).id;
-  diagram = exportDiagram(stubRegistry, nodeManager, edges, {});
+  diagram = exportDiagram(stubRegistry, nodeManager, edges, {}, {});
   expect(diagram.ops.scope.start).toBe('mul4');
 });
 

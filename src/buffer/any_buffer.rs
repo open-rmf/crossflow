@@ -25,7 +25,7 @@ use std::{
 };
 
 use bevy_ecs::{
-    prelude::{Commands, Entity, EntityRef, EntityWorldMut, Mut, World},
+    prelude::{Commands, Entity, EntityRef, EntityWorldMut, World},
     system::SystemState,
 };
 
@@ -34,18 +34,18 @@ use thiserror::Error as ThisError;
 use smallvec::SmallVec;
 
 use crate::{
-    Accessing, Accessor, Buffer, BufferAccessMut, BufferAccessors, BufferError, IdentifierRef,
-    BufferKey, BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferMap,
-    BufferMapLayout, BufferMapLayoutHints, BufferStorage, Bufferable, Buffering, Builder,
-    CloneFromBuffer, DrainBuffer, FetchFromBuffer, Gate, GateState, IncompatibleLayout,
-    InspectBufferSessions, Joining, ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation,
-    MessageTypeHintMap, NotifyBufferUpdate, OperationError, OperationResult, OperationRoster,
-    OrBroken, TypeInfo, add_listener_to_source, RequestId, BufferManager,
-    BufferView, BufferWorldAccess,
+    Accessing, Accessor, Buffer, BufferAccessMut, BufferAccessors, BufferError, BufferKey,
+    BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferManager, BufferMap,
+    BufferMapLayout, BufferMapLayoutHints, BufferStorage, BufferView, BufferWorldAccess,
+    Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer, FetchFromBuffer, Gate, GateState,
+    IdentifierRef, IncompatibleLayout, InspectBufferSessions, Joining, ManageBufferSessions,
+    MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate,
+    OperationError, OperationResult, OperationRoster, OrBroken, RequestId, TypeInfo,
+    add_listener_to_source,
 };
 
 #[cfg(feature = "trace")]
-use crate::{BufferTracer, BufferAccessRecord};
+use crate::{BufferAccessRecord, BufferTracer};
 
 /// A [`Buffer`] whose message type has been anonymized. Joining with this buffer
 /// type will yield an [`AnyMessageBox`].
@@ -607,13 +607,20 @@ pub trait AnyBufferWorldAccess {
     /// if the tracing feature is enabled. If you want to view the buffer with
     /// non-mutable access, you can use `any_buffer_view_untraced`, but the
     /// viewing activity will not be traced.
-    fn any_buffer_view(&mut self, req: RequestId, key: &AnyBufferKey) -> Result<AnyBufferView<'_>, BufferError>;
+    fn any_buffer_view(
+        &mut self,
+        req: RequestId,
+        key: &AnyBufferKey,
+    ) -> Result<AnyBufferView<'_>, BufferError>;
 
     /// Call this to get read-only access to any buffer.
     ///
     /// This buffer viewing will not be traced, which may be confusing if you
     /// review a log of the workflow activity.
-    fn any_buffer_view_untraced(&self, key: &AnyBufferKey) -> Result<AnyBufferView<'_>, BufferError>;
+    fn any_buffer_view_untraced(
+        &self,
+        key: &AnyBufferKey,
+    ) -> Result<AnyBufferView<'_>, BufferError>;
 
     /// Call this to get mutable access to any buffer.
     ///
@@ -628,19 +635,26 @@ pub trait AnyBufferWorldAccess {
 }
 
 impl AnyBufferWorldAccess for World {
-    fn any_buffer_view(&mut self, req: RequestId, key: &AnyBufferKey) -> Result<AnyBufferView<'_>, BufferError> {
+    fn any_buffer_view(
+        &mut self,
+        _req: RequestId,
+        key: &AnyBufferKey,
+    ) -> Result<AnyBufferView<'_>, BufferError> {
         #[cfg(feature = "trace")]
         {
             let mut tracer_state: SystemState<BufferTracer> = SystemState::new(self);
             let mut tracer = tracer_state.get_mut(self);
-            tracer.trace(req.into(), &key.tag, BufferAccessRecord::Viewed);
+            tracer.trace(_req.into(), &key.tag, BufferAccessRecord::Viewed);
             tracer_state.apply(self);
         }
 
         key.interface.create_any_buffer_view(key, self)
     }
 
-    fn any_buffer_view_untraced(&self, key: &AnyBufferKey) -> Result<AnyBufferView<'_>, BufferError> {
+    fn any_buffer_view_untraced(
+        &self,
+        key: &AnyBufferKey,
+    ) -> Result<AnyBufferView<'_>, BufferError> {
         key.interface.create_any_buffer_view(key, self)
     }
 
@@ -668,17 +682,13 @@ trait AnyBufferViewing {
 
 trait AnyBufferManagement: AnyBufferViewing {
     fn any_push(&mut self, value: AnyMessageBox) -> AnyMessagePushResult;
-    fn any_push_as_oldest(&mut self, value: AnyMessageBox)
-    -> AnyMessagePushResult;
+    fn any_push_as_oldest(&mut self, value: AnyMessageBox) -> AnyMessagePushResult;
     fn any_pull(&mut self) -> Option<AnyMessageBox>;
     fn any_pull_newest(&mut self) -> Option<AnyMessageBox>;
     fn any_oldest_mut<'a>(&'a mut self) -> Option<AnyMessageMut<'a>>;
     fn any_newest_mut<'a>(&'a mut self) -> Option<AnyMessageMut<'a>>;
     fn any_get_mut<'a>(&'a mut self, index: usize) -> Option<AnyMessageMut<'a>>;
-    fn any_drain<'a>(
-        &'a mut self,
-        range: AnyRange,
-    ) -> Box<dyn DrainAnyBufferInterface + 'a>;
+    fn any_drain<'a>(&'a mut self, range: AnyRange) -> Box<dyn DrainAnyBufferInterface + 'a>;
 }
 
 pub(crate) struct AnyRange {
@@ -818,10 +828,7 @@ impl<T: 'static + Send + Sync + Any> AnyBufferManagement for BufferManager<'_, '
         Ok(self.push(value).map(to_any_message))
     }
 
-    fn any_push_as_oldest(
-        &mut self,
-        value: AnyMessageBox,
-    ) -> AnyMessagePushResult {
+    fn any_push_as_oldest(&mut self, value: AnyMessageBox) -> AnyMessagePushResult {
         let value = from_any_message::<T>(value)?;
         Ok(self.push_as_oldest(value).map(to_any_message))
     }
@@ -846,10 +853,7 @@ impl<T: 'static + Send + Sync + Any> AnyBufferManagement for BufferManager<'_, '
         self.get_mut(index).map(to_any_mut)
     }
 
-    fn any_drain<'a>(
-        &'a mut self,
-        range: AnyRange,
-    ) -> Box<dyn DrainAnyBufferInterface + 'a> {
+    fn any_drain<'a>(&'a mut self, range: AnyRange) -> Box<dyn DrainAnyBufferInterface + 'a> {
         Box::new(self.drain(range))
     }
 }
@@ -1131,9 +1135,8 @@ impl<T: 'static + Send + Sync + Any> AnyBufferAccessInterface for AnyBufferAcces
         key: &BufferKeyTag,
         world: &mut World,
     ) -> Result<AnyMessageBox, OperationError> {
-        world.unchecked_buffer_mut::<T, _>(req, key, |mut buffer| {
-            buffer.pull()
-        })
+        world
+            .unchecked_buffer_mut::<T, _>(req, key, |mut buffer| buffer.pull())
             .or_broken()?
             .map(to_any_message)
             .or_broken()
@@ -1291,12 +1294,8 @@ impl Joining for AnyBuffer {
             lifecycle: None,
         };
         match self.join_behavior {
-            JoinBehavior::Pull => {
-                self.interface.pull(req, &key, world)
-            }
-            JoinBehavior::Clone => {
-                self.interface.clone_from_buffer(req, &key, world)
-            }
+            JoinBehavior::Pull => self.interface.pull(req, &key, world),
+            JoinBehavior::Clone => self.interface.clone_from_buffer(req, &key, world),
         }
     }
 }
@@ -1341,9 +1340,7 @@ mod tests {
             let push_multiple_times = builder
                 .commands()
                 .spawn_service(push_multiple_times_into_buffer);
-            let count = builder
-                .commands()
-                .spawn_service(get_buffer_count);
+            let count = builder.commands().spawn_service(get_buffer_count);
 
             builder
                 .chain(scope.start)
@@ -1358,7 +1355,11 @@ mod tests {
     }
 
     fn push_multiple_times_into_buffer(
-        Blocking { request: (value, key), id, .. }: Blocking<(usize, BufferKey<usize>)>,
+        Blocking {
+            request: (value, key),
+            id,
+            ..
+        }: Blocking<(usize, BufferKey<usize>)>,
         mut access: BufferAccessMut<usize>,
     ) -> AnyBufferKey {
         let mut buffer = access.get_mut(id, &key).unwrap();
@@ -1369,7 +1370,12 @@ mod tests {
         key.into()
     }
 
-    fn get_buffer_count(Blocking { request: key, id, .. }: Blocking<AnyBufferKey>, world: &mut World) -> usize {
+    fn get_buffer_count(
+        Blocking {
+            request: key, id, ..
+        }: Blocking<AnyBufferKey>,
+        world: &mut World,
+    ) -> usize {
         world.any_buffer_view(id, &key).unwrap().len()
     }
 
@@ -1382,12 +1388,8 @@ mod tests {
             let push_multiple_times = builder
                 .commands()
                 .spawn_service(push_multiple_times_into_buffer);
-            let modify_content = builder
-                .commands()
-                .spawn_service(modify_buffer_content);
-            let drain_content = builder
-                .commands()
-                .spawn_service(pull_each_buffer_item);
+            let modify_content = builder.commands().spawn_service(modify_buffer_content);
+            let drain_content = builder.commands().spawn_service(pull_each_buffer_item);
 
             builder
                 .chain(scope.start)
@@ -1402,7 +1404,12 @@ mod tests {
         assert_eq!(values, vec![0, 3, 6, 9, 12]);
     }
 
-    fn modify_buffer_content(Blocking { request: key, id, .. }: Blocking<AnyBufferKey>, world: &mut World) -> AnyBufferKey {
+    fn modify_buffer_content(
+        Blocking {
+            request: key, id, ..
+        }: Blocking<AnyBufferKey>,
+        world: &mut World,
+    ) -> AnyBufferKey {
         world
             .any_buffer_mut(id, &key, |mut access| {
                 for i in 0..access.len() {
@@ -1416,7 +1423,12 @@ mod tests {
         key
     }
 
-    fn pull_each_buffer_item(Blocking { request: key, id, .. }: Blocking<AnyBufferKey>, world: &mut World) -> Vec<usize> {
+    fn pull_each_buffer_item(
+        Blocking {
+            request: key, id, ..
+        }: Blocking<AnyBufferKey>,
+        world: &mut World,
+    ) -> Vec<usize> {
         world
             .any_buffer_mut(id, &key, |mut access| {
                 let mut values = Vec::new();
@@ -1437,12 +1449,8 @@ mod tests {
             let push_multiple_times = builder
                 .commands()
                 .spawn_service(push_multiple_times_into_buffer);
-            let modify_content = builder
-                .commands()
-                .spawn_service(modify_buffer_content);
-            let drain_content = builder
-                .commands()
-                .spawn_service(drain_buffer_contents);
+            let modify_content = builder.commands().spawn_service(modify_buffer_content);
+            let drain_content = builder.commands().spawn_service(drain_buffer_contents);
 
             builder
                 .chain(scope.start)
@@ -1457,7 +1465,12 @@ mod tests {
         assert_eq!(values, vec![0, 3, 6, 9, 12]);
     }
 
-    fn drain_buffer_contents(Blocking { request: key, id, .. }: Blocking<AnyBufferKey>, world: &mut World) -> Vec<usize> {
+    fn drain_buffer_contents(
+        Blocking {
+            request: key, id, ..
+        }: Blocking<AnyBufferKey>,
+        world: &mut World,
+    ) -> Vec<usize> {
         world
             .any_buffer_mut(id, &key, |mut access| {
                 access

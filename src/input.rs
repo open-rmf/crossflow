@@ -20,25 +20,22 @@ use bevy_ecs::{
     world::{EntityRef, EntityWorldMut, World},
 };
 
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 
-use std::{
-    num::Wrapping,
-    sync::Arc,
-};
-
+use std::{num::Wrapping, sync::Arc};
 
 use backtrace::Backtrace;
 
 use crate::{
-    Broken, BufferStorage, Cancellation, CancellationCause, DeferredRoster, Detached,
-    MiscellaneousFailure, OperationError, OperationRoster, OrBroken, SessionStatus,
-    UnhandledErrors, UnusedTarget, OutputPort, BufferWorldAccess,
-    RequestId, BufferKeyTag, output_port, ManageCancellation, OperationResult, SequenceInSeries,
+    Broken, BufferKeyTag, BufferStorage, BufferWorldAccess, Cancellation, CancellationCause,
+    DeferredRoster, Detached, IdentifierRef, ManageCancellation, ManageSession,
+    MiscellaneousFailure, OperationError, OperationResult, OperationRoster, OrBroken, OutputPort,
+    ProgressInSeries, RequestId, SequenceInSeries, SessionStatus, UnhandledErrors, UnusedTarget,
+    finalize_series_cancel, output_port,
 };
 
 #[cfg(feature = "trace")]
-use crate::{Trace, MessageSent, TraceToggle, UniversalTraceToggle};
+use crate::{MessageSent, Trace, TraceToggle, TracedEvent, UniversalTraceToggle};
 
 pub type Seq = u32;
 
@@ -154,8 +151,57 @@ pub struct RouteSource<'a> {
 
 impl<'a> RouteSource<'a> {
     pub fn request_id(&self) -> RequestId {
-        let Self { session, source, seq, .. } = *self;
-        RequestId { session, source, seq }
+        let Self {
+            session,
+            source,
+            seq,
+            ..
+        } = *self;
+        RequestId {
+            session,
+            source,
+            seq,
+        }
+    }
+
+    pub fn to_owned(self) -> RouteSourceOwned {
+        let Self {
+            session,
+            source,
+            seq,
+            port,
+        } = self;
+        RouteSourceOwned {
+            session,
+            source,
+            seq,
+            port: port.iter().map(|p| p.to_owned()).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RouteSourceOwned {
+    pub session: Entity,
+    pub source: Entity,
+    pub seq: Seq,
+    pub port: SmallVec<[IdentifierRef<'static>; 2]>,
+}
+
+impl RouteSourceOwned {
+    pub fn as_borrowed(&self) -> RouteSource<'_> {
+        let Self {
+            session,
+            source,
+            seq,
+            port,
+        } = self;
+        RouteSource {
+            session: *session,
+            source: *source,
+            seq: *seq,
+            port: port.as_slice(),
+        }
     }
 }
 
@@ -247,10 +293,7 @@ pub trait ManageInput {
         source: Entity,
     ) -> Result<Option<Input<T>>, OperationError>;
 
-    fn cleanup_inputs<T: 'static + Send + Sync>(
-        &mut self,
-        clean: CleanInputsOf,
-    );
+    fn cleanup_inputs<T: 'static + Send + Sync>(&mut self, clean: CleanInputsOf);
 
     fn increment_input_seq<T: 'static + Send + Sync>(
         &mut self,
@@ -272,7 +315,6 @@ impl ManageInput for World {
         let route: Routing = route.into();
         let target = route.input.target;
         if unsafe { self.sneak_input(route, data, true, roster)? } {
-            dbg!(target);
             roster.queue(target);
         }
         Ok(())
@@ -300,27 +342,35 @@ impl ManageInput for World {
         roster: &mut OperationRoster,
     ) -> Result<bool, OperationError> {
         let route: Routing = route.into();
-        dbg!(&route);
         let session = route.input.session;
         let target = route.input.target;
 
         if only_if_active {
-            let active_session =
-                if let Some(session_status) = self.get::<SessionStatus>(session) {
-                    matches!(session_status, SessionStatus::Active)
-                } else {
-                    false
-                };
-
-            if !active_session {
-                // The session being sent is not active, either it is being cleaned
-                // or already despawned. Therefore we should not propogate any inputs
-                // related to it.
+            if let Some(status) = self.get::<SessionStatus>(session) {
+                if let SessionStatus::Dropped {
+                    stop_at,
+                    cancellation,
+                } = status
+                {
+                    if *stop_at == target {
+                        // The input is reaching the point where the series
+                        // dropped, so cancel the series here.
+                        finalize_series_cancel(session, cancellation.clone(), self, roster)?;
+                        return Ok(false);
+                    }
+                } else if !status.is_active() {
+                    // The session is no longer active, so do not send the input
+                    return Ok(false);
+                }
+            } else {
+                // This session seems to already be despawned
                 return Ok(false);
             }
         }
 
-        dbg!();
+        if let Some(mut progress) = self.get_mut::<ProgressInSeries>(session) {
+            progress.0 = Some(target);
+        }
 
         #[cfg(feature = "trace")]
         let mut serialized_msg = None;
@@ -330,8 +380,11 @@ impl ManageInput for World {
 
         #[cfg(feature = "trace")]
         {
-            dbg!();
-            let toggle = if let Some(universal) = self.get_resource::<UniversalTraceToggle>().map(|u| **u).flatten() {
+            let toggle = if let Some(universal) = self
+                .get_resource::<UniversalTraceToggle>()
+                .map(|u| **u)
+                .flatten()
+            {
                 universal
             } else if let Some(trace) = self.get::<Trace>(target) {
                 trace.toggle()
@@ -363,13 +416,12 @@ impl ManageInput for World {
         }
 
         if let Some(mut storage) = self.get_mut::<InputStorage<T>>(target) {
-            let target_seq = storage.push(session, data);
+            let _target_seq = storage.push(session, data);
 
-            dbg!(perform_trace);
             #[cfg(feature = "trace")]
             {
                 if perform_trace {
-                    MessageSent::trace(route, target_seq, serialized_msg, self);
+                    MessageSent::trace(route, _target_seq, serialized_msg, self);
                 }
             }
         } else if self.get::<UnusedTarget>(target).is_none() {
@@ -378,7 +430,7 @@ impl ManageInput for World {
                     // The input is going to a detached series that will not
                     // react any further. We need to tell that detached series
                     // to despawn since it is no longer needed.
-                    roster.defer_despawn(target);
+                    self.despawn_session(session);
 
                     // No error occurred, but the caller should not queue the
                     // operation into the roster because it is being despawned.
@@ -407,9 +459,20 @@ impl ManageInput for World {
                     )),
                     backtrace: Some(Backtrace::new()),
                 });
+
+            #[cfg(feature = "trace")]
+            {
+                TracedEvent::trace(
+                    Broken {
+                        node: target,
+                        backtrace: Some(Backtrace::new()),
+                    },
+                    self,
+                );
+            }
             None.or_broken()?;
         }
-        dbg!(Ok(true))
+        Ok(true)
     }
 
     fn take_input<T: 'static + Send + Sync>(
@@ -459,7 +522,11 @@ impl ManageInput for World {
                 }
 
                 for Input { data, seq, session } in reverse_remaining.into_iter().rev() {
-                    let req = RequestId { source, seq, session };
+                    let req = RequestId {
+                        source,
+                        seq,
+                        session,
+                    };
                     let key = BufferKeyTag {
                         buffer: source,
                         accessor: source,
@@ -494,7 +561,10 @@ impl ManageInput for World {
         &mut self,
         source: Entity,
     ) -> Result<Seq, OperationError> {
-        Ok(self.get_mut::<InputStorage<T>>(source).or_broken()?.increment_seq())
+        Ok(self
+            .get_mut::<InputStorage<T>>(source)
+            .or_broken()?
+            .increment_seq())
     }
 }
 
@@ -555,11 +625,18 @@ fn try_series_request<T: 'static + Send + Sync>(
 ) -> OperationResult {
     world.get_resource_or_init::<DeferredRoster>();
     world.resource_scope::<DeferredRoster, _>(|world: &mut World, mut roster| {
-        let SeriesRequest { start, session, data } = request;
+        let SeriesRequest {
+            start,
+            session,
+            data,
+        } = request;
         let seq = 0;
         let port = output_port::name_str("request");
 
-        world.get_mut::<SequenceInSeries>(session).or_broken()?.push(start);
+        world
+            .get_mut::<SequenceInSeries>(session)
+            .or_broken()?
+            .push(start);
 
         let route = MessageRoute {
             session,
@@ -569,7 +646,6 @@ fn try_series_request<T: 'static + Send + Sync>(
             target: start,
         };
 
-        dbg!(&route);
-        dbg!(world.give_input(route, data, &mut *roster))
+        world.give_input(route, data, &mut *roster)
     })
 }

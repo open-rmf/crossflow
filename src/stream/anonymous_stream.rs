@@ -29,9 +29,10 @@ use crate::{
     AddExecution, AddOperation, AnonymousStreamRedirect, Builder, DefaultStreamBufferContainer,
     DeferredRoster, InnerChannel, InputSlot, OperationError, OperationResult, OperationRoster,
     OrBroken, Output, Push, RedirectScopeStream, RedirectWorkflowStream, ReportUnhandled,
-    SingleInputStorage, StreamAvailability, StreamBuffer, StreamEffect, StreamPack, StreamTarget,
-    StreamRequest, StreamTargetMap, TakenStream, UnusedStreams, UnusedTarget, RequestId, output_port,
+    RequestId, SingleInputStorage, StreamAvailability, StreamBuffer, StreamEffect, StreamPack,
+    StreamRequest, StreamTarget, StreamTargetMap, TakenStream, UnusedStreams, UnusedTarget,
     dyn_node::{DynStreamInputPack, DynStreamOutputPack},
+    output_port,
 };
 
 /// A wrapper to turn any [`StreamEffect`] into an anonymous (unnamed) stream.
@@ -162,7 +163,9 @@ impl<S: StreamEffect> StreamPack for AnonymousStream<S> {
     ) -> OperationResult {
         let target = buffer.target;
         let mut was_unused = true;
-        let RequestId { session, source, .. } = request_id;
+        let RequestId {
+            session, source, ..
+        } = request_id;
         for data in Rc::into_inner(buffer.container)
             .or_broken()?
             .into_inner()
@@ -190,11 +193,7 @@ impl<S: StreamEffect> StreamPack for AnonymousStream<S> {
         Ok(())
     }
 
-    fn defer_buffers(
-        buffer: Self::StreamBuffers,
-        request_id: RequestId,
-        commands: &mut Commands,
-    ) {
+    fn defer_buffers(buffer: Self::StreamBuffers, request_id: RequestId, commands: &mut Commands) {
         commands.queue(SendAnonymousStreams::<
             S,
             DefaultStreamBufferContainer<S::Input>,
@@ -235,11 +234,7 @@ pub struct SendAnonymousStreams<S, Container> {
 }
 
 impl<S, Container> SendAnonymousStreams<S, Container> {
-    pub fn new(
-        container: Container,
-        request_id: RequestId,
-        target: Option<Entity>,
-    ) -> Self {
+    pub fn new(container: Container, request_id: RequestId, target: Option<Entity>) -> Self {
         Self {
             container,
             request_id,
@@ -255,13 +250,21 @@ where
     Container: 'static + Send + Sync + IntoIterator<Item = S::Input>,
 {
     fn apply(self, world: &mut World) {
-        let RequestId { session, source, seq } = self.request_id;
+        let RequestId {
+            session,
+            source,
+            seq,
+        } = self.request_id;
         world.get_resource_or_init::<DeferredRoster>();
         world.resource_scope::<DeferredRoster, _>(|world, mut deferred| {
             let port = output_port::anonymous_stream(std::any::type_name::<S>());
             for data in self.container {
                 let mut request = StreamRequest {
-                    request_id: RequestId { source, seq, session },
+                    request_id: RequestId {
+                        source,
+                        seq,
+                        session,
+                    },
                     port: &port,
                     target: self.target.map(|id| StreamTarget { id, session }),
                     world,

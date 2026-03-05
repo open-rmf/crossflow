@@ -23,9 +23,9 @@ use bevy_ecs::{
 use std::future::Future;
 
 use crate::{
-    AsMapOnce, IntoAsyncMapOnce, IntoBlockingMapOnce, Outcome, Promise, ProvideOnce,
-    Sendish, StreamPack, StreamTargetMap, UnusedTarget,
-    series::internal::{AddExecutableToSeries, AddToSeries}
+    AsMapOnce, IntoAsyncMapOnce, IntoBlockingMapOnce, Outcome, Promise, ProvideOnce, Sendish,
+    StreamPack, StreamTargetMap, UnusedTarget,
+    series::internal::{AddExecutableToSeries, AddToSeries},
 };
 
 mod detach;
@@ -37,7 +37,7 @@ pub(crate) use finished::*;
 mod insert;
 pub(crate) use insert::*;
 
-mod internal;
+pub(crate) mod internal;
 pub(crate) use internal::*;
 
 mod map;
@@ -187,11 +187,7 @@ where
 
         let target = self
             .commands
-            .spawn((
-                ChildOf(session),
-                Detached::default(),
-                UnusedTarget,
-            ))
+            .spawn((ChildOf(session), Detached::default(), UnusedTarget))
             .id();
 
         self.commands.queue(AddToSeries::new(session, target));
@@ -242,8 +238,8 @@ where
     }
 
     /// Apply a one-time map that implements one of
-    /// - [`FnOnce(BlockingMap<Request, Streams>) -> Response`](crate::BlockingMap)
-    /// - [`FnOnce(AsyncMap<Request, Streams>) -> impl Future<Response>`](crate::AsyncMap)
+    /// - [`FnOnce(Blocking<Request, Streams>) -> Response`](crate::Blocking)
+    /// - [`FnOnce(Async<Request, Streams>) -> impl Future<Response>`](crate::Async)
     ///
     /// If you do not care about providing streams then you can use
     /// [`Self::map_block`] or [`Self::map_async`] instead.
@@ -333,8 +329,11 @@ where
 
     /// Used internally to implement various ways of capturing an outcome.
     pub(crate) fn send_outcome(self, capture: CaptureOutcome<Response>) {
-        self.commands
-            .queue(AddExecutableToSeries::new(self.session, self.target, capture));
+        self.commands.queue(AddExecutableToSeries::new(
+            self.session,
+            self.target,
+            capture,
+        ));
     }
 
     // TODO(@mxgrey): Consider offering ways for users to respond to cancellations.
@@ -562,6 +561,7 @@ mod tests {
         // This is a regression test that covers a bug which existed due to
         // an incorrect handling of detached series when giving input.
         let mut context = TestingContext::minimal_plugins();
+
         let service = context.spawn_delayed_map(Duration::from_millis(1), |n| *n + 1);
 
         context.command(|commands| {
@@ -598,6 +598,7 @@ mod tests {
     #[test]
     fn test_delivery_instructions() {
         let mut context = TestingContext::minimal_plugins();
+
         let service = context.spawn_delayed_map_with_viewer(
             Duration::from_secs_f32(0.01),
             |counter: &Arc<Mutex<u64>>| {

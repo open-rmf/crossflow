@@ -16,9 +16,10 @@
 */
 
 use crate::{
-    Disposal, Input, InputBundle, ManageInput, Operation, OperationCleanup, OperationReachability,
-    OperationRequest, OperationResult, OperationSetup, OrBroken, ReachabilityResult, RouteSource,
-    SingleInputStorage, SingleTargetStorage, MessageRoute, output_port, ManageDisposal,
+    Disposal, Input, InputBundle, ManageDisposal, ManageInput, MessageRoute, Operation,
+    OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationSetup,
+    OrBroken, ReachabilityResult, RouteSource, SingleInputStorage, SingleTargetStorage,
+    output_port,
 };
 
 use bevy_ecs::prelude::Entity;
@@ -64,11 +65,9 @@ where
         }: OperationRequest,
     ) -> OperationResult {
         let Input { session, data, seq } = world.take_input::<I>(source)?;
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let target = source_mut.get::<SingleTargetStorage>().or_broken()?.get();
+        let target = world.get::<SingleTargetStorage>(source).or_broken()?.get();
 
         let mut at_least_one = false;
-        let mut target_mut = world.get_entity_mut(target).or_broken()?;
         for datum in data {
             at_least_one = true;
             let route = MessageRoute {

@@ -115,12 +115,13 @@ function getChangeParentIdAndPosition(
   }
 }
 
+export type MaybeValid = { ok: true } | { ok: false, errorMessage: string };
+
 interface ProvidersProps {
   editorModeContext: UseEditorModeContext;
   loadContext: LoadContext | null;
   nodeManager: NodeManager;
   edges: DiagramEditorEdge[];
-  diagramProperties: DiagramProperties;
 }
 
 function Providers({
@@ -128,7 +129,6 @@ function Providers({
   loadContext,
   nodeManager,
   edges,
-  diagramProperties,
   children,
 }: React.PropsWithChildren<ProvidersProps>) {
   return (
@@ -136,7 +136,7 @@ function Providers({
       <LoadContextProvider value={loadContext}>
         <NodeManagerProvider value={nodeManager}>
           <EdgesProvider value={edges}>
-            <DiagramPropertiesProvider value={diagramProperties}>
+            <DiagramPropertiesProvider>
               {children}
             </DiagramPropertiesProvider>
           </EdgesProvider>
@@ -512,12 +512,11 @@ function DiagramEditor() {
   const showErrorToast = React.useCallback((message: string) => {
     setErrorToast(message);
     setOpenErrorToast(true);
+    setEnableExport(false);
   }, []);
   const [loadContext, setLoadContext] = React.useState<LoadContext | null>(
     null,
   );
-  const [diagramProperties, setDiagramProperties] =
-    React.useState<DiagramProperties>({});
   const [recentlyUsedFilename, setRecentlyUsedFilename] =
     React.useState<string | null>(null);
 
@@ -526,9 +525,6 @@ function DiagramEditor() {
       try {
         const [diagram, { graph, isRestored }] = await loadDiagramJson(jsonStr);
         setLoadContext({ diagram });
-        setDiagramProperties({
-          description: diagram.description,
-          input_examples: diagram.input_examples });
         // do not perform auto layout if the diagram is restored from previous state.
         if (!isRestored) {
           const changes = autoLayout(graph.nodes, graph.edges, LAYOUT_OPTIONS);
@@ -613,13 +609,14 @@ function DiagramEditor() {
     [showErrorToast, nodeManager, edges],
   );
 
+  const [enableExport, setEnableExport] = React.useState(true);
+
   return (
     <Providers
       editorModeContext={[editorMode, updateEditorModeAction]}
       loadContext={loadContext}
       nodeManager={nodeManager}
       edges={edges}
-      diagramProperties={diagramProperties}
     >
       <ReactFlow
         nodes={nodes}
@@ -751,6 +748,7 @@ function DiagramEditor() {
             [],
           )}
           onLoadDiagram={loadDiagram}
+          enableExport={enableExport}
         />
         {editorMode.mode === EditorMode.Template && (
           <Fab
@@ -841,6 +839,12 @@ function DiagramEditor() {
               (filename: string) => setRecentlyUsedFilename(filename)
             }
             onClose={() => setOpenExportDiagramDialog(false)}
+            onValidDiagram={(maybeValid: MaybeValid) => {
+              setEnableExport(maybeValid.ok);
+              if (!maybeValid.ok) {
+                showErrorToast(maybeValid.errorMessage);
+              }
+            }}
           />
         </Suspense>
       </ReactFlow>

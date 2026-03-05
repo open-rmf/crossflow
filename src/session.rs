@@ -15,24 +15,46 @@
  *
 */
 
-use bevy_ecs::prelude::{World, Entity};
+use bevy_ecs::prelude::{Component, Entity, World};
 
-use crate::{ScopedSessionBundle, Seq};
+use crate::{Cancellation, ScopedSessionBundle, Seq};
 
 #[cfg(feature = "trace")]
-use crate::{SessionEvent, RequestId};
+use crate::{RequestId, SessionEvent};
 
 #[cfg(feature = "trace")]
 use bevy_ecs::prelude::Command;
 
+#[derive(Component)]
+pub enum SessionStatus {
+    /// The session is active and behaving normally
+    Active,
+    /// The session is in the process of being cleaned
+    Cleaning,
+    /// The series session has been dropped, with this entity as the last in
+    /// line to be executed
+    Dropped {
+        stop_at: Entity,
+        cancellation: Cancellation,
+    },
+}
+
+impl SessionStatus {
+    pub fn is_active(&self) -> bool {
+        matches!(self, Self::Active)
+    }
+
+    pub fn cancellation(&self) -> Option<Cancellation> {
+        match self {
+            Self::Dropped { cancellation, .. } => Some(cancellation.clone()),
+            _ => None,
+        }
+    }
+}
+
 pub trait ManageSession {
     /// Spawn a session that will be used inside a scope
-    fn spawn_scoped_session(
-        &mut self,
-        parent_session: Entity,
-        scope: Entity,
-        seq: Seq,
-    ) -> Entity;
+    fn spawn_scoped_session(&mut self, parent_session: Entity, scope: Entity, seq: Seq) -> Entity;
 
     /// Spawn a session that will be used for the buffer cleanup workflow of a
     /// scope.
@@ -47,19 +69,16 @@ pub trait ManageSession {
 }
 
 impl ManageSession for World {
-    fn spawn_scoped_session(
-        &mut self,
-        parent_session: Entity,
-        scope: Entity,
-        seq: Seq,
-    ) -> Entity {
-        let scoped_session = self.spawn(ScopedSessionBundle::new(parent_session, scope)).id();
+    fn spawn_scoped_session(&mut self, parent_session: Entity, scope: Entity, _seq: Seq) -> Entity {
+        let scoped_session = self
+            .spawn(ScopedSessionBundle::new(parent_session, scope))
+            .id();
         #[cfg(feature = "trace")]
         {
             let scope_request = RequestId {
                 session: parent_session,
                 source: scope,
-                seq,
+                seq: _seq,
             };
             SessionEvent::spawned(Some(scope_request), scoped_session, self);
         }
@@ -71,15 +90,20 @@ impl ManageSession for World {
         &mut self,
         parent_session: Entity,
         begin_cleanup: Entity,
-        seq: Seq,
+        _seq: Seq,
     ) -> Entity {
-        let cleanup_session = self.spawn(ScopedSessionBundle::for_cleanup(parent_session, begin_cleanup)).id();
+        let cleanup_session = self
+            .spawn(ScopedSessionBundle::for_cleanup(
+                parent_session,
+                begin_cleanup,
+            ))
+            .id();
         #[cfg(feature = "trace")]
         {
             let scope_request = RequestId {
                 session: parent_session,
                 source: begin_cleanup,
-                seq,
+                seq: _seq,
             };
             SessionEvent::spawned(Some(scope_request), cleanup_session, self);
         }

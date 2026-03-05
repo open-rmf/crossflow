@@ -100,7 +100,7 @@ struct Position(Vec2);
 struct Speed(f32);
 
 fn move_base_vehicle_to_target(
-    In(srv): ContinuousServiceInput<Vec2, Result<(), ()>>,
+    srv: ContinuousService<Vec2, Result<(), ()>>,
     mut query: ContinuousQuery<Vec2, Result<(), ()>>,
     speeds: Query<&Speed>,
     mut base_position: ResMut<Position>,
@@ -152,7 +152,7 @@ struct DroneRequest {
 }
 
 fn send_drone_to_target(
-    In(srv): ContinuousServiceInput<DroneRequest, ()>,
+    srv: ContinuousService<DroneRequest, ()>,
     mut query: ContinuousQuery<DroneRequest, ()>,
     mut drone_positions: Local<HashMap<Entity, Vec2>>,
     base_position: Res<Position>,
@@ -164,10 +164,10 @@ fn send_drone_to_target(
 
     orders.for_each(|order| {
         let DroneRequest { target, speed } = *order.request();
-        let position = drone_positions.entry(order.id()).or_insert_with(|| {
+        let position = drone_positions.entry(order.task_id()).or_insert_with(|| {
             println!(
-                "Drone {} taking off from {}, heading to {target}",
-                order.id().index(),
+                "Drone #{} taking off from {}, heading to {target}",
+                order.id().seq,
                 **base_position,
             );
             **base_position
@@ -175,7 +175,7 @@ fn send_drone_to_target(
         let dt = time.delta_secs_f64() as f32;
         match move_to(*position, target, speed, dt) {
             Ok(_) => {
-                println!("Drone {} arrived at {target}", order.id().index());
+                println!("Drone #{} arrived at {target}", order.id().seq);
                 order.respond(());
             }
             Err(new_position) => {

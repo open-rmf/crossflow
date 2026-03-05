@@ -199,7 +199,11 @@ impl DiagramElementRegistry {
         // on this behavior. Perhaps we don't to funnel like this if congestion
         // control is set to Block.
         let run_publisher = |input: Async<PublisherSetup>, session: Res<ZenohSession>| {
-            let PublisherSetup { mut receiver, config, encoder } = input.request;
+            let PublisherSetup {
+                mut receiver,
+                config,
+                encoder,
+            } = input.request;
             let session_outcome = session.outcome.clone();
             async move {
                 let publisher = async move {

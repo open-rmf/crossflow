@@ -21,8 +21,8 @@ use backtrace::Backtrace;
 
 use crate::{
     Broken, ConnectionFailure, EntryForScope, ForkTargetStorage, OperationError, OperationResult,
-    OrBroken, SingleInputStorage, SingleTargetStorage, StreamTargetMap,
-    UnhandledErrors, ScopeEndpoints,
+    OrBroken, ScopeEndpoints, SingleInputStorage, SingleTargetStorage, StreamTargetMap,
+    UnhandledErrors,
 };
 
 /// If two nodes have been created, they will each have a unique source and a

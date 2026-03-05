@@ -34,9 +34,8 @@ use crate::{
     BlockingService, Buffer, BufferKey, BufferKeyLifecycle, Bufferable, Buffering, Builder,
     Cancellation, ContinuousQuery, ContinuousQueueView, ContinuousService, CrossflowExecutorApp,
     FlushParameters, GetBufferedSessionsFn, Joining, OperationError, OperationResult,
-    OperationRoster, Outcome, Promise, ProvideOnce, RequestExt, RunCommandsOnWorldExt, Scope,
-    Service, SpawnWorkflowExt, StreamOf, StreamPack, UnhandledErrors, WorkflowSettings,
-    RequestId,
+    OperationRoster, Outcome, Promise, ProvideOnce, RequestExt, RequestId, RunCommandsOnWorldExt,
+    Scope, Service, SpawnWorkflowExt, StreamOf, StreamPack, UnhandledErrors, WorkflowSettings,
 };
 
 pub struct TestingContext {
@@ -296,21 +295,20 @@ impl TestingContext {
         F: FnOnce(T) -> U + 'static + Send + Sync + Clone,
     {
         use crate::AddServicesExt;
-        self.app
-            .spawn_service(move |input: AsyncService<T>| {
-                let f = f.clone();
-                async move {
-                    let start = Instant::now();
-                    let mut elapsed = start.elapsed();
-                    while elapsed < duration {
-                        let never = async_std::future::pending::<()>();
-                        let timeout = duration - elapsed;
-                        let _ = async_std::future::timeout(timeout, never).await;
-                        elapsed = start.elapsed();
-                    }
-                    f(input.request)
+        self.app.spawn_service(move |input: AsyncService<T>| {
+            let f = f.clone();
+            async move {
+                let start = Instant::now();
+                let mut elapsed = start.elapsed();
+                while elapsed < duration {
+                    let never = async_std::future::pending::<()>();
+                    let timeout = duration - elapsed;
+                    let _ = async_std::future::timeout(timeout, never).await;
+                    elapsed = start.elapsed();
                 }
-            })
+                f(input.request)
+            }
+        })
     }
 }
 

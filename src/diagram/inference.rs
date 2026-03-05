@@ -27,8 +27,8 @@ use std::{
 };
 
 use crate::{
-    IdentifierRef, BufferMapLayoutHints, BufferSelection, BuildDiagramOperation, Diagram,
-    DiagramContext, DiagramElementRegistry, DiagramError, DiagramErrorCode, IncompatibleLayout,
+    BufferMapLayoutHints, BufferSelection, BuildDiagramOperation, Diagram, DiagramContext,
+    DiagramElementRegistry, DiagramError, DiagramErrorCode, IdentifierRef, IncompatibleLayout,
     MetadataAccess, NamedOutputRef, NamespaceList, NamespacedOperation, NextOperation, NodeSchema,
     OperationName, OperationRef, Operations, OutputRef, ScopeSchema, SectionError, SectionProvider,
     SectionSchema, StreamAvailability, StreamPack, WithContext, output_ref,

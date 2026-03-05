@@ -16,9 +16,9 @@
 */
 
 use bevy_ecs::{
-    prelude::{Component, Entity, Mut, Commands, Query},
-    system::SystemParam,
+    prelude::{Commands, Component, Entity, Mut, Query},
     query::QueryEntityError,
+    system::SystemParam,
 };
 
 use smallvec::{Drain, SmallVec};
@@ -26,22 +26,21 @@ use smallvec::{Drain, SmallVec};
 use std::collections::HashMap;
 
 use std::{
-    iter::{Rev, Map},
+    iter::{Map, Rev},
     ops::RangeBounds,
     slice::{Iter, IterMut},
 };
 
-use crate::{BufferSettings, RetentionPolicy, InputStorage, Seq, RequestId, BufferKeyTag, BufferView};
+use crate::{
+    BufferKeyTag, BufferSettings, BufferView, InputStorage, RequestId, RetentionPolicy, Seq,
+};
 
 #[cfg(feature = "trace")]
 use crate::Trace;
 
 #[derive(SystemParam)]
 pub(crate) struct BufferMutQuery<'w, 's, T: 'static + Send + Sync> {
-    query: Query<'w, 's, (
-        &'static mut BufferStorage<T>,
-        &'static mut InputStorage<T>,
-    )>,
+    query: Query<'w, 's, (&'static mut BufferStorage<T>, &'static mut InputStorage<T>)>,
     commands: Commands<'w, 's>,
     #[cfg(feature = "trace")]
     trace: Query<'w, 's, &'static Trace>,
@@ -87,16 +86,13 @@ pub(crate) struct BufferManager<'w, 's, 'a, T> {
     pub(crate) session: Entity,
     pub(crate) commands: &'a mut Commands<'w, 's>,
     #[cfg(feature = "trace")]
+    #[allow(unused)]
     trace: Option<&'a Trace>,
 }
 
 impl<'w, 's, 'a, T> BufferManager<'w, 's, 'a, T> {
     pub(crate) fn len(&self) -> usize {
         self.storage.count(self.session)
-    }
-
-    pub(crate) fn active_sessions(&self) -> SmallVec<[Entity; 16]> {
-        self.storage.active_sessions()
     }
 
     pub(crate) fn iter(&self) -> IterBufferView<'_, T>
@@ -174,7 +170,11 @@ impl<'w, 's, 'a, T> BufferManager<'w, 's, 'a, T> {
     }
 
     pub(crate) fn pull(&mut self) -> Option<T> {
-        self.storage.reverse_queues.get_mut(&self.session)?.pop().map(|e| e.message)
+        self.storage
+            .reverse_queues
+            .get_mut(&self.session)?
+            .pop()
+            .map(|e| e.message)
     }
 
     pub(crate) fn pull_newest(&mut self) -> Option<T> {
@@ -184,14 +184,6 @@ impl<'w, 's, 'a, T> BufferManager<'w, 's, 'a, T> {
         }
 
         Some(reverse_queue.remove(0).message)
-    }
-
-    pub(crate) fn consume(&mut self) -> SmallVec<[T; 16]> {
-        let Some(reverse_queue) = self.storage.reverse_queues.get_mut(&self.session) else {
-            return SmallVec::new();
-        };
-
-        reverse_queue.drain(..).map(|e| e.message).collect()
     }
 
     pub(crate) fn iter_mut(&mut self) -> IterBufferMut<'_, T>
@@ -224,24 +216,24 @@ impl<'w, 's, 'a, T> BufferManager<'w, 's, 'a, T> {
             .map(|e| &mut e.message)
     }
 
-    pub(crate) fn newest_mut_or_else(
-        &mut self,
-        f: impl FnOnce() -> T,
-    ) -> Option<&mut T> {
+    pub(crate) fn newest_mut_or_else(&mut self, f: impl FnOnce() -> T) -> Option<&mut T> {
         let f = || {
             let seq = self.input.increment_seq();
             (seq, f())
         };
 
         let retention = self.storage.settings.retention();
-        self.storage.reverse_queues.get_mut(&self.session).and_then(|q| {
-            if q.is_empty() {
-                let (seq, message) = f();
-                Self::impl_push(q, retention, seq, message);
-            }
+        self.storage
+            .reverse_queues
+            .get_mut(&self.session)
+            .and_then(|q| {
+                if q.is_empty() {
+                    let (seq, message) = f();
+                    Self::impl_push(q, retention, seq, message);
+                }
 
-            q.first_mut().map(|e| &mut e.message)
-        })
+                q.first_mut().map(|e| &mut e.message)
+            })
     }
 
     pub(crate) fn get_mut(&mut self, index: usize) -> Option<&mut T> {
@@ -251,7 +243,9 @@ impl<'w, 's, 'a, T> BufferManager<'w, 's, 'a, T> {
             return None;
         }
 
-        reverse_queue.get_mut(len - index - 1).map(|e| &mut e.message)
+        reverse_queue
+            .get_mut(len - index - 1)
+            .map(|e| &mut e.message)
     }
 
     pub(crate) fn drain<R>(&mut self, range: R) -> DrainBuffer<'_, T>
@@ -302,7 +296,6 @@ impl<'w, 's, 'a, T> BufferManager<'w, 's, 'a, T> {
         reverse_queue.insert(0, entry);
         replaced
     }
-
 }
 
 #[derive(Component)]
@@ -320,6 +313,7 @@ pub(crate) struct BufferStorage<T> {
 }
 
 pub(crate) struct BufferEntry<T> {
+    #[allow(unused)]
     pub(crate) seq: Seq,
     pub(crate) message: T,
 }
@@ -342,16 +336,25 @@ impl<T> BufferStorage<T> {
     {
         let f = get_message_ref::<T> as fn(&BufferEntry<T>) -> &T;
         IterBufferView {
-            iter: self.reverse_queues.get(&session).map(|q| q.iter().map(f).rev()),
+            iter: self
+                .reverse_queues
+                .get(&session)
+                .map(|q| q.iter().map(f).rev()),
         }
     }
 
     pub(crate) fn oldest(&self, session: Entity) -> Option<&T> {
-        self.reverse_queues.get(&session).and_then(|q| q.last()).map(|e| &e.message)
+        self.reverse_queues
+            .get(&session)
+            .and_then(|q| q.last())
+            .map(|e| &e.message)
     }
 
     pub(crate) fn newest(&self, session: Entity) -> Option<&T> {
-        self.reverse_queues.get(&session).and_then(|q| q.first()).map(|e| &e.message)
+        self.reverse_queues
+            .get(&session)
+            .and_then(|q| q.first())
+            .map(|e| &e.message)
     }
 
     pub(crate) fn get(&self, session: Entity, index: usize) -> Option<&T> {

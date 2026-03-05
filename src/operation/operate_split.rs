@@ -20,11 +20,11 @@ use smallvec::SmallVec;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    Broken, Disposal, ForkTargetStorage, Input, InputBundle, ManageDisposal, ManageInput,
-    MiscellaneousFailure, Operation, OperationCleanup, OperationError, OperationReachability,
-    OperationRequest, OperationResult, OperationSetup, OrBroken, ReachabilityResult,
-    SingleInputStorage, SplitDispatcher, Splittable, UnhandledErrors, RequestId,
-    IdentifierRef, Identification, output_port,
+    Broken, Disposal, ForkTargetStorage, Identification, IdentifierRef, Input, InputBundle,
+    ManageDisposal, ManageInput, MiscellaneousFailure, Operation, OperationCleanup, OperationError,
+    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
+    ReachabilityResult, RequestId, SingleInputStorage, SplitDispatcher, Splittable,
+    UnhandledErrors, output_port,
 };
 
 #[derive(Component)]
@@ -74,7 +74,11 @@ impl<T: 'static + Splittable + Send + Sync> Operation for OperateSplit<T> {
         }: OperationRequest,
     ) -> OperationResult {
         let Input { session, data, seq } = world.take_input::<T>(source)?;
-        let request_id = RequestId { session, source, seq };
+        let request_id = RequestId {
+            session,
+            source,
+            seq,
+        };
         let mut source_mut = world.get_entity_mut(source).or_broken()?;
         let targets = source_mut.get::<ForkTargetStorage>().or_broken()?.0.clone();
 
@@ -103,12 +107,14 @@ impl<T: 'static + Splittable + Send + Sync> Operation for OperateSplit<T> {
         if !missed_indices.is_empty() {
             let missing_keys = missed_indices
                 .into_iter()
-                .map(|index| index_to_key.get(index).cloned().unwrap_or_else(||
-                    vec![
-                        IdentifierRef::name_str("unknown_target"),
-                        IdentifierRef::Index(index),
-                    ]
-                ))
+                .map(|index| {
+                    index_to_key.get(index).cloned().unwrap_or_else(|| {
+                        vec![
+                            IdentifierRef::name_str("unknown_target"),
+                            IdentifierRef::Index(index),
+                        ]
+                    })
+                })
                 .collect();
 
             let disposal = Disposal::incomplete_split(source, missing_keys);

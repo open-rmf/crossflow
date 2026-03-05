@@ -81,7 +81,7 @@ However there are some disadvantages to be mindful of:
 ### Spawn an Async Service
 
 Spawning an async service is similar to [spawning a blocking service](./spawn-services.md#how-to-spawn-a-service),
-except that your function should take in an `AsyncServiceInput<Request>` and be async:
+except that your function should take in an `AsyncService<Request>` and be async:
 
 ```rust,no_run,noplayground
 {{#include ./examples/handbook_snippets/src/native-snippets.rs:trivial_async_service}}
@@ -195,7 +195,7 @@ from an async function.
 > to always follow this template exactly:
 > ```rust,no_run,noplayground
 > fn my_async_service(
->     In(srv): AsyncServiceInput<Request>,
+>     srv: AsyncService<Request>,
 >     /* ... Bevy System Params Go Here ... */
 > ) -> impl Future<Output = Response> + use<> {
 >     /* ... Use Bevy System params, cloning data as needed ... */

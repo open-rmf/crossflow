@@ -16,8 +16,8 @@
 */
 
 use crate::{
-    AddOperation, OperateAsyncMap, OperateBlockingMap, ProvideOnce,
-    Provider, Sendish, StreamPack, Blocking, Async,
+    AddOperation, Async, Blocking, OperateAsyncMap, OperateBlockingMap, ProvideOnce, Provider,
+    Sendish, StreamPack,
 };
 
 use bevy_ecs::prelude::{Commands, Entity};
@@ -58,11 +58,11 @@ pub struct MapDef<F>(F);
 /// * [`Builder::create_map`](crate::Builder::create_map)
 /// * [`Series::map`](crate::Series::map)
 ///
-/// You can also use [`.as_map`][1], [`.into_blocking_map`][2], [`.into_async_map`][3]
+/// You can also use [`.into_map`][1], [`.into_blocking_map`][2], [`.into_async_map`][3]
 /// to convert a suitable function into a [`Provider`] that can be passed into
 /// any function that accepts a [`Provider`].
 ///
-/// [1]: AsMap::as_map
+/// [1]: IntoMap::into_map
 /// [2]: IntoBlockingMap::into_blocking_map
 /// [3]: IntoAsyncMap::into_async_map
 /// [4]: bevy_ecs::prelude::World
@@ -72,8 +72,8 @@ pub struct MapDef<F>(F);
 #[allow(clippy::wrong_self_convention)]
 pub trait IntoMap<M> {
     type MapType;
-    /// Convert an [`FnMut`] that takes a single input of [`Blocking`] or
-    /// [`AsyncMap`] into a [`Provider`].
+    /// Create a provider from any [`FnMut`] that takes a single input of
+    /// [`Blocking`] or [`Async`].
     fn into_map(self) -> Self::MapType;
 }
 
@@ -98,7 +98,7 @@ where
     }
 }
 
-/// A newtype to mark the definition of a BlockingMap.
+/// A newtype to mark the definition of a blocking map.
 ///
 /// Maps cannot contain Bevy Systems; they can only contain objects that
 /// implement [`FnMut`].

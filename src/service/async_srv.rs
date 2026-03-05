@@ -16,18 +16,18 @@
 */
 
 use crate::{
-    Async, AsyncService, Blocker, Channel, ChannelQueue, ChooseAsyncServiceDelivery,
-    Deliver, Delivery, DeliveryOrder, DeliveryUpdate, Disposal, Input, IntoService, ManageInput,
-    OperateTask, OperationError, OperationRequest, OperationResult, OperationRoster, OrBroken,
-    Sendish, ServiceBuilder, ServiceBundle, ServiceRequest, ServiceTrait, SingleTargetStorage,
-    StopTask, StopTaskFailure, StreamPack, UnhandledErrors, RequestId, Seq, output_port, ManageDisposal,
+    Async, AsyncService, Blocker, Channel, ChannelQueue, ChooseAsyncServiceDelivery, Deliver,
+    Delivery, DeliveryOrder, DeliveryUpdate, Disposal, Input, IntoService, ManageDisposal,
+    ManageInput, OperateTask, OperationError, OperationRequest, OperationResult, OperationRoster,
+    OrBroken, RequestId, Sendish, Seq, ServiceBuilder, ServiceBundle, ServiceRequest, ServiceTrait,
+    SingleTargetStorage, StopTask, StopTaskFailure, StreamPack, UnhandledErrors,
     async_execution::{spawn_task, task_cancel_sender},
-    dispose_for_despawned_service, insert_new_order, pop_next_delivery,
+    dispose_for_despawned_service, insert_new_order, output_port, pop_next_delivery,
     service::service_builder::{ParallelChosen, SerialChosen},
 };
 
 use bevy_ecs::{
-    prelude::{Component, Entity, In, World},
+    prelude::{Component, Entity, World},
     system::{BoxedSystem, EntityCommands, IntoSystem},
     world::EntityWorldMut,
 };
@@ -48,7 +48,8 @@ struct UninitAsyncServiceStorage<Request, Streams: StreamPack, Task>(
 
 pub struct AsyncServiceMarker<M>(std::marker::PhantomData<fn(M)>);
 
-impl<Request, Streams, Task, M, Sys> IntoService<AsyncServiceMarker<(Request, Streams, Task, M)>> for Sys
+impl<Request, Streams, Task, M, Sys> IntoService<AsyncServiceMarker<(Request, Streams, Task, M)>>
+    for Sys
 where
     Sys: IntoSystem<AsyncService<Request, Streams>, Task, M>,
     Task: Future + 'static + Sendish,
@@ -76,7 +77,8 @@ where
     }
 }
 
-impl<Request, Streams, Task, M, Sys> IsAsyncService<AsyncServiceMarker<(Request, Streams, Task, M)>> for Sys
+impl<Request, Streams, Task, M, Sys> IsAsyncService<AsyncServiceMarker<(Request, Streams, Task, M)>>
+    for Sys
 where
     Sys: IntoSystem<AsyncService<Request, Streams>, Task, M>,
     Task: Future + 'static + Sendish,
@@ -124,7 +126,11 @@ where
         let update = insert_new_order::<Request>(
             delivery.as_mut(),
             DeliveryOrder {
-                request_id: RequestId { session, source, seq },
+                request_id: RequestId {
+                    session,
+                    source,
+                    seq,
+                },
                 task_id,
                 request,
                 instructions: instructions.clone(),
@@ -132,11 +138,19 @@ where
         );
 
         let (request, seq, blocker) = match update {
-            DeliveryUpdate::Immediate { blocking, request, seq } => {
+            DeliveryUpdate::Immediate {
+                blocking,
+                request,
+                seq,
+            } => {
                 let serve_next = serve_next_async_request::<Request, Streams, Task>;
                 let blocker = blocking.map(|label| Blocker {
                     provider,
-                    request_id: RequestId { session, source, seq },
+                    request_id: RequestId {
+                        session,
+                        source,
+                        seq,
+                    },
                     label,
                     serve_next,
                 });
@@ -148,7 +162,11 @@ where
                 label,
             } => {
                 for cancelled in cancelled {
-                    let disposal = Disposal::supplanted(RequestId { session, source, seq });
+                    let disposal = Disposal::supplanted(RequestId {
+                        session,
+                        source,
+                        seq,
+                    });
                     let port = output_port::next();
                     let route = cancelled.request_id.to_route_source(&port);
                     world.emit_disposal(route, disposal, roster);
@@ -164,7 +182,11 @@ where
                         .or_broken()
                         .and_then(|task_ref| task_ref.get::<StopTask>().or_broken().copied())
                         .and_then(|stop_task| {
-                            let disposal = Disposal::supplanted(RequestId { session, source, seq });
+                            let disposal = Disposal::supplanted(RequestId {
+                                session,
+                                source,
+                                seq,
+                            });
                             (stop_task.0)(
                                 OperationRequest {
                                     source: stop.task_id,
@@ -284,7 +306,11 @@ where
         .get_resource_or_insert_with(ChannelQueue::new)
         .sender
         .clone();
-    let request_id = RequestId { source, seq, session };
+    let request_id = RequestId {
+        source,
+        seq,
+        session,
+    };
     let channel = Channel::new(request_id, sender.clone());
     let streams = channel.for_streams::<Streams>(world)?;
     let job = service.run(
@@ -420,11 +446,14 @@ where
     }
 
     fn insert_service_mut(self, entity_mut: &mut EntityWorldMut) {
-        peel_service_provider.pipe(self).insert_service_mut(entity_mut)
+        peel_service_provider
+            .pipe(self)
+            .insert_service_mut(entity_mut)
     }
 }
 
-impl<Request, Streams, Task, M, Sys> IsAsyncService<AsyncMarker<(Request, Streams, Task, M)>> for Sys
+impl<Request, Streams, Task, M, Sys> IsAsyncService<AsyncMarker<(Request, Streams, Task, M)>>
+    for Sys
 where
     Sys: IntoSystem<Async<Request, Streams>, Task, M>,
     Task: Future + 'static + Sendish,
@@ -448,7 +477,7 @@ where
 }
 
 fn peel_service_provider<Request, Streams: StreamPack>(
-    input: AsyncService<Request, Streams>
-) ->  Async<Request, Streams> {
+    input: AsyncService<Request, Streams>,
+) -> Async<Request, Streams> {
     input.into()
 }

@@ -102,9 +102,16 @@ impl<'w, 's> BufferGateAccessMut<'w, 's> {
         let buffer = key.id();
         let session = key.session();
         let accessor = key.tag.accessor;
-        self.query
-            .get_mut(buffer)
-            .map(|gate| BufferGateMut::new(gate, buffer, request_id.into(), session, accessor, &mut self.commands))
+        self.query.get_mut(buffer).map(|gate| {
+            BufferGateMut::new(
+                gate,
+                buffer,
+                request_id.into(),
+                session,
+                accessor,
+                &mut self.commands,
+            )
+        })
     }
 }
 

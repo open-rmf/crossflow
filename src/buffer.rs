@@ -30,10 +30,10 @@ use std::{
 
 use thiserror::Error as ThisError;
 
-use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError, RequestId, OrBroken};
+use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError, OrBroken, RequestId};
 
 #[cfg(feature = "trace")]
-use crate::{BufferTracer, BufferAccessRecord};
+use crate::{BufferAccessRecord, BufferTracer};
 
 mod any_buffer;
 pub use any_buffer::*;
@@ -433,22 +433,22 @@ impl std::fmt::Debug for BufferKeyTag {
 /// use crossflow::{prelude::*, testing::*};
 ///
 /// fn get_largest_value(
-///     In(input): In<((), BufferKey<i32>)>,
-///     access: BufferAccess<i32>,
+///     Blocking { request: (_, key), id, .. }: Blocking<((), BufferKey<i32>)>,
+///     mut access: BufferAccess<i32>,
 /// ) -> Option<i32> {
-///     let access = access.get(&input.1).ok()?;
+///     let access = access.get(id, &key).ok()?;
 ///     access.iter().max().cloned()
 /// }
 ///
 /// fn push_values(
-///     In(input): In<(Vec<i32>, BufferKey<i32>)>,
+///     Blocking { request: (values, key), id, .. }: Blocking<(Vec<i32>, BufferKey<i32>)>,
 ///     mut access: BufferAccessMut<i32>,
 /// ) {
-///     let Ok(mut access) = access.get_mut(&input.1) else {
+///     let Ok(mut access) = access.get_mut(id, &key) else {
 ///         return;
 ///     };
 ///
-///     for value in input.0 {
+///     for value in values {
 ///         access.push(value);
 ///     }
 /// }
@@ -460,9 +460,9 @@ impl std::fmt::Debug for BufferKeyTag {
 ///     builder
 ///         .chain(scope.start)
 ///         .with_access(buffer)
-///         .then(push_values.into_blocking_callback())
+///         .then(push_values.into_callback())
 ///         .with_access(buffer)
-///         .then(get_largest_value.into_blocking_callback())
+///         .then(get_largest_value.into_callback())
 ///         .connect(scope.terminate);
 /// });
 ///
@@ -486,12 +486,13 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
     /// the workflow trace if the tracing feature is enabled.
     pub fn get<'a>(
         &'a mut self,
-        req: impl Into<RequestId>,
+        _req: impl Into<RequestId>,
         key: &BufferKey<T>,
     ) -> Result<BufferView<'a, T>, QueryEntityError> {
         #[cfg(feature = "trace")]
         {
-            self.tracer.trace(req.into(), key.tag(), BufferAccessRecord::Viewed);
+            self.tracer
+                .trace(_req.into(), key.tag(), BufferAccessRecord::Viewed);
         }
         self.get_untraced(key)
     }
@@ -512,16 +513,24 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
             .map(|storage| BufferView { storage, session })
     }
 
-    pub fn get_newest<'a>(&'a mut self, req: impl Into<RequestId>, key: &BufferKey<T>) -> Option<&'a T> {
+    pub fn get_newest<'a>(
+        &'a mut self,
+        _req: impl Into<RequestId>,
+        key: &BufferKey<T>,
+    ) -> Option<&'a T> {
         #[cfg(feature = "trace")]
         {
-            self.tracer.trace(req.into(), key.tag(), BufferAccessRecord::Viewed);
+            self.tracer
+                .trace(_req.into(), key.tag(), BufferAccessRecord::Viewed);
         }
         self.get_newest_untraced(key)
     }
 
     pub fn get_newest_untraced<'a>(&'a self, key: &BufferKey<T>) -> Option<&'a T> {
-        self.get_untraced(key).ok().map(|view| view.newest()).flatten()
+        self.get_untraced(key)
+            .ok()
+            .map(|view| view.newest())
+            .flatten()
     }
 }
 
@@ -536,22 +545,22 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
 /// use crossflow::{prelude::*, testing::*};
 ///
 /// fn get_largest_value(
-///     In(input): In<((), BufferKey<i32>)>,
-///     access: BufferAccess<i32>,
+///     Blocking { request: (_, key), id, .. }: Blocking<((), BufferKey<i32>)>,
+///     mut access: BufferAccess<i32>,
 /// ) -> Option<i32> {
-///     let access = access.get(&input.1).ok()?;
+///     let access = access.get(id, &key).ok()?;
 ///     access.iter().max().cloned()
 /// }
 ///
 /// fn push_values(
-///     In(input): In<(Vec<i32>, BufferKey<i32>)>,
+///     Blocking { request: (values, key), id, .. }: Blocking<(Vec<i32>, BufferKey<i32>)>,
 ///     mut access: BufferAccessMut<i32>,
 /// ) {
-///     let Ok(mut access) = access.get_mut(&input.1) else {
+///     let Ok(mut access) = access.get_mut(id, &key) else {
 ///         return;
 ///     };
 ///
-///     for value in input.0 {
+///     for value in values {
 ///         access.push(value);
 ///     }
 /// }
@@ -563,9 +572,9 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
 ///     builder
 ///         .chain(scope.start)
 ///         .with_access(buffer)
-///         .then(push_values.into_blocking_callback())
+///         .then(push_values.into_callback())
 ///         .with_access(buffer)
-///         .then(get_largest_value.into_blocking_callback())
+///         .then(get_largest_value.into_callback())
 ///         .connect(scope.terminate);
 /// });
 ///
@@ -627,7 +636,6 @@ pub trait BufferWorldAccess {
     where
         T: 'static + Send + Sync;
 
-
     fn unchecked_buffer_view<T>(
         &mut self,
         req: RequestId,
@@ -641,10 +649,7 @@ pub trait BufferWorldAccess {
     /// This does not track the fact that the buffer is accessed, even if
     /// tracing is turned on. You should only use this if you are certain that
     /// you do not want to know that the buffer was accessed.
-    fn buffer_view_untraced<T>(
-        &self,
-        key: &BufferKeyTag,
-    ) -> Result<BufferView<'_, T>, BufferError>
+    fn buffer_view_untraced<T>(&self, key: &BufferKeyTag) -> Result<BufferView<'_, T>, BufferError>
     where
         T: 'static + Send + Sync;
 
@@ -707,7 +712,7 @@ impl BufferWorldAccess for World {
 
     fn unchecked_buffer_view<T>(
         &mut self,
-        req: RequestId,
+        _req: RequestId,
         key: &BufferKeyTag,
     ) -> Result<BufferView<'_, T>, BufferError>
     where
@@ -717,19 +722,16 @@ impl BufferWorldAccess for World {
         {
             let mut tracer_state: SystemState<BufferTracer> = SystemState::new(self);
             let mut tracer = tracer_state.get_mut(self);
-            tracer.trace(req.into(), key, BufferAccessRecord::Viewed);
+            tracer.trace(_req.into(), key, BufferAccessRecord::Viewed);
             tracer_state.apply(self);
         }
 
         self.buffer_view_untraced(key)
     }
 
-    fn buffer_view_untraced<T>(
-        &self,
-        key: &BufferKeyTag,
-    ) -> Result<BufferView<'_, T>, BufferError>
+    fn buffer_view_untraced<T>(&self, key: &BufferKeyTag) -> Result<BufferView<'_, T>, BufferError>
     where
-        T: 'static + Send + Sync
+        T: 'static + Send + Sync,
     {
         let buffer_ref = self
             .get_entity(key.buffer)
@@ -1021,11 +1023,7 @@ where
         self.manager.force_push(value)
     }
 
-    fn new(
-        manager: BufferManager<'w, 's, 'a, T>,
-        buffer: Entity,
-        accessor: Entity,
-    ) -> Self {
+    fn new(manager: BufferManager<'w, 's, 'a, T>, buffer: Entity, accessor: Entity) -> Self {
         Self {
             manager,
             buffer,
@@ -1156,15 +1154,27 @@ mod tests {
     }
 
     fn add_from_buffer(
-        Blocking { request: (lhs, key), id, .. }: Blocking<(f64, BufferKey<f64>)>,
+        Blocking {
+            request: (lhs, key),
+            id,
+            ..
+        }: Blocking<(f64, BufferKey<f64>)>,
         mut access: BufferAccessMut<f64>,
     ) -> Result<f64, f64> {
-        let rhs = access.get_mut(id, &key).map_err(|_| lhs)?.pull().ok_or(lhs)?;
+        let rhs = access
+            .get_mut(id, &key)
+            .map_err(|_| lhs)?
+            .pull()
+            .ok_or(lhs)?;
         Ok(lhs + rhs)
     }
 
     fn multiply_buffers_by_copy(
-        Blocking { request: (key_a, key_b), id, .. }: Blocking<(BufferKey<f64>, BufferKey<f64>)>,
+        Blocking {
+            request: (key_a, key_b),
+            id,
+            ..
+        }: Blocking<(BufferKey<f64>, BufferKey<f64>)>,
         mut access: BufferAccess<f64>,
     ) -> f64 {
         *access.get(id, &key_a).unwrap().oldest().unwrap()
@@ -1172,7 +1182,11 @@ mod tests {
     }
 
     fn add_buffers_by_pull(
-        Blocking{ request: (key_a, key_b), id, .. }: Blocking<(BufferKey<f64>, BufferKey<f64>)>,
+        Blocking {
+            request: (key_a, key_b),
+            id,
+            ..
+        }: Blocking<(BufferKey<f64>, BufferKey<f64>)>,
         mut access: BufferAccessMut<f64>,
     ) -> Option<f64> {
         if access.get(&key_a).unwrap().is_empty() {
@@ -1312,14 +1326,20 @@ mod tests {
     }
 
     fn pull_register_from_buffer(
-        Blocking { request: key, id, .. }: Blocking<BufferKey<Register>>,
+        Blocking {
+            request: key, id, ..
+        }: Blocking<BufferKey<Register>>,
         mut access: BufferAccessMut<Register>,
     ) -> Option<Register> {
         access.get_mut(id, &key).ok()?.pull()
     }
 
     fn decrement_register(
-        Blocking { request: (mut register, key), id, .. }: Blocking<(Register, BufferKey<Register>)>,
+        Blocking {
+            request: (mut register, key),
+            id,
+            ..
+        }: Blocking<(Register, BufferKey<Register>)>,
         mut access: BufferAccessMut<Register>,
     ) -> Register {
         if register.in_slot == 0 {
@@ -1333,7 +1353,11 @@ mod tests {
     }
 
     fn decrement_register_and_pass_keys(
-        Blocking { request: (mut register, key), id, .. }: Blocking<(Register, BufferKey<Register>)>,
+        Blocking {
+            request: (mut register, key),
+            id,
+            ..
+        }: Blocking<(Register, BufferKey<Register>)>,
         mut access: BufferAccessMut<Register>,
     ) -> (Register, BufferKey<Register>) {
         if register.in_slot == 0 {
@@ -1399,7 +1423,9 @@ mod tests {
     /// Used to verify that when a key is used to open a buffer gate, it will not
     /// trigger the key's listener to wake up again.
     fn gate_access_test_open_loop(
-        BlockingService { request: key, id, .. }: BlockingService<BufferKey<u64>>,
+        BlockingService {
+            request: key, id, ..
+        }: BlockingService<BufferKey<u64>>,
         mut access: BufferAccessMut<u64>,
         mut gate_access: BufferGateAccessMut,
     ) -> (Option<u64>, Option<u64>) {
@@ -1454,7 +1480,9 @@ mod tests {
 
     /// Used to verify that we get spurious wakeups when closed loops are allowed
     fn gate_access_test_closed_loop(
-        BlockingService { request: key, id, .. }: BlockingService<BufferKey<u64>>,
+        BlockingService {
+            request: key, id, ..
+        }: BlockingService<BufferKey<u64>>,
         mut access: BufferAccessMut<u64>,
     ) -> (Option<u64>, Option<u64>) {
         let mut buffer = access.get_mut(id, &key).unwrap().allow_closed_loops();
@@ -1521,7 +1549,10 @@ mod tests {
         access.iter().max().cloned()
     }
 
-    fn push_values(Blocking { request, id, .. }: Blocking<(Vec<i32>, BufferKey<i32>)>, mut access: BufferAccessMut<i32>) {
+    fn push_values(
+        Blocking { request, id, .. }: Blocking<(Vec<i32>, BufferKey<i32>)>,
+        mut access: BufferAccessMut<i32>,
+    ) {
         let Ok(mut access) = access.get_mut(id, &request.1) else {
             return;
         };

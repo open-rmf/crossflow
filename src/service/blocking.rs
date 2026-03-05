@@ -22,10 +22,10 @@ use bevy_ecs::{
 };
 
 use crate::{
-    Blocking, BlockingService, Input, IntoService, ManageDisposal, ManageInput,
-    OperationError, OperationRequest, OrBroken, ServiceBundle, ServiceRequest, ServiceTrait,
-    StreamPack, UnusedStreams, dispose_for_despawned_service, make_stream_buffers_from_world,
-    service::service_builder::BlockingChosen, MessageRoute, output_port, RequestId,
+    Blocking, BlockingService, Input, IntoService, ManageDisposal, ManageInput, MessageRoute,
+    OperationError, OperationRequest, OrBroken, RequestId, ServiceBundle, ServiceRequest,
+    ServiceTrait, StreamPack, UnusedStreams, dispose_for_despawned_service,
+    make_stream_buffers_from_world, output_port, service::service_builder::BlockingChosen,
 };
 
 pub struct BlockingServiceMarker<M>(std::marker::PhantomData<fn(M)>);
@@ -40,8 +40,8 @@ struct UninitBlockingServiceStorage<Request, Response, Streams: StreamPack>(
     BoxedSystem<BlockingService<Request, Streams>, Response>,
 );
 
-impl<Request, Response, Streams, M, Sys> IntoService<BlockingServiceMarker<(Request, Response, Streams, M)>>
-    for Sys
+impl<Request, Response, Streams, M, Sys>
+    IntoService<BlockingServiceMarker<(Request, Response, Streams, M)>> for Sys
 where
     Sys: IntoSystem<BlockingService<Request, Streams>, Response, M>,
     Request: 'static + Send + Sync,
@@ -70,8 +70,8 @@ where
 
 pub struct BlockingMarker<M>(std::marker::PhantomData<fn(M)>);
 
-impl<Request, Response, Streams, M, Sys> IntoService<BlockingMarker<(Request, Response, Streams, M)>>
- for Sys
+impl<Request, Response, Streams, M, Sys>
+    IntoService<BlockingMarker<(Request, Response, Streams, M)>> for Sys
 where
     Sys: IntoSystem<Blocking<Request, Streams>, Response, M>,
     Request: 'static + Send + Sync,
@@ -84,11 +84,15 @@ where
     type DefaultDeliver = BlockingChosen;
 
     fn insert_service_commands(self, entity_commands: &mut EntityCommands) {
-        peel_service_provider.pipe(self).insert_service_commands(entity_commands)
+        peel_service_provider
+            .pipe(self)
+            .insert_service_commands(entity_commands)
     }
 
     fn insert_service_mut(self, entity_mut: &mut EntityWorldMut) {
-        peel_service_provider.pipe(self).insert_service_mut(entity_mut)
+        peel_service_provider
+            .pipe(self)
+            .insert_service_mut(entity_mut)
     }
 }
 
@@ -97,7 +101,6 @@ fn peel_service_provider<Request, Streams: StreamPack>(
 ) -> Blocking<Request, Streams> {
     input.into()
 }
-
 
 impl<Request, Response, Streams> ServiceTrait for BlockingServiceStorage<Request, Response, Streams>
 where
@@ -130,10 +133,7 @@ where
             if let Some(mut storage) =
                 provider_mut.get_mut::<BlockingServiceStorage<Request, Response, Streams>>()
             {
-                storage
-                    .0
-                    .take()
-                    .or_broken()?
+                storage.0.take().or_broken()?
             } else {
                 // Check if the system still needs to be initialized
                 if let Some(uninit) =
@@ -165,21 +165,23 @@ where
                 request,
                 streams: streams.clone(),
                 provider,
-                id: RequestId { source, seq, session },
+                id: RequestId {
+                    source,
+                    seq,
+                    session,
+                },
             },
             world,
         );
         service.apply_deferred(world);
 
-        let request_id = RequestId { session, source, seq };
+        let request_id = RequestId {
+            session,
+            source,
+            seq,
+        };
         let mut unused_streams = UnusedStreams::new(request_id);
-        Streams::process_stream_buffers(
-            streams,
-            request_id,
-            &mut unused_streams,
-            world,
-            roster,
-        )?;
+        Streams::process_stream_buffers(streams, request_id, &mut unused_streams, world, roster)?;
 
         if let Ok(mut provider_mut) = world.get_entity_mut(provider) {
             if let Some(mut storage) =

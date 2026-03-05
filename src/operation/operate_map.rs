@@ -20,13 +20,13 @@ use bevy_ecs::prelude::{Bundle, Component, Entity};
 use std::future::Future;
 
 use crate::{
-    ActiveTasksStorage, Async, Blocking, CallAsyncMap, CallBlockingMap, Channel,
-    ChannelQueue, Input, InputBundle, ManageDisposal, ManageInput, OperateTask, Operation,
+    ActiveTasksStorage, Async, Blocking, CallAsyncMap, CallBlockingMap, Channel, ChannelQueue,
+    Input, InputBundle, ManageDisposal, ManageInput, MessageRoute, OperateTask, Operation,
     OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationSetup,
-    OrBroken, ReachabilityResult, Sendish, SingleInputStorage, SingleTargetStorage, StreamPack,
-    UnusedStreams, RequestId, MessageRoute, output_port,
+    OrBroken, ReachabilityResult, RequestId, Sendish, SingleInputStorage, SingleTargetStorage,
+    StreamPack, UnusedStreams,
     async_execution::{spawn_task, task_cancel_sender},
-    make_stream_buffers_from_world,
+    make_stream_buffers_from_world, output_port,
 };
 
 #[derive(Bundle)]
@@ -105,19 +105,21 @@ where
         let response = f.call(Blocking {
             request,
             streams: streams.clone(),
-            id: RequestId { session, source, seq },
+            id: RequestId {
+                session,
+                source,
+                seq,
+            },
         });
         map.f = Some(f);
 
-        let request_id = RequestId { session, source, seq };
+        let request_id = RequestId {
+            session,
+            source,
+            seq,
+        };
         let mut unused_streams = UnusedStreams::new(request_id);
-        Streams::process_stream_buffers(
-            streams,
-            request_id,
-            &mut unused_streams,
-            world,
-            roster,
-        )?;
+        Streams::process_stream_buffers(streams, request_id, &mut unused_streams, world, roster)?;
         if !unused_streams.streams.is_empty() {
             let port = output_port::all_stream_out();
             let route = request_id.to_route_source(&port);
@@ -231,7 +233,11 @@ where
             .take()
             .or_broken()?;
 
-        let request_id = RequestId { session, source, seq };
+        let request_id = RequestId {
+            session,
+            source,
+            seq,
+        };
         let channel = Channel::new(request_id, sender.clone());
         let streams = channel.for_streams::<Streams>(world)?;
 
@@ -240,7 +246,11 @@ where
                 request,
                 streams,
                 channel,
-                id: RequestId { session, source, seq },
+                id: RequestId {
+                    session,
+                    source,
+                    seq,
+                },
             }),
             world,
         );

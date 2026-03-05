@@ -95,7 +95,7 @@ struct TokioRuntime(Arc<Runtime>);
 /// A service that checks the Url assigned to an entity and then updates the page
 /// title set for that entity.
 fn update_page_title(
-    In(srv): AsyncServiceInput<Entity>,
+    srv: AsyncService<Entity>,
     url: Query<&Url>,
     runtime: Res<TokioRuntime>,
 ) -> impl Future<Output = Result<(), ()>> + use<> {

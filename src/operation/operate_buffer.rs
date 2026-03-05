@@ -19,15 +19,15 @@ use bevy_ecs::prelude::{Bundle, Command, Component, Entity, World};
 
 use std::collections::HashMap;
 
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 
 use crate::{
-    Broken, BufferAccessors, BufferSettings, BufferStorage, DeferredRoster, ForkTargetStorage,
-    Gate, GateActionStorage, Input, InputBundle, InspectBufferSessions, ManageBufferSessions, ManageInput,
-    Operation, OperationCleanup, OperationError, OperationReachability, OperationRequest,
-    OperationResult, OperationRoster, OperationSetup, OrBroken, ReachabilityResult, RequestId,
-    SingleInputStorage, UnhandledErrors, output_port, BufferWorldAccess,
-    BufferKeyTag, Routing, RouteTarget,
+    Broken, BufferAccessors, BufferKeyTag, BufferSettings, BufferStorage, BufferWorldAccess,
+    DeferredRoster, ForkTargetStorage, Gate, GateActionStorage, Input, InputBundle,
+    InspectBufferSessions, ManageBufferSessions, ManageInput, Operation, OperationCleanup,
+    OperationError, OperationReachability, OperationRequest, OperationResult, OperationRoster,
+    OperationSetup, OrBroken, ReachabilityResult, RequestId, RouteTarget, Routing,
+    SingleInputStorage, UnhandledErrors, output_port,
 };
 
 #[derive(Bundle)]
@@ -64,29 +64,28 @@ where
         Ok(())
     }
 
-    fn execute(
-        OperationRequest {
-            source,
-            world,
-            ..
-        }: OperationRequest,
-    ) -> OperationResult {
+    fn execute(OperationRequest { source, world, .. }: OperationRequest) -> OperationResult {
         let Input { session, data, seq } = world.take_input::<T>(source)?;
-        world.unchecked_buffer_mut(
-            RequestId{ session, source, seq },
-            &BufferKeyTag {
-                buffer: source,
-                session,
-                accessor: source,
-                lifecycle: None,
-            },
-            |mut buffer| {
-                // TODO(@mxgrey): Consider whether the implementation of
-                // force_push should really be given to push
-                buffer.force_push(data);
-            },
-        )
-        .or_broken()
+        world
+            .unchecked_buffer_mut(
+                RequestId {
+                    session,
+                    source,
+                    seq,
+                },
+                &BufferKeyTag {
+                    buffer: source,
+                    session,
+                    accessor: source,
+                    lifecycle: None,
+                },
+                |mut buffer| {
+                    // TODO(@mxgrey): Consider whether the implementation of
+                    // force_push should really be given to push
+                    buffer.force_push(data);
+                },
+            )
+            .or_broken()
     }
 
     fn cleanup(mut clean: OperationCleanup) -> OperationResult {
@@ -287,7 +286,12 @@ pub(crate) struct NotifyBufferUpdate {
 }
 
 impl NotifyBufferUpdate {
-    pub(crate) fn new(buffer: Entity, req: RequestId, session: Entity, accessor: Option<Entity>) -> Self {
+    pub(crate) fn new(
+        buffer: Entity,
+        req: RequestId,
+        session: Entity,
+        accessor: Option<Entity>,
+    ) -> Self {
         Self {
             buffer,
             req,
@@ -307,7 +311,12 @@ impl Command for NotifyBufferUpdate {
 
                 world.get_resource_or_init::<DeferredRoster>();
                 world.resource_scope::<DeferredRoster, _>(|world: &mut World, mut deferred| {
-                    let Self { buffer, req, session, accessor } = self;
+                    let Self {
+                        buffer,
+                        req,
+                        session,
+                        accessor,
+                    } = self;
                     // We filter out the target that produced the key that was used to
                     // make the modification. This prevents unintentional infinite loops
                     // from forming in the workflow.

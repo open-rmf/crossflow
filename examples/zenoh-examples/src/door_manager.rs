@@ -40,9 +40,7 @@ fn main() {
 
     let process_door_request = app.world_mut().spawn_service(process_request);
     let door_controller = app.spawn_continuous_service(Update, door_controller);
-    let door_state_notifier = app
-        .world_mut()
-        .spawn_service(door_state_notifier.into_blocking_service());
+    let door_state_notifier = app.world_mut().spawn_service(door_state_notifier);
 
     for door_name in args.names {
         let request_topic_name = format!("door_request/{door_name}");
@@ -147,11 +145,12 @@ struct ProcessRequestBuffers {
 }
 
 fn process_request(
-    In(service): BlockingServiceInput<(protos::DoorRequest, ProcessRequestBuffers)>,
+    service: Blocking<(protos::DoorRequest, ProcessRequestBuffers)>,
     mut session_access: BufferAccessMut<DoorSessions>,
 ) -> DoorCommand {
     let (request, keys) = service.request;
-    let Ok(mut sessions) = session_access.get_mut(&keys.sessions) else {
+    let id = service.id;
+    let Ok(mut sessions) = session_access.get_mut(id, &keys.sessions) else {
         error!("Session buffer is broken");
         return DoorCommand::Close;
     };
@@ -182,17 +181,18 @@ struct DoorControlBuffers {
 }
 
 fn door_controller(
-    In(input): ContinuousServiceInput<((), DoorControlBuffers), ()>,
+    input: ContinuousService<((), DoorControlBuffers), ()>,
     mut requests: ContinuousQuery<((), DoorControlBuffers), ()>,
     mut position_access: BufferAccessMut<DoorPosition>,
-    command_access: BufferAccess<DoorCommand>,
+    mut command_access: BufferAccess<DoorCommand>,
     mut status_access: BufferAccessMut<protos::door_state::Status>,
     time: Res<Time>,
 ) {
     let mut orders = requests.get_mut(&input.key).unwrap();
     orders.for_each(|order| {
         let keys = order.request().1.clone();
-        let Ok(mut position_buffer) = position_access.get_mut(&keys.position) else {
+        let id = order.id();
+        let Ok(mut position_buffer) = position_access.get_mut(id, &keys.position) else {
             error!("Position buffer is broken");
             return;
         };
@@ -200,11 +200,11 @@ fn door_controller(
             return;
         };
 
-        let Some(command) = command_access.get_newest(&keys.command) else {
+        let Some(command) = command_access.get_newest(id, &keys.command) else {
             return;
         };
 
-        let Ok(mut status) = status_access.get_mut(&keys.status) else {
+        let Ok(mut status) = status_access.get_mut(id, &keys.status) else {
             return;
         };
 
@@ -252,14 +252,16 @@ struct DoorStateBuffers {
 }
 
 fn door_state_notifier(
-    In(input): In<DoorStateBuffers>,
-    sessions_access: BufferAccess<DoorSessions>,
-    status_access: BufferAccess<protos::door_state::Status>,
+    Blocking {
+        request: key, id, ..
+    }: Blocking<DoorStateBuffers>,
+    mut sessions_access: BufferAccess<DoorSessions>,
+    mut status_access: BufferAccess<protos::door_state::Status>,
 ) -> Option<protos::DoorState> {
-    let Some(sessions) = sessions_access.get_newest(&input.sessions) else {
+    let Some(sessions) = sessions_access.get_newest(id, &key.sessions) else {
         return None;
     };
-    let Some(status) = status_access.get_newest(&input.status) else {
+    let Some(status) = status_access.get_newest(id, &key.status) else {
         return None;
     };
 

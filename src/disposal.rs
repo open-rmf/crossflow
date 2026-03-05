@@ -16,11 +16,9 @@
 */
 
 use bevy_ecs::{
-    prelude::{Component, Entity, World, Children},
+    prelude::{Component, Entity, World},
     world::{EntityRef, EntityWorldMut},
 };
-
-use backtrace::Backtrace;
 
 use std::{
     collections::HashMap,
@@ -33,9 +31,8 @@ use smallvec::SmallVec;
 use thiserror::Error as ThisError;
 
 use crate::{
-    Cancellation, OperationResult, OperationRoster, OrBroken,
-    RequestId, ManageCancellation, RouteSource,
-    DisposalUpdate, DisposalListener, OperationError, IdentifierRef,
+    Cancellation, DisposalInformation, IdentifierRef, OperationResult, OperationRoster, OrBroken,
+    RequestId, RouteSource,
 };
 
 #[cfg(feature = "trace")]
@@ -89,9 +86,7 @@ impl Disposal {
         .into()
     }
 
-    pub fn supplanted(
-        supplanted_by: RequestId,
-    ) -> Self {
+    pub fn supplanted(supplanted_by: RequestId) -> Self {
         Supplanted { supplanted_by }.into()
     }
 
@@ -537,28 +532,14 @@ impl ManageDisposal for World {
             }
         }
 
-        dbg!(disposed_in_session);
-        if let Some(listener) = self.get::<DisposalListener>(disposed_in_session).map(|l| l.0) {
-            for disposed in disposed_operations.iter().copied() {
-                dbg!(disposed_in_session);
-                if let Err(OperationError::Broken(backtrace)) = listener(DisposalUpdate {
-                    session: disposed_in_session,
-                    listener: disposed_in_session,
-                    trigger,
-                    disposed,
-                    disposal: disposal.clone(),
-                    world: self,
-                    roster,
-                }) {
-                    self.emit_broken(disposed_in_session, backtrace, roster);
-                }
-            }
-        } else {
-            // If the session does not have a disposal listener then something
-            // is broken.
-            let info: Vec<_> = self.inspect_entity(disposed_in_session).unwrap().collect();
-            dbg!(info);
-            self.emit_broken(disposed_in_session, Some(Backtrace::new()), roster);
+        for disposed in disposed_operations.iter().copied() {
+            roster.disposals.push_back(DisposalInformation {
+                session: disposed_in_session,
+                listener: disposed_in_session,
+                trigger: trigger.to_owned(),
+                disposed,
+                disposal: disposal.clone(),
+            });
         }
     }
 
@@ -569,7 +550,11 @@ impl ManageDisposal for World {
     }
 
     fn transfer_disposals(&mut self, from: Entity, to: Entity) -> OperationResult {
-        if let Some(from_storage) = self.get_entity_mut(from).or_broken()?.take::<DisposalStorage>() {
+        if let Some(from_storage) = self
+            .get_entity_mut(from)
+            .or_broken()?
+            .take::<DisposalStorage>()
+        {
             let mut to_mut = self.get_entity_mut(to).or_broken()?;
             match to_mut.get_mut::<DisposalStorage>() {
                 Some(mut to_storage) => {

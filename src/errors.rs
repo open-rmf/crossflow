@@ -23,7 +23,7 @@ use anyhow::Error as Anyhow;
 
 use std::{borrow::Cow, sync::Arc};
 
-use crate::{Broken, Cancel, Disposal, OperationError, Cancellation, RequestId};
+use crate::{Broken, Cancellation, Disposal, OperationError, RequestId};
 
 use thiserror::Error as ThisError;
 
@@ -108,7 +108,7 @@ pub struct UnusedTargetDrop {
     /// Which target was dropped.
     pub unused_target: Entity,
     /// Which series were dropped as a consequence of the unused target.
-    pub dropped_series: Vec<Entity>,
+    pub dropped_operations: Vec<Entity>,
 }
 
 /// Something went wrong while trying to connect a target into a source.

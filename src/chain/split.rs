@@ -23,7 +23,10 @@ use std::{
 };
 use thiserror::Error as ThisError;
 
-use crate::{Builder, Chain, ConnectToSplit, OperationResult, Output, UnusedTarget, Identification, BasicIdentification};
+use crate::{
+    BasicIdentification, Builder, Chain, ConnectToSplit, Identification, OperationResult, Output,
+    UnusedTarget,
+};
 
 /// Implementing this trait on a struct will allow the [`Chain::split`] operation
 /// to be performed on [outputs][crate::Output] of that type.
@@ -306,9 +309,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Splittable> SplitBuilder<'w, 's, 'a, 'b, T> {
     ///
     /// This can only be used once, after which it will return an error. It will
     /// also return an error after [`Self::remaining_branch`] has been used.
-    pub fn remaining_output(
-        &mut self,
-    ) -> Result<Output<(T::Label, T::Item)>, SplitConnectionError>
+    pub fn remaining_output(&mut self) -> Result<Output<(T::Label, T::Item)>, SplitConnectionError>
     where
         T::Key: ForRemaining,
     {

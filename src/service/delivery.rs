@@ -17,8 +17,8 @@
 
 use crate::{
     Blocker, DeliveryInstructions, DeliveryLabelId, OperationCleanup, OperationReachability,
-    OperationResult, OperationRoster, OrBroken, ProviderStorage, ReachabilityResult, Seq,
-    RequestId,
+    OperationResult, OperationRoster, OrBroken, ProviderStorage, ReachabilityResult, RequestId,
+    Seq,
 };
 
 use bevy_ecs::prelude::{Component, Entity, World};
@@ -189,10 +189,13 @@ pub(crate) struct SerialDelivery<Request> {
 
 impl<Request> SerialDelivery<Request> {
     fn contains_session(&self, session: Entity) -> bool {
-        self.queue.iter().any(|order| order.request_id.session == session)
+        self.queue
+            .iter()
+            .any(|order| order.request_id.session == session)
     }
     fn cleanup(&mut self, session: Entity) {
-        self.queue.retain(|order| order.request_id.session != session);
+        self.queue
+            .retain(|order| order.request_id.session != session);
     }
 }
 

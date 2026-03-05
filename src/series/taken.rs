@@ -20,9 +20,9 @@ use bevy_ecs::prelude::Component;
 use tokio::sync::mpsc::UnboundedSender as Sender;
 
 use crate::{
-    Executable, Input, InputBundle, ManageInput, Cancellable,
+    Cancel, Cancellable, Executable, Input, InputBundle, ManageInput, ManageSession,
     OperationRequest, OperationResult, OperationSetup, OrBroken, SeriesLifecycleChannel,
-    promise::private::Sender as PromiseSender, ManageSession, Cancel,
+    promise::private::Sender as PromiseSender,
 };
 
 #[derive(Component)]
@@ -97,7 +97,14 @@ impl<T: 'static + Send + Sync> Executable for TakenStream<T> {
     }
 }
 
-fn cancel_taken_target<T>(Cancel { target, cancellation, world, .. }: Cancel) -> OperationResult
+fn cancel_taken_target<T>(
+    Cancel {
+        target,
+        cancellation,
+        world,
+        ..
+    }: Cancel,
+) -> OperationResult
 where
     T: 'static + Send + Sync,
 {

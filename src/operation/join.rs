@@ -19,8 +19,8 @@ use bevy_ecs::prelude::{Component, Entity};
 
 use crate::{
     FunnelInputStorage, Input, InputBundle, Joining, ManageInput, Operation, OperationCleanup,
-    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken, RequestId,
-    ReachabilityResult, SingleInputStorage, SingleTargetStorage, output_port,
+    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
+    ReachabilityResult, RequestId, SingleInputStorage, SingleTargetStorage, output_port,
 };
 
 pub(crate) struct Join<Buffers> {
@@ -74,7 +74,11 @@ where
             .0
             .clone();
 
-        let req = RequestId { session, source, seq };
+        let req = RequestId {
+            session,
+            source,
+            seq,
+        };
         let port = output_port::next();
         loop {
             if buffers.buffered_count(session, world)? < 1 {

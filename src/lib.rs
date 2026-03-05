@@ -210,7 +210,7 @@ extern crate self as crossflow;
 /// struct Precision(i32);
 ///
 /// fn rounding_service(
-///     In(BlockingService{request, provider, ..}): BlockingServiceInput<f64>,
+///     BlockingService{request, provider, ..}: BlockingService<f64>,
 ///     service_precision: Query<&Precision>,
 ///     global_precision: Res<Precision>,
 /// ) -> f64 {
@@ -250,8 +250,8 @@ pub struct AsyncService<Request, Streams: StreamPack = ()> {
     /// The input data of the request
     pub request: Request,
     /// Stream channels that will let you send stream information. This will
-    /// usually be a [`StreamChannel`] or a (possibly nested) tuple of
-    /// `StreamChannel`s, whichever matches the [`StreamPack`] description.
+    /// usually be a [`NamedStreamChannel`] or a (possibly nested) tuple of
+    /// `NamedStreamChannel`s, whichever matches the [`StreamPack`] description.
     pub streams: Streams::StreamChannels,
     /// The channel that allows querying and syncing with the world while the
     /// service runs asynchronously.
@@ -280,7 +280,9 @@ pub struct ContinuousService<Request, Response, Streams: StreamPack = ()> {
     pub key: ContinuousServiceKey<Request, Response, Streams>,
 }
 
-impl<Request, Response, Streams: StreamPack> SystemInput for ContinuousService<Request, Response, Streams> {
+impl<Request, Response, Streams: StreamPack> SystemInput
+    for ContinuousService<Request, Response, Streams>
+{
     type Param<'i> = ContinuousService<Request, Response, Streams>;
     type Inner<'i> = ContinuousService<Request, Response, Streams>;
 
@@ -314,7 +316,9 @@ impl<Request, Streams: StreamPack> SystemInput for Blocking<Request, Streams> {
     }
 }
 
-impl<Request, Streams: StreamPack> From<BlockingService<Request, Streams>> for Blocking<Request, Streams> {
+impl<Request, Streams: StreamPack> From<BlockingService<Request, Streams>>
+    for Blocking<Request, Streams>
+{
     fn from(srv: BlockingService<Request, Streams>) -> Self {
         Self {
             request: srv.request,
@@ -334,8 +338,8 @@ pub struct Async<Request, Streams: StreamPack = ()> {
     /// The input data of the request
     pub request: Request,
     /// Stream channels that will let you send stream information. This will
-    /// usually be a [`StreamChannel`] or a (possibly nested) tuple of
-    /// `StreamChannel`s, whichever matches the [`StreamPack`] description.
+    /// usually be a [`NamedStreamChannel`] or a (possibly nested) tuple of
+    /// `NamedStreamChannel`s, whichever matches the [`StreamPack`] description.
     pub streams: Streams::StreamChannels,
     /// The channel that allows querying and syncing with the world while the
     /// callback executes asynchronously.
@@ -353,7 +357,9 @@ impl<Request, Streams: StreamPack> SystemInput for Async<Request, Streams> {
     }
 }
 
-impl<Request, Streams: StreamPack> From<AsyncService<Request, Streams>> for Async<Request, Streams> {
+impl<Request, Streams: StreamPack> From<AsyncService<Request, Streams>>
+    for Async<Request, Streams>
+{
     fn from(srv: AsyncService<Request, Streams>) -> Self {
         Self {
             request: srv.request,
@@ -381,13 +387,32 @@ pub struct RequestId {
 
 impl RequestId {
     pub fn to_route_source<'a>(self, port: OutputPort<'a>) -> RouteSource<'a> {
-        let Self { session, source, seq } = self;
-        RouteSource { session, source, seq, port }
+        let Self {
+            session,
+            source,
+            seq,
+        } = self;
+        RouteSource {
+            session,
+            source,
+            seq,
+            port,
+        }
     }
 
     pub fn to_message_route<'a>(self, port: OutputPort<'a>, target: Entity) -> MessageRoute<'a> {
-        let Self { session, source, seq } = self;
-        MessageRoute { session, source, seq, port, target }
+        let Self {
+            session,
+            source,
+            seq,
+        } = self;
+        MessageRoute {
+            session,
+            source,
+            seq,
+            port,
+            target,
+        }
     }
 }
 
@@ -447,8 +472,7 @@ impl Plugin for CrossflowExecutorApp {
 pub mod prelude {
     pub use crate::{
         Async, AsyncService, Blocking, BlockingService, Capture, ContinuousQuery,
-        ContinuousService, CrossflowExecutorApp, CrossflowPlugin, Outcome,
-        Identification,
+        ContinuousService, CrossflowExecutorApp, CrossflowPlugin, Identification, Outcome,
         buffer::{
             Accessible, Accessor, AnyBuffer, AnyBufferKey, AnyBufferMut, AnyBufferWorldAccess,
             AnyMessageBox, AsAnyBuffer, Buffer, BufferAccess, BufferAccessMut, BufferGateAccess,
@@ -457,10 +481,10 @@ pub mod prelude {
             Joined, RetentionPolicy,
         },
         builder::Builder,
-        callback::{IntoCallback, Callback},
+        callback::{Callback, IntoCallback},
         chain::{Chain, ForkCloneBuilder, UnzipBuilder, Unzippable},
         flush::flush_execution,
-        map::{IntoMap, IntoAsyncMap, IntoBlockingMap},
+        map::{IntoAsyncMap, IntoBlockingMap, IntoMap},
         map_once::{AsMapOnce, IntoAsyncMapOnce, IntoBlockingMapOnce},
         node::{ForkCloneOutput, InputSlot, Node, Output},
         promise::{Promise, PromiseState},
@@ -469,8 +493,8 @@ pub mod prelude {
         series::{Recipient, Series},
         service::{
             AddContinuousServicesExt, AddServicesExt, AsDeliveryInstructions, DeliveryInstructions,
-            DeliveryLabel, DeliveryLabelId, Service,
-            ServiceDiscovery, ServiceInstructions, SpawnServicesExt, traits::*,
+            DeliveryLabel, DeliveryLabelId, Service, ServiceDiscovery, ServiceInstructions,
+            SpawnServicesExt, traits::*,
         },
         stream::{DynamicallyNamedStream, NamedValue, Stream, StreamFilter, StreamOf, StreamPack},
         trim::{TrimBranch, TrimPoint},

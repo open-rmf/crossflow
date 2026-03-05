@@ -11,6 +11,7 @@ import {
   isOperationNode,
   isScopeNode,
 } from '../nodes';
+import { useTheme } from '@mui/material';
 import type {
   BufferSelection,
   Diagram,
@@ -23,6 +24,22 @@ import { exhaustiveCheck } from './exhaustive-check';
 import { ROOT_NAMESPACE, splitNamespaces } from './namespace';
 import { isArrayBufferSelection, isKeyedBufferSelection } from './operation';
 import type { DiagramProperties } from '../diagram-properties-provider';
+import { useEdges } from '../use-edges';
+import { getConnectedEdges } from '@xyflow/react';
+
+/**
+ * Marks a diagram editor edge visibly to signify that there is an error. This
+ * function must be called from a react component as it uses the theme palette.
+ * @param edge A diagram editor edge.
+ */
+function markEdgeError(edge: DiagramEditorEdge) {
+  const theme = useTheme();
+  edge.style = { ...edge.style, stroke: theme.palette.error.main };
+}
+
+function markEdgeNormal(edge: DiagramEditorEdge) {
+  edge.style = { ...edge.style, stroke: undefined };
+}
 
 interface SubOperations {
   start: NextOperation;
@@ -126,16 +143,36 @@ function syncBufferSelection(
     // check that the buffer selection is compatible
     if (edge.type === 'buffer' && edge.data.input?.type === 'bufferSeq') {
       if (!isArrayBufferSelection(bufferSelection)) {
+        const edges = useEdges();
+        getConnectedEdges([targetNode], edges)
+          .filter(
+            (edge) => edge.type === 'buffer' && edge.target === targetNode.id
+          )
+          .forEach((edge) => {
+            markEdgeError(edge);
+          });
         throw new Error(
-          'a sequential buffer edge must be assigned to an array of buffers',
+          'A sequential buffer edge must be assigned to an array of buffers. \
+          Ensure that other buffer edges connected to the same target node have \
+          the same slot type.',
         );
       }
       bufferSelection[edge.data.input.seq] = sourceNode.data.opId;
     }
     if (edge.type === 'buffer' && edge.data.input?.type === 'bufferKey') {
       if (!isKeyedBufferSelection(bufferSelection)) {
+        const edges = useEdges();
+        getConnectedEdges([targetNode], edges)
+          .filter(
+            (edge) => edge.type === 'buffer' && edge.target === targetNode.id
+          )
+          .forEach((edge) => {
+            markEdgeError(edge);
+          });
         throw new Error(
-          'a keyed buffer edge must be assigned to a keyed buffer selection',
+          'A keyed buffer edge must be assigned to a keyed buffer selection. \
+          Ensure that other buffer edges connected to the same target node have \
+          the same slot type.',
         );
       }
       bufferSelection[edge.data.input.key] = sourceNode.data.opId;
@@ -154,6 +191,8 @@ function syncBufferSelection(
         }
       }
     }
+
+    markEdgeNormal(edge);
   }
 }
 

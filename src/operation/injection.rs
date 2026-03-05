@@ -17,17 +17,17 @@
 
 use crate::{
     ActiveTasksStorage, AddExecution, Cleanup, CleanupContents, DisposeForUnavailableService,
-    Executable, FinalizeCleanup, FinalizeCleanupRequest, Input, InputBundle, ManageDisposal,
-    ManageInput, OperateService, Operation, OperationCleanup, OperationReachability,
-    OperationRequest, OperationResult, OperationSetup, OrBroken, ProviderStorage,
-    ReachabilityResult, InScope, ServiceInstructions, ServiceRequest, SingleInputStorage,
-    SingleTargetStorage, StreamPack, StreamTargetMap, dispatch_service, RequestId,
-    output_port, Routing, RouteSource, RouteTarget,
+    Executable, FinalizeCleanup, FinalizeCleanupRequest, InScope, Input, InputBundle,
+    ManageDisposal, ManageInput, OperateService, Operation, OperationCleanup,
+    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
+    ProviderStorage, ReachabilityResult, RequestId, RouteSource, RouteTarget, Routing,
+    ServiceInstructions, ServiceRequest, SingleInputStorage, SingleTargetStorage, StreamPack,
+    StreamTargetMap, dispatch_service, output_port,
 };
 
-use bevy_ecs::prelude::{Command, Component, Entity, ChildOf};
+use bevy_ecs::prelude::{ChildOf, Command, Component, Entity};
 
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 
 use std::collections::HashMap;
 
@@ -71,8 +71,13 @@ where
             session,
             data: (request, service),
             seq,
-        } = world.take_input::<(Request, ServiceInstructions<Request, Response, Streams>)>(source)?;
-        let request_id = RequestId { session, source, seq };
+        } = world
+            .take_input::<(Request, ServiceInstructions<Request, Response, Streams>)>(source)?;
+        let request_id = RequestId {
+            session,
+            source,
+            seq,
+        };
 
         let source_ref = world.get_entity(source).or_broken()?;
         let scope = source_ref.get::<InScope>().or_broken()?.scope();
@@ -111,9 +116,7 @@ where
         // roster to register the task as an operation. In fact it does not
         // implement Operation at all. It is just a temporary container for the
         // input and the stream targets.
-        let execute = unsafe {
-            world.sneak_input(route, request, false, roster)?
-        };
+        let execute = unsafe { world.sneak_input(route, request, false, roster)? };
 
         if !execute {
             // If giving the input failed then this workflow will not be able to
@@ -154,7 +157,7 @@ where
         let session = cleanup.session;
         let cleanup_id = cleanup.cleanup_id;
         let mut storage = world.get_mut::<InjectionStorage>(source).or_broken()?;
-        let nodes: SmallVec<[Entity; 16]> = storage
+        let tasks: SmallVec<[Entity; 16]> = storage
             .list
             .iter()
             .filter_map(|injected| {
@@ -167,7 +170,7 @@ where
             .collect();
         storage.list.retain(|injected| injected.session != session);
 
-        if nodes.is_empty() {
+        if tasks.is_empty() {
             // No cleanup needed, just notify right away
             cleanup.notify_cleaned(world, roster)?;
             return Ok(());
@@ -176,14 +179,14 @@ where
         world
             .get_mut::<CleanupContents>(source)
             .or_broken()?
-            .add_cleanup(cleanup_id, nodes.clone());
+            .add_cleanup(cleanup_id, tasks.clone());
         world
             .get_mut::<AwaitingCleanup>(source)
             .or_broken()?
             .map
             .insert(cleanup_id, cleanup);
 
-        for node in nodes.iter().copied() {
+        for node in tasks.iter().copied() {
             let cleanup = Cleanup {
                 cleaner: source,
                 node,
@@ -300,7 +303,11 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let Input { session: injection_session, data, seq } = world.take_input::<Response>(source)?;
+        let Input {
+            session: injection_session,
+            data,
+            seq,
+        } = world.take_input::<Response>(source)?;
         let req = world.get::<InjectionId>(source).or_broken()?.0;
         world.despawn(source);
 
@@ -327,7 +334,10 @@ where
         };
         let route = Routing {
             outputs: smallvec![injector_output, finish_output],
-            input: RouteTarget { session: req.session, target },
+            input: RouteTarget {
+                session: req.session,
+                target,
+            },
         };
         world.give_input(route, data, roster)?;
 

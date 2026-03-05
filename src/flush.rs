@@ -22,20 +22,16 @@ use bevy_ecs::{
     system::{ScheduleSystem, SystemState},
 };
 
-use smallvec::SmallVec;
-
-use anyhow::anyhow;
-
 use backtrace::Backtrace;
 
-use std::sync::Arc;
+use smallvec::SmallVec;
 
 use crate::{
-    AddExecution, ChannelQueue, Detached, Finished, FlushWarning,
-    OperationError, OperationRequest, OperationRoster,
+    AddExecution, ChannelQueue, Detached, DisposalListener, DisposalUpdate, Finished, FlushWarning,
+    ManageCancellation, OperationError, OperationRequest, OperationRoster, ReachableRequest,
     SeriesLifecycleChannel, ServiceHook, ServiceLifecycle, ServiceLifecycleChannel,
-    UnhandledErrors, UnusedTarget, UnusedTargetDrop,
-    WakeQueue, awaken_task, dispose_for_despawned_service, execute_operation,
+    UnhandledErrors, UnusedTarget, WakeQueue, awaken_task, dispose_for_despawned_service,
+    drop_series_target, execute_operation, validate_scope_reachability,
 };
 
 #[cfg(feature = "single_threaded_async")]
@@ -136,7 +132,6 @@ fn flush_execution_impl(
         }
 
         while let Some(source) = roster.queue.pop_front() {
-            dbg!(source);
             execute_operation(OperationRequest {
                 source,
                 world,
@@ -174,6 +169,35 @@ fn flush_execution_impl(
 fn garbage_cleanup(world: &mut World, roster: &mut OperationRoster) {
     while let Some(cleanup) = roster.cleanup_finished.pop() {
         cleanup.trigger(world, roster);
+    }
+
+    while let Some(info) = roster.disposals.pop_front() {
+        let listener = info.listener;
+        if let Some(listen) = world.get::<DisposalListener>(info.listener).map(|l| l.0) {
+            if let Err(OperationError::Broken(backtrace)) = listen(DisposalUpdate {
+                info,
+                world,
+                roster,
+            }) {
+                world.emit_broken(listener, backtrace, roster);
+            }
+        } else if world.get_entity(listener).is_ok() {
+            // If the session is still spawned but does not have a disposal
+            // listener then something is broken.
+            world.emit_broken(listener, Some(Backtrace::new()), roster);
+        }
+    }
+
+    while let Some(reachable) = roster.reachable.pop_front() {
+        if let Err(OperationError::Broken(backtrace)) =
+            validate_scope_reachability(ReachableRequest {
+                reachable,
+                world,
+                roster,
+            })
+        {
+            world.emit_broken(reachable.scope, backtrace, roster);
+        }
     }
 }
 
@@ -264,7 +288,11 @@ fn collect_from_channels(
     }
 
     for target in drop_targets.drain(..) {
-        drop_target(target, world, roster, true);
+        if let Err(OperationError::Broken(backtrace)) =
+            drop_series_target(target, world, roster, true)
+        {
+            world.emit_broken(target, backtrace, roster);
+        }
     }
 
     let mut lifecycles = world.get_resource_or_insert_with(SeriesLifecycleChannel::default);
@@ -273,76 +301,15 @@ fn collect_from_channels(
     }
 
     for target in drop_targets {
-        drop_target(target, world, roster, false);
+        if let Err(OperationError::Broken(backtrace)) =
+            drop_series_target(target, world, roster, false)
+        {
+            world.emit_broken(target, backtrace, roster);
+        }
     }
 
     #[cfg(feature = "single_threaded_async")]
     SingleThreadedExecution::world_poll(world, parameters.single_threaded_poll_limit);
-}
-
-fn drop_target(target: Entity, world: &mut World, roster: &mut OperationRoster, unused: bool) {
-    roster.purge(target);
-    let mut dropped_series = Vec::new();
-    let mut detached_series = None;
-
-    let mut execution = target;
-    let mut search_state: SystemState<(Query<&Children>, Query<&Detached>)> =
-        SystemState::new(world);
-
-    let (q_children, q_detached) = search_state.get(world);
-    loop {
-        let mut move_up_chain = false;
-        if let Ok(children) = q_children.get(execution) {
-            for child in children {
-                let Ok(detached) = q_detached.get(*child) else {
-                    continue;
-                };
-                if detached.is_detached() {
-                    // This child is detached so we will not include it in the
-                    // dropped series. We need to de-parent it so that it does
-                    // not get despawned with the rest of the series that we
-                    // are dropping.
-                    detached_series = Some(*child);
-                    break;
-                } else {
-                    // This child is not detached, so we will include it in our
-                    // dropped series, and crawl towards one of it children.
-                    if unused {
-                        dropped_series.push(execution);
-                    }
-                    roster.purge(execution);
-                    move_up_chain = true;
-                    execution = *child;
-                    continue;
-                }
-            }
-        }
-
-        if !move_up_chain {
-            // There is nothing further to include in the drop
-            break;
-        }
-    }
-
-    if let Some(detached_series) = detached_series {
-        if let Ok(mut detached_series_mut) = world.get_entity_mut(detached_series) {
-            detached_series_mut.remove::<ChildOf>();
-        }
-    }
-
-    if let Ok(unused_target_mut) = world.get_entity_mut(target) {
-        unused_target_mut.despawn();
-    }
-
-    if unused {
-        world
-            .get_resource_or_insert_with(UnhandledErrors::default)
-            .unused_targets
-            .push(UnusedTargetDrop {
-                unused_target: target,
-                dropped_series,
-            });
-    }
 }
 
 /// This resource is used to queue up operations in the roster in situations

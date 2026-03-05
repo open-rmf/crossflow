@@ -18,10 +18,10 @@
 use bevy_ecs::prelude::{Component, Entity};
 
 use crate::{
-    Buffering, Disposal, Gate, GateRequest, Input, InputBundle, ManageInput, Operation,
-    OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationSetup,
-    OrBroken, ReachabilityResult, SingleInputStorage, SingleTargetStorage, ManageDisposal,
-    output_port, RequestId,
+    Buffering, Disposal, Gate, GateRequest, Input, InputBundle, ManageDisposal, ManageInput,
+    Operation, OperationCleanup, OperationReachability, OperationRequest, OperationResult,
+    OperationSetup, OrBroken, ReachabilityResult, RequestId, SingleInputStorage,
+    SingleTargetStorage, output_port,
 };
 
 #[derive(Component)]
@@ -84,7 +84,11 @@ where
             data: GateRequest { action, data },
             seq,
         } = world.take_input::<GateRequest<T>>(source)?;
-        let request_id = RequestId { session, source, seq };
+        let request_id = RequestId {
+            session,
+            source,
+            seq,
+        };
 
         let source_ref = world.get_entity(source).or_broken()?;
         let target = source_ref.get::<SingleTargetStorage>().or_broken()?.get();
@@ -174,9 +178,13 @@ where
         }: OperationRequest,
     ) -> OperationResult {
         let Input { session, data, seq } = world.take_input::<T>(source)?;
-        let request_id = RequestId { session, source, seq };
+        let request_id = RequestId {
+            session,
+            source,
+            seq,
+        };
 
-        let mut source_ref = world.get_entity(source).or_broken()?;
+        let source_ref = world.get_entity(source).or_broken()?;
         let target = source_ref.get::<SingleTargetStorage>().or_broken()?.get();
         let action = source_ref.get::<GateActionStorage>().or_broken()?.0;
         let buffers = source_ref

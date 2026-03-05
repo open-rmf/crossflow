@@ -26,8 +26,8 @@ use std::sync::Arc;
 use crate::{
     ForkTargetStorage, Input, InputBundle, ManageInput, MiscellaneousFailure, Operation,
     OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
-    OperationSetup, OrBroken, ReachabilityResult, SingleInputStorage, UnhandledErrors,
-    RequestId, output_port,
+    OperationSetup, OrBroken, ReachabilityResult, RequestId, SingleInputStorage, UnhandledErrors,
+    output_port,
 };
 
 pub(crate) struct ForkClone<Response: 'static + Send + Sync + Clone> {
@@ -65,15 +65,28 @@ impl<T: 'static + Send + Sync + Clone> Operation for ForkClone<T> {
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let Input { session, data: input, seq } = world.take_input::<T>(source)?;
-        let targets = world.get::<ForkTargetStorage>(source).or_broken()?.0.clone();
+        let Input {
+            session,
+            data: input,
+            seq,
+        } = world.take_input::<T>(source)?;
+        let targets = world
+            .get::<ForkTargetStorage>(source)
+            .or_broken()?
+            .0
+            .clone();
 
-        let request_id = RequestId { session, source, seq };
-        let mut send_value = |value: T, target: Entity, index: usize| -> Result<(), OperationError> {
-            let port = output_port::next_index(index);
-            let route = request_id.to_message_route(&port, target);
-            world.give_input(route, value, roster)
+        let request_id = RequestId {
+            session,
+            source,
+            seq,
         };
+        let mut send_value =
+            |value: T, target: Entity, index: usize| -> Result<(), OperationError> {
+                let port = output_port::next_index(index);
+                let route = request_id.to_message_route(&port, target);
+                world.give_input(route, value, roster)
+            };
 
         // Distributing the values like this is a bit convoluted, but it ensures
         // that we are not producing any more clones of the input than what is

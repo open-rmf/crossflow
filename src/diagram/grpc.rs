@@ -16,7 +16,7 @@
 */
 
 use super::*;
-use crate::{Async, NeverFinish, Identifier};
+use crate::{Async, Identifier, NeverFinish};
 
 use bevy_derive::{Deref, DerefMut};
 
@@ -160,37 +160,36 @@ impl DiagramElementRegistry {
                     let path = PathAndQuery::from_maybe_shared(path.clone())?;
 
                     let rt = Arc::clone(&rt);
-                    let node =
-                        builder.create_map(move |input: Async<JsonMessage, GrpcStreams>| {
-                            let client = client.clone();
-                            let codec = codec.clone();
-                            let path = path.clone();
+                    let node = builder.create_map(move |input: Async<JsonMessage, GrpcStreams>| {
+                        let client = client.clone();
+                        let codec = codec.clone();
+                        let path = path.clone();
 
-                            // The tonic gRPC client needs to be run inside a tokio
-                            // async runtime, so we spawn a tokio task here and use the
-                            // JoinHandle to pass its result through the workflow.
-                            let task = rt
-                                .spawn(async move {
-                                    let client = client.await?;
+                        // The tonic gRPC client needs to be run inside a tokio
+                        // async runtime, so we spawn a tokio task here and use the
+                        // JoinHandle to pass its result through the workflow.
+                        let task = rt
+                            .spawn(async move {
+                                let client = client.await?;
 
-                                    // Convert the request message into a stream of a single dynamic message
-                                    let request = input.request;
-                                    let request = Request::new(once(async move { request }));
-                                    execute(
-                                        request,
-                                        client,
-                                        codec,
-                                        path,
-                                        config.timeout,
-                                        input.streams,
-                                        is_server_streaming,
-                                    )
-                                    .await
-                                })
-                                .abort_on_drop();
+                                // Convert the request message into a stream of a single dynamic message
+                                let request = input.request;
+                                let request = Request::new(once(async move { request }));
+                                execute(
+                                    request,
+                                    client,
+                                    codec,
+                                    path,
+                                    config.timeout,
+                                    input.streams,
+                                    is_server_streaming,
+                                )
+                                .await
+                            })
+                            .abort_on_drop();
 
-                            async move { task.await.map_err(|e| format!("{e}")).flatten() }
-                        });
+                        async move { task.await.map_err(|e| format!("{e}")).flatten() }
+                    });
 
                     Ok(node)
                 },
@@ -693,10 +692,7 @@ mod tests {
             .minimal()
             .register_message::<GoalTracker>();
 
-        let reached_listener = fixture
-            .context
-            .app
-            .spawn_service(check_if_reached);
+        let reached_listener = fixture.context.app.spawn_service(check_if_reached);
         fixture
             .registry
             .opt_out()
@@ -890,7 +886,9 @@ mod tests {
     }
 
     fn check_if_reached(
-        Blocking { request: keys, id, .. }: Blocking<ReachedKeys>,
+        Blocking {
+            request: keys, id, ..
+        }: Blocking<ReachedKeys>,
         mut update_buffer: BufferAccess<JsonMessage>,
         mut goal_buffer: BufferAccessMut<GoalTracker>,
     ) {

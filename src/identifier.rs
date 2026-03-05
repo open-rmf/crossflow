@@ -15,11 +15,7 @@
  *
 */
 
-use std::{
-    borrow::Cow,
-    hash::Hash,
-    sync::Arc,
-};
+use std::{borrow::Cow, hash::Hash, sync::Arc};
 
 pub use crossflow_derive::{Accessor, Joined};
 
@@ -30,7 +26,6 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "diagram")]
 use schemars::JsonSchema;
-
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(
@@ -260,22 +255,14 @@ impl<'a> From<&'a Identifier> for IdentifierRef<'a> {
 impl<'a> PartialEq<IdentifierRef<'a>> for Identifier {
     fn eq(&self, other: &IdentifierRef<'a>) -> bool {
         match self {
-            Self::Name(lhs) => {
-                match other {
-                    IdentifierRef::Name(rhs) => {
-                        lhs.as_ref().eq(rhs.as_ref())
-                    }
-                    IdentifierRef::Index(_) => false,
-                }
-            }
-            Self::Index(lhs) => {
-                match other {
-                    IdentifierRef::Name(_) => false,
-                    IdentifierRef::Index(rhs) => {
-                        *lhs == *rhs
-                    }
-                }
-            }
+            Self::Name(lhs) => match other {
+                IdentifierRef::Name(rhs) => lhs.as_ref().eq(rhs.as_ref()),
+                IdentifierRef::Index(_) => false,
+            },
+            Self::Index(lhs) => match other {
+                IdentifierRef::Name(_) => false,
+                IdentifierRef::Index(rhs) => *lhs == *rhs,
+            },
         }
     }
 }
@@ -288,8 +275,8 @@ impl<'a> PartialEq<Identifier> for IdentifierRef<'a> {
 
 pub type OutputPort<'a> = &'a [IdentifierRef<'a>];
 
-/// The output_id module provides utility functions for easily creating [`OutputId`]
-/// instances that avoid any memory allocations.
+/// The output_port module provides utility functions for easily creating
+/// [`OutputPort`] instances that avoid any memory allocations.
 pub mod output_port {
     use super::IdentifierRef;
 
@@ -379,10 +366,7 @@ pub mod output_port {
     }
 
     pub const fn next_index(index: usize) -> [IdentifierRef<'static>; 2] {
-        [
-            IdentifierRef::name_str("next"),
-            IdentifierRef::Index(index),
-        ]
+        [IdentifierRef::name_str("next"), IdentifierRef::Index(index)]
     }
 
     pub const fn sequential(index: usize) -> [IdentifierRef<'static>; 2] {
@@ -404,7 +388,10 @@ pub mod output_port {
     }
 
     pub const fn buffer_update() -> [IdentifierRef<'static>; 2] {
-        [IdentifierRef::name_str("builtin"), IdentifierRef::name_str("buffer_update")]
+        [
+            IdentifierRef::name_str("builtin"),
+            IdentifierRef::name_str("buffer_update"),
+        ]
     }
 
     pub const fn drop() -> [IdentifierRef<'static>; 1] {
