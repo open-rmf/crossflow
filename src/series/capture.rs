@@ -27,7 +27,7 @@ use crate::{
 
 pub(crate) struct CaptureOutcome<T> {
     value: oneshot::Sender<Result<T, Cancellation>>,
-    finished: oneshot::Receiver<()>,
+    finished: oneshot::Receiver<Result<(), Cancellation>>,
 }
 
 #[derive(Component)]
@@ -36,7 +36,7 @@ struct OutcomeSenderStorage<T>(oneshot::Sender<Result<T, Cancellation>>);
 impl<T> CaptureOutcome<T> {
     pub(crate) fn new(
         sender: oneshot::Sender<Result<T, Cancellation>>,
-        finished: oneshot::Receiver<()>,
+        finished: oneshot::Receiver<Result<(), Cancellation>>,
     ) -> Self {
         Self {
             value: sender,
@@ -55,9 +55,19 @@ impl<T: 'static + Send + Sync> Executable for CaptureOutcome<T> {
         let finished = self.finished;
         let monitor_finish = async move {
             match finished.await {
-                Ok(_) => {
-                    // The outcome was successfully received, there is no action
-                    // to take. We do nothing and let this future end.
+                Ok(finish) => {
+                    match finish {
+                        Ok(_) => {
+                            // The outcome was successfully received, there is no action
+                            // to take. We do nothing and let this future end.
+                        }
+                        Err(cancellation) => {
+                            let _ = lifecycle_sender.send(SeriesLifecycleChange {
+                                node: source,
+                                cancellation,
+                            });
+                        }
+                    }
                 }
                 Err(_) => {
                     // The Outcome instance was dropped before its result could

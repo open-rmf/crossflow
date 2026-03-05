@@ -29,7 +29,7 @@ use smallvec::SmallVec;
 use crate::{
     AddExecution, ChannelQueue, Detached, DisposalListener, DisposalUpdate, Finished, FlushWarning,
     ManageCancellation, OperationError, OperationRequest, OperationRoster, ReachableRequest,
-    SeriesLifecycleChannel, ServiceHook, ServiceLifecycle, ServiceLifecycleChannel,
+    SeriesLifecycleChannel, ServiceHook, ServiceLifecycle, ServiceLifecycleChannel, SeriesLifecycleChange,
     UnhandledErrors, UnusedTarget, WakeQueue, awaken_task, dispose_for_despawned_service,
     drop_series_target, execute_operation, validate_scope_reachability,
 };
@@ -273,12 +273,12 @@ fn collect_from_channels(
         SystemState::new(world);
 
     let mut add_finish: SmallVec<[_; 8]> = SmallVec::new();
-    let mut drop_targets: SmallVec<[_; 8]> = SmallVec::new();
+    let mut unused_targets: SmallVec<[_; 8]> = SmallVec::new();
     for (e, detached) in unused_targets_state.get(world).iter() {
         if detached.is_detached() {
             add_finish.push(e);
         } else {
-            drop_targets.push(e);
+            unused_targets.push(e);
         }
     }
 
@@ -287,24 +287,25 @@ fn collect_from_channels(
         AddExecution::new(e, Finished).apply(world);
     }
 
-    for target in drop_targets.drain(..) {
+    for target in unused_targets.drain(..) {
         if let Err(OperationError::Broken(backtrace)) =
-            drop_series_target(target, world, roster, true)
+            drop_series_target(target, None, world, roster, true)
         {
             world.emit_broken(target, backtrace, roster);
         }
     }
 
     let mut lifecycles = world.get_resource_or_insert_with(SeriesLifecycleChannel::default);
+    let mut dropped_targets: SmallVec<[_; 8]> = SmallVec::new();
     while let Ok(dropped_target) = lifecycles.receiver.try_recv() {
-        drop_targets.push(dropped_target.node);
+        dropped_targets.push(dropped_target);
     }
 
-    for target in drop_targets {
+    for SeriesLifecycleChange { node, cancellation } in dropped_targets {
         if let Err(OperationError::Broken(backtrace)) =
-            drop_series_target(target, world, roster, false)
+            drop_series_target(node, Some(cancellation), world, roster, false)
         {
-            world.emit_broken(target, backtrace, roster);
+            world.emit_broken(node, backtrace, roster);
         }
     }
 

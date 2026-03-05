@@ -15,6 +15,8 @@
  *
 */
 
+use anyhow::Error as Anyhow;
+
 use bevy_ecs::prelude::{Bundle, Component, Entity, World};
 
 use backtrace::Backtrace;
@@ -122,6 +124,10 @@ impl<T: Into<CancellationCause>> From<T> for Cancellation {
 #[derive(ThisError, Debug)]
 
 pub enum CancellationCause {
+    /// A cancellation that was triggered explicitly by the user.
+    #[error("cancellation triggered by user: {}", .0)]
+    User(Arc<Anyhow>),
+
     /// The promise taken by the requester was dropped without being detached.
     #[error("the promise taken by the requester was dropped without being detached: {:?}", .0)]
     TargetDropped(Entity),

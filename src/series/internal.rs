@@ -24,16 +24,14 @@ use tokio::sync::mpsc::{
     UnboundedReceiver as TokioReceiver, UnboundedSender as TokioSender, unbounded_channel,
 };
 
-use smallvec::{SmallVec, smallvec};
-
-use anyhow::anyhow;
+use smallvec::smallvec;
 
 use std::sync::Arc;
 
 use crate::{
     Broken, Cancel, Cancellable, Cancellation, Cleanup, CleanupContents, DeferredRoster, Detached,
     DisposalInformation, DisposalListener, DisposalUpdate, FinalizeCleanup, FinalizeCleanupRequest,
-    ManageCancellation, ManageSession, MiscellaneousFailure, OnCancel, OperationCleanup,
+    ManageCancellation, ManageSession, OnCancel, OperationCleanup,
     OperationError, OperationExecuteStorage, OperationRequest, OperationResult, OperationRoster,
     OperationSetup, OperationType, OrBroken, RequestId, SessionStatus, SetupFailure,
     UnhandledErrors, UnusedTarget, UnusedTargetDrop,
@@ -446,6 +444,7 @@ impl Drop for SeriesLifecycle {
 
 pub(crate) fn drop_series_target(
     target: Entity,
+    cancellation: Option<Cancellation>,
     world: &mut World,
     roster: &mut OperationRoster,
     unused: bool,
@@ -503,7 +502,7 @@ pub(crate) fn drop_series_target(
             });
     }
 
-    let cancellation = Cancellation::target_dropped(target);
+    let cancellation = cancellation.unwrap_or_else(|| Cancellation::target_dropped(target));
 
     if let Some(progress) = reached_progress_point {
         let is_cleaning =

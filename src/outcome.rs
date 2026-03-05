@@ -18,6 +18,7 @@
 use std::{
     future::Future,
     pin::Pin,
+    sync::Arc,
     task::{Context, Poll},
 };
 
@@ -25,6 +26,8 @@ use tokio::sync::oneshot::{
     self,
     error::{RecvError, TryRecvError},
 };
+
+use anyhow::Error as Anyhow;
 
 use crate::{Cancellation, CancellationCause, CaptureOutcome};
 
@@ -41,7 +44,7 @@ pub struct Outcome<T> {
 
     /// A sender attached to a receiver who is simply monitoring for whether
     /// the outcome gets dropped.
-    finished: Option<oneshot::Sender<()>>,
+    finished: Option<oneshot::Sender<Result<(), Cancellation>>>,
 }
 
 impl<T> Future for Outcome<T> {
@@ -57,7 +60,7 @@ impl<T> Future for Outcome<T> {
                 // If we are receiving the value then notify the finished monitor
                 // that we successfully received the outcome.
                 if let Some(finished) = self_mut.finished.take() {
-                    let _ = finished.send(());
+                    let _ = finished.send(Ok(()));
                 }
 
                 Poll::Ready(value)
@@ -78,7 +81,7 @@ impl<T> Outcome<T> {
         match self.value.try_recv() {
             Ok(r) => {
                 if let Some(finished) = self.finished.take() {
-                    let _ = finished.send(());
+                    let _ = finished.send(Ok(()));
                 }
 
                 Some(r)
@@ -87,7 +90,7 @@ impl<T> Outcome<T> {
                 TryRecvError::Empty => None,
                 TryRecvError::Closed => {
                     if let Some(finished) = self.finished.take() {
-                        let _ = finished.send(());
+                        let _ = finished.send(Ok(()));
                     }
 
                     Some(Err(CancellationCause::Undeliverable.into()))
@@ -116,6 +119,15 @@ impl<T> Outcome<T> {
     /// Check if the outcome is still being determined.
     pub fn is_pending(&self) -> bool {
         self.value.is_empty() && !self.is_terminated()
+    }
+
+    /// Explicitly tell the series that you no longer care about this outcome.
+    /// All operations leading up to the outcome will be dropped and/or cancelled
+    /// unless they have been detached.
+    pub fn cancel(&mut self, msg: impl Into<Anyhow>) {
+        if let Some(finished) = self.finished.take() {
+            let _ = finished.send(Err(CancellationCause::User(Arc::new(msg.into())).into()));
+        }
     }
 
     pub(crate) fn new() -> (Self, CaptureOutcome<T>) {
