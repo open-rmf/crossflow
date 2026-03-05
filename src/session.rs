@@ -69,7 +69,7 @@ pub trait ManageSession {
 }
 
 impl ManageSession for World {
-    fn spawn_scoped_session(&mut self, parent_session: Entity, scope: Entity, seq: Seq) -> Entity {
+    fn spawn_scoped_session(&mut self, parent_session: Entity, scope: Entity, _seq: Seq) -> Entity {
         let scoped_session = self
             .spawn(ScopedSessionBundle::new(parent_session, scope))
             .id();
@@ -78,7 +78,7 @@ impl ManageSession for World {
             let scope_request = RequestId {
                 session: parent_session,
                 source: scope,
-                seq,
+                seq: _seq,
             };
             SessionEvent::spawned(Some(scope_request), scoped_session, self);
         }
@@ -90,7 +90,7 @@ impl ManageSession for World {
         &mut self,
         parent_session: Entity,
         begin_cleanup: Entity,
-        seq: Seq,
+        _seq: Seq,
     ) -> Entity {
         let cleanup_session = self
             .spawn(ScopedSessionBundle::for_cleanup(
@@ -103,7 +103,7 @@ impl ManageSession for World {
             let scope_request = RequestId {
                 session: parent_session,
                 source: begin_cleanup,
-                seq,
+                seq: _seq,
             };
             SessionEvent::spawned(Some(scope_request), cleanup_session, self);
         }

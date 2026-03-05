@@ -486,13 +486,13 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
     /// the workflow trace if the tracing feature is enabled.
     pub fn get<'a>(
         &'a mut self,
-        req: impl Into<RequestId>,
+        _req: impl Into<RequestId>,
         key: &BufferKey<T>,
     ) -> Result<BufferView<'a, T>, QueryEntityError> {
         #[cfg(feature = "trace")]
         {
             self.tracer
-                .trace(req.into(), key.tag(), BufferAccessRecord::Viewed);
+                .trace(_req.into(), key.tag(), BufferAccessRecord::Viewed);
         }
         self.get_untraced(key)
     }
@@ -515,13 +515,13 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
 
     pub fn get_newest<'a>(
         &'a mut self,
-        req: impl Into<RequestId>,
+        _req: impl Into<RequestId>,
         key: &BufferKey<T>,
     ) -> Option<&'a T> {
         #[cfg(feature = "trace")]
         {
             self.tracer
-                .trace(req.into(), key.tag(), BufferAccessRecord::Viewed);
+                .trace(_req.into(), key.tag(), BufferAccessRecord::Viewed);
         }
         self.get_newest_untraced(key)
     }
@@ -712,7 +712,7 @@ impl BufferWorldAccess for World {
 
     fn unchecked_buffer_view<T>(
         &mut self,
-        req: RequestId,
+        _req: RequestId,
         key: &BufferKeyTag,
     ) -> Result<BufferView<'_, T>, BufferError>
     where

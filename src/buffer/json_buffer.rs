@@ -37,15 +37,18 @@ use smallvec::SmallVec;
 
 use crate::{
     Accessing, Accessor, AnyBuffer, AnyBufferAccessInterface, AnyBufferKey, AnyRange, AsAnyBuffer,
-    Buffer, BufferAccessMut, BufferAccessRecord, BufferAccessors, BufferError, BufferKey,
-    BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferManager, BufferMap,
-    BufferMapLayout, BufferMapLayoutHints, BufferMapStruct, BufferStorage, BufferTracer,
-    BufferView, BufferWorldAccess, Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer,
-    DynamicBufferMapLayoutHints, Gate, GateState, IdentifierRef, IncompatibleLayout,
-    InspectBufferSessions, JoinBehavior, Joined, Joining, ManageBufferSessions, MessageTypeHint,
-    MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate, OperationError,
-    OperationResult, OrBroken, RequestId, TypeInfo, add_listener_to_source,
+    Buffer, BufferAccessMut, BufferAccessors, BufferError, BufferKey, BufferKeyBuilder,
+    BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferManager, BufferMap, BufferMapLayout,
+    BufferMapLayoutHints, BufferMapStruct, BufferStorage, BufferView, BufferWorldAccess,
+    Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer, DynamicBufferMapLayoutHints,
+    Gate, GateState, IdentifierRef, IncompatibleLayout, InspectBufferSessions, JoinBehavior,
+    Joined, Joining, ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation,
+    MessageTypeHintMap, NotifyBufferUpdate, OperationError, OperationResult, OrBroken, RequestId,
+    TypeInfo, add_listener_to_source,
 };
+
+#[cfg(feature = "trace")]
+use crate::{BufferAccessRecord, BufferTracer};
 
 /// A [`Buffer`] whose message type has been anonymized, but which is known to
 /// support serialization and deserialization. Joining this buffer type will
@@ -555,14 +558,14 @@ pub trait JsonBufferWorldAccess {
 impl JsonBufferWorldAccess for World {
     fn json_buffer_view(
         &mut self,
-        req: RequestId,
+        _req: RequestId,
         key: &JsonBufferKey,
     ) -> Result<JsonBufferView<'_>, BufferError> {
         #[cfg(feature = "trace")]
         {
             let mut tracer_state: SystemState<BufferTracer> = SystemState::new(self);
             let mut tracer = tracer_state.get_mut(self);
-            tracer.trace(req.into(), &key.tag, BufferAccessRecord::Viewed);
+            tracer.trace(_req.into(), &key.tag, BufferAccessRecord::Viewed);
             tracer_state.apply(self);
         }
 

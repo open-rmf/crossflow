@@ -325,6 +325,7 @@ impl<TypeRepr> MessageTypeHint<TypeRepr> {
         matches!(self, Self::Fallback(_))
     }
 
+    #[cfg(feature = "diagram")]
     fn inner(&self) -> &TypeRepr {
         match self {
             Self::Exact(inner) => inner,

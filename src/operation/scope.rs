@@ -1431,7 +1431,7 @@ impl Operation for CancelScope {
         let Input {
             session: scoped_session,
             data: cancellation,
-            seq,
+            seq: _seq,
         } = world.take_input::<Cancellation>(source)?;
 
         #[cfg(feature = "trace")]
@@ -1441,7 +1441,7 @@ impl Operation for CancelScope {
                 Some(RouteSource {
                     session: scoped_session,
                     source,
-                    seq,
+                    seq: _seq,
                     port: &port,
                 }),
                 scoped_session,

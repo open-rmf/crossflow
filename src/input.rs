@@ -416,12 +416,12 @@ impl ManageInput for World {
         }
 
         if let Some(mut storage) = self.get_mut::<InputStorage<T>>(target) {
-            let target_seq = storage.push(session, data);
+            let _target_seq = storage.push(session, data);
 
             #[cfg(feature = "trace")]
             {
                 if perform_trace {
-                    MessageSent::trace(route, target_seq, serialized_msg, self);
+                    MessageSent::trace(route, _target_seq, serialized_msg, self);
                 }
             }
         } else if self.get::<UnusedTarget>(target).is_none() {

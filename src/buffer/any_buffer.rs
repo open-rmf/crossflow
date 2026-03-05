@@ -637,14 +637,14 @@ pub trait AnyBufferWorldAccess {
 impl AnyBufferWorldAccess for World {
     fn any_buffer_view(
         &mut self,
-        req: RequestId,
+        _req: RequestId,
         key: &AnyBufferKey,
     ) -> Result<AnyBufferView<'_>, BufferError> {
         #[cfg(feature = "trace")]
         {
             let mut tracer_state: SystemState<BufferTracer> = SystemState::new(self);
             let mut tracer = tracer_state.get_mut(self);
-            tracer.trace(req.into(), &key.tag, BufferAccessRecord::Viewed);
+            tracer.trace(_req.into(), &key.tag, BufferAccessRecord::Viewed);
             tracer_state.apply(self);
         }
 
