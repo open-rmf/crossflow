@@ -566,6 +566,7 @@ mod tests {
         let mut context = TestingContext::minimal_plugins();
 
         let (initial_sender, mut initial_receiver) = tokio::sync::oneshot::channel();
+        let (middle_sender, middle_receiver) = tokio::sync::oneshot::channel();
         let (final_sender, mut final_receiver) = tokio::sync::oneshot::channel();
 
         let outcome = context.command(|commands| {
@@ -577,12 +578,7 @@ mod tests {
 
                         // hold the service here to give time for the outcome to be
                         // dropped and processed.
-                        let start = Instant::now();
-                        let dt = Duration::from_secs(2);
-                        while Instant::now() - start < dt {
-                            let never = async_std::future::pending::<()>();
-                            let _ = async_std::future::timeout(dt, never).await;
-                        }
+                        let _ = middle_receiver.await;
 
                         let _ = final_sender.send(());
                     }
@@ -600,6 +596,10 @@ mod tests {
         // The final message should not have been received because the async
         // execution should have been dropped before finishing.
         assert!(final_receiver.try_recv().is_err());
+
+        // We use the sender at the end of this function to ensure the compiler
+        // does not drop it prematurely, which would negatively impact the test.
+        let _ = middle_sender.send(());
     }
 
     #[test]
