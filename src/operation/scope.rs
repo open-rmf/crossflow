@@ -1520,7 +1520,11 @@ fn cleanup_entire_scope(
         .finish_scope_cleanup;
 
     for scoped_session in relevant_scoped_sessions {
-        if world.get::<SessionStatus>(scoped_session).or_broken()?.is_cleaning() {
+        if world
+            .get::<SessionStatus>(scoped_session)
+            .or_broken()?
+            .is_cleaning()
+        {
             // No need to do anything if the session is already being cleaned.
             continue;
         }
