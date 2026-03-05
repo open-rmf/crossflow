@@ -42,10 +42,7 @@ impl<T: 'static + Send + Sync> Executable for Store<T> {
         let lifecycle = SeriesLifecycle::new(source, world);
         world
             .entity_mut(source)
-            .insert((
-                InputBundle::<T>::new(), self,
-                lifecycle,
-            ));
+            .insert((InputBundle::<T>::new(), self, lifecycle));
         Ok(())
     }
 

@@ -29,9 +29,10 @@ use smallvec::SmallVec;
 use crate::{
     AddExecution, ChannelQueue, Detached, DisposalListener, DisposalUpdate, Finished, FlushWarning,
     ManageCancellation, OperationError, OperationRequest, OperationRoster, ReachableRequest,
-    SeriesLifecycleChannel, ServiceHook, ServiceLifecycle, ServiceLifecycleChannel, SeriesLifecycleChange,
-    UnhandledErrors, UnusedTarget, WakeQueue, awaken_task, dispose_for_despawned_service,
-    drop_series_target, execute_operation, validate_scope_reachability,
+    SeriesLifecycleChange, SeriesLifecycleChannel, ServiceHook, ServiceLifecycle,
+    ServiceLifecycleChannel, UnhandledErrors, UnusedTarget, WakeQueue, awaken_task,
+    dispose_for_despawned_service, drop_series_target, execute_operation,
+    validate_scope_reachability,
 };
 
 #[cfg(feature = "single_threaded_async")]

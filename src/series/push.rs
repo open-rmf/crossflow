@@ -21,7 +21,7 @@ use bevy_ecs::prelude::{Component, Entity};
 
 use crate::{
     Collection, Executable, Input, InputBundle, ManageInput, ManageSession, NamedValue,
-    OperationRequest, OperationResult, OperationSetup, OrBroken, Storage, SeriesLifecycle,
+    OperationRequest, OperationResult, OperationSetup, OrBroken, SeriesLifecycle, Storage,
 };
 
 pub(crate) struct Push<T> {

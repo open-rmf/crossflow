@@ -21,8 +21,8 @@ use tokio::sync::oneshot;
 
 use crate::{
     Cancel, Cancellable, Cancellation, Executable, Input, InputBundle, ManageInput, ManageSession,
-    OperationRequest, OperationResult, OperationSetup, OrBroken, SeriesLifecycleChannel, SeriesLifecycleChange,
-    async_execution::spawn_task,
+    OperationRequest, OperationResult, OperationSetup, OrBroken, SeriesLifecycleChange,
+    SeriesLifecycleChannel, async_execution::spawn_task,
 };
 
 pub(crate) struct CaptureOutcome<T> {

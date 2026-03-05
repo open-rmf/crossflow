@@ -568,10 +568,10 @@ mod tests {
         let (initial_sender, mut initial_receiver) = tokio::sync::oneshot::channel();
         let (final_sender, mut final_receiver) = tokio::sync::oneshot::channel();
 
-        let outcome = context.command(|commands| commands
-            .provide(())
-            .map(
-                move |_: Async<()>| {
+        let outcome = context.command(|commands| {
+            commands
+                .provide(())
+                .map(move |_: Async<()>| {
                     async move {
                         let _ = initial_sender.send(());
 
@@ -582,10 +582,9 @@ mod tests {
                         let _ = async_std::future::timeout(timeout, never).await;
                         let _ = final_sender.send(());
                     }
-                }
-            )
-            .outcome()
-        );
+                })
+                .outcome()
+        });
 
         context.run_with_conditions(&mut initial_receiver, Duration::from_secs(2));
         assert!(initial_receiver.try_recv().is_ok());
@@ -609,10 +608,10 @@ mod tests {
         let (initial_sender, mut initial_receiver) = tokio::sync::oneshot::channel();
         let (final_sender, mut final_receiver) = tokio::sync::oneshot::channel();
 
-        let mut outcome = context.command(|commands| commands
-            .provide(())
-            .map(
-                move |_: Async<()>| {
+        let mut outcome = context.command(|commands| {
+            commands
+                .provide(())
+                .map(move |_: Async<()>| {
                     async move {
                         let _ = initial_sender.send(());
 
@@ -623,10 +622,9 @@ mod tests {
                         let _ = async_std::future::timeout(timeout, never).await;
                         let _ = final_sender.send(());
                     }
-                }
-            )
-            .outcome()
-        );
+                })
+                .outcome()
+        });
 
         context.run_with_conditions(&mut initial_receiver, Duration::from_secs(2));
         assert!(initial_receiver.try_recv().is_ok());

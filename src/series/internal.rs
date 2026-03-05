@@ -31,10 +31,10 @@ use std::sync::Arc;
 use crate::{
     Broken, Cancel, Cancellable, Cancellation, Cleanup, CleanupContents, DeferredRoster, Detached,
     DisposalInformation, DisposalListener, DisposalUpdate, FinalizeCleanup, FinalizeCleanupRequest,
-    ManageCancellation, ManageSession, OnCancel, OperationCleanup,
-    OperationError, OperationExecuteStorage, OperationRequest, OperationResult, OperationRoster,
-    OperationSetup, OperationType, OrBroken, RequestId, SessionStatus, SetupFailure,
-    UnhandledErrors, UnusedTarget, UnusedTargetDrop,
+    ManageCancellation, ManageSession, OnCancel, OperationCleanup, OperationError,
+    OperationExecuteStorage, OperationRequest, OperationResult, OperationRoster, OperationSetup,
+    OperationType, OrBroken, RequestId, SessionStatus, SetupFailure, UnhandledErrors, UnusedTarget,
+    UnusedTargetDrop,
 };
 
 #[cfg(feature = "trace")]
@@ -412,7 +412,10 @@ pub(crate) struct SeriesLifecycle {
 
 impl SeriesLifecycle {
     pub fn new(source: Entity, world: &mut World) -> Self {
-        let sender = world.get_resource_or_init::<SeriesLifecycleChannel>().sender.clone();
+        let sender = world
+            .get_resource_or_init::<SeriesLifecycleChannel>()
+            .sender
+            .clone();
         Self { source, sender }
     }
 }
@@ -433,7 +436,10 @@ impl SeriesLifecycleChange {
 
 impl Drop for SeriesLifecycle {
     fn drop(&mut self) {
-        if let Err(err) = self.sender.send(SeriesLifecycleChange::dropped(self.source)) {
+        if let Err(err) = self
+            .sender
+            .send(SeriesLifecycleChange::dropped(self.source))
+        {
             eprintln!(
                 "Failed to notify that a series was dropped: {err}\nBacktrace:\n{:#?}",
                 Backtrace::new(),
