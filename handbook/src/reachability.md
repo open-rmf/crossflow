@@ -69,23 +69,12 @@ the terminate operation:
 There may be cases where you ***actually do want*** the `Err` branch to cancel your
 workflow because only node `B` can correctly provide the final output of the
 workflow, but you nevertheless want nodes `C` and `D` to run before the workflow
-finishes running.
+delivers its cancellation message.
 
-One way to accomplish this is by using the [cleanup](./scope-cleanup.md) feature.
-You can pass the `Err` result into a buffer and then define a cleanup workflow
-for that buffer. Nodes `C` and `D` go into the cleanup workflow to guarantee
-that they get run even if the workflow gets cancelled.
+A simple way to achieve this is by connecting `D` to an explicit cancel operation.
+The workflow will be considered "reachable" if **either** the terminate or operation
+or an explicit cancellation operation is still reachable. As long as there is a
+way for your workflow to eventually close itself down, it will be allowed to keep
+running.
 
-![conditional-unreachability-cleanup](./assets/figures/conditional-unreachability-cleanup.svg)
-
-The cleanup workflow can be designed so that nodes `C` and `D` do nothing if
-there was no message in the buffer. Alternatively you can set the cleanup settings
-so that this cleanup workflow only gets run during a cancellation and not during
-a successful termination.
-
-> [!NOTE]
-> You might find that this solution is technically what you need, but the use of the
-> cleanup feature does not express your workflow the way you would like. To provide
-> better support for this use case, ticket [#150](https://github.com/open-rmf/crossflow/issues/150)
-> proposes a new cancellation operation that would prevent the unreachability test
-> from prematurely cancelling the workflow.
+![conditional-unreachability-cancel](./assets/figures/conditional-unreachability-cancel.svg)
