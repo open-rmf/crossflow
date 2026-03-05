@@ -1229,6 +1229,16 @@ pub(crate) fn validate_scope_reachability(
         roster,
     }: ReachableRequest,
 ) -> ReachabilityResult {
+    let Some(status) = world.get::<SessionStatus>(scoped_session) else {
+        // This session has already despawned so it is not reachable
+        return Ok(false);
+    };
+
+    if !status.is_active() {
+        // This session has already finished so it is not reachable
+        return Ok(false);
+    }
+
     let scope_ref = world.get_entity(scope).or_broken()?;
     let nodes = scope_ref
         .get::<ScopeContents>()
@@ -1510,6 +1520,11 @@ fn cleanup_entire_scope(
         .finish_scope_cleanup;
 
     for scoped_session in relevant_scoped_sessions {
+        if world.get::<SessionStatus>(scoped_session).or_broken()?.is_cleaning() {
+            // No need to do anything if the session is already being cleaned.
+            continue;
+        }
+
         #[cfg(feature = "trace")]
         {
             SessionEvent::cleanup(scoped_session, world);

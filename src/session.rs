@@ -44,6 +44,10 @@ impl SessionStatus {
         matches!(self, Self::Active)
     }
 
+    pub fn is_cleaning(&self) -> bool {
+        matches!(self, Self::Cleaning)
+    }
+
     pub fn cancellation(&self) -> Option<Cancellation> {
         match self {
             Self::Dropped { cancellation, .. } => Some(cancellation.clone()),
