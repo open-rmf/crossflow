@@ -88,24 +88,22 @@ pub(crate) fn impl_derive_stream(stream_struct: &ItemStruct) -> Result<TokenStre
 
             fn process_stream_buffers(
                 buffer: Self::StreamBuffers,
-                source: ::crossflow::re_exports::Entity,
-                session: ::crossflow::re_exports::Entity,
+                request_id: ::crossflow::RequestId,
                 unused: &mut ::crossflow::UnusedStreams,
                 world: &mut ::crossflow::re_exports::World,
                 roster: &mut ::crossflow::OperationRoster,
             ) -> ::crossflow::OperationResult {
                 #from_anonymous_stream_pack::process_stream_buffers(
-                    buffer, source, session, unused, world, roster
+                    buffer, request_id, unused, world, roster
                 )
             }
 
             fn defer_buffers(
                 buffer: Self::StreamBuffers,
-                source: ::crossflow::re_exports::Entity,
-                session: ::crossflow::re_exports::Entity,
+                request_id: ::crossflow::RequestId,
                 commands: &mut ::crossflow::re_exports::Commands,
             ) {
-                #from_anonymous_stream_pack::defer_buffers(buffer, source, session, commands)
+                #from_anonymous_stream_pack::defer_buffers(buffer, request_id, commands)
             }
 
             fn set_stream_availability(availability: &mut ::crossflow::StreamAvailability) {

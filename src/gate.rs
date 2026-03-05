@@ -98,7 +98,7 @@ mod tests {
             fork_input
                 .clone_chain(builder)
                 .with_access(buffer)
-                .then(push_value.into_blocking_callback())
+                .then(push_value.into_callback())
                 .then_gate_open(buffer)
                 .unused();
         });
@@ -107,7 +107,14 @@ mod tests {
         assert_eq!(r.len(), 2);
     }
 
-    fn push_value(In((value, key)): In<(i32, BufferKey<i32>)>, mut access: BufferAccessMut<i32>) {
-        access.get_mut(&key).unwrap().push(value);
+    fn push_value(
+        Blocking {
+            request: (value, key),
+            id,
+            ..
+        }: Blocking<(i32, BufferKey<i32>)>,
+        mut access: BufferAccessMut<i32>,
+    ) {
+        access.get_mut(id, &key).unwrap().push(value);
     }
 }

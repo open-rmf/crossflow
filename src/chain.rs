@@ -24,11 +24,11 @@ use smallvec::SmallVec;
 use std::error::Error;
 
 use crate::{
-    Accessing, AddOperation, AsMap, Buffer, BufferKey, BufferKeys, Bufferable, Buffering, Builder,
-    Collect, CreateCancelFilter, CreateDisposalFilter, ForkTargetStorage, Gate, GateRequest,
-    InputSlot, IntoAsyncMap, IntoBlockingCallback, IntoBlockingMap, Node, Noop,
-    OperateBufferAccess, OperateCancel, OperateDynamicGate, OperateQuietCancel, OperateSplit,
-    OperateStaticGate, Output, ProvideOnce, Provider, Scope, ScopeSettings, Sendish,
+    Accessing, AddOperation, BasicIdentification, Buffer, BufferKey, BufferKeys, Bufferable,
+    Buffering, Builder, Collect, CreateCancelFilter, CreateDisposalFilter, ForkTargetStorage, Gate,
+    GateRequest, Identification, InputSlot, IntoAsyncMap, IntoBlockingMap, IntoCallback, IntoMap,
+    Node, Noop, OperateBufferAccess, OperateCancel, OperateDynamicGate, OperateQuietCancel,
+    OperateSplit, OperateStaticGate, Output, ProvideOnce, Provider, Scope, ScopeSettings, Sendish,
     ServiceInstructions, Spread, StreamPack, StreamTargetMap, Trim, TrimBranch, UnusedTarget,
     make_option_branching, make_result_branching,
 };
@@ -134,9 +134,9 @@ impl<'w, 's, 'a, 'b, T: 'static + Send + Sync> Chain<'w, 's, 'a, 'b, T> {
         }
     }
 
-    /// Apply a function whose input is [`BlockingMap<T>`](crate::BlockingMap)
-    /// or [`AsyncMap<T>`](crate::AsyncMap).
-    pub fn map<M, F: AsMap<M>>(
+    /// Apply a function whose input is [`Blocking<T>`](crate::Blocking)
+    /// or [`Async<T>`](crate::Async).
+    pub fn map<M, F: IntoMap<M>>(
         self,
         f: F,
     ) -> Chain<'w, 's, 'a, 'b, <F::MapType as ProvideOnce>::Response>
@@ -144,12 +144,12 @@ impl<'w, 's, 'a, 'b, T: 'static + Send + Sync> Chain<'w, 's, 'a, 'b, T> {
         F::MapType: Provider<Request = T>,
         <F::MapType as ProvideOnce>::Response: 'static + Send + Sync,
     {
-        self.then(f.as_map())
+        self.then(f.into_map())
     }
 
     /// Same as [`Self::map`] but receive the new node instead of continuing a
     /// chain.
-    pub fn map_node<M, F: AsMap<M>>(
+    pub fn map_node<M, F: IntoMap<M>>(
         self,
         f: F,
     ) -> Node<T, <F::MapType as ProvideOnce>::Response, <F::MapType as ProvideOnce>::Streams>
@@ -158,7 +158,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Send + Sync> Chain<'w, 's, 'a, 'b, T> {
         <F::MapType as ProvideOnce>::Response: 'static + Send + Sync,
         <F::MapType as ProvideOnce>::Streams: StreamPack,
     {
-        self.then_node(f.as_map())
+        self.then_node(f.into_map())
     }
 
     /// Apply a function whose input is the Response of the current Chain. The
@@ -565,7 +565,7 @@ impl<'w, 's, 'a, 'b, T: 'static + Send + Sync> Chain<'w, 's, 'a, 'b, T> {
     pub fn then_push(self, buffer: Buffer<T>) -> Chain<'w, 's, 'a, 'b, ()> {
         assert_eq!(self.scope(), buffer.scope());
         self.with_access(buffer)
-            .then(push_into_buffer.into_blocking_callback())
+            .then(push_into_buffer.into_callback())
             .cancel_on_err()
     }
 
@@ -1018,6 +1018,7 @@ where
     K: 'static + Send + Sync + Eq + std::hash::Hash + Clone + std::fmt::Debug,
     V: 'static + Send + Sync,
     T: 'static + Send + Sync + IntoIterator<Item = (K, V)>,
+    BasicIdentification: Identification<K>,
 {
     /// If the chain's response type can be turned into an iterator that returns
     /// `(key, value)` pairs, then this will split it in a map-like way, whether
@@ -1119,7 +1120,7 @@ where
     T: 'static + Send + Sync,
 {
     pub fn consume_buffer<const N: usize>(self) -> Chain<'w, 's, 'a, 'b, SmallVec<[T; N]>> {
-        self.then(consume_buffer.into_blocking_callback())
+        self.then(consume_buffer.into_callback())
     }
 }
 
@@ -1390,7 +1391,7 @@ mod tests {
 
             buffer
                 .listen(builder)
-                .then(watch_for_quantity.into_blocking_callback())
+                .then(watch_for_quantity.into_callback())
                 .dispose_on_none()
                 .connect(scope.terminate);
         });
@@ -1405,10 +1406,12 @@ mod tests {
     // integer value of those elements. We don't use the collect operation for
     // this test so that we can test each of those operations in isolation.
     fn watch_for_quantity(
-        In(key): In<BufferKey<i32>>,
+        Blocking {
+            request: key, id, ..
+        }: Blocking<BufferKey<i32>>,
         mut access: BufferAccessMut<i32>,
     ) -> Option<SmallVec<[i32; 16]>> {
-        let mut buffer = access.get_mut(&key).unwrap();
+        let mut buffer = access.get_mut(id, &key).unwrap();
         let expected_count = *buffer.newest()? as usize;
         if buffer.len() < expected_count {
             return None;
@@ -1425,7 +1428,7 @@ mod tests {
             let node =
                 builder
                     .chain(scope.start)
-                    .map_node(|input: BlockingMap<i32, StreamOf<i32>>| {
+                    .map_node(|input: Blocking<i32, StreamOf<i32>>| {
                         for _ in 0..input.request {
                             input.streams.send(input.request);
                         }
@@ -1445,7 +1448,7 @@ mod tests {
             let node =
                 builder
                     .chain(scope.start)
-                    .map_node(|input: BlockingMap<i32, StreamOf<i32>>| {
+                    .map_node(|input: Blocking<i32, StreamOf<i32>>| {
                         for _ in 0..input.request {
                             input.streams.send(input.request);
                         }

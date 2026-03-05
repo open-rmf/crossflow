@@ -20,9 +20,9 @@ use bevy_ecs::prelude::Component;
 use tokio::sync::mpsc::UnboundedSender as Sender;
 
 use crate::{
-    Executable, Input, InputBundle, ManageInput, OnTerminalCancelled, OperationCancel,
-    OperationRequest, OperationResult, OperationSetup, OrBroken, SeriesLifecycleChannel,
-    promise::private::Sender as PromiseSender,
+    Cancel, Cancellable, Executable, Input, InputBundle, ManageInput, ManageSession,
+    OperationRequest, OperationResult, OperationSetup, OrBroken, SeriesLifecycleChange,
+    SeriesLifecycleChannel, promise::private::Sender as PromiseSender,
 };
 
 #[derive(Component)]
@@ -43,24 +43,30 @@ impl<T: 'static + Send + Sync> Executable for TakenResponse<T> {
             .sender
             .clone();
         self.sender.on_promise_drop(move || {
-            lifecycle_sender.send(source).ok();
+            lifecycle_sender
+                .send(SeriesLifecycleChange::dropped(source))
+                .ok();
         });
 
         world.entity_mut(source).insert((
             InputBundle::<T>::new(),
-            OnTerminalCancelled(cancel_taken_target::<T>),
+            Cancellable::new(cancel_taken_target::<T>),
             self,
         ));
         Ok(())
     }
 
     fn execute(OperationRequest { source, world, .. }: OperationRequest) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { data, .. } = source_mut.take_input::<T>()?;
-        let sender = source_mut.take::<TakenResponse<T>>().or_broken()?.sender;
+        let Input { data, session, .. } = world.take_input::<T>(source)?;
+        let sender = world
+            .get_entity_mut(source)
+            .or_broken()?
+            .take::<TakenResponse<T>>()
+            .or_broken()?
+            .sender;
         sender.send(data).ok();
-        source_mut.despawn();
 
+        world.despawn_session(session);
         Ok(())
     }
 }
@@ -85,22 +91,28 @@ impl<T: 'static + Send + Sync> Executable for TakenStream<T> {
     }
 
     fn execute(OperationRequest { source, world, .. }: OperationRequest) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { data, .. } = source_mut.take_input::<T>()?;
-        let stream = source_mut.get::<TakenStream<T>>().or_broken()?;
+        let Input { data, .. } = world.take_input::<T>(source)?;
+        let source_ref = world.get_entity(source).or_broken()?;
+        let stream = source_ref.get::<TakenStream<T>>().or_broken()?;
         stream.sender.send(data).ok();
         Ok(())
     }
 }
 
-fn cancel_taken_target<T>(OperationCancel { cancel, world, .. }: OperationCancel) -> OperationResult
+fn cancel_taken_target<T>(
+    Cancel {
+        target,
+        cancellation,
+        world,
+        ..
+    }: Cancel,
+) -> OperationResult
 where
     T: 'static + Send + Sync,
 {
-    let mut target_mut = world.get_entity_mut(cancel.target).or_broken()?;
+    let mut target_mut = world.get_entity_mut(target).or_broken()?;
     let taken = target_mut.take::<TakenResponse<T>>().or_broken()?;
-    taken.sender.cancel(cancel.cancellation).ok();
-    target_mut.despawn();
+    taken.sender.cancel(cancellation).ok();
 
     Ok(())
 }

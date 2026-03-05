@@ -25,6 +25,9 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+    - name: Update apt index
+      run: sudo apt-get update
+
     - name: Get apt dependencies
       run: sudo apt-get install protobuf-compiler
 
@@ -41,7 +44,7 @@ jobs:
 
     - name: Test default features
       run: |
-        cargo test --workspace
+        cargo test
 
     - name: Test single_threaded_async
       run: |
@@ -51,12 +54,12 @@ jobs:
     - name: Test diagram
       run: |
         rm -rf target/debug/build
-        cargo test --workspace -F=diagram
+        cargo test -F=diagram
 
     - name: Test trace
       run: |
         rm -rf target/debug/build
-        cargo test --workspace -F=trace
+        cargo test -F=trace
 
     - name: Test all capabilities combined
       run: |

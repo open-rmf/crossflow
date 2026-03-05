@@ -16,8 +16,7 @@
 */
 
 use bevy_ecs::{
-    change_detection::Mut,
-    prelude::{Commands, Entity, EntityRef, Query, World},
+    prelude::{Commands, Entity, Query, World},
     query::QueryEntityError,
     system::{SystemParam, SystemState},
 };
@@ -31,7 +30,10 @@ use std::{
 
 use thiserror::Error as ThisError;
 
-use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError};
+use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError, OrBroken, RequestId};
+
+#[cfg(feature = "trace")]
+use crate::{BufferAccessRecord, BufferTracer};
 
 mod any_buffer;
 pub use any_buffer::*;
@@ -49,8 +51,8 @@ pub use buffer_gate::*;
 mod buffer_map;
 pub use buffer_map::*;
 
-mod buffer_storage;
-pub(crate) use buffer_storage::*;
+mod buffer_manager;
+pub(crate) use buffer_manager::*;
 
 mod buffering;
 pub use buffering::*;
@@ -58,8 +60,8 @@ pub use buffering::*;
 mod bufferable;
 pub use bufferable::*;
 
-mod manage_buffer;
-pub use manage_buffer::*;
+mod inspect_buffer_sessions;
+pub use inspect_buffer_sessions::*;
 
 #[cfg(feature = "diagram")]
 mod json_buffer;
@@ -206,8 +208,9 @@ impl<T: Clone + Send + Sync + 'static> CloneFromBuffer<T> {
 }
 
 fn clone_for_any_join<T: 'static + Send + Sync + Clone>(
-    entity_ref: &EntityRef,
-    session: Entity,
+    request_id: RequestId,
+    key: &BufferKeyTag,
+    world: &mut World,
 ) -> Result<AnyMessageBox, OperationError> {
     // In general we expect pulling to imply pulling the oldest since the most
     // typical pattern when information is being pulled from a source would be
@@ -224,8 +227,12 @@ fn clone_for_any_join<T: 'static + Send + Sync + Clone>(
     // be operating on the oldest data or the newest, by default. Also allow
     // the join operations themselves override this, e.g. putting a setting
     // into BufferLocation to change which side is being pulled from.
-    entity_ref
-        .clone_from_buffer::<T>(session)
+    world
+        .unchecked_buffer_view::<T>(request_id, key)
+        .or_broken()?
+        .oldest()
+        .or_broken()
+        .cloned()
         .map(to_any_message)
 }
 
@@ -384,6 +391,7 @@ impl<T> std::fmt::Debug for BufferKey<T> {
 pub struct BufferKeyTag {
     pub buffer: Entity,
     pub session: Entity,
+    /// Which buffer listener operation was this key originally sent to
     pub accessor: Entity,
     pub lifecycle: Option<Arc<BufferAccessLifecycle>>,
 }
@@ -425,22 +433,22 @@ impl std::fmt::Debug for BufferKeyTag {
 /// use crossflow::{prelude::*, testing::*};
 ///
 /// fn get_largest_value(
-///     In(input): In<((), BufferKey<i32>)>,
-///     access: BufferAccess<i32>,
+///     Blocking { request: (_, key), id, .. }: Blocking<((), BufferKey<i32>)>,
+///     mut access: BufferAccess<i32>,
 /// ) -> Option<i32> {
-///     let access = access.get(&input.1).ok()?;
+///     let access = access.get(id, &key).ok()?;
 ///     access.iter().max().cloned()
 /// }
 ///
 /// fn push_values(
-///     In(input): In<(Vec<i32>, BufferKey<i32>)>,
+///     Blocking { request: (values, key), id, .. }: Blocking<(Vec<i32>, BufferKey<i32>)>,
 ///     mut access: BufferAccessMut<i32>,
 /// ) {
-///     let Ok(mut access) = access.get_mut(&input.1) else {
+///     let Ok(mut access) = access.get_mut(id, &key) else {
 ///         return;
 ///     };
 ///
-///     for value in input.0 {
+///     for value in values {
 ///         access.push(value);
 ///     }
 /// }
@@ -452,9 +460,9 @@ impl std::fmt::Debug for BufferKeyTag {
 ///     builder
 ///         .chain(scope.start)
 ///         .with_access(buffer)
-///         .then(push_values.into_blocking_callback())
+///         .then(push_values.into_callback())
 ///         .with_access(buffer)
-///         .then(get_largest_value.into_blocking_callback())
+///         .then(get_largest_value.into_callback())
 ///         .connect(scope.terminate);
 /// });
 ///
@@ -467,18 +475,62 @@ where
     T: 'static + Send + Sync,
 {
     query: Query<'w, 's, &'static BufferStorage<T>>,
+    #[cfg(feature = "trace")]
+    tracer: BufferTracer<'w, 's>,
 }
 
 impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
-    pub fn get<'a>(&'a self, key: &BufferKey<T>) -> Result<BufferView<'a, T>, QueryEntityError> {
+    /// Get a view into a buffer.
+    ///
+    /// This requires mutable access because it will add this buffer access to
+    /// the workflow trace if the tracing feature is enabled.
+    pub fn get<'a>(
+        &'a mut self,
+        _req: impl Into<RequestId>,
+        key: &BufferKey<T>,
+    ) -> Result<BufferView<'a, T>, QueryEntityError> {
+        #[cfg(feature = "trace")]
+        {
+            self.tracer
+                .trace(_req.into(), key.tag(), BufferAccessRecord::Viewed);
+        }
+        self.get_untraced(key)
+    }
+
+    /// Get a view into a buffer.
+    ///
+    /// This is the same as [`Self::get`] but it does not track the access, which
+    /// allows it to use an immutable borrow. Using this method is generally
+    /// discouraged unless you are certain that you do not want to track the
+    /// activity.
+    pub fn get_untraced<'a>(
+        &'a self,
+        key: &BufferKey<T>,
+    ) -> Result<BufferView<'a, T>, QueryEntityError> {
         let session = key.session();
         self.query
             .get(key.buffer())
             .map(|storage| BufferView { storage, session })
     }
 
-    pub fn get_newest<'a>(&'a self, key: &BufferKey<T>) -> Option<&'a T> {
-        self.get(key).ok().map(|view| view.newest()).flatten()
+    pub fn get_newest<'a>(
+        &'a mut self,
+        _req: impl Into<RequestId>,
+        key: &BufferKey<T>,
+    ) -> Option<&'a T> {
+        #[cfg(feature = "trace")]
+        {
+            self.tracer
+                .trace(_req.into(), key.tag(), BufferAccessRecord::Viewed);
+        }
+        self.get_newest_untraced(key)
+    }
+
+    pub fn get_newest_untraced<'a>(&'a self, key: &BufferKey<T>) -> Option<&'a T> {
+        self.get_untraced(key)
+            .ok()
+            .map(|view| view.newest())
+            .flatten()
     }
 }
 
@@ -493,22 +545,22 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
 /// use crossflow::{prelude::*, testing::*};
 ///
 /// fn get_largest_value(
-///     In(input): In<((), BufferKey<i32>)>,
-///     access: BufferAccess<i32>,
+///     Blocking { request: (_, key), id, .. }: Blocking<((), BufferKey<i32>)>,
+///     mut access: BufferAccess<i32>,
 /// ) -> Option<i32> {
-///     let access = access.get(&input.1).ok()?;
+///     let access = access.get(id, &key).ok()?;
 ///     access.iter().max().cloned()
 /// }
 ///
 /// fn push_values(
-///     In(input): In<(Vec<i32>, BufferKey<i32>)>,
+///     Blocking { request: (values, key), id, .. }: Blocking<(Vec<i32>, BufferKey<i32>)>,
 ///     mut access: BufferAccessMut<i32>,
 /// ) {
-///     let Ok(mut access) = access.get_mut(&input.1) else {
+///     let Ok(mut access) = access.get_mut(id, &key) else {
 ///         return;
 ///     };
 ///
-///     for value in input.0 {
+///     for value in values {
 ///         access.push(value);
 ///     }
 /// }
@@ -520,9 +572,9 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
 ///     builder
 ///         .chain(scope.start)
 ///         .with_access(buffer)
-///         .then(push_values.into_blocking_callback())
+///         .then(push_values.into_callback())
 ///         .with_access(buffer)
-///         .then(get_largest_value.into_blocking_callback())
+///         .then(get_largest_value.into_callback())
 ///         .connect(scope.terminate);
 /// });
 ///
@@ -534,7 +586,7 @@ pub struct BufferAccessMut<'w, 's, T>
 where
     T: 'static + Send + Sync,
 {
-    query: Query<'w, 's, &'static mut BufferStorage<T>>,
+    inner: BufferMutQuery<'w, 's, T>,
     commands: Commands<'w, 's>,
 }
 
@@ -543,10 +595,7 @@ where
     T: 'static + Send + Sync,
 {
     pub fn get<'a>(&'a self, key: &BufferKey<T>) -> Result<BufferView<'a, T>, QueryEntityError> {
-        let session = key.session();
-        self.query
-            .get(key.buffer())
-            .map(|storage| BufferView { storage, session })
+        self.inner.get_view(key.tag())
     }
 
     pub fn get_newest<'a>(&'a self, key: &BufferKey<T>) -> Option<&'a T> {
@@ -555,14 +604,21 @@ where
 
     pub fn get_mut<'a>(
         &'a mut self,
+        req: impl Into<RequestId>,
         key: &BufferKey<T>,
     ) -> Result<BufferMut<'w, 's, 'a, T>, QueryEntityError> {
-        let buffer = key.buffer();
-        let session = key.session();
-        let accessor = key.tag.accessor;
-        self.query
-            .get_mut(key.buffer())
-            .map(|storage| BufferMut::new(storage, buffer, session, accessor, &mut self.commands))
+        self.unchecked_get_mut(req.into(), key.tag())
+    }
+
+    pub(crate) fn unchecked_get_mut<'a>(
+        &'a mut self,
+        req: RequestId,
+        key: &BufferKeyTag,
+    ) -> Result<BufferMut<'w, 's, 'a, T>, QueryEntityError> {
+        let buffer = key.buffer;
+        let accessor = key.accessor;
+        let manager = self.inner.get_manager(req.into(), key)?;
+        Ok(BufferMut::new(manager, buffer, accessor))
     }
 }
 
@@ -572,7 +628,28 @@ pub trait BufferWorldAccess {
     ///
     /// Alternatively you can use [`BufferAccess`] as a regular bevy system parameter,
     /// which does not need direct world access.
-    fn buffer_view<T>(&self, key: &BufferKey<T>) -> Result<BufferView<'_, T>, BufferError>
+    fn buffer_view<T>(
+        &mut self,
+        req: impl Into<RequestId>,
+        key: &BufferKey<T>,
+    ) -> Result<BufferView<'_, T>, BufferError>
+    where
+        T: 'static + Send + Sync;
+
+    fn unchecked_buffer_view<T>(
+        &mut self,
+        req: RequestId,
+        key: &BufferKeyTag,
+    ) -> Result<BufferView<'_, T>, BufferError>
+    where
+        T: 'static + Send + Sync;
+
+    /// Call this to get read-only access to a buffer from a [`World`].
+    ///
+    /// This does not track the fact that the buffer is accessed, even if
+    /// tracing is turned on. You should only use this if you are certain that
+    /// you do not want to know that the buffer was accessed.
+    fn buffer_view_untraced<T>(&self, key: &BufferKeyTag) -> Result<BufferView<'_, T>, BufferError>
     where
         T: 'static + Send + Sync;
 
@@ -588,7 +665,22 @@ pub trait BufferWorldAccess {
     /// and modify the contents of the buffer.
     fn buffer_mut<T, U>(
         &mut self,
+        req: impl Into<RequestId>,
         key: &BufferKey<T>,
+        f: impl FnOnce(BufferMut<T>) -> U,
+    ) -> Result<U, BufferError>
+    where
+        T: 'static + Send + Sync;
+
+    /// Call this to get mutable access to a buffer. This gives no assurance
+    /// that the entity you are accessing is actually a buffer, or that the
+    /// buffer contains the message type that you are asking for.
+    ///
+    /// You should generally use [`Self::buffer_mut`] instead.
+    fn unchecked_buffer_mut<T, U>(
+        &mut self,
+        req: RequestId,
+        key: &BufferKeyTag,
         f: impl FnOnce(BufferMut<T>) -> U,
     ) -> Result<U, BufferError>
     where
@@ -600,25 +692,56 @@ pub trait BufferWorldAccess {
     /// view and modify the gate of the buffer.
     fn buffer_gate_mut<U>(
         &mut self,
+        req: impl Into<RequestId>,
         key: impl Into<AnyBufferKey>,
         f: impl FnOnce(BufferGateMut) -> U,
     ) -> Result<U, BufferError>;
 }
 
 impl BufferWorldAccess for World {
-    fn buffer_view<T>(&self, key: &BufferKey<T>) -> Result<BufferView<'_, T>, BufferError>
+    fn buffer_view<T>(
+        &mut self,
+        req: impl Into<RequestId>,
+        key: &BufferKey<T>,
+    ) -> Result<BufferView<'_, T>, BufferError>
+    where
+        T: 'static + Send + Sync,
+    {
+        self.unchecked_buffer_view(req.into(), key.tag())
+    }
+
+    fn unchecked_buffer_view<T>(
+        &mut self,
+        _req: RequestId,
+        key: &BufferKeyTag,
+    ) -> Result<BufferView<'_, T>, BufferError>
+    where
+        T: 'static + Send + Sync,
+    {
+        #[cfg(feature = "trace")]
+        {
+            let mut tracer_state: SystemState<BufferTracer> = SystemState::new(self);
+            let mut tracer = tracer_state.get_mut(self);
+            tracer.trace(_req.into(), key, BufferAccessRecord::Viewed);
+            tracer_state.apply(self);
+        }
+
+        self.buffer_view_untraced(key)
+    }
+
+    fn buffer_view_untraced<T>(&self, key: &BufferKeyTag) -> Result<BufferView<'_, T>, BufferError>
     where
         T: 'static + Send + Sync,
     {
         let buffer_ref = self
-            .get_entity(key.tag.buffer)
+            .get_entity(key.buffer)
             .map_err(|_| BufferError::BufferMissing)?;
         let storage = buffer_ref
             .get::<BufferStorage<T>>()
             .ok_or(BufferError::BufferMissing)?;
         Ok(BufferView {
             storage,
-            session: key.tag.session,
+            session: key.session,
         })
     }
 
@@ -641,7 +764,20 @@ impl BufferWorldAccess for World {
 
     fn buffer_mut<T, U>(
         &mut self,
+        req: impl Into<RequestId>,
         key: &BufferKey<T>,
+        f: impl FnOnce(BufferMut<T>) -> U,
+    ) -> Result<U, BufferError>
+    where
+        T: 'static + Send + Sync,
+    {
+        self.unchecked_buffer_mut(req.into(), key.tag(), f)
+    }
+
+    fn unchecked_buffer_mut<T, U>(
+        &mut self,
+        req: RequestId,
+        key: &BufferKeyTag,
         f: impl FnOnce(BufferMut<T>) -> U,
     ) -> Result<U, BufferError>
     where
@@ -650,22 +786,27 @@ impl BufferWorldAccess for World {
         let mut state = SystemState::<BufferAccessMut<T>>::new(self);
         let mut buffer_access_mut = state.get_mut(self);
         let buffer_mut = buffer_access_mut
-            .get_mut(key)
+            .unchecked_get_mut(req, key)
             .map_err(|_| BufferError::BufferMissing)?;
-        Ok(f(buffer_mut))
+        let r = f(buffer_mut);
+        state.apply(self);
+        Ok(r)
     }
 
     fn buffer_gate_mut<U>(
         &mut self,
+        req: impl Into<RequestId>,
         key: impl Into<AnyBufferKey>,
         f: impl FnOnce(BufferGateMut) -> U,
     ) -> Result<U, BufferError> {
         let mut state = SystemState::<BufferGateAccessMut>::new(self);
         let mut buffer_gate_access_mut = state.get_mut(self);
         let buffer_mut = buffer_gate_access_mut
-            .get_mut(key)
+            .get_mut(req, key)
             .map_err(|_| BufferError::BufferMissing)?;
-        Ok(f(buffer_mut))
+        let r = f(buffer_mut);
+        state.apply(self);
+        Ok(r)
     }
 }
 
@@ -719,11 +860,9 @@ pub struct BufferMut<'w, 's, 'a, T>
 where
     T: 'static + Send + Sync,
 {
-    storage: Mut<'a, BufferStorage<T>>,
+    manager: BufferManager<'w, 's, 'a, T>,
     buffer: Entity,
-    session: Entity,
     accessor: Option<Entity>,
-    commands: &'a mut Commands<'w, 's>,
     modified: bool,
 }
 
@@ -752,28 +891,28 @@ where
 
     /// Iterate over the contents in the buffer.
     pub fn iter(&self) -> IterBufferView<'_, T> {
-        self.storage.iter(self.session)
+        self.manager.iter()
     }
 
     /// Look at the oldest item in the buffer.
     pub fn oldest(&self) -> Option<&T> {
-        self.storage.oldest(self.session)
+        self.manager.oldest()
     }
 
     /// Look at the newest item in the buffer.
     pub fn newest(&self) -> Option<&T> {
-        self.storage.newest(self.session)
+        self.manager.newest()
     }
 
     /// Borrow an item from the buffer. Index 0 is the oldest item in the buffer
     /// with the highest index being the newest item in the buffer.
     pub fn get(&self, index: usize) -> Option<&T> {
-        self.storage.get(self.session, index)
+        self.manager.get(index)
     }
 
     /// How many items are in the buffer?
     pub fn len(&self) -> usize {
-        self.storage.count(self.session)
+        self.manager.len()
     }
 
     /// Check if the buffer is empty.
@@ -784,19 +923,19 @@ where
     /// Iterate over mutable borrows of the contents in the buffer.
     pub fn iter_mut(&mut self) -> IterBufferMut<'_, T> {
         self.modified = true;
-        self.storage.iter_mut(self.session)
+        self.manager.iter_mut()
     }
 
     /// Modify the oldest item in the buffer.
     pub fn oldest_mut(&mut self) -> Option<&mut T> {
         self.modified = true;
-        self.storage.oldest_mut(self.session)
+        self.manager.oldest_mut()
     }
 
     /// Modify the newest item in the buffer.
     pub fn newest_mut(&mut self) -> Option<&mut T> {
         self.modified = true;
-        self.storage.newest_mut(self.session)
+        self.manager.newest_mut()
     }
 
     /// Modify the newest item in the buffer or create a default-initialized
@@ -818,14 +957,14 @@ where
     /// expired or if the buffer capacity was zero.
     pub fn newest_mut_or_else(&mut self, f: impl FnOnce() -> T) -> Option<&mut T> {
         self.modified = true;
-        self.storage.newest_mut_or_else(self.session, f)
+        self.manager.newest_mut_or_else(f)
     }
 
     /// Modify an item in the buffer. Index 0 is the oldest item in the buffer
     /// with the highest index being the newest item in the buffer.
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         self.modified = true;
-        self.storage.get_mut(self.session, index)
+        self.manager.get_mut(index)
     }
 
     /// Drain items out of the buffer
@@ -834,27 +973,27 @@ where
         R: RangeBounds<usize>,
     {
         self.modified = true;
-        self.storage.drain(self.session, range)
+        self.manager.drain(range)
     }
 
     /// Pull the oldest item from the buffer.
     pub fn pull(&mut self) -> Option<T> {
         self.modified = true;
-        self.storage.pull(self.session)
+        self.manager.pull()
     }
 
     /// Pull the item that was most recently put into the buffer (instead of
     /// the oldest, which is what [`Self::pull`] gives).
     pub fn pull_newest(&mut self) -> Option<T> {
         self.modified = true;
-        self.storage.pull_newest(self.session)
+        self.manager.pull_newest()
     }
 
     /// Push a new value into the buffer. If the buffer is at its limit, this
     /// will return the value that needed to be removed.
     pub fn push(&mut self, value: T) -> Option<T> {
         self.modified = true;
-        self.storage.push(self.session, value)
+        self.manager.push(value)
     }
 
     /// Push a value into the buffer as if it is the oldest value of the buffer.
@@ -862,7 +1001,7 @@ where
     /// be removed.
     pub fn push_as_oldest(&mut self, value: T) -> Option<T> {
         self.modified = true;
-        self.storage.push_as_oldest(self.session, value)
+        self.manager.push_as_oldest(value)
     }
 
     /// Trigger the listeners for this buffer to wake up even if nothing in the
@@ -872,19 +1011,23 @@ where
         self.modified = true;
     }
 
-    fn new(
-        storage: Mut<'a, BufferStorage<T>>,
-        buffer: Entity,
-        session: Entity,
-        accessor: Entity,
-        commands: &'a mut Commands<'w, 's>,
-    ) -> Self {
+    /// Push a value into this buffer session even if the session does not
+    /// already exist. This is only meant to be used by OperateBuffer.
+    ///
+    /// All other pushers should be using the regular push method. They should
+    /// have created this BufferMut using a BufferKey, and the listener that
+    /// provided the BufferKey will ensure that the session is active for the
+    /// buffer.
+    pub(crate) fn force_push(&mut self, value: T) -> Option<T> {
+        self.modified = true;
+        self.manager.force_push(value)
+    }
+
+    fn new(manager: BufferManager<'w, 's, 'a, T>, buffer: Entity, accessor: Entity) -> Self {
         Self {
-            storage,
+            manager,
             buffer,
-            session,
             accessor: Some(accessor),
-            commands,
             modified: false,
         }
     }
@@ -896,9 +1039,10 @@ where
 {
     fn drop(&mut self) {
         if self.modified {
-            self.commands.queue(NotifyBufferUpdate::new(
+            self.manager.commands.queue(NotifyBufferUpdate::new(
                 self.buffer,
-                self.session,
+                self.manager.req,
+                self.manager.session,
                 self.accessor,
             ));
         }
@@ -920,9 +1064,9 @@ mod tests {
     fn test_buffer_key_access() {
         let mut context = TestingContext::minimal_plugins();
 
-        let add_buffers_by_pull_cb = add_buffers_by_pull.into_blocking_callback();
-        let add_from_buffer_cb = add_from_buffer.into_blocking_callback();
-        let multiply_buffers_by_copy_cb = multiply_buffers_by_copy.into_blocking_callback();
+        let add_buffers_by_pull_cb = add_buffers_by_pull.into_callback();
+        let add_from_buffer_cb = add_from_buffer.into_callback();
+        let multiply_buffers_by_copy_cb = multiply_buffers_by_copy.into_callback();
 
         let workflow = context.spawn_io_workflow(|scope: Scope<(f64, f64), f64>, builder| {
             builder
@@ -1010,23 +1154,39 @@ mod tests {
     }
 
     fn add_from_buffer(
-        In((lhs, key)): In<(f64, BufferKey<f64>)>,
+        Blocking {
+            request: (lhs, key),
+            id,
+            ..
+        }: Blocking<(f64, BufferKey<f64>)>,
         mut access: BufferAccessMut<f64>,
     ) -> Result<f64, f64> {
-        let rhs = access.get_mut(&key).map_err(|_| lhs)?.pull().ok_or(lhs)?;
+        let rhs = access
+            .get_mut(id, &key)
+            .map_err(|_| lhs)?
+            .pull()
+            .ok_or(lhs)?;
         Ok(lhs + rhs)
     }
 
     fn multiply_buffers_by_copy(
-        In((key_a, key_b)): In<(BufferKey<f64>, BufferKey<f64>)>,
-        access: BufferAccess<f64>,
+        Blocking {
+            request: (key_a, key_b),
+            id,
+            ..
+        }: Blocking<(BufferKey<f64>, BufferKey<f64>)>,
+        mut access: BufferAccess<f64>,
     ) -> f64 {
-        *access.get(&key_a).unwrap().oldest().unwrap()
-            * *access.get(&key_b).unwrap().oldest().unwrap()
+        *access.get(id, &key_a).unwrap().oldest().unwrap()
+            * *access.get(id, &key_b).unwrap().oldest().unwrap()
     }
 
     fn add_buffers_by_pull(
-        In((key_a, key_b)): In<(BufferKey<f64>, BufferKey<f64>)>,
+        Blocking {
+            request: (key_a, key_b),
+            id,
+            ..
+        }: Blocking<(BufferKey<f64>, BufferKey<f64>)>,
         mut access: BufferAccessMut<f64>,
     ) -> Option<f64> {
         if access.get(&key_a).unwrap().is_empty() {
@@ -1037,8 +1197,8 @@ mod tests {
             return None;
         }
 
-        let rhs = access.get_mut(&key_a).unwrap().pull().unwrap();
-        let lhs = access.get_mut(&key_b).unwrap().pull().unwrap();
+        let rhs = access.get_mut(id, &key_a).unwrap().pull().unwrap();
+        let lhs = access.get_mut(id, &key_b).unwrap().pull().unwrap();
         Some(rhs + lhs)
     }
 
@@ -1054,12 +1214,12 @@ mod tests {
             // The only path to termination is from listening to the buffer.
             builder
                 .listen(buffer)
-                .then(pull_register_from_buffer.into_blocking_callback())
+                .then(pull_register_from_buffer.into_callback())
                 .dispose_on_none()
                 .connect(scope.terminate);
 
-            let decrement_register_cb = decrement_register.into_blocking_callback();
-            let async_decrement_register_cb = async_decrement_register.as_callback();
+            let decrement_register_cb = decrement_register.into_callback();
+            let async_decrement_register_cb = async_decrement_register.into_callback();
             builder
                 .chain(scope.start)
                 .with_access(buffer)
@@ -1091,14 +1251,14 @@ mod tests {
             // The only path to termination is from listening to the buffer.
             builder
                 .listen(buffer)
-                .then(pull_register_from_buffer.into_blocking_callback())
+                .then(pull_register_from_buffer.into_callback())
                 .dispose_on_none()
                 .connect(scope.terminate);
 
             let decrement_register_and_pass_keys_cb =
-                decrement_register_and_pass_keys.into_blocking_callback();
+                decrement_register_and_pass_keys.into_callback();
             let async_decrement_register_and_pass_keys_cb =
-                async_decrement_register_and_pass_keys.as_callback();
+                async_decrement_register_and_pass_keys.into_callback();
             let (loose_end, dead_end): (_, Output<Option<Register>>) = builder
                 .chain(scope.start)
                 .with_access(buffer)
@@ -1166,18 +1326,24 @@ mod tests {
     }
 
     fn pull_register_from_buffer(
-        In(key): In<BufferKey<Register>>,
+        Blocking {
+            request: key, id, ..
+        }: Blocking<BufferKey<Register>>,
         mut access: BufferAccessMut<Register>,
     ) -> Option<Register> {
-        access.get_mut(&key).ok()?.pull()
+        access.get_mut(id, &key).ok()?.pull()
     }
 
     fn decrement_register(
-        In((mut register, key)): In<(Register, BufferKey<Register>)>,
+        Blocking {
+            request: (mut register, key),
+            id,
+            ..
+        }: Blocking<(Register, BufferKey<Register>)>,
         mut access: BufferAccessMut<Register>,
     ) -> Register {
         if register.in_slot == 0 {
-            access.get_mut(&key).unwrap().push(register);
+            access.get_mut(id, &key).unwrap().push(register);
             return register;
         }
 
@@ -1187,11 +1353,15 @@ mod tests {
     }
 
     fn decrement_register_and_pass_keys(
-        In((mut register, key)): In<(Register, BufferKey<Register>)>,
+        Blocking {
+            request: (mut register, key),
+            id,
+            ..
+        }: Blocking<(Register, BufferKey<Register>)>,
         mut access: BufferAccessMut<Register>,
     ) -> (Register, BufferKey<Register>) {
         if register.in_slot == 0 {
-            access.get_mut(&key).unwrap().push(register);
+            access.get_mut(id, &key).unwrap().push(register);
             return (register, key);
         }
 
@@ -1201,26 +1371,26 @@ mod tests {
     }
 
     fn async_decrement_register(
-        In(input): In<AsyncCallback<(Register, BufferKey<Register>)>>,
+        input: Async<(Register, BufferKey<Register>)>,
     ) -> impl Future<Output = Option<Register>> + use<> {
         async move {
             input
                 .channel
-                .request_outcome(input.request, decrement_register.into_blocking_callback())
+                .request_outcome(input.request, decrement_register.into_callback())
                 .await
                 .ok()
         }
     }
 
     fn async_decrement_register_and_pass_keys(
-        In(input): In<AsyncCallback<(Register, BufferKey<Register>)>>,
+        input: Async<(Register, BufferKey<Register>)>,
     ) -> impl Future<Output = Option<(Register, BufferKey<Register>)>> + use<> {
         async move {
             input
                 .channel
                 .request_outcome(
                     input.request,
-                    decrement_register_and_pass_keys.into_blocking_callback(),
+                    decrement_register_and_pass_keys.into_callback(),
                 )
                 .await
                 .ok()
@@ -1253,18 +1423,20 @@ mod tests {
     /// Used to verify that when a key is used to open a buffer gate, it will not
     /// trigger the key's listener to wake up again.
     fn gate_access_test_open_loop(
-        In(BlockingService { request: key, .. }): BlockingServiceInput<BufferKey<u64>>,
+        BlockingService {
+            request: key, id, ..
+        }: BlockingService<BufferKey<u64>>,
         mut access: BufferAccessMut<u64>,
         mut gate_access: BufferGateAccessMut,
     ) -> (Option<u64>, Option<u64>) {
         // We should never see a spurious wake-up in this service because the
         // gate opening is done by the key of this service.
-        let mut buffer = access.get_mut(&key).unwrap();
+        let mut buffer = access.get_mut(id, &key).unwrap();
         let value = buffer.pull().unwrap();
 
         // The gate should have previously been closed before reaching this
         // service
-        let mut gate = gate_access.get_mut(key).unwrap();
+        let mut gate = gate_access.get_mut(id, key).unwrap();
         assert_eq!(gate.get(), Gate::Closed);
         // Open the gate, which would normally trigger a notice, but the notice
         // should not come to this service because we're using the key without
@@ -1308,10 +1480,12 @@ mod tests {
 
     /// Used to verify that we get spurious wakeups when closed loops are allowed
     fn gate_access_test_closed_loop(
-        In(BlockingService { request: key, .. }): BlockingServiceInput<BufferKey<u64>>,
+        BlockingService {
+            request: key, id, ..
+        }: BlockingService<BufferKey<u64>>,
         mut access: BufferAccessMut<u64>,
     ) -> (Option<u64>, Option<u64>) {
-        let mut buffer = access.get_mut(&key).unwrap().allow_closed_loops();
+        let mut buffer = access.get_mut(id, &key).unwrap().allow_closed_loops();
         if let Some(value) = buffer.pull() {
             (Some(value + 1), None)
         } else {
@@ -1368,19 +1542,22 @@ mod tests {
     }
 
     fn get_largest_value(
-        In(input): In<((), BufferKey<i32>)>,
-        access: BufferAccess<i32>,
+        Blocking { request, id, .. }: Blocking<((), BufferKey<i32>)>,
+        mut access: BufferAccess<i32>,
     ) -> Option<i32> {
-        let access = access.get(&input.1).ok()?;
+        let access = access.get(id, &request.1).ok()?;
         access.iter().max().cloned()
     }
 
-    fn push_values(In(input): In<(Vec<i32>, BufferKey<i32>)>, mut access: BufferAccessMut<i32>) {
-        let Ok(mut access) = access.get_mut(&input.1) else {
+    fn push_values(
+        Blocking { request, id, .. }: Blocking<(Vec<i32>, BufferKey<i32>)>,
+        mut access: BufferAccessMut<i32>,
+    ) {
+        let Ok(mut access) = access.get_mut(id, &request.1) else {
             return;
         };
 
-        for value in input.0 {
+        for value in request.0 {
             access.push(value);
         }
     }
@@ -1394,9 +1571,9 @@ mod tests {
             builder
                 .chain(scope.start)
                 .with_access(buffer)
-                .then(push_values.into_blocking_callback())
+                .then(push_values.into_callback())
                 .with_access(buffer)
-                .then(get_largest_value.into_blocking_callback())
+                .then(get_largest_value.into_callback())
                 .connect(scope.terminate);
         });
 

@@ -25,7 +25,7 @@ use std::{
 };
 
 use bevy_ecs::{
-    prelude::{Commands, Entity, EntityRef, EntityWorldMut, Mut, World},
+    prelude::{Commands, Entity, EntityRef, EntityWorldMut, World},
     system::SystemState,
 };
 
@@ -37,14 +37,18 @@ use smallvec::SmallVec;
 
 use crate::{
     Accessing, Accessor, AnyBuffer, AnyBufferAccessInterface, AnyBufferKey, AnyRange, AsAnyBuffer,
-    Buffer, BufferAccessMut, BufferAccessors, BufferError, BufferIdentifier, BufferKey,
-    BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferMap, BufferMapLayout,
-    BufferMapLayoutHints, BufferMapStruct, BufferStorage, Bufferable, Buffering, Builder,
-    CloneFromBuffer, DrainBuffer, DynamicBufferMapLayoutHints, Gate, GateState, IncompatibleLayout,
-    InspectBuffer, JoinBehavior, Joined, Joining, ManageBuffer, MessageTypeHint,
-    MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate, OperationError,
-    OperationResult, OrBroken, TypeInfo, add_listener_to_source,
+    Buffer, BufferAccessMut, BufferAccessors, BufferError, BufferKey, BufferKeyBuilder,
+    BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferManager, BufferMap, BufferMapLayout,
+    BufferMapLayoutHints, BufferMapStruct, BufferStorage, BufferView, BufferWorldAccess,
+    Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer, DynamicBufferMapLayoutHints,
+    Gate, GateState, IdentifierRef, IncompatibleLayout, InspectBufferSessions, JoinBehavior,
+    Joined, Joining, ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation,
+    MessageTypeHintMap, NotifyBufferUpdate, OperationError, OperationResult, OrBroken, RequestId,
+    TypeInfo, add_listener_to_source,
 };
+
+#[cfg(feature = "trace")]
+use crate::{BufferAccessRecord, BufferTracer};
 
 /// A [`Buffer`] whose message type has been anonymized, but which is known to
 /// support serialization and deserialization. Joining this buffer type will
@@ -273,7 +277,7 @@ impl From<JsonBufferKey> for AnyBufferKey {
 /// serializable data type, and only the [`JsonBufferKey`] will know the actual
 /// data type.
 pub struct JsonBufferView<'a> {
-    storage: Box<dyn JsonBufferViewing + 'a>,
+    viewing: Box<dyn JsonBufferViewing + 'a>,
     gate: &'a GateState,
     session: Entity,
 }
@@ -281,22 +285,22 @@ pub struct JsonBufferView<'a> {
 impl<'a> JsonBufferView<'a> {
     /// Get a serialized copy of the oldest message in the buffer.
     pub fn oldest(&self) -> JsonMessageViewResult {
-        self.storage.json_oldest(self.session)
+        self.viewing.json_oldest()
     }
 
     /// Get a serialized copy of the newest message in the buffer.
     pub fn newest(&self) -> JsonMessageViewResult {
-        self.storage.json_newest(self.session)
+        self.viewing.json_newest()
     }
 
     /// Get a serialized copy of a message in the buffer.
     pub fn get(&self, index: usize) -> JsonMessageViewResult {
-        self.storage.json_get(self.session, index)
+        self.viewing.json_get(index)
     }
 
     /// Get how many messages are in this buffer.
     pub fn len(&self) -> usize {
-        self.storage.json_count(self.session)
+        self.viewing.json_count()
     }
 
     /// Check if the buffer is empty.
@@ -345,7 +349,7 @@ impl<'a, 'b> Iterator for IterJsonBufferView<'a, 'b> {
 /// serializable data type, and only the [`JsonBufferKey`] will know the actual
 /// data type.
 pub struct JsonBufferMut<'w, 's, 'a> {
-    storage: Box<dyn JsonBufferManagement + 'a>,
+    manager: Box<dyn JsonBufferManagement + 'a>,
     buffer: Entity,
     session: Entity,
     accessor: Option<Entity>,
@@ -364,22 +368,22 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
 
     /// Get a serialized copy of the oldest message in the buffer.
     pub fn oldest(&self) -> JsonMessageViewResult {
-        self.storage.json_oldest(self.session)
+        self.manager.json_oldest()
     }
 
     /// Get a serialized copy of the newest message in the buffer.
     pub fn newest(&self) -> JsonMessageViewResult {
-        self.storage.json_newest(self.session)
+        self.manager.json_newest()
     }
 
     /// Get a serialized copy of a message in the buffer.
     pub fn get(&self, index: usize) -> JsonMessageViewResult {
-        self.storage.json_get(self.session, index)
+        self.manager.json_get(index)
     }
 
     /// Get how many messages are in this buffer.
     pub fn len(&self) -> usize {
-        self.storage.json_count(self.session)
+        self.manager.json_count()
     }
 
     /// Check if the buffer is empty.
@@ -389,27 +393,24 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
 
     /// Modify the oldest message in the buffer.
     pub fn oldest_mut(&mut self) -> Option<JsonMut<'_>> {
-        self.storage
-            .json_oldest_mut(self.session, &mut self.modified)
+        self.manager.json_oldest_mut(&mut self.modified)
     }
 
     /// Modify the newest message in the buffer.
     pub fn newest_mut(&mut self) -> Option<JsonMut<'_>> {
-        self.storage
-            .json_newest_mut(self.session, &mut self.modified)
+        self.manager.json_newest_mut(&mut self.modified)
     }
 
     /// Modify a message in the buffer.
     pub fn get_mut(&mut self, index: usize) -> Option<JsonMut<'_>> {
-        self.storage
-            .json_get_mut(self.session, index, &mut self.modified)
+        self.manager.json_get_mut(index, &mut self.modified)
     }
 
     /// Drain a range of messages out of the buffer.
     pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> DrainJsonBuffer<'_> {
         self.modified = true;
         DrainJsonBuffer {
-            interface: self.storage.json_drain(self.session, AnyRange::new(range)),
+            interface: self.manager.json_drain(AnyRange::new(range)),
         }
     }
 
@@ -417,7 +418,7 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
     /// [`Self::oldest`] this will remove the message from the buffer.
     pub fn pull(&mut self) -> JsonMessageViewResult {
         self.modified = true;
-        self.storage.json_pull(self.session)
+        self.manager.json_pull()
     }
 
     /// Pull the oldest message from the buffer and attempt to deserialize it
@@ -430,7 +431,7 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
     /// [`Self::newest`] this will remove the message from the buffer.
     pub fn pull_newest(&mut self) -> JsonMessageViewResult {
         self.modified = true;
-        self.storage.json_pull_newest(self.session)
+        self.manager.json_pull_newest()
     }
 
     /// Pull the newest message from the buffer and attempt to deserialize it
@@ -458,7 +459,7 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
     ) -> Result<Option<JsonMessage>, serde_json::Error> {
         let message = serde_json::to_value(&value)?;
         self.modified = true;
-        self.storage.json_push(self.session, message)
+        self.manager.json_push(message)
     }
 
     /// Same as [`Self::push`] but no serialization step is needed for the incoming
@@ -468,7 +469,7 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
         message: JsonMessage,
     ) -> Result<Option<JsonMessage>, serde_json::Error> {
         self.modified = true;
-        self.storage.json_push(self.session, message)
+        self.manager.json_push(message)
     }
 
     /// Same as [`Self::push`] but the message will be interpreted as the oldest
@@ -479,7 +480,7 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
     ) -> Result<Option<JsonMessage>, serde_json::Error> {
         let message = serde_json::to_value(&value)?;
         self.modified = true;
-        self.storage.json_push_as_oldest(self.session, message)
+        self.manager.json_push_as_oldest(message)
     }
 
     /// Same as [`Self::push_as_oldest`] but no serialization step is needed for
@@ -489,7 +490,7 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
         message: JsonMessage,
     ) -> Result<Option<JsonMessage>, serde_json::Error> {
         self.modified = true;
-        self.storage.json_push_as_oldest(self.session, message)
+        self.manager.json_push_as_oldest(message)
     }
 
     /// Trigger the listeners for this buffer to wake up even if nothing in the
@@ -505,6 +506,7 @@ impl<'w, 's, 'a> Drop for JsonBufferMut<'w, 's, 'a> {
         if self.modified {
             self.commands.queue(NotifyBufferUpdate::new(
                 self.buffer,
+                self.manager.json_req(),
                 self.session,
                 self.accessor,
             ));
@@ -519,7 +521,26 @@ pub trait JsonBufferWorldAccess {
     /// For technical reasons this requires direct [`World`] access, but you can
     /// do other read-only queries on the world while holding onto the
     /// [`JsonBufferView`].
-    fn json_buffer_view(&self, key: &JsonBufferKey) -> Result<JsonBufferView<'_>, BufferError>;
+    ///
+    /// It requires mutable world acess because it traces access to the buffer
+    /// if the tracing feature is enabled. If you want to view the buffer with
+    /// non-mutable access, you can use `json_buffer_view_untraced`, but the
+    /// viewing activity will not be traced.
+    fn json_buffer_view(
+        &mut self,
+        req: RequestId,
+        key: &JsonBufferKey,
+    ) -> Result<JsonBufferView<'_>, BufferError>;
+
+    /// Call this to get read-only access to any buffer whose message type is
+    /// serializable and deserializable.
+    ///
+    /// This buffer viewing will not be traced, which may be confusing if you
+    /// review a log of the workflow activity.
+    fn json_buffer_view_untraced(
+        &self,
+        key: &JsonBufferKey,
+    ) -> Result<JsonBufferView<'_>, BufferError>;
 
     /// Call this to get mutable access to any buffer whose message type is
     /// serializable and deserializable.
@@ -528,25 +549,46 @@ pub trait JsonBufferWorldAccess {
     /// view and modify the contents of the buffer.
     fn json_buffer_mut<U>(
         &mut self,
+        req: impl Into<RequestId>,
         key: &JsonBufferKey,
         f: impl FnOnce(JsonBufferMut) -> U,
     ) -> Result<U, BufferError>;
 }
 
 impl JsonBufferWorldAccess for World {
-    fn json_buffer_view(&self, key: &JsonBufferKey) -> Result<JsonBufferView<'_>, BufferError> {
+    fn json_buffer_view(
+        &mut self,
+        _req: RequestId,
+        key: &JsonBufferKey,
+    ) -> Result<JsonBufferView<'_>, BufferError> {
+        #[cfg(feature = "trace")]
+        {
+            let mut tracer_state: SystemState<BufferTracer> = SystemState::new(self);
+            let mut tracer = tracer_state.get_mut(self);
+            tracer.trace(_req.into(), &key.tag, BufferAccessRecord::Viewed);
+            tracer_state.apply(self);
+        }
+
+        key.interface.create_json_buffer_view(key, self)
+    }
+
+    fn json_buffer_view_untraced(
+        &self,
+        key: &JsonBufferKey,
+    ) -> Result<JsonBufferView<'_>, BufferError> {
         key.interface.create_json_buffer_view(key, self)
     }
 
     fn json_buffer_mut<U>(
         &mut self,
+        req: impl Into<RequestId>,
         key: &JsonBufferKey,
         f: impl FnOnce(JsonBufferMut) -> U,
     ) -> Result<U, BufferError> {
         let interface = key.interface;
         let mut state = interface.create_json_buffer_access_mut_state(self);
         let mut access = state.get_json_buffer_access_mut(self);
-        let buffer_mut = access.as_json_buffer_mut(key)?;
+        let buffer_mut = access.as_json_buffer_mut(req.into(), key)?;
         Ok(f(buffer_mut))
     }
 }
@@ -633,159 +675,115 @@ pub type JsonMessagePushResult = Result<Option<JsonMessage>, serde_json::Error>;
 pub type JsonMessageReplaceResult = Result<JsonMessage, serde_json::Error>;
 
 trait JsonBufferViewing {
-    fn json_count(&self, session: Entity) -> usize;
-    fn json_oldest<'a>(&'a self, session: Entity) -> JsonMessageViewResult;
-    fn json_newest<'a>(&'a self, session: Entity) -> JsonMessageViewResult;
-    fn json_get<'a>(&'a self, session: Entity, index: usize) -> JsonMessageViewResult;
+    fn json_count(&self) -> usize;
+    fn json_oldest<'a>(&'a self) -> JsonMessageViewResult;
+    fn json_newest<'a>(&'a self) -> JsonMessageViewResult;
+    fn json_get<'a>(&'a self, index: usize) -> JsonMessageViewResult;
 }
 
 trait JsonBufferManagement: JsonBufferViewing {
-    fn json_push(&mut self, session: Entity, value: JsonMessage) -> JsonMessagePushResult;
-    fn json_push_as_oldest(&mut self, session: Entity, value: JsonMessage)
-    -> JsonMessagePushResult;
-    fn json_pull(&mut self, session: Entity) -> JsonMessageViewResult;
-    fn json_pull_newest(&mut self, session: Entity) -> JsonMessageViewResult;
-    fn json_oldest_mut<'a>(
-        &'a mut self,
-        session: Entity,
-        modified: &'a mut bool,
-    ) -> Option<JsonMut<'a>>;
-    fn json_newest_mut<'a>(
-        &'a mut self,
-        session: Entity,
-        modified: &'a mut bool,
-    ) -> Option<JsonMut<'a>>;
-    fn json_get_mut<'a>(
-        &'a mut self,
-        session: Entity,
-        index: usize,
-        modified: &'a mut bool,
-    ) -> Option<JsonMut<'a>>;
-    fn json_drain<'a>(
-        &'a mut self,
-        session: Entity,
-        range: AnyRange,
-    ) -> Box<dyn DrainJsonBufferInterface + 'a>;
+    fn json_push(&mut self, value: JsonMessage) -> JsonMessagePushResult;
+    fn json_push_as_oldest(&mut self, value: JsonMessage) -> JsonMessagePushResult;
+    fn json_pull(&mut self) -> JsonMessageViewResult;
+    fn json_pull_newest(&mut self) -> JsonMessageViewResult;
+    fn json_oldest_mut<'a>(&'a mut self, modified: &'a mut bool) -> Option<JsonMut<'a>>;
+    fn json_newest_mut<'a>(&'a mut self, modified: &'a mut bool) -> Option<JsonMut<'a>>;
+    fn json_get_mut<'a>(&'a mut self, index: usize, modified: &'a mut bool) -> Option<JsonMut<'a>>;
+    fn json_drain<'a>(&'a mut self, range: AnyRange) -> Box<dyn DrainJsonBufferInterface + 'a>;
+    fn json_req(&self) -> RequestId;
 }
 
-impl<T> JsonBufferViewing for &'_ BufferStorage<T>
+impl<T> JsonBufferViewing for BufferView<'_, T>
 where
     T: 'static + Send + Sync + Serialize + DeserializeOwned,
 {
-    fn json_count(&self, session: Entity) -> usize {
-        self.count(session)
+    fn json_count(&self) -> usize {
+        self.len()
     }
 
-    fn json_oldest<'a>(&'a self, session: Entity) -> JsonMessageViewResult {
-        self.oldest(session).map(serde_json::to_value).transpose()
+    fn json_oldest<'a>(&'a self) -> JsonMessageViewResult {
+        self.oldest().map(serde_json::to_value).transpose()
     }
 
-    fn json_newest<'a>(&'a self, session: Entity) -> JsonMessageViewResult {
-        self.newest(session).map(serde_json::to_value).transpose()
+    fn json_newest<'a>(&'a self) -> JsonMessageViewResult {
+        self.newest().map(serde_json::to_value).transpose()
     }
 
-    fn json_get<'a>(&'a self, session: Entity, index: usize) -> JsonMessageViewResult {
-        self.get(session, index)
-            .map(serde_json::to_value)
-            .transpose()
+    fn json_get<'a>(&'a self, index: usize) -> JsonMessageViewResult {
+        self.get(index).map(serde_json::to_value).transpose()
     }
 }
 
-impl<T> JsonBufferViewing for Mut<'_, BufferStorage<T>>
+impl<T> JsonBufferViewing for BufferManager<'_, '_, '_, T>
 where
     T: 'static + Send + Sync + Serialize + DeserializeOwned,
 {
-    fn json_count(&self, session: Entity) -> usize {
-        self.count(session)
+    fn json_count(&self) -> usize {
+        self.len()
     }
 
-    fn json_oldest<'a>(&'a self, session: Entity) -> JsonMessageViewResult {
-        self.oldest(session).map(serde_json::to_value).transpose()
+    fn json_oldest<'a>(&'a self) -> JsonMessageViewResult {
+        self.oldest().map(serde_json::to_value).transpose()
     }
 
-    fn json_newest<'a>(&'a self, session: Entity) -> JsonMessageViewResult {
-        self.newest(session).map(serde_json::to_value).transpose()
+    fn json_newest<'a>(&'a self) -> JsonMessageViewResult {
+        self.newest().map(serde_json::to_value).transpose()
     }
 
-    fn json_get<'a>(&'a self, session: Entity, index: usize) -> JsonMessageViewResult {
-        self.get(session, index)
-            .map(serde_json::to_value)
-            .transpose()
+    fn json_get<'a>(&'a self, index: usize) -> JsonMessageViewResult {
+        self.get(index).map(serde_json::to_value).transpose()
     }
 }
 
-impl<T> JsonBufferManagement for Mut<'_, BufferStorage<T>>
+impl<T> JsonBufferManagement for BufferManager<'_, '_, '_, T>
 where
     T: 'static + Send + Sync + Serialize + DeserializeOwned,
 {
-    fn json_push(&mut self, session: Entity, value: JsonMessage) -> JsonMessagePushResult {
+    fn json_push(&mut self, value: JsonMessage) -> JsonMessagePushResult {
         let value: T = serde_json::from_value(value)?;
-        self.push(session, value)
-            .map(serde_json::to_value)
-            .transpose()
+        self.push(value).map(serde_json::to_value).transpose()
     }
 
-    fn json_push_as_oldest(
-        &mut self,
-        session: Entity,
-        value: JsonMessage,
-    ) -> JsonMessagePushResult {
+    fn json_push_as_oldest(&mut self, value: JsonMessage) -> JsonMessagePushResult {
         let value: T = serde_json::from_value(value)?;
-        self.push(session, value)
-            .map(serde_json::to_value)
-            .transpose()
+        self.push(value).map(serde_json::to_value).transpose()
     }
 
-    fn json_pull(&mut self, session: Entity) -> JsonMessageViewResult {
-        self.pull(session).map(serde_json::to_value).transpose()
+    fn json_pull(&mut self) -> JsonMessageViewResult {
+        self.pull().map(serde_json::to_value).transpose()
     }
 
-    fn json_pull_newest(&mut self, session: Entity) -> JsonMessageViewResult {
-        self.pull_newest(session)
-            .map(serde_json::to_value)
-            .transpose()
+    fn json_pull_newest(&mut self) -> JsonMessageViewResult {
+        self.pull_newest().map(serde_json::to_value).transpose()
     }
 
-    fn json_oldest_mut<'a>(
-        &'a mut self,
-        session: Entity,
-        modified: &'a mut bool,
-    ) -> Option<JsonMut<'a>> {
-        self.oldest_mut(session).map(|interface| JsonMut {
+    fn json_oldest_mut<'a>(&'a mut self, modified: &'a mut bool) -> Option<JsonMut<'a>> {
+        self.oldest_mut().map(|interface| JsonMut {
             interface,
             modified,
         })
     }
 
-    fn json_newest_mut<'a>(
-        &'a mut self,
-        session: Entity,
-        modified: &'a mut bool,
-    ) -> Option<JsonMut<'a>> {
-        self.newest_mut(session).map(|interface| JsonMut {
+    fn json_newest_mut<'a>(&'a mut self, modified: &'a mut bool) -> Option<JsonMut<'a>> {
+        self.newest_mut().map(|interface| JsonMut {
             interface,
             modified,
         })
     }
 
-    fn json_get_mut<'a>(
-        &'a mut self,
-        session: Entity,
-        index: usize,
-        modified: &'a mut bool,
-    ) -> Option<JsonMut<'a>> {
-        self.get_mut(session, index).map(|interface| JsonMut {
+    fn json_get_mut<'a>(&'a mut self, index: usize, modified: &'a mut bool) -> Option<JsonMut<'a>> {
+        self.get_mut(index).map(|interface| JsonMut {
             interface,
             modified,
         })
     }
 
-    fn json_drain<'a>(
-        &'a mut self,
-        session: Entity,
-        range: AnyRange,
-    ) -> Box<dyn DrainJsonBufferInterface + 'a> {
-        Box::new(self.drain(session, range))
+    fn json_drain<'a>(&'a mut self, range: AnyRange) -> Box<dyn DrainJsonBufferInterface + 'a> {
+        Box::new(self.drain(range))
+    }
+
+    fn json_req(&self) -> RequestId {
+        self.req
     }
 }
 
@@ -833,14 +831,16 @@ trait JsonBufferAccessInterface {
 
     fn pull(
         &self,
-        buffer_mut: &mut EntityWorldMut,
-        session: Entity,
+        req: RequestId,
+        key: &BufferKeyTag,
+        world: &mut World,
     ) -> Result<JsonMessage, OperationError>;
 
     fn clone_from_buffer(
         &self,
-        buffer_ref: &EntityRef,
-        session: Entity,
+        req: RequestId,
+        key: &BufferKeyTag,
+        world: &mut World,
     ) -> Result<JsonMessage, OperationError>;
 
     fn create_json_buffer_view<'a>(
@@ -960,24 +960,29 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonBufferAccessIn
 
     fn pull(
         &self,
-        buffer_mut: &mut EntityWorldMut,
-        session: Entity,
+        req: RequestId,
+        key: &BufferKeyTag,
+        world: &mut World,
     ) -> Result<JsonMessage, OperationError> {
-        let value = buffer_mut.pull_from_buffer::<T>(session)?;
+        let value = world
+            .unchecked_buffer_mut::<T, _>(req, key, |mut buffer| buffer.pull())
+            .or_broken()?
+            .or_broken()?;
+
         serde_json::to_value(value).or_broken()
     }
 
     fn clone_from_buffer(
         &self,
-        buffer_ref: &EntityRef,
-        session: Entity,
+        req: RequestId,
+        key: &BufferKeyTag,
+        world: &mut World,
     ) -> Result<JsonMessage, OperationError> {
-        let value = buffer_ref
-            .get::<BufferStorage<T>>()
+        let value = world
+            .unchecked_buffer_view::<T>(req, key)
             .or_broken()?
-            .newest(session)
+            .newest()
             .or_broken()?;
-
         serde_json::to_value(value).or_broken()
     }
 
@@ -996,7 +1001,10 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonBufferAccessIn
             .get::<GateState>()
             .ok_or(BufferError::BufferMissing)?;
         Ok(JsonBufferView {
-            storage: Box::new(storage),
+            viewing: Box::new(BufferView {
+                storage,
+                session: key.tag.session,
+            }),
             gate,
             session: key.tag.session,
         })
@@ -1032,6 +1040,7 @@ where
 trait JsonBufferAccessMut<'w, 's> {
     fn as_json_buffer_mut<'a>(
         &'a mut self,
+        req: RequestId,
         key: &JsonBufferKey,
     ) -> Result<JsonBufferMut<'w, 's, 'a>, BufferError>;
 }
@@ -1042,14 +1051,16 @@ where
 {
     fn as_json_buffer_mut<'a>(
         &'a mut self,
+        req: RequestId,
         key: &JsonBufferKey,
     ) -> Result<JsonBufferMut<'w, 's, 'a>, BufferError> {
-        let BufferAccessMut { query, commands } = self;
-        let storage = query
-            .get_mut(key.tag.buffer)
+        let BufferAccessMut { inner, commands } = self;
+        let manager = inner
+            .get_manager(req, &key.tag)
             .map_err(|_| BufferError::BufferMissing)?;
+
         Ok(JsonBufferMut {
-            storage: Box::new(storage),
+            manager: Box::new(manager),
             buffer: key.tag.buffer,
             session: key.tag.session,
             accessor: Some(key.tag.accessor),
@@ -1118,12 +1129,13 @@ impl Buffering for JsonBuffer {
 
     fn gate_action(
         &self,
+        req: RequestId,
         session: Entity,
         action: Gate,
         world: &mut World,
         roster: &mut crate::OperationRoster,
     ) -> OperationResult {
-        GateState::apply(self.id(), session, action, world, roster)
+        GateState::apply(self.id(), req, session, action, world, roster)
     }
 
     fn as_input(&self) -> smallvec::SmallVec<[Entity; 8]> {
@@ -1140,18 +1152,19 @@ impl Joining for JsonBuffer {
     type Item = JsonMessage;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
+        let key = BufferKeyTag {
+            buffer: self.id(),
+            session,
+            accessor: self.id(),
+            lifecycle: None,
+        };
         match self.join_behavior {
-            JoinBehavior::Pull => {
-                let mut buffer_mut = world.get_entity_mut(self.id()).or_broken()?;
-                self.interface.pull(&mut buffer_mut, session)
-            }
-            JoinBehavior::Clone => {
-                let buffer_ref = world.get_entity(self.id()).or_broken()?;
-                self.interface.clone_from_buffer(&buffer_ref, session)
-            }
+            JoinBehavior::Pull => self.interface.pull(req, &key, world),
+            JoinBehavior::Clone => self.interface.clone_from_buffer(req, &key, world),
         }
     }
 }
@@ -1200,7 +1213,7 @@ impl BufferMapLayout for JsonBuffer {
     }
 
     fn get_buffer_message_type_hints(
-        identifiers: HashSet<BufferIdentifier<'static>>,
+        identifiers: HashSet<IdentifierRef<'static>>,
     ) -> Result<super::MessageTypeHintMap, IncompatibleLayout> {
         let mut evaluation = MessageTypeHintEvaluation::new(identifiers);
         evaluation.fallback::<JsonMessage>(0);
@@ -1210,7 +1223,7 @@ impl BufferMapLayout for JsonBuffer {
     fn get_layout_hints() -> BufferMapLayoutHints {
         BufferMapLayoutHints::Static(
             [(
-                BufferIdentifier::Index(0),
+                IdentifierRef::Index(0),
                 MessageTypeHint::Fallback(TypeInfo::of::<JsonMessage>()),
             )]
             .into(),
@@ -1228,17 +1241,17 @@ impl BufferMapLayout for HashMap<String, JsonBuffer> {
         let mut compatibility = IncompatibleLayout::default();
         for identifier in buffers.keys() {
             match identifier {
-                BufferIdentifier::Name(name) => {
+                IdentifierRef::Name(name) => {
                     if let Ok(downcast) =
                         compatibility.require_buffer_for_borrowed_name::<JsonBuffer>(&name, buffers)
                     {
                         downcast_buffers.insert(name.clone().into_owned(), downcast);
                     }
                 }
-                BufferIdentifier::Index(index) => {
+                IdentifierRef::Index(index) => {
                     compatibility
                         .forbidden_buffers
-                        .push(BufferIdentifier::Index(*index));
+                        .push(IdentifierRef::Index(*index));
                 }
             }
         }
@@ -1248,7 +1261,7 @@ impl BufferMapLayout for HashMap<String, JsonBuffer> {
     }
 
     fn get_buffer_message_type_hints(
-        identifiers: HashSet<BufferIdentifier<'static>>,
+        identifiers: HashSet<IdentifierRef<'static>>,
     ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
         let mut evaluation = MessageTypeHintEvaluation::new(identifiers);
         while let Some(identifier) = evaluation.next_name_required() {
@@ -1276,13 +1289,14 @@ impl Joining for HashMap<String, JsonBuffer> {
     type Item = serde_json::Map<String, JsonMessage>;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
         self.iter()
             .map(|(key, value)| {
                 value
-                    .fetch_for_join(session, world)
+                    .fetch_for_join(req, session, world)
                     .map(|v| (key.clone(), v))
             })
             .collect()
@@ -1290,10 +1304,10 @@ impl Joining for HashMap<String, JsonBuffer> {
 }
 
 impl Joined for JsonMessage {
-    type Buffers = HashMap<BufferIdentifier<'static>, JsonBuffer>;
+    type Buffers = HashMap<IdentifierRef<'static>, JsonBuffer>;
 }
 
-impl BufferMapLayout for HashMap<BufferIdentifier<'static>, JsonBuffer> {
+impl BufferMapLayout for HashMap<IdentifierRef<'static>, JsonBuffer> {
     fn try_from_buffer_map(buffers: &BufferMap) -> Result<Self, IncompatibleLayout> {
         let mut downcast_buffers = HashMap::new();
         let mut compatibility = IncompatibleLayout::default();
@@ -1310,7 +1324,7 @@ impl BufferMapLayout for HashMap<BufferIdentifier<'static>, JsonBuffer> {
     }
 
     fn get_buffer_message_type_hints(
-        identifiers: HashSet<BufferIdentifier<'static>>,
+        identifiers: HashSet<IdentifierRef<'static>>,
     ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
         let mut evaluation = MessageTypeHintEvaluation::new(identifiers);
         while let Some(identifier) = evaluation.next_unevaluated() {
@@ -1328,16 +1342,17 @@ impl BufferMapLayout for HashMap<BufferIdentifier<'static>, JsonBuffer> {
     }
 }
 
-impl BufferMapStruct for HashMap<BufferIdentifier<'static>, JsonBuffer> {
+impl BufferMapStruct for HashMap<IdentifierRef<'static>, JsonBuffer> {
     fn buffer_list(&self) -> SmallVec<[AnyBuffer; 8]> {
         self.values().map(|b| b.as_any_buffer()).collect()
     }
 }
 
-impl Joining for HashMap<BufferIdentifier<'static>, JsonBuffer> {
+impl Joining for HashMap<IdentifierRef<'static>, JsonBuffer> {
     type Item = JsonMessage;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
@@ -1346,19 +1361,19 @@ impl Joining for HashMap<BufferIdentifier<'static>, JsonBuffer> {
 
         for (identifier, buffer) in self.iter() {
             match identifier {
-                BufferIdentifier::Index(index) => {
+                IdentifierRef::Index(index) => {
                     if *index >= array.len() {
                         // Ensure we have enough items in the array to reach the
                         // specified index.
                         array.resize(*index + 1, JsonMessage::Null);
                     }
 
-                    array[*index] = buffer.fetch_for_join(session, world)?;
+                    array[*index] = buffer.fetch_for_join(req, session, world)?;
                 }
-                BufferIdentifier::Name(name) => {
+                IdentifierRef::Name(name) => {
                     object.insert(
                         name.as_ref().to_owned(),
-                        buffer.fetch_for_join(session, world)?,
+                        buffer.fetch_for_join(req, session, world)?,
                     );
                 }
             }
@@ -1420,10 +1435,8 @@ mod tests {
             let buffer = builder.create_buffer(BufferSettings::keep_all());
             let push_multiple_times = builder
                 .commands()
-                .spawn_service(push_multiple_times_into_buffer.into_blocking_service());
-            let count = builder
-                .commands()
-                .spawn_service(get_buffer_count.into_blocking_service());
+                .spawn_service(push_multiple_times_into_buffer);
+            let count = builder.commands().spawn_service(get_buffer_count);
 
             builder
                 .chain(scope.start)
@@ -1439,10 +1452,14 @@ mod tests {
     }
 
     fn push_multiple_times_into_buffer(
-        In((value, key)): In<(TestMessage, BufferKey<TestMessage>)>,
+        Blocking {
+            request: (value, key),
+            id,
+            ..
+        }: Blocking<(TestMessage, BufferKey<TestMessage>)>,
         mut access: BufferAccessMut<TestMessage>,
     ) -> JsonBufferKey {
-        let mut buffer = access.get_mut(&key).unwrap();
+        let mut buffer = access.get_mut(id, &key).unwrap();
         for _ in 0..5 {
             buffer.push(value.clone());
         }
@@ -1450,8 +1467,13 @@ mod tests {
         key.into()
     }
 
-    fn get_buffer_count(In(key): In<JsonBufferKey>, world: &mut World) -> usize {
-        world.json_buffer_view(&key).unwrap().len()
+    fn get_buffer_count(
+        Blocking {
+            request: key, id, ..
+        }: Blocking<JsonBufferKey>,
+        world: &mut World,
+    ) -> usize {
+        world.json_buffer_view(id, &key).unwrap().len()
     }
 
     #[test]
@@ -1462,13 +1484,9 @@ mod tests {
             let buffer = builder.create_buffer(BufferSettings::keep_all());
             let push_multiple_times = builder
                 .commands()
-                .spawn_service(push_multiple_times_into_buffer.into_blocking_service());
-            let modify_content = builder
-                .commands()
-                .spawn_service(modify_buffer_content.into_blocking_service());
-            let drain_content = builder
-                .commands()
-                .spawn_service(pull_each_buffer_item.into_blocking_service());
+                .spawn_service(push_multiple_times_into_buffer);
+            let modify_content = builder.commands().spawn_service(modify_buffer_content);
+            let drain_content = builder.commands().spawn_service(pull_each_buffer_item);
 
             builder
                 .chain(scope.start)
@@ -1488,9 +1506,14 @@ mod tests {
         }
     }
 
-    fn modify_buffer_content(In(key): In<JsonBufferKey>, world: &mut World) -> JsonBufferKey {
+    fn modify_buffer_content(
+        Blocking {
+            request: key, id, ..
+        }: Blocking<JsonBufferKey>,
+        world: &mut World,
+    ) -> JsonBufferKey {
         world
-            .json_buffer_mut(&key, |mut access| {
+            .json_buffer_mut(id, &key, |mut access| {
                 for i in 0..access.len() {
                     access
                         .get_mut(i)
@@ -1508,9 +1531,14 @@ mod tests {
         key
     }
 
-    fn pull_each_buffer_item(In(key): In<JsonBufferKey>, world: &mut World) -> Vec<JsonMessage> {
+    fn pull_each_buffer_item(
+        Blocking {
+            request: key, id, ..
+        }: Blocking<JsonBufferKey>,
+        world: &mut World,
+    ) -> Vec<JsonMessage> {
         world
-            .json_buffer_mut(&key, |mut access| {
+            .json_buffer_mut(id, &key, |mut access| {
                 let mut values = Vec::new();
                 while let Ok(Some(value)) = access.pull() {
                     values.push(value);
@@ -1528,13 +1556,9 @@ mod tests {
             let buffer = builder.create_buffer(BufferSettings::keep_all());
             let push_multiple_times = builder
                 .commands()
-                .spawn_service(push_multiple_times_into_buffer.into_blocking_service());
-            let modify_content = builder
-                .commands()
-                .spawn_service(modify_buffer_content.into_blocking_service());
-            let drain_content = builder
-                .commands()
-                .spawn_service(drain_buffer_contents.into_blocking_service());
+                .spawn_service(push_multiple_times_into_buffer);
+            let modify_content = builder.commands().spawn_service(modify_buffer_content);
+            let drain_content = builder.commands().spawn_service(drain_buffer_contents);
 
             builder
                 .chain(scope.start)
@@ -1554,9 +1578,14 @@ mod tests {
         }
     }
 
-    fn drain_buffer_contents(In(key): In<JsonBufferKey>, world: &mut World) -> Vec<JsonMessage> {
+    fn drain_buffer_contents(
+        Blocking {
+            request: key, id, ..
+        }: Blocking<JsonBufferKey>,
+        world: &mut World,
+    ) -> Vec<JsonMessage> {
         world
-            .json_buffer_mut(&key, |mut access| {
+            .json_buffer_mut(id, &key, |mut access| {
                 access.drain(..).collect::<Result<Vec<_>, _>>()
             })
             .unwrap()

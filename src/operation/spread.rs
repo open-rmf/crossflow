@@ -16,9 +16,10 @@
 */
 
 use crate::{
-    Disposal, Input, InputBundle, ManageInput, Operation, OperationCleanup, OperationReachability,
-    OperationRequest, OperationResult, OperationSetup, OrBroken, ReachabilityResult,
-    SingleInputStorage, SingleTargetStorage, emit_disposal,
+    Disposal, Input, InputBundle, ManageDisposal, ManageInput, MessageRoute, Operation,
+    OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationSetup,
+    OrBroken, ReachabilityResult, RouteSource, SingleInputStorage, SingleTargetStorage,
+    output_port,
 };
 
 use bevy_ecs::prelude::Entity;
@@ -63,22 +64,33 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { session, data } = source_mut.take_input::<I>()?;
-        let target = source_mut.get::<SingleTargetStorage>().or_broken()?.get();
+        let Input { session, data, seq } = world.take_input::<I>(source)?;
+        let target = world.get::<SingleTargetStorage>(source).or_broken()?.get();
 
         let mut at_least_one = false;
-        let mut target_mut = world.get_entity_mut(target).or_broken()?;
         for datum in data {
             at_least_one = true;
-            target_mut.give_input(session, datum, roster)?;
+            let route = MessageRoute {
+                session,
+                source,
+                seq,
+                port: &output_port::next(),
+                target,
+            };
+            world.give_input(route, datum, roster)?;
         }
 
         if !at_least_one {
             // There was nothing to be sent, so we notify that a disposal has
             // happened.
             let disposal = Disposal::empty_spread(source);
-            emit_disposal(source, session, disposal, world, roster);
+            let route = RouteSource {
+                session,
+                source,
+                seq,
+                port: &output_port::next(),
+            };
+            world.emit_disposal(route, disposal, roster);
         }
 
         Ok(())

@@ -237,7 +237,7 @@ registry
     .register_node_builder(
         NodeBuilderOptions::new("stream_out"),
         |builder, config: ()| {
-            builder.create_map(|input: AsyncMap<UnboundedReceiver<f32>, StreamOf<f32>>| {
+            builder.create_map(|input: Async<UnboundedReceiver<f32>, StreamOf<f32>>| {
                 async move {
                     let mut receiver = input.request;
                     let stream = input.streams;
@@ -269,10 +269,10 @@ registry
         NodeBuilderOptions::new("navigate_to"),
         |builder, config: ()| {
             builder.create_map(
-                |input: AsyncMap<[f32; 2], StreamOf<Result<State, Error>>>| {
+                |srv: Async<[f32; 2], StreamOf<Result<State, Error>>>| {
                     async move {
-                        let destination = input.request;
-                        let stream = input.streams;
+                        let destination = srv.request;
+                        let stream = srv.streams;
 
                         let mut update_receiver = navigate_to(destination);
                         while let Some(update) = update_receiver.recv().await {
@@ -310,17 +310,17 @@ enum MoveElevatorError {
 }
 
 let enter_elevator = |_: &String, _: &String| {
-    (|_: BlockingMap<()>| { Ok::<(), MoveRobotError>(()) }).as_map()
+    (|_: Blocking<()>| { Ok::<(), MoveRobotError>(()) }).into_map()
 };
 let move_elevator = |_: &String, _: &String| {
-    (|_: BlockingMap<()>| { Ok::<(), MoveElevatorError>(()) }).as_map()
+    (|_: Blocking<()>| { Ok::<(), MoveElevatorError>(()) }).into_map()
 };
 let localize_robot = |_: &String, _: &String| {
-    (|_: BlockingMap<()>| { Ok::<(), LocalizationError>(()) }).as_map()
+    (|_: Blocking<()>| { Ok::<(), LocalizationError>(()) }).into_map()
 };
 
 let exit_elevator = |_: &String, _: &String| {
-    (|_: BlockingMap<()>| { Ok::<(), MoveRobotError>(()) }).as_map()
+    (|_: Blocking<()>| { Ok::<(), MoveRobotError>(()) }).into_map()
 };
 
 

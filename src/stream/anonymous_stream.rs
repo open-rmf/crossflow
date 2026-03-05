@@ -29,9 +29,10 @@ use crate::{
     AddExecution, AddOperation, AnonymousStreamRedirect, Builder, DefaultStreamBufferContainer,
     DeferredRoster, InnerChannel, InputSlot, OperationError, OperationResult, OperationRoster,
     OrBroken, Output, Push, RedirectScopeStream, RedirectWorkflowStream, ReportUnhandled,
-    SingleInputStorage, StreamAvailability, StreamBuffer, StreamChannel, StreamEffect, StreamPack,
-    StreamRequest, StreamTargetMap, TakenStream, UnusedStreams, UnusedTarget,
+    RequestId, SingleInputStorage, StreamAvailability, StreamBuffer, StreamEffect, StreamPack,
+    StreamRequest, StreamTarget, StreamTargetMap, TakenStream, UnusedStreams, UnusedTarget,
     dyn_node::{DynStreamInputPack, DynStreamOutputPack},
+    output_port,
 };
 
 /// A wrapper to turn any [`StreamEffect`] into an anonymous (unnamed) stream.
@@ -57,7 +58,7 @@ impl<S: StreamEffect> StreamPack for AnonymousStream<S> {
     type StreamInputPack = InputSlot<S::Input>;
     type StreamOutputPack = Output<S::Output>;
     type StreamReceivers = Receiver<S::Output>;
-    type StreamChannels = StreamChannel<S>;
+    type StreamChannels = AnonymousStreamChannel<S>;
     type StreamBuffers = StreamBuffer<S::Input>;
     type StreamTypes = (S,);
 
@@ -118,7 +119,7 @@ impl<S: StreamEffect> StreamPack for AnonymousStream<S> {
             .id();
 
         map.add_anonymous::<S::Output>(target, commands);
-        commands.queue(AddExecution::new(None, target, TakenStream::new(sender)));
+        commands.queue(AddExecution::new(target, TakenStream::new(sender)));
 
         receiver
     }
@@ -131,7 +132,6 @@ impl<S: StreamEffect> StreamPack for AnonymousStream<S> {
     ) {
         let redirect = commands.spawn(()).insert(ChildOf(source)).id();
         commands.queue(AddExecution::new(
-            None,
             redirect,
             Push::<S::Output>::new(target, true),
         ));
@@ -142,7 +142,7 @@ impl<S: StreamEffect> StreamPack for AnonymousStream<S> {
         let target = world
             .get::<StreamTargetMap>(inner.source())
             .and_then(|t| t.get_anonymous::<S::Output>());
-        StreamChannel::new(target, Arc::clone(inner))
+        AnonymousStreamChannel::new(target, Arc::clone(inner))
     }
 
     fn make_stream_buffers(target_map: Option<&StreamTargetMap>) -> StreamBuffer<S::Input> {
@@ -156,24 +156,27 @@ impl<S: StreamEffect> StreamPack for AnonymousStream<S> {
 
     fn process_stream_buffers(
         buffer: Self::StreamBuffers,
-        source: Entity,
-        session: Entity,
+        request_id: RequestId,
         unused: &mut UnusedStreams,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
         let target = buffer.target;
         let mut was_unused = true;
+        let RequestId {
+            session, source, ..
+        } = request_id;
         for data in Rc::into_inner(buffer.container)
             .or_broken()?
             .into_inner()
             .into_iter()
         {
             was_unused = false;
+            let port = output_port::anonymous_stream(std::any::type_name::<S>());
             let mut request = StreamRequest {
-                source,
-                session,
-                target,
+                request_id,
+                port: &port,
+                target: target.map(|id| StreamTarget { id, session }),
                 world,
                 roster,
             };
@@ -190,17 +193,12 @@ impl<S: StreamEffect> StreamPack for AnonymousStream<S> {
         Ok(())
     }
 
-    fn defer_buffers(
-        buffer: Self::StreamBuffers,
-        source: Entity,
-        session: Entity,
-        commands: &mut Commands,
-    ) {
+    fn defer_buffers(buffer: Self::StreamBuffers, request_id: RequestId, commands: &mut Commands) {
         commands.queue(SendAnonymousStreams::<
             S,
             DefaultStreamBufferContainer<S::Input>,
         >::new(
-            buffer.container.take(), source, session, buffer.target
+            buffer.container.take(), request_id, buffer.target
         ));
     }
 
@@ -230,23 +228,16 @@ impl<S: StreamEffect> StreamPack for AnonymousStream<S> {
 
 pub struct SendAnonymousStreams<S, Container> {
     container: Container,
-    source: Entity,
-    session: Entity,
+    request_id: RequestId,
     target: Option<Entity>,
     _ignore: std::marker::PhantomData<fn(S)>,
 }
 
 impl<S, Container> SendAnonymousStreams<S, Container> {
-    pub fn new(
-        container: Container,
-        source: Entity,
-        session: Entity,
-        target: Option<Entity>,
-    ) -> Self {
+    pub fn new(container: Container, request_id: RequestId, target: Option<Entity>) -> Self {
         Self {
             container,
-            source,
-            session,
+            request_id,
             target,
             _ignore: Default::default(),
         }
@@ -259,21 +250,86 @@ where
     Container: 'static + Send + Sync + IntoIterator<Item = S::Input>,
 {
     fn apply(self, world: &mut World) {
-        world.get_resource_or_insert_with(DeferredRoster::default);
+        let RequestId {
+            session,
+            source,
+            seq,
+        } = self.request_id;
+        world.get_resource_or_init::<DeferredRoster>();
         world.resource_scope::<DeferredRoster, _>(|world, mut deferred| {
+            let port = output_port::anonymous_stream(std::any::type_name::<S>());
             for data in self.container {
                 let mut request = StreamRequest {
-                    source: self.source,
-                    session: self.session,
-                    target: self.target,
+                    request_id: RequestId {
+                        source,
+                        seq,
+                        session,
+                    },
+                    port: &port,
+                    target: self.target.map(|id| StreamTarget { id, session }),
                     world,
                     roster: &mut deferred,
                 };
 
                 S::side_effect(data, &mut request)
                     .and_then(move |output| request.send_output(output))
-                    .report_unhandled(self.source, world);
+                    .report_unhandled(source, world);
             }
         });
+    }
+}
+
+/// A channel to output messages from an anonymous (unnamed) stream
+pub struct AnonymousStreamChannel<S> {
+    target: Option<Entity>,
+    inner: Arc<InnerChannel>,
+    _ignore: std::marker::PhantomData<fn(S)>,
+}
+
+impl<S: StreamEffect> AnonymousStreamChannel<S> {
+    /// Send an instance of data out over a stream.
+    pub fn send(&self, data: S::Input) {
+        let request_id = self.inner.request_id;
+        let session = request_id.session;
+        let source = request_id.source;
+        let target = self.target;
+
+        self.inner
+            .sender
+            .send(Box::new(
+                move |world: &mut World, roster: &mut OperationRoster| {
+                    let port = output_port::anonymous_stream(std::any::type_name::<S>());
+                    let mut request = StreamRequest {
+                        request_id,
+                        port: &port,
+                        target: target.map(|id| StreamTarget { id, session }),
+                        world,
+                        roster,
+                    };
+
+                    S::side_effect(data, &mut request)
+                        .and_then(|output| request.send_output(output))
+                        .report_unhandled(source, world);
+                },
+            ))
+            .ok();
+    }
+
+    pub(crate) fn new(target: Option<Entity>, inner: Arc<InnerChannel>) -> Self {
+        Self {
+            target,
+            inner,
+            _ignore: Default::default(),
+        }
+    }
+}
+
+impl<S> Clone for AnonymousStreamChannel<S> {
+    fn clone(&self) -> Self {
+        Self {
+            target: self.target.clone(),
+            inner: Arc::clone(&self.inner),
+            _ignore: Default::default(),
+        }
     }
 }

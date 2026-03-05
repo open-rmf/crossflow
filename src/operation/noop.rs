@@ -18,9 +18,9 @@
 use bevy_ecs::prelude::Entity;
 
 use crate::{
-    Input, InputBundle, ManageInput, Operation, OperationCleanup, OperationReachability,
-    OperationRequest, OperationResult, OperationSetup, OrBroken, ReachabilityResult,
-    SingleInputStorage, SingleTargetStorage,
+    Input, InputBundle, ManageInput, MessageRoute, Operation, OperationCleanup,
+    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
+    ReachabilityResult, SingleInputStorage, SingleTargetStorage, output_port,
 };
 
 pub(crate) struct Noop<T> {
@@ -58,14 +58,22 @@ impl<T: 'static + Send + Sync> Operation for Noop<T> {
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let target = source_mut.get::<SingleTargetStorage>().or_broken()?.0;
         let Input {
             session,
             data: value,
-        } = source_mut.take_input::<T>()?;
-        let mut target_mut = world.get_entity_mut(target).or_broken()?;
-        target_mut.give_input(session, value, roster)
+            seq,
+        } = world.take_input::<T>(source)?;
+
+        let target = world.get::<SingleTargetStorage>(source).or_broken()?.get();
+        let port = output_port::next();
+        let route = MessageRoute {
+            session,
+            source,
+            seq,
+            port: &port,
+            target,
+        };
+        world.give_input(route, value, roster)
     }
 
     fn cleanup(mut clean: OperationCleanup) -> OperationResult {

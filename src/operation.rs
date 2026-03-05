@@ -16,8 +16,8 @@
 */
 
 use crate::{
-    Broken, Cancel, DeliveryLabelId, InspectInput, SetupFailure, StreamTargetMap, UnhandledErrors,
-    try_emit_broken,
+    Broken, DeliveryLabelId, Disposal, InspectInput, ManageCancellation, RequestId,
+    RouteSourceOwned, SetupFailure, StreamTargetMap, UnhandledErrors,
 };
 
 use bevy_derive::Deref;
@@ -28,7 +28,10 @@ use bevy_ecs::{
 
 use backtrace::Backtrace;
 
-use std::collections::{HashMap, HashSet, VecDeque, hash_map::Entry};
+use std::{
+    collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
+    sync::Arc,
+};
 
 use smallvec::SmallVec;
 
@@ -208,6 +211,15 @@ impl FromIterator<Entity> for ForkTargetStorage {
 #[derive(Component)]
 pub(crate) struct UnusedTarget;
 
+#[derive(Component, Debug, Clone, Deref)]
+pub struct OperationType(Arc<str>);
+
+impl OperationType {
+    pub fn new(op_type: Arc<str>) -> Self {
+        Self(op_type)
+    }
+}
+
 #[derive(Default)]
 pub struct OperationRoster {
     /// Operation sources that should be triggered
@@ -219,17 +231,20 @@ pub struct OperationRoster {
     /// flush. This is for the final outputs of polled tasks, to make sure their
     /// stream data gets flushed before their final output is flushed.
     pub(crate) deferred_queue: VecDeque<Entity>,
-    /// Operation sources that should be cancelled
-    pub(crate) cancel: VecDeque<Cancel>,
     /// Async services that should pull their next item
     pub(crate) unblock: VecDeque<Blocker>,
-    /// Remove these entities as they are no longer needed
-    pub(crate) disposed: Vec<DisposalNotice>,
     /// Tell a scope to attempt cleanup
     pub(crate) cleanup_finished: Vec<Cleanup>,
     /// Despawn these entities while no other operation is running. This is used
     /// to cleanup detached executions that receive no input.
     pub(crate) deferred_despawn: Vec<Entity>,
+    /// Check whether the disposals in this queue have affected a scope's
+    /// reachability. These are queued in a roster because the reachability
+    /// checks cannot be nested inside the execution of an operation or else we
+    /// might get the wrong impression for whether that operation is reachable.
+    pub(crate) reachable: VecDeque<Reachable>,
+    /// Notify relevant sessions about disposals
+    pub(crate) disposals: VecDeque<DisposalInformation>,
 }
 
 impl OperationRoster {
@@ -249,20 +264,8 @@ impl OperationRoster {
         self.deferred_queue.push_back(source);
     }
 
-    pub fn cancel(&mut self, source: Cancel) {
-        self.cancel.push_back(source);
-    }
-
     pub(crate) fn unblock(&mut self, provider: Blocker) {
         self.unblock.push_back(provider);
-    }
-
-    pub fn disposed(&mut self, scope: Entity, origin: Entity, session: Entity) {
-        self.disposed.push(DisposalNotice {
-            source: scope,
-            origin,
-            session,
-        });
     }
 
     pub fn cleanup_finished(&mut self, cleanup: Cleanup) {
@@ -273,15 +276,19 @@ impl OperationRoster {
         self.deferred_despawn.push(source);
     }
 
+    pub(crate) fn reachable(&mut self, r: Reachable) {
+        self.reachable.push_back(r);
+    }
+
     pub fn is_empty(&self) -> bool {
         self.queue.is_empty()
             && self.awake.is_empty()
             && self.deferred_queue.is_empty()
-            && self.cancel.is_empty()
             && self.unblock.is_empty()
-            && self.disposed.is_empty()
             && self.cleanup_finished.is_empty()
             && self.deferred_despawn.is_empty()
+            && self.reachable.is_empty()
+            && self.disposals.is_empty()
     }
 
     pub fn append(&mut self, other: &mut Self) {
@@ -290,11 +297,11 @@ impl OperationRoster {
         self.queue.append(&mut other.queue);
         self.awake.append(&mut other.awake);
         self.deferred_queue.append(&mut other.deferred_queue);
-        self.cancel.append(&mut other.cancel);
         self.unblock.append(&mut other.unblock);
-        self.disposed.append(&mut other.disposed);
         self.cleanup_finished.append(&mut other.cleanup_finished);
         self.deferred_despawn.append(&mut other.deferred_despawn);
+        self.reachable.append(&mut other.reachable);
+        self.disposals.append(&mut other.disposals);
     }
 
     /// Remove all instances of the target from the roster. This prevents a
@@ -302,6 +309,9 @@ impl OperationRoster {
     pub fn purge(&mut self, target: Entity) {
         self.queue.retain(|e| *e != target);
         self.deferred_queue.retain(|e| *e != target);
+        self.reachable.retain(|r| r.scope != target);
+        self.disposals
+            .retain(|d| d.listener != target && d.session != target);
     }
 
     /// Move all items from the deferred queue into the immediate queue
@@ -312,24 +322,12 @@ impl OperationRoster {
     }
 }
 
-/// Notify the scope manager that a disposal took place. This will prompt the
-/// scope to check whether it's still possible to terminate.
-pub struct DisposalNotice {
-    /// The scope that needs to handle the disposal
-    pub source: Entity,
-    /// The operation that the disposal originated from
-    pub origin: Entity,
-    /// The session that experienced a disposal
-    pub session: Entity,
-}
-
+/// Information about how an active task is blocking other tasks
 pub(crate) struct Blocker {
     /// The provider that is being blocked
     pub(crate) provider: Entity,
-    /// The source that is doing the blocking
-    pub(crate) source: Entity,
-    /// The session that is doing the blocking
-    pub(crate) session: Entity,
+    /// The identity of the request that is blocking it
+    pub(crate) request_id: RequestId,
     /// The label of the queue that is being blocked
     pub(crate) label: Option<DeliveryLabelId>,
     /// Function pointer to call when this is no longer blocking
@@ -340,11 +338,18 @@ impl std::fmt::Debug for Blocker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Blocker")
             .field("provider", &self.provider)
-            .field("source", &self.source)
-            .field("session", &self.session)
+            .field("request_id", &self.request_id)
             .field("label", &self.label)
             .finish()
     }
+}
+
+/// A queue item for checking if a session for a scope is still reachable after
+/// a disposal has occurred.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Reachable {
+    pub(crate) scope: Entity,
+    pub(crate) scoped_session: Entity,
 }
 
 #[derive(Clone, Debug)]
@@ -526,6 +531,11 @@ pub trait Operation {
     /// This is primarily used to determine if a Join has stalled out or if
     /// a request will never be able to terminate.
     fn is_reachable(reachability: OperationReachability) -> ReachabilityResult;
+
+    /// Specify a type name for the operation. This will be stored
+    fn operation_type(&self) -> Arc<str> {
+        std::any::type_name::<Self>().into()
+    }
 }
 
 pub trait OrBroken: Sized {
@@ -583,6 +593,19 @@ impl<T> OrBroken for Option<T> {
     }
 }
 
+pub trait OperationResultFilter {
+    fn ignore_not_ready(self) -> Result<(), OperationError>;
+}
+
+impl OperationResultFilter for OperationResult {
+    fn ignore_not_ready(self) -> Result<(), OperationError> {
+        match self {
+            Err(OperationError::NotReady) => Ok(()),
+            x => x,
+        }
+    }
+}
+
 pub trait ReportUnhandled {
     fn report_unhandled(self, source: Entity, world: &mut World);
 }
@@ -619,31 +642,17 @@ impl<Op: Operation> AddOperation<Op> {
 
 impl<Op: Operation + 'static + Sync + Send> Command for AddOperation<Op> {
     fn apply(self, world: &mut World) {
-        if let Err(error) = self.operation.setup(OperationSetup {
-            source: self.source,
-            world,
-        }) {
-            world
-                .get_resource_or_insert_with(UnhandledErrors::default)
-                .setup
-                .push(SetupFailure {
-                    broken_node: self.source,
-                    error,
-                });
-        }
-
         let mut source_mut = world.entity_mut(self.source);
+        let op_type = OperationType(self.operation.operation_type());
         source_mut.insert((
             OperationExecuteStorage(perform_operation::<Op>),
-            OperationCleanupStorage(Op::cleanup),
+            OnCleanup(Op::cleanup),
             OperationReachabilityStorage(Op::is_reachable),
-            OperationType {
-                name: std::any::type_name::<Op>(),
-            },
+            op_type,
         ));
         if let Some(scope) = self.scope {
             source_mut
-                .insert(ScopeStorage::new(scope))
+                .insert(InScope::new(scope))
                 .insert(ChildOf(scope));
             match world.get_mut::<ScopeContents>(scope).or_broken() {
                 Ok(mut contents) => {
@@ -660,6 +669,19 @@ impl<Op: Operation + 'static + Sync + Send> Command for AddOperation<Op> {
                 }
             }
         }
+
+        if let Err(error) = self.operation.setup(OperationSetup {
+            source: self.source,
+            world,
+        }) {
+            world
+                .get_resource_or_insert_with(UnhandledErrors::default)
+                .setup
+                .push(SetupFailure {
+                    broken_node: self.source,
+                    error,
+                });
+        }
     }
 }
 
@@ -668,11 +690,6 @@ pub(crate) struct OperationExecuteStorage(pub(crate) fn(OperationRequest));
 
 #[derive(Component)]
 pub(crate) struct OperationReachabilityStorage(fn(OperationReachability) -> ReachabilityResult);
-
-#[derive(Component, Deref, Debug)]
-pub(crate) struct OperationType {
-    name: &'static str,
-}
 
 pub fn execute_operation(request: OperationRequest) {
     let Some(operator) = request.world.get::<OperationExecuteStorage>(request.source) else {
@@ -728,7 +745,7 @@ fn perform_operation<Op: Operation>(
             // Do nothing
         }
         Err(OperationError::Broken(backtrace)) => {
-            try_emit_broken(source, backtrace, world, roster);
+            world.emit_broken(source, backtrace, roster);
         }
     }
 }
@@ -818,14 +835,23 @@ pub fn is_downstream_of(source: Entity, target: Entity, world: &World) -> bool {
 }
 
 pub struct DisposalUpdate<'a> {
-    /// The operation that is being updated about the disposal
-    pub source: Entity,
-    /// The operation that the disposal originated from
-    pub origin: Entity,
-    /// The session that has experienced a disposal
-    pub session: Entity,
+    pub info: DisposalInformation,
     pub world: &'a mut World,
     pub roster: &'a mut OperationRoster,
+}
+
+#[derive(Clone, Debug)]
+pub struct DisposalInformation {
+    /// The operation that is being updated about the disposal
+    pub listener: Entity,
+    /// The operation that triggered the disposal
+    pub trigger: RouteSourceOwned,
+    /// The operation whose potential outputs may have been disposed
+    pub disposed: Entity,
+    /// The session that has experienced a disposal
+    pub session: Entity,
+    /// Information about the disposal
+    pub disposal: Disposal,
 }
 
 #[derive(Component)]

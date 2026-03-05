@@ -24,10 +24,11 @@ use crate::{
     AddExecution, AddOperation, Builder, DefaultStreamBufferContainer, InnerChannel, InputSlot,
     NamedStreamRedirect, NamedStreamTargets, NamedTarget, NamedValue, OperationResult,
     OperationRoster, OrBroken, Output, Push, Receiver, RedirectScopeStream, RedirectWorkflowStream,
-    ReportUnhandled, SendNamedStreams, SingleInputStorage, StreamAvailability, StreamEffect,
-    StreamPack, StreamRequest, StreamTargetMap, TakenStream, UnusedStreams, UnusedTarget,
+    ReportUnhandled, RequestId, SendNamedStreams, SingleInputStorage, StreamAvailability,
+    StreamEffect, StreamPack, StreamRequest, StreamTargetMap, TakenStream, UnusedStreams,
+    UnusedTarget,
     dyn_node::{DynStreamInputPack, DynStreamOutputPack},
-    send_named_stream,
+    output_port, send_named_stream,
 };
 
 /// A wrapper to turn any stream type into a named stream. Each item that moves
@@ -114,7 +115,7 @@ impl<S: StreamEffect> StreamPack for DynamicallyNamedStream<S> {
             .id();
 
         map.add_anonymous::<NamedValue<S::Output>>(target, commands);
-        commands.queue(AddExecution::new(None, target, TakenStream::new(sender)));
+        commands.queue(AddExecution::new(target, TakenStream::new(sender)));
 
         receiver
     }
@@ -127,7 +128,6 @@ impl<S: StreamEffect> StreamPack for DynamicallyNamedStream<S> {
     ) {
         let redirect = commands.spawn(()).insert(ChildOf(source)).id();
         commands.queue(AddExecution::new(
-            None,
             redirect,
             Push::<NamedValue<S::Output>>::new(target, true),
         ));
@@ -150,8 +150,7 @@ impl<S: StreamEffect> StreamPack for DynamicallyNamedStream<S> {
 
     fn process_stream_buffers(
         buffer: Self::StreamBuffers,
-        source: Entity,
-        session: Entity,
+        request_id: RequestId,
         unused: &mut UnusedStreams,
         world: &mut World,
         roster: &mut OperationRoster,
@@ -165,10 +164,11 @@ impl<S: StreamEffect> StreamPack for DynamicallyNamedStream<S> {
         {
             was_unused = false;
             let target = targets.get(name.as_ref());
+            let port = output_port::stream_out(name.as_ref());
             let mut request = StreamRequest {
-                source,
-                session,
-                target: target.map(NamedTarget::as_entity),
+                request_id,
+                port: &port,
+                target: NamedTarget::to_stream_target(target, request_id.session),
                 world,
                 roster,
             };
@@ -176,10 +176,18 @@ impl<S: StreamEffect> StreamPack for DynamicallyNamedStream<S> {
             S::side_effect(value, &mut request)
                 .and_then(|value| {
                     target
-                        .map(|t| t.send_output(NamedValue { name, value }, request))
+                        .map(|t| {
+                            t.send_output(
+                                NamedValue {
+                                    name: name.clone(),
+                                    value,
+                                },
+                                request,
+                            )
+                        })
                         .unwrap_or(Ok(()))
                 })
-                .report_unhandled(source, world);
+                .report_unhandled(request_id.source, world);
         }
 
         if was_unused {
@@ -189,17 +197,12 @@ impl<S: StreamEffect> StreamPack for DynamicallyNamedStream<S> {
         Ok(())
     }
 
-    fn defer_buffers(
-        buffer: Self::StreamBuffers,
-        source: Entity,
-        session: Entity,
-        commands: &mut Commands,
-    ) {
+    fn defer_buffers(buffer: Self::StreamBuffers, request_id: RequestId, commands: &mut Commands) {
         commands.queue(SendNamedStreams::<
             S,
             DefaultStreamBufferContainer<NamedValue<S::Input>>,
         >::new(
-            buffer.container.take(), source, session, buffer.targets
+            buffer.container.take(), request_id, buffer.targets
         ));
     }
 
@@ -237,8 +240,7 @@ impl<S: StreamEffect> DynamicallyNamedStreamChannel<S> {
     pub fn send(&self, data: NamedValue<S::Input>) {
         let NamedValue { name, value } = data;
         let f = send_named_stream::<S>(
-            self.inner.source,
-            self.inner.session,
+            self.inner.request_id,
             Arc::clone(&self.targets),
             name,
             value,

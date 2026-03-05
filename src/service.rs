@@ -880,7 +880,7 @@ mod tests {
     fn test_add_simple_blocking_service() {
         let mut app = App::new();
         app.insert_resource(TestSystemRan(false))
-            .add_service(sys_blocking_system.into_blocking_service())
+            .add_service(sys_blocking_system)
             .add_systems(Update, sys_find_service);
 
         app.update();
@@ -901,7 +901,7 @@ mod tests {
     }
 
     fn sys_async_service(
-        In(AsyncService { request, .. }): AsyncServiceInput<String>,
+        AsyncService { request, .. }: AsyncService<String>,
         people: Query<&TestPeople>,
     ) -> impl Future<Output = u64> + use<> {
         let mut matching_people = Vec::new();
@@ -919,9 +919,9 @@ mod tests {
     }
 
     fn sys_blocking_service(
-        In(BlockingService {
+        BlockingService {
             request, provider, ..
-        }): BlockingServiceInput<String>,
+        }: BlockingService<String>,
         people: Query<&TestPeople>,
         multipliers: Query<&Multiplier>,
     ) -> u64 {
@@ -935,7 +935,8 @@ mod tests {
         sum
     }
 
-    fn sys_blocking_system(In(name): In<String>, people: Query<&TestPeople>) -> u64 {
+    fn sys_blocking_system(input: Blocking<String>, people: Query<&TestPeople>) -> u64 {
+        let name = input.request;
         let mut sum = 0;
         for person in &people {
             if person.name == name {
@@ -966,11 +967,7 @@ mod tests {
         _commands: Commands<'w, 's>,
     }
 
-    fn service_with_generic<P: SystemParam>(
-        In(BlockingService { .. }): BlockingServiceInput<()>,
-        _: StaticSystemParam<P>,
-    ) {
-    }
+    fn service_with_generic<P: SystemParam>(_: BlockingService<()>, _: StaticSystemParam<P>) {}
 
     #[test]
     fn test_generic_service() {

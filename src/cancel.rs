@@ -15,10 +15,9 @@
  *
 */
 
-use bevy_ecs::{
-    prelude::{Bundle, Component, Entity, World},
-    world::EntityWorldMut,
-};
+use anyhow::Error as Anyhow;
+
+use bevy_ecs::prelude::{Bundle, Component, Entity, World};
 
 use backtrace::Backtrace;
 
@@ -26,10 +25,16 @@ use thiserror::Error as ThisError;
 
 use std::{fmt::Display, sync::Arc};
 
+use smallvec::smallvec;
+
 use crate::{
-    CancelFailure, DisplayDebugSlice, Disposal, Filtered, OperationError, OperationResult,
-    OperationRoster, ScopeStorage, Supplanted, UnhandledErrors,
+    CancelFailure, DisplayDebugSlice, Disposal, Filtered, InScope, InSeries, ManageInput,
+    OperationError, OperationResult, OperationRoster, OrBroken, RequestId, RouteSource,
+    RouteTarget, Routing, ScopeEndpoints, SessionOfScope, Supplanted, UnhandledErrors,
 };
+
+#[cfg(feature = "trace")]
+use crate::{SessionEvent, TracedEvent};
 
 /// Information about the cancellation that occurred.
 #[derive(ThisError, Debug, Clone)]
@@ -48,6 +53,10 @@ impl Cancellation {
             cause: Arc::new(cause),
             while_cancelling: Default::default(),
         }
+    }
+
+    pub fn target_dropped(target: Entity) -> Self {
+        CancellationCause::TargetDropped(target).into()
     }
 
     pub fn unreachable(scope: Entity, session: Entity, disposals: Vec<Disposal>) -> Self {
@@ -75,17 +84,8 @@ impl Cancellation {
         .into()
     }
 
-    pub fn supplanted(
-        supplanted_at_node: Entity,
-        supplanted_by_node: Entity,
-        supplanting_session: Entity,
-    ) -> Self {
-        Supplanted {
-            supplanted_at_node,
-            supplanted_by_node,
-            supplanting_session,
-        }
-        .into()
+    pub fn supplanted(supplanted_by: RequestId) -> Self {
+        Supplanted { supplanted_by }.into()
     }
 
     pub fn invalid_span(from_point: Entity, to_point: Option<Entity>) -> Self {
@@ -124,6 +124,10 @@ impl<T: Into<CancellationCause>> From<T> for Cancellation {
 #[derive(ThisError, Debug)]
 
 pub enum CancellationCause {
+    /// A cancellation that was triggered explicitly by the user.
+    #[error("cancellation triggered by user: {}", .0)]
+    User(Arc<Anyhow>),
+
     /// The promise taken by the requester was dropped without being detached.
     #[error("the promise taken by the requester was dropped without being detached: {:?}", .0)]
     TargetDropped(Entity),
@@ -259,58 +263,22 @@ impl Display for Broken {
     }
 }
 
-/// Passed into the [`OperationRoster`] to pass a cancel  signal into the target.
-#[derive(Debug, Clone)]
-pub struct Cancel {
-    /// The entity that triggered the cancellation
-    pub(crate) origin: Entity,
+/// Input argument for asking a sesion or operation to cancel
+pub struct Cancel<'a> {
     /// The target of the cancellation
-    pub(crate) target: Entity,
-    /// The session which is being cancelled for the target
-    pub(crate) session: Option<Entity>,
+    pub target: Entity,
+    /// A specific session which is being cancelled for the target. If left
+    /// blank, cancel all activity for the target.
+    pub session: Option<Entity>,
     /// Information about why a cancellation is happening
-    pub(crate) cancellation: Cancellation,
+    pub cancellation: Cancellation,
+    pub world: &'a mut World,
+    pub roster: &'a mut OperationRoster,
 }
 
-impl Cancel {
-    pub(crate) fn for_target(mut self, target: Entity) -> Self {
-        self.target = target;
-        self
-    }
-
-    pub(crate) fn trigger(self, world: &mut World, roster: &mut OperationRoster) {
-        if let Err(failure) = self.try_trigger(world, roster) {
-            // We were unable to deliver the cancellation to the intended target.
-            // We should move this into the unhandled errors resource so that it
-            // does not get lost.
-            world
-                .get_resource_or_insert_with(UnhandledErrors::default)
-                .cancellations
-                .push(failure);
-        }
-    }
-
-    fn try_trigger(
-        self,
-        world: &mut World,
-        roster: &mut OperationRoster,
-    ) -> Result<(), CancelFailure> {
-        if let Some(cancel) = world.get::<OperationCancelStorage>(self.target) {
-            let cancel = cancel.0;
-            // TODO(@mxgrey): Figure out a way to structure this so we don't
-            // need to always clone self.
-            (cancel)(OperationCancel {
-                cancel: self.clone(),
-                world,
-                roster,
-            })
-            .map_err(|error| CancelFailure::new(error, self))
-        } else {
-            Err(CancelFailure::new(
-                OperationError::Broken(Some(Backtrace::new())),
-                self,
-            ))
-        }
+impl<'a> Cancel<'a> {
+    pub fn for_target(self, target: Entity) -> Cancel<'a> {
+        Cancel { target, ..self }
     }
 }
 
@@ -389,143 +357,238 @@ impl From<CircularCollect> for CancellationCause {
 }
 
 pub trait ManageCancellation {
-    /// Have this node emit a signal to cancel the current scope.
-    fn emit_cancel(
+    /// Have a workflow operation emit a signal to cancel a session of a scope.
+    ///
+    /// Note: session_to_cancel is intentionally a separate argument from the
+    /// session inside the RouteSource. In many cases they will be the same, but
+    /// it is possible for an operation from a different session to cancel the
+    /// session of a scope, so we must allow these two session values to be
+    /// defined separately.
+    fn emit_scope_cancel(
+        &mut self,
+        source: RouteSource,
+        session_to_cancel: Entity,
+        cancellation: Cancellation,
+        roster: &mut OperationRoster,
+    );
+
+    /// Notify an operation within a series that the series is being cancelled.
+    fn emit_series_cancel(
+        &mut self,
+        source: RouteSource,
+        session_to_cancel: Entity,
+        cancellation: Cancellation,
+        roster: &mut OperationRoster,
+    );
+
+    /// Force a session to cancel. This is for downstream users to externally
+    /// impose a cancellation on a session. For example, if a user cancels a
+    /// task, this could be used to force the execution of that task to shut
+    /// down.
+    fn cancel_session(
         &mut self,
         session: Entity,
         cancellation: Cancellation,
         roster: &mut OperationRoster,
     );
 
-    fn emit_broken(&mut self, backtrace: Option<Backtrace>, roster: &mut OperationRoster);
+    fn emit_broken(
+        &mut self,
+        broken_id: Entity,
+        backtrace: Option<Backtrace>,
+        roster: &mut OperationRoster,
+    );
 }
 
-impl<'w> ManageCancellation for EntityWorldMut<'w> {
-    fn emit_cancel(
+impl ManageCancellation for World {
+    fn emit_scope_cancel(
+        &mut self,
+        source: RouteSource,
+        session_to_cancel: Entity,
+        cancellation: Cancellation,
+        roster: &mut OperationRoster,
+    ) {
+        if let Err(error) = try_emit_scope_cancel(
+            source,
+            session_to_cancel,
+            cancellation.clone(),
+            self,
+            roster,
+        ) {
+            let RouteSource {
+                session,
+                source,
+                seq,
+                ..
+            } = source;
+            self.get_resource_or_init::<UnhandledErrors>()
+                .cancellations
+                .push(CancelFailure {
+                    error,
+                    source: Some(RequestId {
+                        session,
+                        source,
+                        seq,
+                    }),
+                    target_to_cancel: session_to_cancel,
+                    session_to_cancel: Some(session_to_cancel),
+                    cancellation,
+                });
+        }
+    }
+
+    fn emit_series_cancel(
+        &mut self,
+        source: RouteSource,
+        session_to_cancel: Entity,
+        cancellation: Cancellation,
+        roster: &mut OperationRoster,
+    ) {
+        cancel_operation(
+            Some(source),
+            session_to_cancel,
+            Some(session_to_cancel),
+            cancellation,
+            self,
+            roster,
+        );
+    }
+
+    fn cancel_session(
         &mut self,
         session: Entity,
         cancellation: Cancellation,
         roster: &mut OperationRoster,
     ) {
-        if let Err(failure) = try_emit_cancel(self, Some(session), cancellation, roster) {
-            // We were unable to emit the cancel according to the normal
-            // procedure. We should move this into the unhandled errors resource
-            // so that it does not get lost.
-            self.world_scope(move |world| {
-                world
-                    .get_resource_or_insert_with(UnhandledErrors::default)
-                    .cancellations
-                    .push(failure);
-            });
-        }
+        cancel_operation(None, session, Some(session), cancellation, self, roster);
     }
 
-    fn emit_broken(&mut self, backtrace: Option<Backtrace>, roster: &mut OperationRoster) {
-        let cause = Broken {
-            node: self.id(),
+    fn emit_broken(
+        &mut self,
+        broken_id: Entity,
+        backtrace: Option<Backtrace>,
+        roster: &mut OperationRoster,
+    ) {
+        let broken = Broken {
+            node: broken_id,
             backtrace,
         };
-        if let Err(failure) = try_emit_cancel(self, None, cause.into(), roster) {
-            // We were unable to emit the cancel according to the normal
-            // procedure. We should move this into the unhandled errors resource
-            // so that it does not get lost.
-            self.world_scope(move |world| {
-                world
-                    .get_resource_or_insert_with(UnhandledErrors::default)
-                    .cancellations
-                    .push(failure);
-            });
+
+        // Always put cases of broken structure into the unhandled error log.
+        self.get_resource_or_init::<UnhandledErrors>()
+            .broken
+            .push(broken.clone());
+
+        #[cfg(feature = "trace")]
+        {
+            TracedEvent::trace(broken.clone(), self);
+        }
+
+        // A broken operation could leave an Outcome hanging indefinitely, waiting
+        // for a response that will never come. To mitigate this risk, we will try
+        // to issue cancellation signals to any scope or series associated with the
+        // broken operation. Unfortunately we cannot necessarily isolate a specific
+        // session to cancel because we don't know what sessions are affected by
+        // the brokenness.
+        if let Some(scope) = self.get::<InScope>(broken_id).map(|s| s.scope()) {
+            // The broken operation is within a scope, so cancel the whole scope.
+            cancel_operation(None, scope, None, broken.into(), self, roster);
+        } else if let Some(series) = self.get::<InSeries>(broken_id).map(|s| s.series()) {
+            // The broken operation is within a series, so cancel the whole series.
+            cancel_operation(None, series, Some(series), broken.into(), self, roster);
+        } else {
+            // The broken operation is not within a series or a scope, so maybe
+            // it is a series or scope itself. Try cancelling it directly.
+            cancel_operation(
+                None,
+                broken_id,
+                Some(broken_id),
+                broken.into(),
+                self,
+                roster,
+            );
         }
     }
 }
 
-pub fn try_emit_broken(
-    source: Entity,
-    backtrace: Option<Backtrace>,
+fn try_emit_scope_cancel(
+    source: RouteSource,
+    session_to_cancel: Entity,
+    cancellation: Cancellation,
+    world: &mut World,
+    roster: &mut OperationRoster,
+) -> Result<(), OperationError> {
+    // Workflow scopes are cancelled by sending a `Cancellation` input to the
+    // `cancel_scope` endpoint of the scope.
+    let scope = world
+        .get::<SessionOfScope>(session_to_cancel)
+        .or_broken()?
+        .scope();
+    let cancel_scope = world.get::<ScopeEndpoints>(scope).or_broken()?.cancel_scope;
+    let route = Routing {
+        outputs: smallvec![source],
+        input: RouteTarget {
+            session: session_to_cancel,
+            target: cancel_scope,
+        },
+    };
+    world.give_input(route, cancellation, roster)
+}
+
+fn cancel_operation(
+    source: Option<RouteSource>,
+    target: Entity,
+    session: Option<Entity>,
+    cancellation: Cancellation,
     world: &mut World,
     roster: &mut OperationRoster,
 ) {
-    if let Ok(mut source_mut) = world.get_entity_mut(source) {
-        source_mut.emit_broken(backtrace, roster);
-    } else {
-        world
-            .get_resource_or_insert_with(UnhandledErrors::default)
-            .cancellations
-            .push(CancelFailure {
-                error: OperationError::Broken(Some(Backtrace::new())),
-                cancel: Cancel {
-                    origin: source,
-                    target: source,
-                    session: None,
-                    cancellation: Broken {
-                        node: source,
-                        backtrace,
-                    }
-                    .into(),
-                },
-            });
+    #[cfg(feature = "trace")]
+    {
+        if let Some(session) = session {
+            SessionEvent::cancelled(source, session, cancellation.clone(), world);
+        }
     }
-}
 
-fn try_emit_cancel(
-    source_mut: &mut EntityWorldMut,
-    session: Option<Entity>,
-    cancellation: Cancellation,
-    roster: &mut OperationRoster,
-) -> Result<(), CancelFailure> {
-    let source = source_mut.id();
-    if let Some(scope) = source_mut.get::<ScopeStorage>() {
-        // The cancellation is happening inside a scope, so we should cancel
-        // the scope
-        let scope = scope.get();
-        roster.cancel(Cancel {
-            origin: source,
-            target: scope,
-            session,
-            cancellation,
-        });
-    } else if let Some(session) = session {
-        // The cancellation is not happening inside a scope, so we should tell
-        // the session itself to cancel.
-        roster.cancel(Cancel {
-            origin: source,
-            target: session,
-            session: Some(session),
-            cancellation,
-        });
-    } else {
-        return Err(CancelFailure::new(
-            OperationError::Broken(Some(Backtrace::new())),
-            Cancel {
-                origin: source,
-                target: source,
-                session,
+    match world.get::<OnCancel>(target).map(|c| c.0).or_broken() {
+        Ok(on_cancel) => {
+            if let Err(OperationError::Broken(backtrace)) = on_cancel(Cancel {
+                target: target,
+                session: session,
                 cancellation,
-            },
-        ));
+                world,
+                roster,
+            }) {
+                world.emit_broken(target, backtrace, roster);
+            }
+        }
+        Err(error) => {
+            world
+                .get_resource_or_init::<UnhandledErrors>()
+                .cancellations
+                .push(CancelFailure {
+                    error,
+                    source: source.map(|s| s.request_id()),
+                    target_to_cancel: target,
+                    session_to_cancel: session,
+                    cancellation,
+                });
+        }
     }
-
-    Ok(())
-}
-
-pub struct OperationCancel<'a> {
-    pub cancel: Cancel,
-    pub world: &'a mut World,
-    pub roster: &'a mut OperationRoster,
 }
 
 #[derive(Component)]
-struct OperationCancelStorage(fn(OperationCancel) -> OperationResult);
+pub(crate) struct OnCancel(pub(crate) fn(Cancel) -> OperationResult);
 
 #[derive(Bundle)]
 pub struct Cancellable {
-    cancel: OperationCancelStorage,
+    cancel: OnCancel,
 }
 
 impl Cancellable {
-    pub fn new(cancel: fn(OperationCancel) -> OperationResult) -> Self {
+    pub fn new(cancel: fn(Cancel) -> OperationResult) -> Self {
         Cancellable {
-            cancel: OperationCancelStorage(cancel),
+            cancel: OnCancel(cancel),
         }
     }
 }

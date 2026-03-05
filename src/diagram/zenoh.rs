@@ -445,9 +445,7 @@ mod tests {
             .no_deserializing()
             .register_node_builder(
                 NodeBuilderOptions::new("wait_for_matching"),
-                |builder, _config: ()| {
-                    builder.create_node(wait_for_matching.into_blocking_callback())
-                },
+                |builder, _config: ()| builder.create_node(wait_for_matching.into_callback()),
             )
             .with_listen()
             .with_result();
@@ -456,7 +454,7 @@ mod tests {
             NodeBuilderOptions::new("slow_spread"),
             |builder, _config: ()| {
                 builder.create_map(
-                    |input: AsyncMap<Vec<JsonMessage>, SlowSpreadStreams>| async move {
+                    |input: Async<Vec<JsonMessage>, SlowSpreadStreams>| async move {
                         for value in input.request {
                             let _ = until_timeout(Duration::from_micros(100), NeverFinish).await;
                             input.streams.out.send(value);
@@ -565,13 +563,17 @@ mod tests {
     }
 
     fn wait_for_matching(
-        In(keys): In<PubSubTestKeys>,
-        access_expectation: BufferAccess<Vec<JsonMessage>>,
-        access_actual: BufferAccess<JsonMessage>,
+        Blocking {
+            request: keys, id, ..
+        }: Blocking<PubSubTestKeys>,
+        mut access_expectation: BufferAccess<Vec<JsonMessage>>,
+        mut access_actual: BufferAccess<JsonMessage>,
         mut timer: Local<Option<Instant>>,
     ) -> Result<Result<(), String>, ()> {
-        let expectation = access_expectation.get_newest(&keys.expectation).unwrap();
-        let actual = access_actual.get(&keys.actual).unwrap();
+        let expectation = access_expectation
+            .get_newest(id, &keys.expectation)
+            .unwrap();
+        let actual = access_actual.get(id, &keys.actual).unwrap();
 
         if actual.len() < expectation.len() {
             // Still waiting for publications to arrive. Check the timer.

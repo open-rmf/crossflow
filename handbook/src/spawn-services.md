@@ -40,19 +40,21 @@ that input, and immediately return an output value. Much as the name implies, a
 blocking service will block all other activity in the [schedule](https://docs.rs/bevy/latest/bevy/prelude/struct.Schedule.html)
 until it is done running. Therefore blocking services must be short-lived.
 
-To define a blocking service, create a function whose input argument is a `BlockingServiceInput`:
+To define a blocking service, create a function whose first input argument is a `BlockingService`:
 
 ```rust,no_run,noplayground
 {{#include ./examples/handbook_snippets/src/native-snippets.rs:sum_fn}}
 ```
 
-This function will define the behavior of our service: The request (input)
-message is passed in through the `BlockingServiceInput` argument. The request
-type is a `Vec<f32>`, and the purpose of the function is to sum up the elements
-in that vector. The output of the service is a simple `f32`.
+This function will define the behavior of our service: The `request` (input)
+message is provided as a field of the `BlockingService` argument. The request
+type is based on the first generic `T` of `BlockingService<T>`---in this case a
+`Vec<f32>`. The purpose of this `sum` service is to sum up the elements
+in the request vector. The output of the service is a simple `f32`, which is
+specified by the return type of the service function.
 
 Before we can run this function as a service, we need to spawn an instance of it.
-We can use the [`AddServicesExt`](https://docs.rs/crossflow/latest/crossflow/service/trait.AddServicesExt.html#tymethod.spawn_service) trait for this:
+We can use the [`AddServicesExt`](https://docs.rs/crossflow/latest/crossflow/service/trait.AddServicesExt.html#tymethod.spawn_service) trait for this, automatically available when you `use crossflow::prelude::*`:
 
 ```rust,no_run,noplayground
 {{#include ./examples/handbook_snippets/src/native-snippets.rs:spawn_sum}}
@@ -112,6 +114,11 @@ When spawning the service, you can use `.with` to initialize the provider entity
 ```rust,no_run,noplayground
 {{#include ./examples/handbook_snippets/src/native-snippets.rs:spawn_apply_offset}}
 ```
+
+> [!NOTE]
+> All workflows that use this service will see the same `provider`, and therefore
+> see the same offset. Any changes made to the components of that `provider` will
+> affect all workflows that use the service.
 
 In general you can use [`Service::provider`](https://docs.rs/crossflow/latest/crossflow/service/struct.Service.html#method.provider)
 to access the provider entity at any time, and use all the normal Bevy mechanisms

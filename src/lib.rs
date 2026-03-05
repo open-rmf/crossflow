@@ -113,6 +113,9 @@ pub use gate::*;
 pub mod series;
 pub use series::*;
 
+pub mod identifier;
+pub use identifier::*;
+
 pub mod input;
 pub use input::*;
 
@@ -145,6 +148,9 @@ pub use request::*;
 
 pub mod service;
 pub use service::*;
+
+pub mod session;
+pub use session::*;
 
 pub mod stream;
 pub use stream::*;
@@ -180,7 +186,7 @@ pub mod type_info;
 pub use type_info::*;
 
 use bevy_app::prelude::{App, Plugin, Update};
-use bevy_ecs::prelude::{Entity, In};
+use bevy_ecs::prelude::{Entity, SystemInput};
 
 extern crate self as crossflow;
 
@@ -204,7 +210,7 @@ extern crate self as crossflow;
 /// struct Precision(i32);
 ///
 /// fn rounding_service(
-///     In(BlockingService{request, provider, ..}): BlockingServiceInput<f64>,
+///     BlockingService{request, provider, ..}: BlockingService<f64>,
 ///     service_precision: Query<&Precision>,
 ///     global_precision: Res<Precision>,
 /// ) -> f64 {
@@ -220,14 +226,18 @@ pub struct BlockingService<Request, Streams: StreamPack = ()> {
     pub streams: Streams::StreamBuffers,
     /// The entity providing the service
     pub provider: Entity,
-    /// The node in a workflow or series that asked for the service
-    pub source: Entity,
-    /// The unique session ID for the workflow
-    pub session: Entity,
+    /// Unique identifier for this request
+    pub id: RequestId,
 }
 
-/// Use this to reduce bracket noise when you need `In<BlockingService<R>>`.
-pub type BlockingServiceInput<Request, Streams = ()> = In<BlockingService<Request, Streams>>;
+impl<Request, Streams: StreamPack> SystemInput for BlockingService<Request, Streams> {
+    type Param<'i> = BlockingService<Request, Streams>;
+    type Inner<'i> = BlockingService<Request, Streams>;
+
+    fn wrap(this: Self::Inner<'_>) -> Self::Param<'_> {
+        this
+    }
+}
 
 /// Use `AsyncService` to indicate that your system is an async [`Service`]. Being
 /// async means it must return a [`Future<Output=Response>`](std::future::Future)
@@ -240,22 +250,26 @@ pub struct AsyncService<Request, Streams: StreamPack = ()> {
     /// The input data of the request
     pub request: Request,
     /// Stream channels that will let you send stream information. This will
-    /// usually be a [`StreamChannel`] or a (possibly nested) tuple of
-    /// `StreamChannel`s, whichever matches the [`StreamPack`] description.
+    /// usually be a [`NamedStreamChannel`] or a (possibly nested) tuple of
+    /// `NamedStreamChannel`s, whichever matches the [`StreamPack`] description.
     pub streams: Streams::StreamChannels,
     /// The channel that allows querying and syncing with the world while the
     /// service runs asynchronously.
     pub channel: Channel,
     /// The entity providing the service
     pub provider: Entity,
-    /// The node in a workflow or series that asked for the service
-    pub source: Entity,
-    /// The unique session ID for the workflow
-    pub session: Entity,
+    /// Unique identifier for this request
+    pub id: RequestId,
 }
 
-/// Use this to reduce backet noise when you need `In<`[`AsyncService<R, S>`]`>`.
-pub type AsyncServiceInput<Request, Streams = ()> = In<AsyncService<Request, Streams>>;
+impl<Request, Streams: StreamPack> SystemInput for AsyncService<Request, Streams> {
+    type Param<'i> = AsyncService<Request, Streams>;
+    type Inner<'i> = AsyncService<Request, Streams>;
+
+    fn wrap(this: Self::Inner<'_>) -> Self::Param<'_> {
+        this
+    }
+}
 
 /// Use `ContinuousService` to indicate that your system is a [`Service`] that
 /// runs incrementally inside of a schedule with each update of the Bevy ECS.
@@ -266,92 +280,152 @@ pub struct ContinuousService<Request, Response, Streams: StreamPack = ()> {
     pub key: ContinuousServiceKey<Request, Response, Streams>,
 }
 
-/// Use this to reduce the bracket noise when you need `In<`[`ContinuousService`]`>`.
-pub type ContinuousServiceInput<Request, Response, Streams = ()> =
-    In<ContinuousService<Request, Response, Streams>>;
+impl<Request, Response, Streams: StreamPack> SystemInput
+    for ContinuousService<Request, Response, Streams>
+{
+    type Param<'i> = ContinuousService<Request, Response, Streams>;
+    type Inner<'i> = ContinuousService<Request, Response, Streams>;
 
-/// Use BlockingCallback to indicate that your system is meant to define a
-/// blocking [`Callback`]. Callbacks are different from services because they are
-/// not associated with any entity.
+    fn wrap(this: Self::Inner<'_>) -> Self::Param<'_> {
+        this
+    }
+}
+
+/// Use `Blocking` as a system input to indicate that your system is meant to
+/// define a blocking [`Callback`] or blocking map. Callbacks and maps are
+/// different from services because they are not associated with any entity.
 ///
-/// Alternatively any Bevy system with an input of `In<Request>` can be converted
-/// into a blocking callback by applying
-/// [`.into_blocking_callback()`](crate::IntoBlockingCallback).
+/// Use [`.into_callback()`](crate::IntoCallback) to turn any system with an
+/// input of [`Blocking`] into a callback.
 #[non_exhaustive]
-pub struct BlockingCallback<Request, Streams: StreamPack = ()> {
+pub struct Blocking<Request, Streams: StreamPack = ()> {
     /// The input data of the request
     pub request: Request,
     /// The buffer to hold stream output data until the function is finished
     pub streams: Streams::StreamBuffers,
-    /// The node in a workflow or series that asked for the callback
-    pub source: Entity,
-    /// The unique session ID for the workflow
-    pub session: Entity,
+    /// Unique identifier for this request
+    pub id: RequestId,
 }
 
-/// Use this to reduce bracket noise when you need `In<`[`BlockingCallback<R, S>`]`>`.
-pub type BlockingCallbackInput<Request, Streams = ()> = In<BlockingCallback<Request, Streams>>;
+impl<Request, Streams: StreamPack> SystemInput for Blocking<Request, Streams> {
+    type Param<'i> = Blocking<Request, Streams>;
+    type Inner<'i> = Blocking<Request, Streams>;
 
-/// Use AsyncCallback to indicate that your system or function is meant to define
-/// an async [`Callback`]. An async callback is not associated with any entity,
-/// and it must return a [`Future<Output=Response>`](std::future::Future) that
-/// will be polled by the async task pool.
+    fn wrap(this: Self::Inner<'_>) -> Self::Param<'_> {
+        this
+    }
+}
+
+impl<Request, Streams: StreamPack> From<BlockingService<Request, Streams>>
+    for Blocking<Request, Streams>
+{
+    fn from(srv: BlockingService<Request, Streams>) -> Self {
+        Self {
+            request: srv.request,
+            streams: srv.streams,
+            id: srv.id,
+        }
+    }
+}
+
+/// Use `Async` to indicate that your system or function is meant to define
+/// an async [`Callback`] or map. Callbacks and maps are different from services
+/// because they are not associated with any entity, An async callback or map
+/// must return a [`Future<Output=Response>`](std::future::Future) that will be
+/// polled by the async task pool.
 #[non_exhaustive]
-pub struct AsyncCallback<Request, Streams: StreamPack = ()> {
+pub struct Async<Request, Streams: StreamPack = ()> {
     /// The input data of the request
     pub request: Request,
     /// Stream channels that will let you send stream information. This will
-    /// usually be a [`StreamChannel`] or a (possibly nested) tuple of
-    /// `StreamChannel`s, whichever matches the [`StreamPack`] description.
+    /// usually be a [`NamedStreamChannel`] or a (possibly nested) tuple of
+    /// `NamedStreamChannel`s, whichever matches the [`StreamPack`] description.
     pub streams: Streams::StreamChannels,
     /// The channel that allows querying and syncing with the world while the
     /// callback executes asynchronously.
     pub channel: Channel,
-    /// The node in a workflow or series that asked for the callback
-    pub source: Entity,
-    /// The unique session ID for the workflow
-    pub session: Entity,
+    /// Unique identifier for this request
+    pub id: RequestId,
 }
 
-/// Use this to reduce bracket noise when you need `In<`[`AsyncCallback<R, S>`]`>`.
-pub type AsyncCallbackInput<Request, Streams = ()> = In<AsyncCallback<Request, Streams>>;
+impl<Request, Streams: StreamPack> SystemInput for Async<Request, Streams> {
+    type Param<'i> = Async<Request, Streams>;
+    type Inner<'a> = Async<Request, Streams>;
 
-/// Use `BlockingMap`` to indicate that your function is a blocking map. A map
-/// is not associated with any entity, and it cannot be a Bevy System. These
-/// restrictions allow them to be processed more efficiently.
-#[non_exhaustive]
-pub struct BlockingMap<Request, Streams: StreamPack = ()> {
-    /// The input data of the request
-    pub request: Request,
-    /// The buffer to hold stream output data until the function is finished
-    pub streams: Streams::StreamBuffers,
-    /// The node in a workflow or series that asked for the callback
-    pub source: Entity,
-    /// The unique session ID for the workflow
-    pub session: Entity,
+    fn wrap(this: Self::Inner<'_>) -> Self::Param<'_> {
+        this
+    }
 }
 
-/// Use AsyncMap to indicate that your function is an async map. A Map is not
-/// associated with any entity, and it cannot be a Bevy System. These
-/// restrictions allow them to be processed more efficiently.
-///
-/// An async map must return a [`Future<Output=Response>`](std::future::Future)
-/// that will be polled by the async task pool.
-#[non_exhaustive]
-pub struct AsyncMap<Request, Streams: StreamPack = ()> {
-    /// The input data of the request
-    pub request: Request,
-    /// Stream channels that will let you send stream information. This will
-    /// usually be a [`StreamChannel`] or a (possibly nested) tuple of
-    /// `StreamChannel`s, whichever matches the [`StreamPack`] description.
-    pub streams: Streams::StreamChannels,
-    /// The channel that allows querying and syncing with the world while the
-    /// map executes asynchronously.
-    pub channel: Channel,
+impl<Request, Streams: StreamPack> From<AsyncService<Request, Streams>>
+    for Async<Request, Streams>
+{
+    fn from(srv: AsyncService<Request, Streams>) -> Self {
+        Self {
+            request: srv.request,
+            streams: srv.streams,
+            channel: srv.channel,
+            id: srv.id,
+        }
+    }
+}
+
+/// Uniquely identify a request that has been made to a node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RequestId {
+    /// The unique session ID for the workflow scope that this request is
+    /// happening in
+    pub session: Entity,
     /// The node in a workflow or series that asked for the callback
     pub source: Entity,
-    /// The unique session ID for the workflow
-    pub session: Entity,
+    /// The sequence number of the request into this service. Each request that
+    /// comes to the service has a unique sequence number, even if they are in
+    /// the same session. These numbers will eventually wrap around if the
+    /// service is called enough times.
+    pub seq: Seq,
+}
+
+impl RequestId {
+    pub fn to_route_source<'a>(self, port: OutputPort<'a>) -> RouteSource<'a> {
+        let Self {
+            session,
+            source,
+            seq,
+        } = self;
+        RouteSource {
+            session,
+            source,
+            seq,
+            port,
+        }
+    }
+
+    pub fn to_message_route<'a>(self, port: OutputPort<'a>, target: Entity) -> MessageRoute<'a> {
+        let Self {
+            session,
+            source,
+            seq,
+        } = self;
+        MessageRoute {
+            session,
+            source,
+            seq,
+            port,
+            target,
+        }
+    }
+}
+
+impl<'a, Request, Streams: StreamPack> From<&'a BlockingService<Request, Streams>> for RequestId {
+    fn from(value: &'a BlockingService<Request, Streams>) -> Self {
+        value.id
+    }
+}
+
+impl<'a, Request, Streams: StreamPack> From<&'a AsyncService<Request, Streams>> for RequestId {
+    fn from(value: &'a AsyncService<Request, Streams>) -> Self {
+        value.id
+    }
 }
 
 /// This plugin simply adds [`flush_execution()`] to the [`Update`] schedule of your
@@ -369,7 +443,7 @@ impl Plugin for CrossflowPlugin {
 
         #[cfg(feature = "trace")]
         {
-            app.add_event::<OperationStarted>();
+            app.add_event::<TracedEvent>();
         }
     }
 }
@@ -397,10 +471,8 @@ impl Plugin for CrossflowExecutorApp {
 
 pub mod prelude {
     pub use crate::{
-        AsyncCallback, AsyncCallbackInput, AsyncMap, AsyncService, AsyncServiceInput,
-        BlockingCallback, BlockingCallbackInput, BlockingMap, BlockingService,
-        BlockingServiceInput, Capture, ContinuousQuery, ContinuousService, ContinuousServiceInput,
-        CrossflowExecutorApp, CrossflowPlugin, Outcome,
+        Async, AsyncService, Blocking, BlockingService, Capture, ContinuousQuery,
+        ContinuousService, CrossflowExecutorApp, CrossflowPlugin, Identification, Outcome,
         buffer::{
             Accessible, Accessor, AnyBuffer, AnyBufferKey, AnyBufferMut, AnyBufferWorldAccess,
             AnyMessageBox, AsAnyBuffer, Buffer, BufferAccess, BufferAccessMut, BufferGateAccess,
@@ -409,10 +481,10 @@ pub mod prelude {
             Joined, RetentionPolicy,
         },
         builder::Builder,
-        callback::{AsCallback, Callback, IntoAsyncCallback, IntoBlockingCallback},
+        callback::{Callback, IntoCallback},
         chain::{Chain, ForkCloneBuilder, UnzipBuilder, Unzippable},
         flush::flush_execution,
-        map::{AsMap, IntoAsyncMap, IntoBlockingMap},
+        map::{IntoAsyncMap, IntoBlockingMap, IntoMap},
         map_once::{AsMapOnce, IntoAsyncMapOnce, IntoBlockingMapOnce},
         node::{ForkCloneOutput, InputSlot, Node, Output},
         promise::{Promise, PromiseState},
@@ -421,15 +493,15 @@ pub mod prelude {
         series::{Recipient, Series},
         service::{
             AddContinuousServicesExt, AddServicesExt, AsDeliveryInstructions, DeliveryInstructions,
-            DeliveryLabel, DeliveryLabelId, IntoAsyncService, IntoBlockingService, Service,
-            ServiceDiscovery, ServiceInstructions, SpawnServicesExt, traits::*,
+            DeliveryLabel, DeliveryLabelId, Service, ServiceDiscovery, ServiceInstructions,
+            SpawnServicesExt, traits::*,
         },
         stream::{DynamicallyNamedStream, NamedValue, Stream, StreamFilter, StreamOf, StreamPack},
         trim::{TrimBranch, TrimPoint},
         workflow::{DeliverySettings, Scope, ScopeSettings, SpawnWorkflowExt, WorkflowSettings},
     };
 
-    pub use bevy_ecs::prelude::{In, World};
+    pub use bevy_ecs::prelude::World;
 
     #[cfg(feature = "diagram")]
     pub use crate::{

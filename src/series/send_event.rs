@@ -16,8 +16,8 @@
 */
 
 use crate::{
-    Executable, Input, InputBundle, ManageInput, OperationRequest, OperationResult, OperationSetup,
-    OrBroken,
+    Executable, Input, InputBundle, ManageInput, ManageSession, OperationRequest, OperationResult,
+    OperationSetup,
 };
 use bevy_ecs::prelude::Event;
 
@@ -40,10 +40,9 @@ impl<T: 'static + Send + Sync + Event> Executable for SendEvent<T> {
     }
 
     fn execute(OperationRequest { source, world, .. }: OperationRequest) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { data, .. } = source_mut.take_input::<T>()?;
-        source_mut.despawn();
+        let Input { data, session, .. } = world.take_input::<T>(source)?;
         world.send_event(data);
+        world.despawn_session(session);
         Ok(())
     }
 }

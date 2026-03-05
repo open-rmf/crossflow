@@ -1,6 +1,6 @@
 [package]
 name = "crossflow-native-api-examples"
-version = "0.0.6"
+version = "0.0.7"
 edition = "2024"
 
 [[bin]]
@@ -20,7 +20,7 @@ name = "continuous-service-example"
 path = "src/continuous_service_example.rs"
 
 [dependencies]
-crossflow = { path = "../../" }
+crossflow = { path = "../../" , version = "0.0.7" }
 async-std = "1.12"
 bevy_ecs = { workspace = true }
 bevy_derive = { workspace = true }

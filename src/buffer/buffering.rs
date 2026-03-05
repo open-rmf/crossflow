@@ -25,9 +25,10 @@ use smallvec::SmallVec;
 
 use crate::{
     AddOperation, BeginCleanupWorkflow, Buffer, BufferAccessors, BufferKey, BufferKeyBuilder,
-    BufferKeyLifecycle, BufferStorage, Builder, Chain, CleanupWorkflowConditions, CloneFromBuffer,
-    ForkTargetStorage, Gate, GateState, InputSlot, InspectBuffer, Join, Listen, ManageBuffer, Node,
-    OperateBufferAccess, OperationError, OperationResult, OperationRoster, OrBroken, Output, Scope,
+    BufferKeyLifecycle, BufferKeyTag, BufferStorage, BufferWorldAccess, Builder, Chain,
+    CleanupWorkflowConditions, CloneFromBuffer, ForkTargetStorage, Gate, GateState, InputSlot,
+    InspectBufferSessions, Join, Listen, ManageBufferSessions, Node, OperateBufferAccess,
+    OperationError, OperationResult, OperationRoster, OrBroken, Output, RequestId, Scope,
     ScopeSettings, SingleInputStorage, UnusedTarget,
 };
 
@@ -47,6 +48,7 @@ pub trait Buffering: 'static + Send + Sync + Clone {
 
     fn gate_action(
         &self,
+        req: RequestId,
         session: Entity,
         action: Gate,
         world: &mut World,
@@ -62,6 +64,7 @@ pub trait Joining: Buffering {
     type Item: 'static + Send + Sync;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError>;
@@ -193,15 +196,15 @@ pub trait Accessing: Buffering {
     ) where
         Settings: Into<ScopeSettings>,
     {
-        let cancelling_scope_id = builder.commands.spawn(()).id();
+        let cleanup_scope_id = builder.commands.spawn(()).id();
         let _ = builder.create_scope_impl::<Self::Key, (), (), Settings>(
-            cancelling_scope_id,
-            builder.context.finish_scope_cancel,
+            cleanup_scope_id,
+            builder.context.finish_scope_cleanup,
             build,
         );
 
         let scope = builder.scope();
-        let begin_cancel = builder.commands.spawn(()).insert(ChildOf(scope)).id();
+        let begin_cancel = builder.commands.spawn(ChildOf(scope)).id();
         self.verify_scope(builder.scope());
         builder.commands.queue(AddOperation::new(
             None,
@@ -209,7 +212,7 @@ pub trait Accessing: Buffering {
             BeginCleanupWorkflow::<Self>::new(
                 builder.scope(),
                 self,
-                cancelling_scope_id,
+                cleanup_scope_id,
                 conditions.run_on_terminate,
                 conditions.run_on_cancel,
             ),
@@ -248,12 +251,13 @@ impl<T: 'static + Send + Sync> Buffering for Buffer<T> {
 
     fn gate_action(
         &self,
+        req: RequestId,
         session: Entity,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
-        GateState::apply(self.id(), session, action, world, roster)
+        GateState::apply(self.id(), req, session, action, world, roster)
     }
 
     fn as_input(&self) -> SmallVec<[Entity; 8]> {
@@ -273,13 +277,21 @@ impl<T: 'static + Send + Sync> Joining for Buffer<T> {
     type Item = T;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
+        let key = BufferKeyTag {
+            buffer: self.id(),
+            session,
+            accessor: req.source,
+            lifecycle: None,
+        };
+
         world
-            .get_entity_mut(self.id())
-            .or_broken()?
-            .pull_from_buffer::<T>(session)
+            .unchecked_buffer_mut(req, &key, |mut buffer| buffer.pull().or_broken())
+            .or_broken()
+            .flatten()
     }
 }
 
@@ -337,12 +349,13 @@ impl<T: 'static + Send + Sync + Clone> Buffering for CloneFromBuffer<T> {
 
     fn gate_action(
         &self,
+        req: RequestId,
         session: Entity,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
-        GateState::apply(self.id(), session, action, world, roster)
+        GateState::apply(self.id(), req, session, action, world, roster)
     }
 
     fn as_input(&self) -> SmallVec<[Entity; 8]> {
@@ -361,14 +374,22 @@ impl<T: 'static + Send + Sync + Clone> Joining for CloneFromBuffer<T> {
     type Item = T;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
-        world
-            .get_entity(self.id())
+        let key = BufferKeyTag {
+            buffer: self.id(),
+            session,
+            accessor: self.id(),
+            lifecycle: None,
+        };
+        let value = world
+            .unchecked_buffer_view::<T>(req, &key)
             .or_broken()?
-            .try_clone_from_buffer(session)
-            .and_then(|r| r.or_broken())
+            .newest()
+            .or_broken()?;
+        Ok(value.clone())
     }
 }
 
@@ -448,6 +469,7 @@ macro_rules! impl_buffered_for_tuple {
 
             fn gate_action(
                 &self,
+                req: RequestId,
                 session: Entity,
                 action: Gate,
                 world: &mut World,
@@ -455,7 +477,7 @@ macro_rules! impl_buffered_for_tuple {
             ) -> OperationResult {
                 let ($($T,)*) = self;
                 $(
-                    $T.gate_action(session, action, world, roster)?;
+                    $T.gate_action(req, session, action, world, roster)?;
                 )*
                 Ok(())
             }
@@ -488,12 +510,13 @@ macro_rules! impl_buffered_for_tuple {
             type Item = ($($T::Item),*);
             fn fetch_for_join(
                 &self,
+                req: RequestId,
                 session: Entity,
                 world: &mut World,
             ) -> Result<Self::Item, OperationError> {
                 let ($($T,)*) = self;
                 Ok(($(
-                    $T.fetch_for_join(session, world)?,
+                    $T.fetch_for_join(req, session, world)?,
                 )*))
             }
         }
@@ -590,13 +613,14 @@ impl<T: Buffering, const N: usize> Buffering for [T; N] {
 
     fn gate_action(
         &self,
+        req: RequestId,
         session: Entity,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
         for buffer in self {
-            buffer.gate_action(session, action, world, roster)?;
+            buffer.gate_action(req, session, action, world, roster)?;
         }
         Ok(())
     }
@@ -620,11 +644,12 @@ impl<T: Joining, const N: usize> Joining for [T; N] {
     type Item = SmallVec<[T::Item; N]>;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
         self.iter()
-            .map(|buffer| buffer.fetch_for_join(session, world))
+            .map(|buffer| buffer.fetch_for_join(req, session, world))
             .collect()
     }
 }
@@ -710,13 +735,14 @@ impl<T: Buffering, const N: usize> Buffering for SmallVec<[T; N]> {
 
     fn gate_action(
         &self,
+        req: RequestId,
         session: Entity,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
         for buffer in self {
-            buffer.gate_action(session, action, world, roster)?;
+            buffer.gate_action(req, session, action, world, roster)?;
         }
         Ok(())
     }
@@ -738,11 +764,12 @@ impl<T: Joining, const N: usize> Joining for SmallVec<[T; N]> {
     type Item = SmallVec<[T::Item; N]>;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
         self.iter()
-            .map(|buffer| buffer.fetch_for_join(session, world))
+            .map(|buffer| buffer.fetch_for_join(req, session, world))
             .collect()
     }
 }
@@ -828,13 +855,14 @@ impl<B: Buffering> Buffering for Vec<B> {
 
     fn gate_action(
         &self,
+        req: RequestId,
         session: Entity,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
         for buffer in self {
-            buffer.gate_action(session, action, world, roster)?;
+            buffer.gate_action(req, session, action, world, roster)?;
         }
         Ok(())
     }
@@ -856,11 +884,12 @@ impl<B: Joining> Joining for Vec<B> {
     type Item = Vec<B::Item>;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
         self.iter()
-            .map(|buffer| buffer.fetch_for_join(session, world))
+            .map(|buffer| buffer.fetch_for_join(req, session, world))
             .collect()
     }
 }

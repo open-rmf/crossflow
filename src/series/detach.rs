@@ -41,10 +41,10 @@ pub(crate) struct Detach {
 impl Command for Detach {
     fn apply(self, world: &mut World) {
         let backtrace;
-        if let Ok(mut session_mut) = world.get_entity_mut(self.target) {
-            if let Some(mut detached) = session_mut.get_mut::<Detached>() {
+        if let Ok(mut target_mut) = world.get_entity_mut(self.target) {
+            if let Some(mut detached) = target_mut.get_mut::<Detached>() {
                 detached.0 = true;
-                session_mut.remove::<UnusedTarget>();
+                target_mut.remove::<UnusedTarget>();
                 return;
             } else {
                 // The session is missing the target properties that it's

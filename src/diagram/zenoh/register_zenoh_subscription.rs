@@ -17,7 +17,7 @@
 
 use super::*;
 
-use bevy_ecs::prelude::{In, Res, World};
+use bevy_ecs::prelude::{Res, World};
 use futures_lite::future::race;
 use std::time::Duration;
 use thiserror::Error as ThisError;
@@ -130,15 +130,13 @@ impl DiagramElementRegistry {
                     let decoder: Codec = (&config.decoder).try_into()?;
 
                     let callback =
-                        move |In(input): AsyncCallbackInput<
-                            ((), BufferKey<()>),
-                            ZenohNodeStreams,
-                        >,
+                        move |input: Async<((), BufferKey<()>), ZenohNodeStreams>,
                               mut active: BufferAccessMut<()>,
                               session: Res<ZenohSession>| {
+                            let request_id = input.id;
                             // First make sure an instance of this node isn't already active
                             let already_active = active
-                                .get_mut(&input.request.1)
+                                .get_mut(request_id, &input.request.1)
                                 .map_err(|_| ZenohSubscriptionError::BufferDespawned)
                                 .and_then(|mut active_buffer| {
                                     if active_buffer.is_empty() {
@@ -237,6 +235,7 @@ impl DiagramElementRegistry {
                                     .commands(move |commands| {
                                         commands.queue(move |world: &mut World| {
                                             let _ = world.buffer_mut(
+                                                request_id,
                                                 &active_key,
                                                 |mut active_buffer| {
                                                     active_buffer.drain(..);
@@ -251,7 +250,7 @@ impl DiagramElementRegistry {
                             }
                         };
 
-                    let node = builder.create_node(callback.as_callback());
+                    let node = builder.create_node(callback.into_callback());
                     builder.connect(access.output, node.input);
 
                     Ok(Node::<_, _, ZenohNodeStreams> {

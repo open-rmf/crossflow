@@ -19,7 +19,10 @@ use bevy_ecs::prelude::{Entity, World};
 
 use std::sync::OnceLock;
 
-use crate::{ManageInput, OperationError, OperationResult, OperationRoster, OrBroken};
+use crate::{
+    ManageInput, OperationError, OperationResult, OperationRoster, OutputPort, RequestId,
+    RouteSource, RouteTarget, Routing,
+};
 
 mod anonymous_stream;
 pub use anonymous_stream::*;
@@ -36,9 +39,6 @@ pub use stream_availability::*;
 mod stream_buffer;
 pub use stream_buffer::*;
 
-mod stream_channel;
-pub use stream_channel::*;
-
 mod stream_filter;
 pub use stream_filter::*;
 
@@ -47,6 +47,8 @@ pub use stream_pack::*;
 
 mod stream_target_map;
 pub use stream_target_map::*;
+
+use smallvec::smallvec;
 
 // TODO(@mxgrey): Add module-level documentation for stream.rs
 
@@ -116,32 +118,52 @@ impl<T: 'static + Send + Sync> StreamEffect for StreamOf<T> {
 /// implementation of [`StreamEffect::side_effect`] should return the output
 /// data; it should *not* use the `StreamRequest` send it the output to the target.
 pub struct StreamRequest<'a> {
-    /// The node that emitted the stream
-    pub source: Entity,
-    /// The session of the stream
-    pub session: Entity,
+    /// The request that created this stream
+    pub request_id: RequestId,
+    /// The identifier for the output port of this stream
+    pub port: OutputPort<'a>,
     /// The target of the stream, if a specific target exists.
-    pub target: Option<Entity>,
+    pub target: Option<StreamTarget>,
     /// The world that the stream exists inside
     pub world: &'a mut World,
     /// The roster of the stream
     pub roster: &'a mut OperationRoster,
 }
 
+pub struct StreamTarget {
+    pub id: Entity,
+    pub session: Entity,
+}
+
 impl<'a> StreamRequest<'a> {
     pub fn send_output<T: 'static + Send + Sync>(self, output: T) -> OperationResult {
         let Self {
-            session,
+            request_id:
+                RequestId {
+                    source,
+                    seq,
+                    session: source_session,
+                },
+            port,
             target,
             world,
             roster,
             ..
         } = self;
         if let Some(target) = target {
-            world
-                .get_entity_mut(target)
-                .or_broken()?
-                .give_input(session, output, roster)?;
+            let route = Routing {
+                outputs: smallvec![RouteSource {
+                    session: source_session,
+                    source,
+                    seq,
+                    port,
+                }],
+                input: RouteTarget {
+                    session: target.session,
+                    target: target.id,
+                },
+            };
+            world.give_input(route, output, roster)?;
         }
 
         Ok(())
@@ -158,7 +180,7 @@ pub(crate) mod tests {
         let mut context = TestingContext::minimal_plugins();
 
         let count_blocking_srv = context.command(|commands| {
-            commands.spawn_service(|In(input): BlockingServiceInput<u32, StreamOf<u32>>| {
+            commands.spawn_service(|input: BlockingService<u32, StreamOf<u32>>| {
                 for i in 0..input.request {
                     input.streams.send(i);
                 }
@@ -169,56 +191,53 @@ pub(crate) mod tests {
         test_counting_stream(count_blocking_srv, &mut context);
 
         let count_async_srv = context.command(|commands| {
-            commands.spawn_service(
-                |In(input): AsyncServiceInput<u32, StreamOf<u32>>| async move {
-                    for i in 0..input.request {
-                        input.streams.send(i);
-                    }
-                    return input.request;
-                },
-            )
-        });
-
-        test_counting_stream(count_async_srv, &mut context);
-
-        let count_blocking_callback = (|In(input): BlockingCallbackInput<u32, StreamOf<u32>>| {
-            for i in 0..input.request {
-                input.streams.send(i);
-            }
-            return input.request;
-        })
-        .as_callback();
-
-        test_counting_stream(count_blocking_callback, &mut context);
-
-        let count_async_callback =
-            (|In(input): AsyncCallbackInput<u32, StreamOf<u32>>| async move {
+            commands.spawn_service(|input: AsyncService<u32, StreamOf<u32>>| async move {
                 for i in 0..input.request {
                     input.streams.send(i);
                 }
                 return input.request;
             })
-            .as_callback();
+        });
+
+        test_counting_stream(count_async_srv, &mut context);
+
+        let count_blocking_callback = (|input: Blocking<u32, StreamOf<u32>>| {
+            for i in 0..input.request {
+                input.streams.send(i);
+            }
+            return input.request;
+        })
+        .into_callback();
+
+        test_counting_stream(count_blocking_callback, &mut context);
+
+        let count_async_callback = (|input: Async<u32, StreamOf<u32>>| async move {
+            for i in 0..input.request {
+                input.streams.send(i);
+            }
+            return input.request;
+        })
+        .into_callback();
 
         test_counting_stream(count_async_callback, &mut context);
 
-        let count_blocking_map = (|input: BlockingMap<u32, StreamOf<u32>>| {
+        let count_blocking_map = (|input: Blocking<u32, StreamOf<u32>>| {
             for i in 0..input.request {
                 input.streams.send(i);
             }
             return input.request;
         })
-        .as_map();
+        .into_map();
 
         test_counting_stream(count_blocking_map, &mut context);
 
-        let count_async_map = (|input: AsyncMap<u32, StreamOf<u32>>| async move {
+        let count_async_map = (|input: Async<u32, StreamOf<u32>>| async move {
             for i in 0..input.request {
                 input.streams.send(i);
             }
             return input.request;
         })
-        .as_map();
+        .into_map();
 
         test_counting_stream(count_async_map, &mut context);
     }
@@ -247,7 +266,7 @@ pub(crate) mod tests {
         let mut context = TestingContext::minimal_plugins();
 
         let parse_blocking_srv = context.command(|commands| {
-            commands.spawn_service(|In(input): BlockingServiceInput<String, FormatStreams>| {
+            commands.spawn_service(|input: BlockingService<String, FormatStreams>| {
                 impl_formatting_streams_blocking(input.request, input.streams);
             })
         });
@@ -255,11 +274,9 @@ pub(crate) mod tests {
         validate_formatting_stream(parse_blocking_srv, &mut context);
 
         let parse_async_srv = context.command(|commands| {
-            commands.spawn_service(
-                |In(input): AsyncServiceInput<String, FormatStreams>| async move {
-                    impl_formatting_streams_async(input.request, input.streams);
-                },
-            )
+            commands.spawn_service(|input: AsyncService<String, FormatStreams>| async move {
+                impl_formatting_streams_async(input.request, input.streams);
+            })
         });
 
         validate_formatting_stream(parse_async_srv, &mut context);
@@ -270,33 +287,31 @@ pub(crate) mod tests {
 
         validate_formatting_stream(parse_continuous_srv, &mut context);
 
-        let parse_blocking_callback =
-            (|In(input): BlockingCallbackInput<String, FormatStreams>| {
-                impl_formatting_streams_blocking(input.request, input.streams);
-            })
-            .as_callback();
+        let parse_blocking_callback = (|input: Blocking<String, FormatStreams>| {
+            impl_formatting_streams_blocking(input.request, input.streams);
+        })
+        .into_callback();
 
         validate_formatting_stream(parse_blocking_callback, &mut context);
 
-        let parse_async_callback =
-            (|In(input): AsyncCallbackInput<String, FormatStreams>| async move {
-                impl_formatting_streams_async(input.request, input.streams);
-            })
-            .as_callback();
+        let parse_async_callback = (|input: Async<String, FormatStreams>| async move {
+            impl_formatting_streams_async(input.request, input.streams);
+        })
+        .into_callback();
 
         validate_formatting_stream(parse_async_callback, &mut context);
 
-        let parse_blocking_map = (|input: BlockingMap<String, FormatStreams>| {
+        let parse_blocking_map = (|input: Blocking<String, FormatStreams>| {
             impl_formatting_streams_blocking(input.request, input.streams);
         })
-        .as_map();
+        .into_map();
 
         validate_formatting_stream(parse_blocking_map, &mut context);
 
-        let parse_async_map = (|input: AsyncMap<String, FormatStreams>| async move {
+        let parse_async_map = (|input: Async<String, FormatStreams>| async move {
             impl_formatting_streams_async(input.request, input.streams);
         })
-        .as_map();
+        .into_map();
 
         validate_formatting_stream(parse_async_map, &mut context);
 
@@ -383,10 +398,10 @@ pub(crate) mod tests {
     }
 
     fn impl_formatting_streams_continuous(
-        In(ContinuousService { key }): In<ContinuousService<String, (), FormatStreams>>,
+        srv: ContinuousService<String, (), FormatStreams>,
         mut param: ContinuousQuery<String, (), FormatStreams>,
     ) {
-        param.get_mut(&key).unwrap().for_each(|order| {
+        param.get_mut(&srv.key).unwrap().for_each(|order| {
             if let Ok(value) = order.request().parse::<u32>() {
                 order.streams().0.send(value);
             }
@@ -495,61 +510,23 @@ pub(crate) mod tests {
     fn test_stream_pack() {
         let mut context = TestingContext::minimal_plugins();
 
-        let parse_blocking_srv = context.command(|commands| {
-            commands.spawn_service(
-                |In(input): BlockingServiceInput<Vec<String>, TestStreamPack>| {
-                    impl_stream_pack_test_blocking(input.request, input.streams);
-                },
-            )
-        });
-
+        let parse_blocking_srv =
+            context.command(|commands| commands.spawn_service(stream_pack_test_blocking));
         validate_stream_pack(parse_blocking_srv, &mut context);
 
-        let parse_async_srv = context.command(|commands| {
-            commands.spawn_service(
-                |In(input): AsyncServiceInput<Vec<String>, TestStreamPack>| async move {
-                    impl_stream_pack_test_async(input.request, input.streams);
-                },
-            )
-        });
-
+        let parse_async_srv =
+            context.command(|commands| commands.spawn_service(stream_pack_test_async));
         validate_stream_pack(parse_async_srv, &mut context);
 
         let parse_continuous_srv = context
             .app
-            .spawn_continuous_service(Update, impl_stream_pack_test_continuous);
-
+            .spawn_continuous_service(Update, stream_pack_test_continuous);
         validate_stream_pack(parse_continuous_srv, &mut context);
 
-        let parse_blocking_callback =
-            (|In(input): BlockingCallbackInput<Vec<String>, TestStreamPack>| {
-                impl_stream_pack_test_blocking(input.request, input.streams);
-            })
-            .as_callback();
-
-        validate_stream_pack(parse_blocking_callback, &mut context);
-
-        let parse_async_callback =
-            (|In(input): AsyncCallbackInput<Vec<String>, TestStreamPack>| async move {
-                impl_stream_pack_test_async(input.request, input.streams);
-            })
-            .as_callback();
-
-        validate_stream_pack(parse_async_callback, &mut context);
-
-        let parse_blocking_map = (|input: BlockingMap<Vec<String>, TestStreamPack>| {
-            impl_stream_pack_test_blocking(input.request, input.streams);
-        })
-        .as_map();
-
-        validate_stream_pack(parse_blocking_map, &mut context);
-
-        let parse_async_map = (|input: AsyncMap<Vec<String>, TestStreamPack>| async move {
-            impl_stream_pack_test_async(input.request, input.streams);
-        })
-        .as_map();
-
-        validate_stream_pack(parse_async_map, &mut context);
+        validate_stream_pack(stream_pack_test_blocking.into_callback(), &mut context);
+        validate_stream_pack(stream_pack_test_blocking.into_map(), &mut context);
+        validate_stream_pack(stream_pack_test_async.into_callback(), &mut context);
+        validate_stream_pack(stream_pack_test_async.into_map(), &mut context);
 
         let make_workflow = |service: Service<Vec<String>, (), TestStreamPack>| {
             move |scope: Scope<Vec<String>, (), TestStreamPack>, builder: &mut Builder| {
@@ -797,9 +774,10 @@ pub(crate) mod tests {
         assert_eq!(outcome.stream_string, ["foo", "bar", "1.32", "-8"]);
     }
 
-    fn impl_stream_pack_test_blocking(
-        request: Vec<String>,
-        streams: <TestStreamPack as StreamPack>::StreamBuffers,
+    fn stream_pack_test_blocking(
+        Blocking {
+            request, streams, ..
+        }: Blocking<Vec<String>, TestStreamPack>,
     ) {
         for r in request {
             if let Ok(value) = r.parse::<u32>() {
@@ -814,9 +792,10 @@ pub(crate) mod tests {
         }
     }
 
-    fn impl_stream_pack_test_async(
-        request: Vec<String>,
-        streams: <TestStreamPack as StreamPack>::StreamChannels,
+    async fn stream_pack_test_async(
+        Async {
+            request, streams, ..
+        }: Async<Vec<String>, TestStreamPack>,
     ) {
         for r in request {
             if let Ok(value) = r.parse::<u32>() {
@@ -831,11 +810,11 @@ pub(crate) mod tests {
         }
     }
 
-    fn impl_stream_pack_test_continuous(
-        In(ContinuousService { key }): In<ContinuousService<Vec<String>, (), TestStreamPack>>,
+    fn stream_pack_test_continuous(
+        srv: ContinuousService<Vec<String>, (), TestStreamPack>,
         mut param: ContinuousQuery<Vec<String>, (), TestStreamPack>,
     ) {
-        param.get_mut(&key).unwrap().for_each(|order| {
+        param.get_mut(&srv.key).unwrap().for_each(|order| {
             for r in order.request().clone() {
                 if let Ok(value) = r.parse::<u32>() {
                     order.streams().stream_u32.send(value);
@@ -922,61 +901,35 @@ pub(crate) mod tests {
     fn test_dynamically_named_streams() {
         let mut context = TestingContext::minimal_plugins();
 
-        let parse_blocking_srv = context.command(|commands| {
-            commands.spawn_service(
-                |In(input): BlockingServiceInput<NamedInputs, TestDynamicNamedStreams>| {
-                    impl_dynamically_named_streams_blocking(input.request, input.streams);
-                },
-            )
-        });
-
+        let parse_blocking_srv = context
+            .command(|commands| commands.spawn_service(dynamically_named_streams_test_blocking));
         validate_dynamically_named_streams(parse_blocking_srv, &mut context);
 
-        let parse_async_srv = context.command(|commands| {
-            commands.spawn_service(
-                |In(input): AsyncServiceInput<NamedInputs, TestDynamicNamedStreams>| async move {
-                    impl_dynamically_named_streams_async(input.request, input.streams);
-                },
-            )
-        });
-
+        let parse_async_srv = context
+            .command(|commands| commands.spawn_service(dynamically_named_streams_test_async));
         validate_dynamically_named_streams(parse_async_srv, &mut context);
 
         let parse_continuous_srv = context
             .app
-            .spawn_continuous_service(Update, impl_dynamically_named_streams_continuous);
-
+            .spawn_continuous_service(Update, dynamically_named_streams_test_continuous);
         validate_dynamically_named_streams(parse_continuous_srv, &mut context);
 
-        let parse_blocking_callback =
-            (|In(input): BlockingCallbackInput<NamedInputs, TestDynamicNamedStreams>| {
-                impl_dynamically_named_streams_blocking(input.request, input.streams);
-            })
-            .as_callback();
-
-        validate_dynamically_named_streams(parse_blocking_callback, &mut context);
-
-        let parse_async_callback =
-            (|In(input): AsyncCallbackInput<NamedInputs, TestDynamicNamedStreams>| async move {
-                impl_dynamically_named_streams_async(input.request, input.streams);
-            })
-            .as_callback();
-
-        validate_dynamically_named_streams(parse_async_callback, &mut context);
-
-        let parse_blocking_map = (|input: BlockingMap<NamedInputs, TestDynamicNamedStreams>| {
-            impl_dynamically_named_streams_blocking(input.request, input.streams);
-        })
-        .as_map();
-
-        validate_dynamically_named_streams(parse_blocking_map, &mut context);
-
-        let parse_async_map = (|input: AsyncMap<NamedInputs, TestDynamicNamedStreams>| async move {
-            impl_dynamically_named_streams_async(input.request, input.streams);
-        })
-        .as_map();
-
-        validate_dynamically_named_streams(parse_async_map, &mut context);
+        validate_dynamically_named_streams(
+            dynamically_named_streams_test_blocking.into_callback(),
+            &mut context,
+        );
+        validate_dynamically_named_streams(
+            dynamically_named_streams_test_blocking.into_map(),
+            &mut context,
+        );
+        validate_dynamically_named_streams(
+            dynamically_named_streams_test_async.into_callback(),
+            &mut context,
+        );
+        validate_dynamically_named_streams(
+            dynamically_named_streams_test_async.into_map(),
+            &mut context,
+        );
 
         let make_workflow = |service: Service<NamedInputs, (), TestDynamicNamedStreams>| {
             move |scope: Scope<NamedInputs, (), TestDynamicNamedStreams>, builder: &mut Builder| {
@@ -1163,9 +1116,10 @@ pub(crate) mod tests {
         assert_eq!(outcome.stream_string, ["hello", "8"]);
     }
 
-    fn impl_dynamically_named_streams_blocking(
-        request: NamedInputs,
-        streams: <TestDynamicNamedStreams as StreamPack>::StreamBuffers,
+    fn dynamically_named_streams_test_blocking(
+        Blocking {
+            request, streams, ..
+        }: Blocking<NamedInputs, TestDynamicNamedStreams>,
     ) {
         for nv in request.values_u32 {
             streams.0.send(nv);
@@ -1180,9 +1134,10 @@ pub(crate) mod tests {
         }
     }
 
-    fn impl_dynamically_named_streams_async(
-        request: NamedInputs,
-        streams: <TestDynamicNamedStreams as StreamPack>::StreamChannels,
+    async fn dynamically_named_streams_test_async(
+        Async {
+            request, streams, ..
+        }: Async<NamedInputs, TestDynamicNamedStreams>,
     ) {
         for nv in request.values_u32 {
             streams.0.send(nv);
@@ -1197,13 +1152,11 @@ pub(crate) mod tests {
         }
     }
 
-    fn impl_dynamically_named_streams_continuous(
-        In(ContinuousService { key }): In<
-            ContinuousService<NamedInputs, (), TestDynamicNamedStreams>,
-        >,
+    fn dynamically_named_streams_test_continuous(
+        srv: ContinuousService<NamedInputs, (), TestDynamicNamedStreams>,
         mut param: ContinuousQuery<NamedInputs, (), TestDynamicNamedStreams>,
     ) {
-        param.get_mut(&key).unwrap().for_each(|order| {
+        param.get_mut(&srv.key).unwrap().for_each(|order| {
             for nv in order.request().values_u32.iter() {
                 order.streams().0.send(nv.clone());
             }

@@ -1,7 +1,7 @@
 use std::fmt::Write;
 
 use crossflow::{
-    AsyncMap, ConfigExample, DiagramElementRegistry, JsonMessage, NodeBuilderOptions, StreamPack,
+    Async, ConfigExample, DiagramElementRegistry, JsonMessage, NodeBuilderOptions, StreamPack,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -321,7 +321,7 @@ pub fn register(registry: &mut DiagramElementRegistry) {
             .with_config_examples(fibonacci_examples),
         |builder, config: Option<u64>| {
             builder.create_map(
-                move |input: AsyncMap<JsonMessage, FibonacciStream>| async move {
+                move |input: Async<JsonMessage, FibonacciStream>| async move {
                     let order = if let Some(order) = config {
                         order
                     } else if let JsonMessage::Number(number) = &input.request {

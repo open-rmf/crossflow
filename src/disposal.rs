@@ -20,8 +20,6 @@ use bevy_ecs::{
     world::{EntityRef, EntityWorldMut},
 };
 
-use backtrace::Backtrace;
-
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
@@ -33,9 +31,12 @@ use smallvec::SmallVec;
 use thiserror::Error as ThisError;
 
 use crate::{
-    Cancel, Cancellation, DisposalFailure, OperationResult, OperationRoster, OrBroken,
-    SeriesMarker, UnhandledErrors, UnusedTarget, operation::ScopeStorage,
+    Cancellation, DisposalInformation, IdentifierRef, OperationResult, OperationRoster, OrBroken,
+    RequestId, RouteSource,
 };
+
+#[cfg(feature = "trace")]
+use crate::OutputDisposed;
 
 #[derive(ThisError, Debug, Clone)]
 #[error("the output of an operation in a workflow was disposed: {}", .cause)]
@@ -52,11 +53,11 @@ impl<T: Into<DisposalCause>> From<T> for Disposal {
 }
 
 impl Disposal {
-    pub fn service_unavailable(service: Entity, for_node: Entity) -> Disposal {
+    pub fn service_unavailable(service: Entity, for_node: Entity) -> Self {
         ServiceUnavailable { service, for_node }.into()
     }
 
-    pub fn task_despawned(task: Entity, node: Entity) -> Disposal {
+    pub fn task_despawned(task: Entity, node: Entity) -> Self {
         TaskDespawned { task, node }.into()
     }
 
@@ -64,7 +65,7 @@ impl Disposal {
         branched_at_node: Entity,
         disposed_for_target: Entity,
         reason: Option<anyhow::Error>,
-    ) -> Disposal {
+    ) -> Self {
         DisposedBranch {
             branched_at_node,
             disposed_for_target,
@@ -73,7 +74,11 @@ impl Disposal {
         .into()
     }
 
-    pub fn buffer_key(accessor_node: Entity, key_for_buffer: Entity) -> Disposal {
+    pub fn scope(cancellation: Cancellation) -> Self {
+        DisposalCause::Scope(cancellation).into()
+    }
+
+    pub fn buffer_key(accessor_node: Entity, key_for_buffer: Entity) -> Self {
         DisposedBufferKey {
             accessor_node,
             key_for_buffer,
@@ -81,17 +86,14 @@ impl Disposal {
         .into()
     }
 
-    pub fn supplanted(
-        supplanted_at_node: Entity,
-        supplanted_by_node: Entity,
-        supplanting_session: Entity,
-    ) -> Disposal {
-        Supplanted {
-            supplanted_at_node,
-            supplanted_by_node,
-            supplanting_session,
+    pub fn supplanted(supplanted_by: RequestId) -> Self {
+        Supplanted { supplanted_by }.into()
+    }
+
+    pub fn async_node_with_streams() -> Self {
+        Self {
+            cause: Arc::new(DisposalCause::AsyncNodeWithStreams),
         }
-        .into()
     }
 
     pub fn filtered(filtered_at_node: Entity, reason: Option<anyhow::Error>) -> Self {
@@ -129,7 +131,7 @@ impl Disposal {
 
     pub fn incomplete_split(
         split_node: Entity,
-        missing_keys: SmallVec<[Option<Arc<str>>; 16]>,
+        missing_keys: SmallVec<[Vec<IdentifierRef<'static>>; 8]>,
     ) -> Self {
         IncompleteSplit {
             split_node,
@@ -179,10 +181,18 @@ pub enum DisposalCause {
     #[error("{}", .0)]
     Scope(Cancellation),
 
-    /// One or more streams from a node never emitted any signal. This can lead
-    /// to unexpected
+    /// A stream from a node never emitted any signal. This can cause some
+    /// branches of the workflow to become unreachable, so we consider it a
+    /// disposal event.
     #[error("{}", .0)]
     UnusedStreams(UnusedStreams),
+
+    /// Whenever an async node with streams finishes running we need to do a
+    /// reachability check because it's possible that an earlier reachability
+    /// check was depending on the possibility that this node would eventually
+    /// produce one of its streams.
+    #[error("An async node with streams finished running")]
+    AsyncNodeWithStreams,
 
     /// Some nodes in the workflow were trimmed.
     #[error("{}", .0)]
@@ -211,30 +221,18 @@ pub enum DisposalCause {
     IncompleteSplit(IncompleteSplit),
 }
 
+impl DisposalCause {
+    pub fn is_stream_disposal(&self) -> bool {
+        matches!(self, Self::UnusedStreams(_) | Self::AsyncNodeWithStreams)
+    }
+}
+
 /// A variant of [`DisposalCause`]
 #[derive(ThisError, Debug, Clone, Copy)]
 #[error("request was supplanted")]
 pub struct Supplanted {
-    /// ID of the node whose service request was supplanted
-    pub supplanted_at_node: Entity,
-    /// ID of the node that did the supplanting
-    pub supplanted_by_node: Entity,
-    /// ID of the session that did the supplanting
-    pub supplanting_session: Entity,
-}
-
-impl Supplanted {
-    pub fn new(
-        cancelled_at_node: Entity,
-        supplanting_node: Entity,
-        supplanting_session: Entity,
-    ) -> Self {
-        Self {
-            supplanted_at_node: cancelled_at_node,
-            supplanted_by_node: supplanting_node,
-            supplanting_session,
-        }
-    }
+    /// ID of the request that did the supplanting
+    pub supplanted_by: RequestId,
 }
 
 impl From<Supplanted> for DisposalCause {
@@ -374,18 +372,18 @@ impl From<PoisonedMutexDisposal> for DisposalCause {
 
 /// A variant of [`DisposalCause`]
 #[derive(ThisError, Debug)]
-#[error("streams unused for node [{:?}]:{}", .node, DisplaySlice(.streams))]
+#[error("streams unused for a request [{:?}]:{}", .request_id, DisplaySlice(.streams))]
 pub struct UnusedStreams {
     /// The node which did not use all its streams
-    pub node: Entity,
+    pub request_id: RequestId,
     /// The streams which went unused.
     pub streams: Vec<&'static str>,
 }
 
 impl UnusedStreams {
-    pub fn new(node: Entity) -> Self {
+    pub fn new(request_id: RequestId) -> Self {
         Self {
-            node,
+            request_id,
             streams: Default::default(),
         }
     }
@@ -466,7 +464,7 @@ pub struct IncompleteSplit {
     /// The node that does the splitting
     pub split_node: Entity,
     /// The debug text of each key that was missing in the split
-    pub missing_keys: SmallVec<[Option<Arc<str>>; 16]>,
+    pub missing_keys: SmallVec<[Vec<IdentifierRef<'static>>; 8]>,
 }
 
 impl From<IncompleteSplit> for DisposalCause {
@@ -476,99 +474,102 @@ impl From<IncompleteSplit> for DisposalCause {
 }
 
 pub trait ManageDisposal {
-    fn emit_disposal(&mut self, session: Entity, disposal: Disposal, roster: &mut OperationRoster);
+    /// Have an operation emit a disposal into its own scope
+    fn emit_disposal(
+        &mut self,
+        route: RouteSource,
+        disposal: Disposal,
+        roster: &mut OperationRoster,
+    );
 
-    fn clear_disposals(&mut self, session: Entity);
+    /// Notify that an operation, such as trim, has caused disposals to happen
+    /// for other operations.
+    fn notify_trim(
+        &mut self,
+        origin: RouteSource,
+        disposed_operations: &[Entity],
+        disposed_in_session: Entity,
+        disposal: Disposal,
+        roster: &mut OperationRoster,
+    );
+
+    fn clear_disposals(&mut self, session: Entity, source: Entity);
 
     /// Used to transfer the disposals gathered by a temporary operation (e.g.
     /// a task) over to a persistent node
-    fn transfer_disposals(&mut self, to_node: Entity) -> OperationResult;
+    fn transfer_disposals(&mut self, from_node: Entity, to_node: Entity) -> OperationResult;
 }
 
 pub trait InspectDisposals {
     fn get_disposals(&self, session: Entity) -> Option<&Vec<Disposal>>;
 }
 
-impl<'w> ManageDisposal for EntityWorldMut<'w> {
-    fn emit_disposal(&mut self, session: Entity, disposal: Disposal, roster: &mut OperationRoster) {
-        let Some(scope) = self.get::<ScopeStorage>() else {
-            if self.contains::<SeriesMarker>() {
-                // If a series has been supplanted, we trigger a cancellation
-                // for it. Besides supplanting, we do not generally convert a
-                // disposal into a cancellation because sometimes services will
-                // emit disposals just to trigger a reachability check, e.g. for
-                // unused streams, not because the actual result is undeliverable.
-                if let DisposalCause::Supplanted(supplanted) = disposal.cause.as_ref() {
-                    let cancellation: Cancellation = (*supplanted).into();
-                    roster.cancel(Cancel {
-                        origin: self.id(),
-                        target: session,
-                        session: Some(session),
-                        cancellation,
-                    });
-                }
-                // TODO(@mxgrey): Consider whether there is a more sound way to
-                // decide whether a disposal should be converted into a
-                // cancellation for a series.
-            } else if !self.contains::<UnusedTarget>() {
-                // If the emitting node does not have a scope, is not part of
-                // a series, and is not an unused target, then something is broken.
-                //
-                // We can safely ignore disposals for unused targets because
-                // unused targets cannot affect the reachability of a workflow.
-                let broken_node = self.id();
-                self.world_scope(|world| {
-                    world
-                        .get_resource_or_insert_with(UnhandledErrors::default)
-                        .disposals
-                        .push(DisposalFailure {
-                            disposal,
-                            broken_node,
-                            backtrace: Some(Backtrace::new()),
-                        });
-                });
-            }
-            return;
-        };
-        let scope = scope.get();
-
-        if let Some(mut storage) = self.get_mut::<DisposalStorage>() {
-            storage.disposals.entry(session).or_default().push(disposal);
-        } else {
-            let mut storage = DisposalStorage::default();
-            storage.disposals.entry(session).or_default().push(disposal);
-            self.insert(storage);
-        }
-
-        roster.disposed(scope, self.id(), session);
+impl ManageDisposal for World {
+    /// Emit a signal that an output has been disposed for a certain operation.
+    fn emit_disposal(
+        &mut self,
+        route: RouteSource,
+        disposal: Disposal,
+        roster: &mut OperationRoster,
+    ) {
+        self.notify_trim(route, &[route.source], route.session, disposal, roster);
     }
 
-    fn clear_disposals(&mut self, session: Entity) {
-        if let Some(mut storage) = self.get_mut::<DisposalStorage>() {
+    fn notify_trim(
+        &mut self,
+        trigger: RouteSource,
+        disposed_operations: &[Entity],
+        disposed_in_session: Entity,
+        disposal: Disposal,
+        roster: &mut OperationRoster,
+    ) {
+        #[cfg(feature = "trace")]
+        {
+            // TODO(@mxgrey): Consider not tracing stream-related disposals
+            // since that could produce a lot of useless noise.
+            for op in disposed_operations {
+                OutputDisposed::trace(trigger, *op, disposed_in_session, disposal.clone(), self);
+            }
+        }
+
+        for disposed in disposed_operations.iter().copied() {
+            roster.disposals.push_back(DisposalInformation {
+                session: disposed_in_session,
+                listener: disposed_in_session,
+                trigger: trigger.to_owned(),
+                disposed,
+                disposal: disposal.clone(),
+            });
+        }
+    }
+
+    fn clear_disposals(&mut self, session: Entity, source: Entity) {
+        if let Some(mut storage) = self.get_mut::<DisposalStorage>(source) {
             storage.disposals.remove(&session);
         }
     }
 
-    fn transfer_disposals(&mut self, to: Entity) -> OperationResult {
-        if let Some(from_storage) = self.take::<DisposalStorage>() {
-            self.world_scope::<OperationResult>(|world| {
-                let mut to_mut = world.get_entity_mut(to).or_broken()?;
-                match to_mut.get_mut::<DisposalStorage>() {
-                    Some(mut to_storage) => {
-                        for (session, disposals) in from_storage.disposals {
-                            to_storage
-                                .disposals
-                                .entry(session)
-                                .or_default()
-                                .extend(disposals);
-                        }
-                    }
-                    None => {
-                        to_mut.insert(from_storage);
+    fn transfer_disposals(&mut self, from: Entity, to: Entity) -> OperationResult {
+        if let Some(from_storage) = self
+            .get_entity_mut(from)
+            .or_broken()?
+            .take::<DisposalStorage>()
+        {
+            let mut to_mut = self.get_entity_mut(to).or_broken()?;
+            match to_mut.get_mut::<DisposalStorage>() {
+                Some(mut to_storage) => {
+                    for (session, disposals) in from_storage.disposals {
+                        to_storage
+                            .disposals
+                            .entry(session)
+                            .or_default()
+                            .extend(disposals);
                     }
                 }
-                Ok(())
-            })?;
+                None => {
+                    to_mut.insert(from_storage);
+                }
+            }
         }
 
         Ok(())
@@ -595,31 +596,10 @@ impl<'w> InspectDisposals for EntityRef<'w> {
     }
 }
 
-pub fn emit_disposal(
-    source: Entity,
-    session: Entity,
-    disposal: Disposal,
-    world: &mut World,
-    roster: &mut OperationRoster,
-) {
-    if let Ok(mut source_mut) = world.get_entity_mut(source) {
-        source_mut.emit_disposal(session, disposal, roster);
-    } else {
-        world
-            .get_resource_or_insert_with(UnhandledErrors::default)
-            .disposals
-            .push(DisposalFailure {
-                disposal,
-                broken_node: source,
-                backtrace: Some(Backtrace::new()),
-            });
-    }
-}
-
 #[derive(Component, Default)]
-struct DisposalStorage {
+pub(crate) struct DisposalStorage {
     /// A map from a session to all the disposals that occurred for the session
-    disposals: HashMap<Entity, Vec<Disposal>>,
+    pub(crate) disposals: HashMap<Entity, Vec<Disposal>>,
 }
 
 pub(crate) struct DisplaySlice<'a, T>(&'a [T]);

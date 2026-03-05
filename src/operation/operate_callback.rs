@@ -16,10 +16,10 @@
 */
 
 use crate::{
-    ActiveTasksStorage, Callback, CallbackRequest, InputBundle, Operation, OperationCleanup,
-    OperationError, OperationReachability, OperationRequest, OperationResult, OperationSetup,
-    OrBroken, PendingCallbackRequest, ReachabilityResult, SingleInputStorage, SingleTargetStorage,
-    StreamPack, try_emit_broken,
+    ActiveTasksStorage, Callback, CallbackRequest, InputBundle, ManageCancellation, Operation,
+    OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
+    OperationSetup, OrBroken, PendingCallbackRequest, ReachabilityResult, SingleInputStorage,
+    SingleTargetStorage, StreamPack,
 };
 
 use bevy_ecs::prelude::{Component, Entity};
@@ -105,7 +105,8 @@ where
                 if let Err(OperationError::Broken(backtrace)) =
                     callback_impl.call(pending.activate(world, roster))
                 {
-                    try_emit_broken(source, backtrace, world, roster);
+                    // We need to continue looping even if this callback is broken
+                    world.emit_broken(source, backtrace, roster);
                 }
             } else {
                 inner.callback = Some(callback_impl);

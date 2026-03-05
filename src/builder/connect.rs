@@ -21,7 +21,7 @@ use backtrace::Backtrace;
 
 use crate::{
     Broken, ConnectionFailure, EntryForScope, ForkTargetStorage, OperationError, OperationResult,
-    OrBroken, ScopeEntryStorage, SingleInputStorage, SingleTargetStorage, StreamTargetMap,
+    OrBroken, ScopeEndpoints, SingleInputStorage, SingleTargetStorage, StreamTargetMap,
     UnhandledErrors,
 };
 
@@ -63,9 +63,9 @@ fn try_connect(connect: Connect, world: &mut World) -> OperationResult {
             .or_broken()?
             .insert(EntryForScope(scope));
         world
-            .get_entity_mut(scope)
+            .get_mut::<ScopeEndpoints>(scope)
             .or_broken()?
-            .insert(ScopeEntryStorage(connect.new_target));
+            .enter_scope = connect.new_target;
 
         world
             .get_entity_mut(connect.original_target)

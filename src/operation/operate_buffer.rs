@@ -19,14 +19,15 @@ use bevy_ecs::prelude::{Bundle, Command, Component, Entity, World};
 
 use std::collections::HashMap;
 
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 
 use crate::{
-    Broken, BufferAccessors, BufferSettings, BufferStorage, DeferredRoster, ForkTargetStorage,
-    Gate, GateActionStorage, Input, InputBundle, InspectBuffer, ManageBuffer, ManageInput,
-    Operation, OperationCleanup, OperationError, OperationReachability, OperationRequest,
-    OperationResult, OperationRoster, OperationSetup, OrBroken, ReachabilityResult,
-    SingleInputStorage, UnhandledErrors,
+    Broken, BufferAccessors, BufferKeyTag, BufferSettings, BufferStorage, BufferWorldAccess,
+    DeferredRoster, ForkTargetStorage, Gate, GateActionStorage, Input, InputBundle,
+    InspectBufferSessions, ManageBufferSessions, ManageInput, Operation, OperationCleanup,
+    OperationError, OperationReachability, OperationRequest, OperationResult, OperationRoster,
+    OperationSetup, OrBroken, ReachabilityResult, RequestId, RouteTarget, Routing,
+    SingleInputStorage, UnhandledErrors, output_port,
 };
 
 #[derive(Bundle)]
@@ -63,35 +64,28 @@ where
         Ok(())
     }
 
-    fn execute(
-        OperationRequest {
-            source,
-            world,
-            roster,
-        }: OperationRequest,
-    ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { session, data } = source_mut.take_input::<T>()?;
-        let mut buffer = source_mut.get_mut::<BufferStorage<T>>().or_broken()?;
-        buffer.force_push(session, data);
-
-        if source_mut
-            .get::<GateState>()
-            .or_broken()?
-            .is_closed(session)
-        {
-            return Ok(());
-        }
-
-        let targets = source_mut.get::<ForkTargetStorage>().or_broken()?.0.clone();
-        for target in targets {
-            world
-                .get_entity_mut(target)
-                .or_broken()?
-                .give_input(session, (), roster)?;
-        }
-
-        Ok(())
+    fn execute(OperationRequest { source, world, .. }: OperationRequest) -> OperationResult {
+        let Input { session, data, seq } = world.take_input::<T>(source)?;
+        world
+            .unchecked_buffer_mut(
+                RequestId {
+                    session,
+                    source,
+                    seq,
+                },
+                &BufferKeyTag {
+                    buffer: source,
+                    session,
+                    accessor: source,
+                    lifecycle: None,
+                },
+                |mut buffer| {
+                    // TODO(@mxgrey): Consider whether the implementation of
+                    // force_push should really be given to push
+                    buffer.force_push(data);
+                },
+            )
+            .or_broken()
     }
 
     fn cleanup(mut clean: OperationCleanup) -> OperationResult {
@@ -133,6 +127,7 @@ pub(crate) struct GateState {
 impl GateState {
     pub fn apply(
         buffer: Entity,
+        req: RequestId,
         session: Entity,
         action: Gate,
         world: &mut World,
@@ -156,10 +151,8 @@ impl GateState {
                 .clone();
 
             for target in targets {
-                world
-                    .get_entity_mut(target)
-                    .or_broken()?
-                    .give_input(session, (), roster)?;
+                let port = output_port::update();
+                world.give_input(req.to_message_route(&port, target), (), roster)?;
             }
         }
 
@@ -203,7 +196,7 @@ impl RelatedGateNodes {
 
 #[derive(Bundle)]
 struct BufferBundle {
-    clear: ClearBufferFn,
+    clear: ClearBufferSessionFn,
     size: CheckBufferSizeFn,
     sessions: GetBufferedSessionsFn,
 }
@@ -211,7 +204,7 @@ struct BufferBundle {
 impl BufferBundle {
     fn new<T: 'static + Send + Sync>() -> Self {
         Self {
-            clear: ClearBufferFn::new::<T>(),
+            clear: ClearBufferSessionFn::new::<T>(),
             size: CheckBufferSizeFn::new::<T>(),
             sessions: GetBufferedSessionsFn::new::<T>(),
         }
@@ -219,9 +212,9 @@ impl BufferBundle {
 }
 
 #[derive(Component)]
-pub struct ClearBufferFn(pub fn(Entity, Entity, &mut World) -> OperationResult);
+pub struct ClearBufferSessionFn(pub fn(Entity, Entity, &mut World) -> OperationResult);
 
-impl ClearBufferFn {
+impl ClearBufferSessionFn {
     fn new<T: 'static + Send + Sync>() -> Self {
         Self(clear_buffer::<T>)
     }
@@ -235,7 +228,7 @@ fn clear_buffer<T: 'static + Send + Sync>(
     world
         .get_entity_mut(source)
         .or_broken()?
-        .clear_buffer::<T>(session)
+        .remove_buffer::<T>(session)
 }
 
 #[derive(Component)]
@@ -282,6 +275,7 @@ fn get_buffered_sessions<T: 'static + Send + Sync>(
 
 pub(crate) struct NotifyBufferUpdate {
     buffer: Entity,
+    req: RequestId,
     session: Entity,
     /// This field is used to prevent notifications from going to the accessor
     /// that produced the key which was used for modification. That way users
@@ -292,9 +286,15 @@ pub(crate) struct NotifyBufferUpdate {
 }
 
 impl NotifyBufferUpdate {
-    pub(crate) fn new(buffer: Entity, session: Entity, accessor: Option<Entity>) -> Self {
+    pub(crate) fn new(
+        buffer: Entity,
+        req: RequestId,
+        session: Entity,
+        accessor: Option<Entity>,
+    ) -> Self {
         Self {
             buffer,
+            req,
             session,
             accessor,
         }
@@ -305,30 +305,38 @@ impl Command for NotifyBufferUpdate {
     fn apply(self, world: &mut World) {
         let r = match world.get::<GateState>(self.buffer) {
             Some(gate_state) => {
-                if gate_state.is_closed(self.session) {
+                if gate_state.is_closed(self.req.session) {
                     return;
                 }
 
-                world.get_resource_or_insert_with(DeferredRoster::default);
+                world.get_resource_or_init::<DeferredRoster>();
                 world.resource_scope::<DeferredRoster, _>(|world: &mut World, mut deferred| {
+                    let Self {
+                        buffer,
+                        req,
+                        session,
+                        accessor,
+                    } = self;
                     // We filter out the target that produced the key that was used to
                     // make the modification. This prevents unintentional infinite loops
                     // from forming in the workflow.
                     let targets: SmallVec<[_; 16]> = world
-                        .get::<ForkTargetStorage>(self.buffer)
+                        .get::<ForkTargetStorage>(buffer)
                         .or_broken()?
                         .0
                         .iter()
-                        .filter(|t| !self.accessor.is_some_and(|a| a == **t))
+                        .filter(|t| !accessor.is_some_and(|a| a == **t))
                         .cloned()
                         .collect();
 
+                    let port = output_port::buffer_update();
+                    let output = req.to_route_source(&port);
                     for target in targets {
-                        world.get_entity_mut(target).or_broken()?.give_input(
-                            self.session,
-                            (),
-                            &mut deferred.0,
-                        )?;
+                        let route = Routing {
+                            outputs: smallvec![output],
+                            input: RouteTarget { session, target },
+                        };
+                        world.give_input(route, (), &mut *deferred)?;
                     }
 
                     Ok(())

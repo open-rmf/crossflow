@@ -18,8 +18,8 @@
 use bevy_ecs::prelude::{Component, Entity};
 
 use crate::{
-    Executable, Input, InputBundle, ManageInput, OperationRequest, OperationResult, OperationSetup,
-    OrBroken, Storage, add_lifecycle_dependency,
+    Executable, Input, InputBundle, ManageInput, ManageSession, OperationRequest, OperationResult,
+    OperationSetup, OrBroken, SeriesLifecycle, Storage,
 };
 
 #[derive(Component)]
@@ -39,21 +39,21 @@ impl<T> Store<T> {
 
 impl<T: 'static + Send + Sync> Executable for Store<T> {
     fn setup(self, OperationSetup { source, world }: OperationSetup) -> OperationResult {
-        add_lifecycle_dependency(source, self.target, world);
+        let lifecycle = SeriesLifecycle::new(source, world);
         world
             .entity_mut(source)
-            .insert((InputBundle::<T>::new(), self));
+            .insert((InputBundle::<T>::new(), self, lifecycle));
         Ok(())
     }
 
     fn execute(OperationRequest { source, world, .. }: OperationRequest) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { session, data } = source_mut.take_input::<T>()?;
-        let target = source_mut.get::<Store<T>>().or_broken()?.target;
+        let Input { session, data, .. } = world.take_input::<T>(source)?;
+        let target = world.get::<Store<T>>(source).or_broken()?.target;
         if let Ok(mut target_mut) = world.get_entity_mut(target) {
             target_mut.insert(Storage { data, session });
         }
-        world.entity_mut(source).despawn();
+
+        world.despawn_session(session);
         Ok(())
     }
 }
