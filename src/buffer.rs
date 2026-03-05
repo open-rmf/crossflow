@@ -722,7 +722,7 @@ impl BufferWorldAccess for World {
         {
             let mut tracer_state: SystemState<BufferTracer> = SystemState::new(self);
             let mut tracer = tracer_state.get_mut(self);
-            tracer.trace(req.into(), key, BufferAccessRecord::Viewed);
+            tracer.trace(_req.into(), key, BufferAccessRecord::Viewed);
             tracer_state.apply(self);
         }
 
