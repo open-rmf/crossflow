@@ -21,7 +21,7 @@ use bevy_ecs::prelude::{Component, Entity};
 
 use crate::{
     Collection, Executable, Input, InputBundle, ManageInput, ManageSession, NamedValue,
-    OperationRequest, OperationResult, OperationSetup, OrBroken, Storage, add_lifecycle_dependency,
+    OperationRequest, OperationResult, OperationSetup, OrBroken, Storage, SeriesLifecycle,
 };
 
 pub(crate) struct Push<T> {
@@ -56,12 +56,16 @@ impl<T> Push<T> {
 
 impl<T: 'static + Send + Sync> Executable for Push<T> {
     fn setup(self, OperationSetup { source, world }: OperationSetup) -> OperationResult {
-        if !self.settings.is_stream {
-            add_lifecycle_dependency(source, self.settings.target, world);
-        }
+        let is_stream = self.settings.is_stream;
         world
             .entity_mut(source)
             .insert((InputBundle::<T>::new(), self.settings));
+
+        if !is_stream {
+            let lifecycle = SeriesLifecycle::new(source, world);
+            world.entity_mut(source).insert(lifecycle);
+        }
+
         Ok(())
     }
 

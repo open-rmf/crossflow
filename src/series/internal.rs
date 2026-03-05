@@ -390,8 +390,8 @@ fn clean_series_from_progress_point(
 
 #[derive(Resource)]
 pub(crate) struct SeriesLifecycleChannel {
-    pub(crate) sender: TokioSender<Entity>,
-    pub(crate) receiver: TokioReceiver<Entity>,
+    pub(crate) sender: TokioSender<SeriesLifecycleChange>,
+    pub(crate) receiver: TokioReceiver<SeriesLifecycleChange>,
 }
 
 impl Default for SeriesLifecycleChannel {
@@ -401,62 +401,45 @@ impl Default for SeriesLifecycleChannel {
     }
 }
 
-/// This component tracks the lifecycle of an entity that is the terminal
-/// target of a series. When this component gets dropped, the upstream
-/// chain will be notified.
+/// This component tracks the lifecycle of an entity in a series. When this
+/// component gets dropped, the series will be notified and anything downstream
+/// of this that is not detached will be dropped.
 #[derive(Component)]
 pub(crate) struct SeriesLifecycle {
-    /// The series sources that are feeding into the entity which holds this
-    /// component.
-    sources: SmallVec<[Entity; 8]>,
+    /// The node that this lifecycle is attached to
+    source: Entity,
     /// Used to notify the flusher that the target of the sources has been dropped
-    sender: TokioSender<Entity>,
+    sender: TokioSender<SeriesLifecycleChange>,
 }
 
 impl SeriesLifecycle {
-    fn new(source: Entity, sender: TokioSender<Entity>) -> Self {
+    pub fn new(source: Entity, world: &mut World) -> Self {
+        let sender = world.get_resource_or_init::<SeriesLifecycleChannel>().sender.clone();
+        Self { source, sender }
+    }
+}
+
+pub(crate) struct SeriesLifecycleChange {
+    pub(crate) node: Entity,
+    pub(crate) cancellation: Cancellation,
+}
+
+impl SeriesLifecycleChange {
+    pub(crate) fn dropped(node: Entity) -> Self {
         Self {
-            sources: SmallVec::from_iter([source]),
-            sender,
+            node,
+            cancellation: Cancellation::target_dropped(node),
         }
     }
 }
 
 impl Drop for SeriesLifecycle {
     fn drop(&mut self) {
-        for source in &self.sources {
-            if let Err(err) = self.sender.send(*source) {
-                eprintln!(
-                    "Failed to notify that a series was dropped: {err}\nBacktrace:\n{:#?}",
-                    Backtrace::new(),
-                );
-            }
-        }
-    }
-}
-
-pub(crate) fn add_lifecycle_dependency(source: Entity, target: Entity, world: &mut World) {
-    let sender = world
-        .get_resource_or_insert_with(SeriesLifecycleChannel::default)
-        .sender
-        .clone();
-
-    if let Some(mut lifecycle) = world.get_mut::<SeriesLifecycle>(target) {
-        lifecycle.sources.push(source);
-    } else if let Ok(mut target_mut) = world.get_entity_mut(target) {
-        target_mut.insert(SeriesLifecycle::new(source, sender));
-    } else {
-        // The target is already despawned
-        if let Err(err) = sender.send(source) {
-            world
-                .get_resource_or_insert_with(UnhandledErrors::default)
-                .miscellaneous
-                .push(MiscellaneousFailure {
-                    error: Arc::new(anyhow!(
-                        "Failed to notify that a target is already despawned: {err}"
-                    )),
-                    backtrace: Some(Backtrace::new()),
-                })
+        if let Err(err) = self.sender.send(SeriesLifecycleChange::dropped(self.source)) {
+            eprintln!(
+                "Failed to notify that a series was dropped: {err}\nBacktrace:\n{:#?}",
+                Backtrace::new(),
+            );
         }
     }
 }
@@ -467,6 +450,7 @@ pub(crate) fn drop_series_target(
     roster: &mut OperationRoster,
     unused: bool,
 ) -> OperationResult {
+    let mut reached_dropped_target = false;
     let mut dropped_operations = Vec::new();
     if world.get_entity(target).is_err() {
         // The session has already despawned
@@ -475,19 +459,32 @@ pub(crate) fn drop_series_target(
     let series = world.get::<InSeries>(target).or_broken()?.series();
     let sequence = world.get::<SequenceInSeries>(series).or_broken()?;
 
-    let mut reached_drop = None;
+    let mut reached_progress_point = None;
     for op in sequence.iter().rev() {
-        if let Some(detachment) = world.get::<Detached>(*op) {
+        // Keep dropping items in the series until we've reached the target
+        // AND we've reached a detached node.
+        if reached_dropped_target && let Some(detachment) = world.get::<Detached>(*op) {
             if detachment.is_detached() {
                 break;
             }
+        }
+
+        if *op == target {
+            reached_dropped_target = true;
         }
 
         dropped_operations.push(*op);
 
         if let Some(ProgressInSeries(Some(progress))) = world.get::<ProgressInSeries>(series) {
             if *op == *progress {
-                reached_drop = Some(*progress);
+                if !reached_dropped_target {
+                    // The dropped target is no longer relevant to the series because
+                    // it predates the current progress point, so actually do not
+                    // respond to the drop.
+                    return Ok(());
+                }
+
+                reached_progress_point = Some(*progress);
                 // Stop dropping anything that comes before the last progress point
                 break;
             }
@@ -508,7 +505,7 @@ pub(crate) fn drop_series_target(
 
     let cancellation = Cancellation::target_dropped(target);
 
-    if let Some(progress) = reached_drop {
+    if let Some(progress) = reached_progress_point {
         let is_cleaning =
             clean_series_from_progress_point(series, progress, &cancellation, world, roster)?;
         if is_cleaning {

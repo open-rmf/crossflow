@@ -22,7 +22,7 @@ use tokio::sync::mpsc::UnboundedSender as Sender;
 use crate::{
     Cancel, Cancellable, Executable, Input, InputBundle, ManageInput, ManageSession,
     OperationRequest, OperationResult, OperationSetup, OrBroken, SeriesLifecycleChannel,
-    promise::private::Sender as PromiseSender,
+    promise::private::Sender as PromiseSender, SeriesLifecycleChange,
 };
 
 #[derive(Component)]
@@ -43,7 +43,7 @@ impl<T: 'static + Send + Sync> Executable for TakenResponse<T> {
             .sender
             .clone();
         self.sender.on_promise_drop(move || {
-            lifecycle_sender.send(source).ok();
+            lifecycle_sender.send(SeriesLifecycleChange::dropped(source)).ok();
         });
 
         world.entity_mut(source).insert((

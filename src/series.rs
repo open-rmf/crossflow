@@ -185,6 +185,8 @@ where
         let session = self.session;
         let source = self.target;
 
+        self.commands.entity(source).remove::<UnusedTarget>();
+
         let target = self
             .commands
             .spawn((ChildOf(session), Detached::default(), UnusedTarget))
@@ -438,7 +440,7 @@ mod tests {
     use tokio::sync::mpsc::unbounded_channel;
 
     #[test]
-    fn test_dropped_chain() {
+    fn test_dropped_series() {
         let mut context = TestingContext::minimal_plugins();
 
         let (detached_sender, mut detached_receiver) = unbounded_channel();
@@ -557,7 +559,48 @@ mod tests {
     }
 
     #[test]
-    fn test_detach() {
+    fn test_cancel_on_drop() {
+        // This test ensures that cancellation behavior works correctly when
+        // dropping without detaching, and conversely that it does not cancel
+        // when dropping from a detached outcome.
+        let mut context = TestingContext::minimal_plugins();
+
+        let (initial_sender, mut initial_receiver) = tokio::sync::oneshot::channel();
+        let (final_sender, mut final_receiver) = tokio::sync::oneshot::channel();
+
+        let outcome = context.command(|commands| commands
+            .provide(())
+            .map(
+                move |_: Async<()>| {
+                    async move {
+                        let _ = initial_sender.send(());
+
+                        // hold the service here to give time for the outcome to be
+                        // dropped and processed.
+                        let never = async_std::future::pending::<()>();
+                        let timeout = Duration::from_secs(2);
+                        let _ = async_std::future::timeout(timeout, never).await;
+                        let _ = final_sender.send(());
+                    }
+                }
+            )
+            .outcome()
+        );
+
+        context.run_with_conditions(&mut initial_receiver, Duration::from_secs(2));
+        assert!(initial_receiver.try_recv().is_ok());
+        assert!(final_receiver.try_recv().is_err());
+
+        drop(outcome);
+
+        context.run_with_conditions(&mut final_receiver, Duration::from_secs(2));
+        // The final message should not have been received because the async
+        // execution should have been dropped before finishing.
+        assert!(final_receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_detach_regression() {
         // This is a regression test that covers a bug which existed due to
         // an incorrect handling of detached series when giving input.
         let mut context = TestingContext::minimal_plugins();

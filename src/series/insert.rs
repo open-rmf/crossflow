@@ -19,7 +19,7 @@ use bevy_ecs::prelude::{Bundle, Component, Entity};
 
 use crate::{
     Executable, Input, InputBundle, ManageInput, ManageSession, OperationRequest, OperationResult,
-    OperationSetup, OrBroken, add_lifecycle_dependency,
+    OperationSetup, OrBroken, SeriesLifecycle,
 };
 
 #[derive(Component)]
@@ -39,10 +39,13 @@ impl<T> Insert<T> {
 
 impl<T: 'static + Send + Sync + Bundle> Executable for Insert<T> {
     fn setup(self, OperationSetup { source, world }: OperationSetup) -> OperationResult {
-        add_lifecycle_dependency(source, self.target, world);
+        let lifecycle = SeriesLifecycle::new(source, world);
         world
             .entity_mut(source)
-            .insert((InputBundle::<T>::new(), self));
+            .insert((
+                InputBundle::<T>::new(), self,
+                lifecycle,
+            ));
         Ok(())
     }
 

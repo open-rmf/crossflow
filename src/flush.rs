@@ -297,7 +297,7 @@ fn collect_from_channels(
 
     let mut lifecycles = world.get_resource_or_insert_with(SeriesLifecycleChannel::default);
     while let Ok(dropped_target) = lifecycles.receiver.try_recv() {
-        drop_targets.push(dropped_target);
+        drop_targets.push(dropped_target.node);
     }
 
     for target in drop_targets {

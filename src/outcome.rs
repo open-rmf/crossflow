@@ -39,7 +39,7 @@ pub struct Outcome<T> {
     /// A receiver to receive the actual result of the outcome
     value: oneshot::Receiver<Result<T, Cancellation>>,
 
-    /// A receiver attached to a sender who is simply monitoring for whether
+    /// A sender attached to a receiver who is simply monitoring for whether
     /// the outcome gets dropped.
     finished: Option<oneshot::Sender<()>>,
 }

@@ -21,7 +21,7 @@ use tokio::sync::oneshot;
 
 use crate::{
     Cancel, Cancellable, Cancellation, Executable, Input, InputBundle, ManageInput, ManageSession,
-    OperationRequest, OperationResult, OperationSetup, OrBroken, SeriesLifecycleChannel,
+    OperationRequest, OperationResult, OperationSetup, OrBroken, SeriesLifecycleChannel, SeriesLifecycleChange,
     async_execution::spawn_task,
 };
 
@@ -63,7 +63,7 @@ impl<T: 'static + Send + Sync> Executable for CaptureOutcome<T> {
                     // The Outcome instance was dropped before its result could
                     // be received. We alert the lifecycle manager so it can
                     // drop the series that this outcome depends on.
-                    let _ = lifecycle_sender.send(source);
+                    let _ = lifecycle_sender.send(SeriesLifecycleChange::dropped(source));
                 }
             }
         };
