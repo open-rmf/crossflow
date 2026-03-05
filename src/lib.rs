@@ -93,6 +93,11 @@ pub use chain::*;
 pub mod channel;
 pub use channel::*;
 
+#[cfg(feature = "trace")]
+pub mod debug;
+#[cfg(feature = "trace")]
+pub use debug::*;
+
 #[cfg(feature = "diagram")]
 pub mod diagram;
 #[cfg(feature = "diagram")]

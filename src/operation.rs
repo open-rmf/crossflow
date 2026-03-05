@@ -364,7 +364,7 @@ impl OperationError {
     }
 }
 
-pub type OperationResult = Result<(), OperationError>;
+pub type OperationResult<T=()> = Result<T, OperationError>;
 pub type ReachabilityResult = Result<bool, OperationError>;
 
 pub struct OperationSetup<'a> {

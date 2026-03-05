@@ -38,6 +38,9 @@ use crate::{
 #[cfg(feature = "single_threaded_async")]
 use crate::async_execution::SingleThreadedExecution;
 
+#[cfg(feature = "trace")]
+use crate::{Debug, DebugRoster};
+
 #[derive(Resource, Default, Clone, Copy)]
 pub struct FlushParameters {
     /// By default, a flush will loop until the whole [`OperationRoster`] is empty.
@@ -87,10 +90,20 @@ pub fn flush_execution() -> ScheduleConfigs<ScheduleSystem> {
 fn flush_execution_impl(
     world: &mut World,
     new_service_query: &mut QueryState<(Entity, &mut ServiceHook), Added<ServiceHook>>,
+    #[cfg(feature = "trace")]
+    debug: &mut SystemState<Option<Res<Debug>>>,
 ) {
     let parameters = *world.get_resource_or_insert_with(FlushParameters::default);
     let mut roster = OperationRoster::new();
     collect_from_channels(&parameters, new_service_query, world, &mut roster);
+
+    let debug = debug.get(world);
+    if let Some(debug) = debug && debug.is_changed() {
+        world.get_resource_or_init::<DebugRoster>();
+        world.resource_scope::<DebugRoster, _>(|world, mut debug_roster| {
+            debug_roster.release_unpaused(world, &mut roster);
+        });
+    }
 
     let mut loop_count = 0;
     while !roster.is_empty() {
