@@ -1,0 +1,21 @@
+[package]
+name = "grpc_calculator"
+version = "0.0.6"
+edition = "2024"
+
+[dependencies]
+crossflow_diagram_editor = { path = "../../../diagram-editor", features = ["basic_executor"] }
+calculator_ops_catalog = { path = "../calculator_ops_catalog" }
+prost = { workspace = true }
+tonic = { workspace = true }
+tonic-prost = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+serde_json = { workspace = true }
+crossflow = { path = "../../..", features = ["diagram"] }
+
+[dev-dependencies]
+assert_cmd = "2.1.2"
+
+[build-dependencies]
+tonic-prost-build = { workspace = true }
+prost-build = { workspace = true }

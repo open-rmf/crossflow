@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package crossflow_service;
+
+message CrossflowServiceConfig {
+  string skill_registry_address = 1;
+  string solution_service_address = 2;
+}
+
+message TriggerRequest {
+  string diagram_path = 1;
+  string request = 2;
+}
+
+message TriggerResponse {
+  string result = 1;
+}
+
+service CrossflowTriggerService {
+  rpc Trigger(TriggerRequest) returns (TriggerResponse);
+}

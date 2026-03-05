@@ -175,6 +175,7 @@ test-log = { version = "0.2.16", features = [
 [workspace]
 members = [
   "examples/diagram/calculator",
+  "examples/diagram/grpc_calculator",
   "examples/zenoh-examples",
   "diagram-editor",
   "diagram-editor/wasm",
