@@ -60,6 +60,8 @@ impl CrossflowTriggerService for TriggerService {
         let diagram_path = req.diagram_path;
         let request_json = req.request;
 
+        println!("Received request: path: {}, request: {}", diagram_path, request_json);
+
         let result = tokio::task::spawn_blocking(move || {
             let mut registry = DiagramElementRegistry::new();
             calculator_ops_catalog::register(&mut registry);
