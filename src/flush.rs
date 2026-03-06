@@ -97,17 +97,20 @@ fn flush_execution_impl(
     let mut roster = OperationRoster::new();
     collect_from_channels(&parameters, new_service_query, world, &mut roster);
 
-    let debug = debug.get(world);
-    if let Some(debug) = debug && debug.is_changed() {
-        world.get_resource_or_init::<DebugRoster>();
-        world.resource_scope::<DebugRoster, _>(|world, mut debug_roster| {
-            debug_roster.release_unpaused(world, &mut roster);
-        });
-    }
+    #[cfg(feature = "trace")]
+    {
+        let debug = debug.get(world);
+        if let Some(debug) = debug && debug.is_changed() {
+            world.get_resource_or_init::<DebugRoster>();
+            world.resource_scope::<DebugRoster, _>(|world, mut debug_roster| {
+                debug_roster.release_unpaused(world, &mut roster);
+            });
+        }
 
-    // Queue any operations that needed to be deferred
-    let mut deferred = world.get_resource_or_insert_with(DeferredRoster::default);
-    roster.append(&mut deferred);
+        // Queue any operations that needed to be deferred
+        let mut deferred = world.get_resource_or_insert_with(DeferredRoster::default);
+        roster.append(&mut deferred);
+    }
 
     let mut loop_count = 0;
     while !roster.is_empty() {

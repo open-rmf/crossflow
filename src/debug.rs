@@ -281,6 +281,7 @@ mod tests {
                 .connect(scope.terminate);
         });
 
+        // ----- Test: Reach a breakpoint and step through one operation at a time
         let Capture { mut outcome, session, .. } =
             context.command(|commands| commands.request((), workflow).capture());
 
@@ -312,7 +313,38 @@ mod tests {
         assert!(receivers[2].try_recv().is_ok());
 
         context.app.world_mut().resource_mut::<Debug>().stop_debugging_for(session);
+        context.run_with_conditions(&mut outcome, 1);
+        outcome.try_recv().unwrap().unwrap();
+
+        // ----- Test: Reach a breakpoint, take one step, and then unpause
+        let Capture { mut outcome, session, .. } =
+            context.command(|commands| commands.request((), workflow).capture());
+
+        let mut debug = context.app.world_mut().get_resource_or_init::<Debug>();
+        debug.start_debugging_for(session, false);
+        // Note: The same breakpoint as before still applies
+
+        // Make sure all receivers are currently empty.
+        assert!(receivers[0].try_recv().is_err());
+        assert!(receivers[1].try_recv().is_err());
+        assert!(receivers[2].try_recv().is_err());
+
         context.run_with_conditions(&mut outcome, 10);
+        assert!(receivers[0].try_recv().is_err());
+        assert!(receivers[1].try_recv().is_err());
+        assert!(receivers[2].try_recv().is_err());
+
+        context.command(|commands| commands.debug_step(session));
+        context.run_with_conditions(&mut outcome, 10);
+        assert!(receivers[0].try_recv().is_ok());
+        assert!(receivers[1].try_recv().is_err());
+        assert!(receivers[2].try_recv().is_err());
+
+        context.app.world_mut().resource_mut::<Debug>().stop_debugging_for(session);
+        context.run_with_conditions(&mut outcome, 1);
+        assert!(receivers[0].try_recv().is_err());
+        assert!(receivers[1].try_recv().is_ok());
+        assert!(receivers[2].try_recv().is_ok());
         outcome.try_recv().unwrap().unwrap();
     }
 }
