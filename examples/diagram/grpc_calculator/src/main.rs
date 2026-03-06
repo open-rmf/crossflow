@@ -26,15 +26,24 @@ use crossflow::{
 };
 use std::str::FromStr;
 
-pub mod config {
-    tonic::include_proto!("intrinsic_proto.config");
+#[derive(Clone, PartialEq, ::prost::Message)]
+struct RuntimeConfigWrapper {
+    #[prost(int32, tag = "1")]
+    pub port: i32,
+    #[prost(message, optional, tag = "6")]
+    pub any: Option<AnyWrapper>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+struct AnyWrapper {
+    #[prost(bytes = "vec", tag = "2")]
+    pub value: Vec<u8>,
 }
 
 pub mod crossflow_service {
     tonic::include_proto!("crossflow_service");
 }
 
-use config::RuntimeContext;
 use crossflow_service::crossflow_trigger_service_server::{
     CrossflowTriggerService, CrossflowTriggerServiceServer,
 };
@@ -53,7 +62,10 @@ impl CrossflowTriggerService for TriggerService {
         let diagram_path = req.diagram_path;
         let request_json = req.request;
 
-        println!("Received request: path: {}, request: {}", diagram_path, request_json);
+        println!(
+            "Received request: path: {}, request: {}",
+            diagram_path, request_json
+        );
 
         let result = tokio::task::spawn_blocking(move || {
             let mut registry = DiagramElementRegistry::new();
@@ -103,12 +115,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
 
-        let runtime_context = RuntimeContext::decode(&buffer[..])?;
-        if runtime_context.port != 0 {
-            port = runtime_context.port as u16;
+        let wrapper = RuntimeConfigWrapper::decode(&buffer[..])?;
+        if wrapper.port != 0 {
+            port = wrapper.port as u16;
         }
-        
-        let config_bytes = runtime_context.config.ok_or("config not found in wrapper")?.value;
+
+        let config_bytes = wrapper.any.ok_or("config not found in wrapper")?.value;
         Ok(CrossflowServiceConfig::decode(&config_bytes[..])?)
     })();
 

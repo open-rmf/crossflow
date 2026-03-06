@@ -43,7 +43,7 @@ pub mod crossflow_service {
 use crossflow_service::CrossflowServiceConfig;
 
 fn main() -> Result<(), Box<dyn Error>> {
-// create an instance of the config and print it out as an example
+    // create an instance of the config and print it out as an example
     let config = CrossflowServiceConfig {
         skill_registry_address: String::from("127.0.0.1:50051"),
         solution_service_address: String::from("127.0.0.1:50052"),
@@ -70,7 +70,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!("Successfully parsed config: {:?}", config);
             diagram_path = config.diagram_path;
             request = config.request;
-        },
+        }
         Err(e) => println!("Failed to parse config: {}", e),
     }
 
@@ -87,11 +87,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = basic_executor::Args {
         command: basic_executor::Commands::Run(basic_executor::RunArgs {
             diagram: diagram_path,
-            request: request
-        })};
+            request: request,
+        }),
+    };
 
     // Run with args
     basic_executor::run_with_args(args, registry)
-
 }
 // ANCHOR_END: calculator_example
