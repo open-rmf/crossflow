@@ -220,7 +220,7 @@ impl OperationType {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct OperationRoster {
     /// Operation sources that should be triggered
     pub(crate) queue: VecDeque<Entity>,
@@ -364,7 +364,7 @@ impl OperationError {
     }
 }
 
-pub type OperationResult = Result<(), OperationError>;
+pub type OperationResult<T = ()> = Result<T, OperationError>;
 pub type ReachabilityResult = Result<bool, OperationError>;
 
 pub struct OperationSetup<'a> {

@@ -35,7 +35,9 @@ use crate::{
 };
 
 #[cfg(feature = "trace")]
-use crate::{MessageSent, Trace, TraceToggle, TracedEvent, UniversalTraceToggle};
+use crate::{
+    Debug, DebugRoster, MessageSent, Trace, TraceToggle, TracedEvent, UniversalTraceToggle,
+};
 
 pub type Seq = u32;
 
@@ -486,9 +488,66 @@ impl ManageInput for World {
         &mut self,
         source: Entity,
     ) -> Result<Option<Input<T>>, OperationError> {
-        let mut storage = self.get_mut::<InputStorage<T>>(source).or_broken()?;
-        let input = storage.reverse_queue.pop();
-        Ok(input)
+        #[cfg(not(feature = "trace"))]
+        {
+            let mut storage = self.get_mut::<InputStorage<T>>(source).or_broken()?;
+            let input = storage.reverse_queue.pop();
+            return Ok(input);
+        }
+
+        #[cfg(feature = "trace")]
+        {
+            self.get_resource_or_init::<Debug>();
+            self.resource_scope::<Debug, _>(|world, mut debug| {
+                if !debug.is_active() {
+                    // Revert to the usual implementation of popping the next
+                    let mut storage = world.get_mut::<InputStorage<T>>(source).or_broken()?;
+                    let input = storage.reverse_queue.pop();
+                    return Ok(input);
+                } else {
+                    world.get_resource_or_init::<DebugRoster>();
+                    world.resource_scope::<DebugRoster, _>(|world, mut debug_roster| {
+                        let storage = world.get::<InputStorage<T>>(source).or_broken()?;
+                        let rev_next = storage.reverse_queue.iter().rev().position(|input| {
+                            let session = input.session;
+                            let seq = input.seq;
+
+                            // Evaluate whether we have hit a breakpoint. This will
+                            // pause the current session if we have.
+                            debug.evaluate_break(session, source, world);
+
+                            let mut is_paused = debug.is_paused(session, world);
+                            if is_paused {
+                                // We need to track this request inside the debug roster
+                                if debug_roster.is_allowed(RequestId {
+                                    session,
+                                    source,
+                                    seq,
+                                }) {
+                                    // If this input has been given permission to
+                                    // to be taken, change is_paused to false so
+                                    // it will be passed along.
+                                    is_paused = false;
+                                }
+                            }
+
+                            !is_paused
+                        });
+
+                        debug.notify_session_changes(world);
+
+                        if let Some(rev_next) = rev_next {
+                            let mut storage =
+                                world.get_mut::<InputStorage<T>>(source).or_broken()?;
+                            let next = storage.reverse_queue.len() - rev_next - 1;
+                            return Ok(Some(storage.reverse_queue.remove(next)));
+                        } else {
+                            return Ok(None);
+                        }
+                    })
+                }
+            })
+        }
     }
 
     fn cleanup_inputs<T: 'static + Send + Sync>(

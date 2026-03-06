@@ -486,6 +486,36 @@ impl SessionEvent {
         world.trigger(TracedEvent::now(event));
     }
 
+    pub(crate) fn paused_by_user(session: Entity, world: &mut World) {
+        let session_stack = get_session_stack_from_world(session, world);
+        let event = SessionEvent {
+            session_stack,
+            change: SessionChange::Paused(PauseCause::UserRequest),
+        };
+
+        world.trigger(TracedEvent::now(event));
+    }
+
+    pub(crate) fn paused_by_breakpoint(session: Entity, breakpoint: Entity, world: &mut World) {
+        let session_stack = get_session_stack_from_world(session, world);
+        let event = SessionEvent {
+            session_stack,
+            change: SessionChange::Paused(PauseCause::Breakpoint(breakpoint)),
+        };
+
+        world.trigger(TracedEvent::now(event));
+    }
+
+    pub(crate) fn unpaused(session: Entity, world: &mut World) {
+        let session_stack = get_session_stack_from_world(session, world);
+        let event = SessionEvent {
+            session_stack,
+            change: SessionChange::Unpaused,
+        };
+
+        world.trigger(TracedEvent::now(event));
+    }
+
     pub(crate) fn cleanup(session: Entity, world: &mut World) {
         let session_stack = get_session_stack_from_world(session, world);
         let event = SessionEvent {
@@ -513,6 +543,14 @@ pub enum SessionChange {
     },
     BeginCleanup,
     Despawned,
+    Paused(PauseCause),
+    Unpaused,
+}
+
+#[derive(Debug, Clone)]
+pub enum PauseCause {
+    UserRequest,
+    Breakpoint(Entity),
 }
 
 #[derive(Debug, Clone)]

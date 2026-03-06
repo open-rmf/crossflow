@@ -93,6 +93,11 @@ pub use chain::*;
 pub mod channel;
 pub use channel::*;
 
+#[cfg(feature = "trace")]
+pub mod debug;
+#[cfg(feature = "trace")]
+pub use debug::*;
+
 #[cfg(feature = "diagram")]
 pub mod diagram;
 #[cfg(feature = "diagram")]
@@ -514,6 +519,9 @@ pub mod prelude {
             SectionInterfaceItem,
         },
     };
+
+    #[cfg(feature = "trace")]
+    pub use crate::{Debug, DebugStepExt, UniversalTraceToggle};
 
     pub use futures::FutureExt;
 }
