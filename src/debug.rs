@@ -39,11 +39,17 @@ pub struct Debug {
 
     /// Sessions that have debugging active. If a breakpoint is hit for any of
     /// these sessions then that session will be added to paused_sessions.
-    pub debug_sessions: HashSet<Entity>,
+    ///
+    /// This is private to reduce API confusion between debugging sessions and
+    /// paused sessions.
+    debug_sessions: HashSet<Entity>,
 
     /// When a message is sent in a session in this set, it will remain in
     /// the input storage of its target operation until the user steps it forward.
-    pub paused_sessions: HashSet<Entity>,
+    ///
+    /// This is private to reduce API confusion between debugging sessions and
+    /// paused sessions.
+    paused_sessions: HashSet<Entity>,
 }
 
 impl Debug {
@@ -55,6 +61,34 @@ impl Debug {
     pub fn deactivate(&mut self) {
         self.debug_sessions.clear();
         self.paused_sessions.clear();
+    }
+
+    /// Start debugging for a session. Optionally pause the session immediately.
+    pub fn start_debugging_for(&mut self, session: Entity, pause_immediately: bool) {
+        self.debug_sessions.insert(session);
+        if pause_immediately {
+            self.paused_sessions.insert(session);
+        }
+    }
+
+    /// Turn off debugging for a session and unpause it.
+    pub fn stop_debugging_for(&mut self, session: Entity) {
+        self.debug_sessions.remove(&session);
+        self.paused_sessions.remove(&session);
+    }
+
+    /// Pause a session immediately. Note that this does not activate debugging
+    /// for the session, so the session will not respond to breakpoints. It will
+    /// simply remain paused until it gets unpaused.
+    pub fn pause(&mut self, session: Entity) {
+        self.paused_sessions.insert(session);
+    }
+
+    /// Unpause a session immediately. Note that this does not deactivate debugging,
+    /// so if debugging is enabled for the session then it will pause again when
+    /// it reaches a breakpoint.
+    pub fn unpause(&mut self, session: Entity) {
+        self.paused_sessions.remove(&session);
     }
 
     /// Check if any debugging is active.
@@ -251,7 +285,7 @@ mod tests {
             context.command(|commands| commands.request((), workflow).capture());
 
         let mut debug = context.app.world_mut().get_resource_or_init::<Debug>();
-        debug.debug_sessions.insert(session);
+        debug.start_debugging_for(session, false);
         debug.breakpoints = breakpoints;
 
         context.run_with_conditions(&mut outcome, 10);
@@ -276,5 +310,9 @@ mod tests {
         assert!(receivers[0].try_recv().is_err());
         assert!(receivers[1].try_recv().is_err());
         assert!(receivers[2].try_recv().is_ok());
+
+        context.app.world_mut().resource_mut::<Debug>().stop_debugging_for(session);
+        context.run_with_conditions(&mut outcome, 10);
+        outcome.try_recv().unwrap().unwrap();
     }
 }
