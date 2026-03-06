@@ -528,9 +528,11 @@ impl ManageInput for World {
                             !is_paused
                         });
 
+                        debug.notify_session_changes(world);
+
                         if let Some(rev_next) = rev_next {
-                            let next = storage.reverse_queue.len() - rev_next - 1;
                             let mut storage = world.get_mut::<InputStorage<T>>(source).or_broken()?;
+                            let next = storage.reverse_queue.len() - rev_next - 1;
                             return Ok(Some(storage.reverse_queue.remove(next)));
                         } else {
                             return Ok(None);

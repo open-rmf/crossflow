@@ -150,6 +150,7 @@ mod tests {
 
         #[cfg(feature = "trace")]
         {
+            context.app.world_mut().get_resource_or_insert_with(UniversalTraceToggle::on);
             context.app.world_mut().add_observer(|trace: Trigger<TracedEvent>, world: &mut World| {
                 let mut log = world.get_resource_or_init::<TraceLog>();
                 log.events.push(trace.event().event.clone());

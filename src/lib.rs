@@ -521,7 +521,7 @@ pub mod prelude {
     };
 
     #[cfg(feature = "trace")]
-    pub use crate::{Debug, DebugStepExt};
+    pub use crate::{Debug, DebugStepExt, UniversalTraceToggle};
 
     pub use futures::FutureExt;
 }

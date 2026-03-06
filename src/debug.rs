@@ -15,14 +15,14 @@
  *
 */
 
-use crate::{RequestId, OperationRoster, ManageSession, DeferredRoster};
+use crate::{RequestId, OperationRoster, ManageSession, DeferredRoster, SessionEvent};
 
 use bevy_ecs::{
     prelude::{Entity, Resource, World, Commands},
     system::Command,
 };
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 
 /// This resource lets you manage the debugging behavior of workflow execution.
@@ -50,6 +50,18 @@ pub struct Debug {
     /// This is private to reduce API confusion between debugging sessions and
     /// paused sessions.
     paused_sessions: HashSet<Entity>,
+
+    session_changes: VecDeque<SessionPauseChange>,
+}
+
+#[derive(Debug, Clone)]
+enum SessionPauseChange {
+    Paused(Entity),
+    Unpaused(Entity),
+    Breakpoint {
+        session: Entity,
+        breakpoint: Entity,
+    },
 }
 
 impl Debug {
@@ -60,14 +72,17 @@ impl Debug {
     /// if debugging gets turned on for any of their sessions.
     pub fn deactivate(&mut self) {
         self.debug_sessions.clear();
-        self.paused_sessions.clear();
+        self.session_changes.extend(
+            self.paused_sessions.drain()
+            .map(|session| SessionPauseChange::Unpaused(session))
+        );
     }
 
     /// Start debugging for a session. Optionally pause the session immediately.
     pub fn start_debugging_for(&mut self, session: Entity, pause_immediately: bool) {
         self.debug_sessions.insert(session);
         if pause_immediately {
-            self.paused_sessions.insert(session);
+            self.pause(session);
         }
     }
 
@@ -81,6 +96,7 @@ impl Debug {
     /// for the session, so the session will not respond to breakpoints. It will
     /// simply remain paused until it gets unpaused.
     pub fn pause(&mut self, session: Entity) {
+        self.session_changes.push_back(SessionPauseChange::Paused(session));
         self.paused_sessions.insert(session);
     }
 
@@ -89,6 +105,7 @@ impl Debug {
     /// it reaches a breakpoint.
     pub fn unpause(&mut self, session: Entity) {
         self.paused_sessions.remove(&session);
+        self.session_changes.push_back(SessionPauseChange::Unpaused(session));
     }
 
     /// Check if any debugging is active.
@@ -100,7 +117,7 @@ impl Debug {
 
     /// If the target is a breakpoint then the session will be added to paused
     /// sessions.
-    pub fn evaluate_break(&mut self, session: Entity, target: Entity, world: &World) {
+    pub(crate) fn evaluate_break(&mut self, session: Entity, target: Entity, world: &World) {
         let mut is_debug_session = None;
         for debug_session in &self.debug_sessions {
             if world.is_descendent_session(*debug_session, session) {
@@ -111,7 +128,12 @@ impl Debug {
 
         if let Some(debug_session) = is_debug_session {
             if self.breakpoints.contains(&target) {
-                self.paused_sessions.insert(debug_session);
+                if self.paused_sessions.insert(debug_session) {
+                    self.session_changes.push_back(SessionPauseChange::Breakpoint {
+                        session,
+                        breakpoint: target,
+                    });
+                }
             }
         }
     }
@@ -125,6 +147,22 @@ impl Debug {
         }
 
         false
+    }
+
+    pub(crate) fn notify_session_changes(&mut self, world: &mut World) {
+        while let Some(change) = self.session_changes.pop_front() {
+            match change {
+                SessionPauseChange::Paused(e) => {
+                    SessionEvent::paused_by_user(e, world);
+                }
+                SessionPauseChange::Unpaused(e) => {
+                    SessionEvent::unpaused(e, world);
+                }
+                SessionPauseChange::Breakpoint { session, breakpoint } => {
+                    SessionEvent::paused_by_breakpoint(session, breakpoint, world);
+                }
+            }
+        }
     }
 }
 
@@ -213,11 +251,11 @@ impl Command for DebugStep {
 pub trait DebugStepExt {
     /// Instruct a paused session to step forward, i.e. ingest the oldest paused
     /// message.
-    fn debug_step(&mut self, sesion: Entity);
+    fn debug_step(&mut self, session: Entity);
 
     /// Instruct a specific operation of a paused session to step forward, i.e.
     /// ingest its oldest paused message.
-    fn debug_step_for_operation(&mut self, sesion: Entity, operation: Entity);
+    fn debug_step_for_operation(&mut self, session: Entity, operation: Entity);
 }
 
 impl<'w, 's> DebugStepExt for Commands<'w, 's> {
@@ -346,5 +384,108 @@ mod tests {
         assert!(receivers[1].try_recv().is_ok());
         assert!(receivers[2].try_recv().is_ok());
         outcome.try_recv().unwrap().unwrap();
+    }
+
+    #[test]
+    fn test_debug_step_for_buffers_and_cycles() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let (sum_sender, mut sum_receiver) = tokio::sync::mpsc::unbounded_channel();
+
+        let mut breakpoints = HashSet::new();
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffer_a = builder.create_buffer(Default::default());
+            let buffer_b = builder.create_buffer(Default::default());
+            breakpoints.insert(buffer_a.id());
+
+            let (fork_input, fork_outputs) = builder.create_fork_clone();
+            builder.connect(scope.start, fork_input);
+
+            let clone_a = fork_outputs.clone_output(builder);
+            builder
+                .chain(clone_a)
+                .map_block(|x| 2.0*x)
+                .connect(buffer_a.input_slot());
+
+            let clone_b = fork_outputs.clone_output(builder);
+            builder
+                .chain(clone_b)
+                .map_block(|x| 3.0*x)
+                .connect(buffer_b.input_slot());
+
+            builder
+                .join((buffer_a, buffer_b))
+                .map_block(move |(a, b)| {
+                    let sum = a + b;
+                    let _ = sum_sender.send(sum);
+                    if sum > 100.0 {
+                        Ok(sum)
+                    } else {
+                        Err(sum)
+                    }
+                })
+                .fork_result(
+                    |ok: Chain<_>| ok.connect(scope.terminate),
+                    |err: Chain<_>| err.connect(fork_input),
+                );
+        });
+
+        let Capture { mut outcome, session, .. } =
+            context.command(|commands| commands.request(1.0, workflow).capture());
+
+        let mut debug = context.app.world_mut().get_resource_or_init::<Debug>();
+        debug.start_debugging_for(session, false);
+        debug.breakpoints = breakpoints;
+
+        let mut step_up_to_sum = move |
+            outcome: &mut Outcome<f64>,
+            context: &mut TestingContext,
+            expected_sum: f64
+        | {
+            // Run until the breakpoint
+            context.run_with_conditions(outcome, 3);
+
+            // Step buffer_a forward
+            context.command(|commands| commands.debug_step(session));
+            context.run_with_conditions(outcome, 3);
+            assert!(sum_receiver.try_recv().is_err());
+
+            // Step buffer_b forward
+            context.command(|commands| commands.debug_step(session));
+            context.run_with_conditions(outcome, 3);
+            assert!(sum_receiver.try_recv().is_err());
+
+            // Step join forward
+            context.command(|commands| commands.debug_step(session));
+            context.run_with_conditions(outcome, 3);
+            assert!(sum_receiver.try_recv().is_err());
+
+            // Step join forward again because it gets a notification from each
+            // buffer. Since the buffers are empty, the join won't do anything.
+            context.command(|commands| commands.debug_step(session));
+            context.run_with_conditions(outcome, 3);
+            assert!(sum_receiver.try_recv().is_err());
+
+            // Step sum map forward
+            context.command(|commands| commands.debug_step(session));
+            context.run_with_conditions(outcome, 3);
+            assert_eq!(sum_receiver.try_recv().unwrap(), expected_sum);
+        };
+
+        // Step up to the first sum operation
+        step_up_to_sum(&mut outcome, &mut context, 5.0);
+
+        // Unpause until the breakpoint is reached again, then step up to the sum
+        context.app.world_mut().resource_mut::<Debug>().unpause(session);
+        step_up_to_sum(&mut outcome, &mut context, 25.0);
+
+        // Unpause until the breakpoint is reached again, then step up to the sum
+        context.app.world_mut().resource_mut::<Debug>().unpause(session);
+        step_up_to_sum(&mut outcome, &mut context, 125.0);
+
+        // Unpause and let the workflow finish
+        context.app.world_mut().resource_mut::<Debug>().unpause(session);
+        context.run_with_conditions(&mut outcome, 1);
+        assert_eq!(outcome.try_recv().unwrap().unwrap(), 125.0);
     }
 }
