@@ -220,7 +220,7 @@ impl OperationType {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct OperationRoster {
     /// Operation sources that should be triggered
     pub(crate) queue: VecDeque<Entity>,

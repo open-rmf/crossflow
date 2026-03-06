@@ -136,6 +136,26 @@ mod tests {
 
         let mut context = TestingContext::minimal_plugins();
 
+        #[cfg(feature = "trace")]
+        use {
+            crate::{TracedEvent, TracedEventKind},
+            bevy_ecs::prelude::{Resource, Trigger},
+        };
+
+        #[cfg(feature = "trace")]
+        #[derive(Debug, Resource, Default)]
+        struct TraceLog {
+            events: Vec<TracedEventKind>,
+        }
+
+        #[cfg(feature = "trace")]
+        {
+            context.app.world_mut().add_observer(|trace: Trigger<TracedEvent>, world: &mut World| {
+                let mut log = world.get_resource_or_init::<TraceLog>();
+                log.events.push(trace.event().event.clone());
+            });
+        }
+
         let workflow = context.spawn_io_workflow(|scope, builder| {
             let node = builder.create_map(|input: Async<f64, StreamOf<f64>>| async move {
                 input.streams.send(input.request);
@@ -158,7 +178,20 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let r = context.resolve_request(2.0, workflow);
+        let r = match context.try_resolve_request(2.0, workflow, Duration::from_secs(2)) {
+            Ok(ok) => ok,
+            Err(err) => {
+                #[cfg(feature = "trace")]
+                {
+                    println!(
+                        "Activity trace of test failure:\n{:#?}",
+                        context.app.world().resource::<TraceLog>(),
+                    );
+                }
+                assert!(false, "failed to resolve:\n{err}");
+                return;
+            }
+        };
         assert_eq!(r, 4.0);
     }
 

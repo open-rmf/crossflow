@@ -514,10 +514,15 @@ impl ManageInput for World {
                             // pause the current session if we have.
                             debug.evaluate_break(session, source, world);
 
-                            let is_paused = debug.is_paused(session, world);
+                            let mut is_paused = debug.is_paused(session, world);
                             if is_paused {
                                 // We need to track this request inside the debug roster
-                                debug_roster.add(RequestId { session, source, seq });
+                                if debug_roster.is_allowed(RequestId { session, source, seq }) {
+                                    // If this input has been given permission to
+                                    // to be taken, change is_paused to false so
+                                    // it will be passed along.
+                                    is_paused = false;
+                                }
                             }
 
                             !is_paused

@@ -520,6 +520,9 @@ pub mod prelude {
         },
     };
 
+    #[cfg(feature = "trace")]
+    pub use crate::{Debug, DebugStepExt};
+
     pub use futures::FutureExt;
 }
 

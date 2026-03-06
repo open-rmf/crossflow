@@ -105,6 +105,10 @@ fn flush_execution_impl(
         });
     }
 
+    // Queue any operations that needed to be deferred
+    let mut deferred = world.get_resource_or_insert_with(DeferredRoster::default);
+    roster.append(&mut deferred);
+
     let mut loop_count = 0;
     while !roster.is_empty() {
         for e in roster.deferred_despawn.drain(..) {

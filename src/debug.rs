@@ -18,12 +18,19 @@
 use crate::{RequestId, OperationRoster, ManageSession, DeferredRoster};
 
 use bevy_ecs::{
-    prelude::{Entity, Resource, World},
+    prelude::{Entity, Resource, World, Commands},
     system::Command,
 };
 
 use std::collections::HashSet;
 
+
+/// This resource lets you manage the debugging behavior of workflow execution.
+/// You can freely change any fields inside this resource and the debugger will
+/// respond by pausing or releasing inputs accordingly.
+///
+/// If you remove this resource from the world entirely while some inputs are
+/// paused, they will
 #[derive(Debug, Default, Clone, Resource)]
 pub struct Debug {
     /// When a message gets sent to an operation in this set, the session of that
@@ -40,6 +47,16 @@ pub struct Debug {
 }
 
 impl Debug {
+    /// Use this to deactivate debugging, which will unpause all sessions and
+    /// prevent breakpoints from triggering any pauses.
+    ///
+    /// Any breakpoints that are set will remain set and become effective again
+    /// if debugging gets turned on for any of their sessions.
+    pub fn deactivate(&mut self) {
+        self.debug_sessions.clear();
+        self.paused_sessions.clear();
+    }
+
     /// Check if any debugging is active.
     pub fn is_active(&self) -> bool {
         let is_paused = !self.paused_sessions.is_empty();
@@ -80,15 +97,25 @@ impl Debug {
 #[derive(Debug, Default, Clone, Resource)]
 pub(crate) struct DebugRoster {
     deferrals: Vec<RequestId>,
+    allow: HashSet<RequestId>,
 }
 
 impl DebugRoster {
-    pub(crate) fn add(&mut self, id: RequestId) {
+    /// Check whether an operation is allowed to take this request. This is
+    /// assumes the request belongs to a paused session. Do not use this function
+    /// for requests whose sessions are not paused or else the input will be
+    /// forced to pause.
+    pub(crate) fn is_allowed(&mut self, id: RequestId) -> bool {
+        if self.allow.remove(&id) {
+            return true;
+        }
+
         if self.deferrals.contains(&id) {
-            return;
+            return false;
         }
 
         self.deferrals.push(id);
+        false
     }
 
     pub(crate) fn pop_next_in_session(
@@ -109,6 +136,7 @@ impl DebugRoster {
                     }
                 }) {
                 let next = self.deferrals.remove(index);
+                self.allow.insert(next);
                 roster.queue(next.source);
             }
         });
@@ -145,5 +173,108 @@ impl Command for DebugStep {
         world.resource_scope::<DebugRoster, _>(|world, mut debug_roster| {
             debug_roster.pop_next_in_session(self.session, self.operation, world);
         });
+    }
+}
+
+pub trait DebugStepExt {
+    /// Instruct a paused session to step forward, i.e. ingest the oldest paused
+    /// message.
+    fn debug_step(&mut self, sesion: Entity);
+
+    /// Instruct a specific operation of a paused session to step forward, i.e.
+    /// ingest its oldest paused message.
+    fn debug_step_for_operation(&mut self, sesion: Entity, operation: Entity);
+}
+
+impl<'w, 's> DebugStepExt for Commands<'w, 's> {
+    fn debug_step(&mut self, session: Entity) {
+        self.queue(DebugStep {
+            session,
+            operation: None,
+        });
+    }
+
+    fn debug_step_for_operation(&mut self, session: Entity, operation: Entity) {
+        self.queue(DebugStep {
+            session,
+            operation: Some(operation),
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{prelude::*, testing::*};
+    use std::collections::HashSet;
+
+    #[test]
+    fn test_debug_step() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let mut senders = Vec::new();
+        let mut receivers = Vec::new();
+        for _ in 0..3 {
+            let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+            senders.push(sender);
+            receivers.push(receiver);
+        }
+
+        let mut breakpoints = HashSet::new();
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let first = builder.create_map_block({
+                let senders = senders.clone();
+                move |_: ()| {
+                    let _ = senders[0].send(());
+                }
+            });
+            breakpoints.insert(first.input.id());
+
+            builder.connect(scope.start, first.input);
+            builder
+                .chain(first.output)
+                .map_block({
+                    let senders = senders.clone();
+                    move |_: ()| {
+                        let _ = senders[1].send(());
+                    }
+                })
+                .map_block({
+                    let senders = senders.clone();
+                    move |_: ()| {
+                        let _ = senders[2].send(());
+                    }
+                })
+                .connect(scope.terminate);
+        });
+
+        let Capture { mut outcome, session, .. } =
+            context.command(|commands| commands.request((), workflow).capture());
+
+        let mut debug = context.app.world_mut().get_resource_or_init::<Debug>();
+        debug.debug_sessions.insert(session);
+        debug.breakpoints = breakpoints;
+
+        context.run_with_conditions(&mut outcome, 10);
+        assert!(receivers[0].try_recv().is_err());
+        assert!(receivers[1].try_recv().is_err());
+        assert!(receivers[2].try_recv().is_err());
+
+        context.command(|commands| commands.debug_step(session));
+        context.run_with_conditions(&mut outcome, 10);
+        assert!(receivers[0].try_recv().is_ok());
+        assert!(receivers[1].try_recv().is_err());
+        assert!(receivers[2].try_recv().is_err());
+
+        context.command(|commands| commands.debug_step(session));
+        context.run_with_conditions(&mut outcome, 10);
+        assert!(receivers[0].try_recv().is_err());
+        assert!(receivers[1].try_recv().is_ok());
+        assert!(receivers[2].try_recv().is_err());
+
+        context.command(|commands| commands.debug_step(session));
+        context.run_with_conditions(&mut outcome, 10);
+        assert!(receivers[0].try_recv().is_err());
+        assert!(receivers[1].try_recv().is_err());
+        assert!(receivers[2].try_recv().is_ok());
     }
 }
