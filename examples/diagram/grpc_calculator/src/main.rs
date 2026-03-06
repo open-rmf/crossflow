@@ -44,8 +44,8 @@ pub mod crossflow_service {
     tonic::include_proto!("crossflow_service");
 }
 
-use crossflow_service::crossflow_trigger_service_server::{
-    CrossflowTriggerService, CrossflowTriggerServiceServer,
+use crossflow_service::crossflow_service_server::{
+    CrossflowService, CrossflowServiceServer,
 };
 use crossflow_service::{CrossflowServiceConfig, TriggerRequest, TriggerResponse};
 
@@ -53,7 +53,7 @@ use crossflow_service::{CrossflowServiceConfig, TriggerRequest, TriggerResponse}
 pub struct TriggerService {}
 
 #[tonic::async_trait]
-impl CrossflowTriggerService for TriggerService {
+impl CrossflowService for TriggerService {
     async fn trigger(
         &self,
         request: Request<TriggerRequest>,
@@ -137,7 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("TriggerService listening on {}", addr);
 
     Server::builder()
-        .add_service(CrossflowTriggerServiceServer::new(service))
+        .add_service(CrossflowServiceServer::new(service))
         .serve(addr)
         .await?;
 

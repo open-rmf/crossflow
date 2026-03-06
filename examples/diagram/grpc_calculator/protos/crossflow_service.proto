@@ -16,6 +16,6 @@ message TriggerResponse {
   string result = 1;
 }
 
-service CrossflowTriggerService {
+service CrossflowService {
   rpc Trigger(TriggerRequest) returns (TriggerResponse);
 }
