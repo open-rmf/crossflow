@@ -15,15 +15,14 @@
  *
 */
 
-use crate::{RequestId, OperationRoster, ManageSession, DeferredRoster, SessionEvent};
+use crate::{DeferredRoster, ManageSession, OperationRoster, RequestId, SessionEvent};
 
 use bevy_ecs::{
-    prelude::{Entity, Resource, World, Commands},
+    prelude::{Commands, Entity, Resource, World},
     system::Command,
 };
 
 use std::collections::{HashSet, VecDeque};
-
 
 /// This resource lets you manage the debugging behavior of workflow execution.
 /// You can freely change any fields inside this resource and the debugger will
@@ -58,10 +57,7 @@ pub struct Debug {
 enum SessionPauseChange {
     Paused(Entity),
     Unpaused(Entity),
-    Breakpoint {
-        session: Entity,
-        breakpoint: Entity,
-    },
+    Breakpoint { session: Entity, breakpoint: Entity },
 }
 
 impl Debug {
@@ -73,8 +69,9 @@ impl Debug {
     pub fn deactivate(&mut self) {
         self.debug_sessions.clear();
         self.session_changes.extend(
-            self.paused_sessions.drain()
-            .map(|session| SessionPauseChange::Unpaused(session))
+            self.paused_sessions
+                .drain()
+                .map(|session| SessionPauseChange::Unpaused(session)),
         );
     }
 
@@ -96,7 +93,8 @@ impl Debug {
     /// for the session, so the session will not respond to breakpoints. It will
     /// simply remain paused until it gets unpaused.
     pub fn pause(&mut self, session: Entity) {
-        self.session_changes.push_back(SessionPauseChange::Paused(session));
+        self.session_changes
+            .push_back(SessionPauseChange::Paused(session));
         self.paused_sessions.insert(session);
     }
 
@@ -105,7 +103,8 @@ impl Debug {
     /// it reaches a breakpoint.
     pub fn unpause(&mut self, session: Entity) {
         self.paused_sessions.remove(&session);
-        self.session_changes.push_back(SessionPauseChange::Unpaused(session));
+        self.session_changes
+            .push_back(SessionPauseChange::Unpaused(session));
     }
 
     /// Check if any debugging is active.
@@ -129,10 +128,11 @@ impl Debug {
         if let Some(debug_session) = is_debug_session {
             if self.breakpoints.contains(&target) {
                 if self.paused_sessions.insert(debug_session) {
-                    self.session_changes.push_back(SessionPauseChange::Breakpoint {
-                        session,
-                        breakpoint: target,
-                    });
+                    self.session_changes
+                        .push_back(SessionPauseChange::Breakpoint {
+                            session,
+                            breakpoint: target,
+                        });
                 }
             }
         }
@@ -158,7 +158,10 @@ impl Debug {
                 SessionPauseChange::Unpaused(e) => {
                     SessionEvent::unpaused(e, world);
                 }
-                SessionPauseChange::Breakpoint { session, breakpoint } => {
+                SessionPauseChange::Breakpoint {
+                    session,
+                    breakpoint,
+                } => {
                     SessionEvent::paused_by_breakpoint(session, breakpoint, world);
                 }
             }
@@ -198,15 +201,14 @@ impl DebugRoster {
     ) {
         world.get_resource_or_init::<DeferredRoster>();
         world.resource_scope::<DeferredRoster, _>(|world, mut roster| {
-            if let Some(index) = self.deferrals.iter().position(
-                |req| {
-                    let is_in_session = world.is_descendent_session(session, req.session);
-                    if let Some(op) = operation {
-                        req.source == op
-                    } else {
-                        is_in_session
-                    }
-                }) {
+            if let Some(index) = self.deferrals.iter().position(|req| {
+                let is_in_session = world.is_descendent_session(session, req.session);
+                if let Some(op) = operation {
+                    req.source == op
+                } else {
+                    is_in_session
+                }
+            }) {
                 let next = self.deferrals.remove(index);
                 self.allow.insert(next);
                 roster.queue(next.source);
@@ -215,11 +217,7 @@ impl DebugRoster {
     }
 
     /// For any sessions that have been unpaused, release their inputs.
-    pub(crate) fn release_unpaused(
-        &mut self,
-        world: &mut World,
-        roster: &mut OperationRoster,
-    ) {
+    pub(crate) fn release_unpaused(&mut self, world: &mut World, roster: &mut OperationRoster) {
         world.get_resource_or_init::<Debug>();
         world.resource_scope::<Debug, _>(|world, debug| {
             self.deferrals.retain(|req| {
@@ -320,8 +318,11 @@ mod tests {
         });
 
         // ----- Test: Reach a breakpoint and step through one operation at a time
-        let Capture { mut outcome, session, .. } =
-            context.command(|commands| commands.request((), workflow).capture());
+        let Capture {
+            mut outcome,
+            session,
+            ..
+        } = context.command(|commands| commands.request((), workflow).capture());
 
         let mut debug = context.app.world_mut().get_resource_or_init::<Debug>();
         debug.start_debugging_for(session, false);
@@ -350,13 +351,20 @@ mod tests {
         assert!(receivers[1].try_recv().is_err());
         assert!(receivers[2].try_recv().is_ok());
 
-        context.app.world_mut().resource_mut::<Debug>().stop_debugging_for(session);
+        context
+            .app
+            .world_mut()
+            .resource_mut::<Debug>()
+            .stop_debugging_for(session);
         context.run_with_conditions(&mut outcome, 1);
         outcome.try_recv().unwrap().unwrap();
 
         // ----- Test: Reach a breakpoint, take one step, and then unpause
-        let Capture { mut outcome, session, .. } =
-            context.command(|commands| commands.request((), workflow).capture());
+        let Capture {
+            mut outcome,
+            session,
+            ..
+        } = context.command(|commands| commands.request((), workflow).capture());
 
         let mut debug = context.app.world_mut().get_resource_or_init::<Debug>();
         debug.start_debugging_for(session, false);
@@ -378,7 +386,11 @@ mod tests {
         assert!(receivers[1].try_recv().is_err());
         assert!(receivers[2].try_recv().is_err());
 
-        context.app.world_mut().resource_mut::<Debug>().stop_debugging_for(session);
+        context
+            .app
+            .world_mut()
+            .resource_mut::<Debug>()
+            .stop_debugging_for(session);
         context.run_with_conditions(&mut outcome, 1);
         assert!(receivers[0].try_recv().is_err());
         assert!(receivers[1].try_recv().is_ok());
@@ -404,13 +416,13 @@ mod tests {
             let clone_a = fork_outputs.clone_output(builder);
             builder
                 .chain(clone_a)
-                .map_block(|x| 2.0*x)
+                .map_block(|x| 2.0 * x)
                 .connect(buffer_a.input_slot());
 
             let clone_b = fork_outputs.clone_output(builder);
             builder
                 .chain(clone_b)
-                .map_block(|x| 3.0*x)
+                .map_block(|x| 3.0 * x)
                 .connect(buffer_b.input_slot());
 
             builder
@@ -418,11 +430,7 @@ mod tests {
                 .map_block(move |(a, b)| {
                     let sum = a + b;
                     let _ = sum_sender.send(sum);
-                    if sum > 100.0 {
-                        Ok(sum)
-                    } else {
-                        Err(sum)
-                    }
+                    if sum > 100.0 { Ok(sum) } else { Err(sum) }
                 })
                 .fork_result(
                     |ok: Chain<_>| ok.connect(scope.terminate),
@@ -430,61 +438,73 @@ mod tests {
                 );
         });
 
-        let Capture { mut outcome, session, .. } =
-            context.command(|commands| commands.request(1.0, workflow).capture());
+        let Capture {
+            mut outcome,
+            session,
+            ..
+        } = context.command(|commands| commands.request(1.0, workflow).capture());
 
         let mut debug = context.app.world_mut().get_resource_or_init::<Debug>();
         debug.start_debugging_for(session, false);
         debug.breakpoints = breakpoints;
 
-        let mut step_up_to_sum = move |
-            outcome: &mut Outcome<f64>,
-            context: &mut TestingContext,
-            expected_sum: f64
-        | {
-            // Run until the breakpoint
-            context.run_with_conditions(outcome, 3);
+        let mut step_up_to_sum =
+            move |outcome: &mut Outcome<f64>, context: &mut TestingContext, expected_sum: f64| {
+                // Run until the breakpoint
+                context.run_with_conditions(outcome, 3);
 
-            // Step buffer_a forward
-            context.command(|commands| commands.debug_step(session));
-            context.run_with_conditions(outcome, 3);
-            assert!(sum_receiver.try_recv().is_err());
+                // Step buffer_a forward
+                context.command(|commands| commands.debug_step(session));
+                context.run_with_conditions(outcome, 3);
+                assert!(sum_receiver.try_recv().is_err());
 
-            // Step buffer_b forward
-            context.command(|commands| commands.debug_step(session));
-            context.run_with_conditions(outcome, 3);
-            assert!(sum_receiver.try_recv().is_err());
+                // Step buffer_b forward
+                context.command(|commands| commands.debug_step(session));
+                context.run_with_conditions(outcome, 3);
+                assert!(sum_receiver.try_recv().is_err());
 
-            // Step join forward
-            context.command(|commands| commands.debug_step(session));
-            context.run_with_conditions(outcome, 3);
-            assert!(sum_receiver.try_recv().is_err());
+                // Step join forward
+                context.command(|commands| commands.debug_step(session));
+                context.run_with_conditions(outcome, 3);
+                assert!(sum_receiver.try_recv().is_err());
 
-            // Step join forward again because it gets a notification from each
-            // buffer. Since the buffers are empty, the join won't do anything.
-            context.command(|commands| commands.debug_step(session));
-            context.run_with_conditions(outcome, 3);
-            assert!(sum_receiver.try_recv().is_err());
+                // Step join forward again because it gets a notification from each
+                // buffer. Since the buffers are empty, the join won't do anything.
+                context.command(|commands| commands.debug_step(session));
+                context.run_with_conditions(outcome, 3);
+                assert!(sum_receiver.try_recv().is_err());
 
-            // Step sum map forward
-            context.command(|commands| commands.debug_step(session));
-            context.run_with_conditions(outcome, 3);
-            assert_eq!(sum_receiver.try_recv().unwrap(), expected_sum);
-        };
+                // Step sum map forward
+                context.command(|commands| commands.debug_step(session));
+                context.run_with_conditions(outcome, 3);
+                assert_eq!(sum_receiver.try_recv().unwrap(), expected_sum);
+            };
 
         // Step up to the first sum operation
         step_up_to_sum(&mut outcome, &mut context, 5.0);
 
         // Unpause until the breakpoint is reached again, then step up to the sum
-        context.app.world_mut().resource_mut::<Debug>().unpause(session);
+        context
+            .app
+            .world_mut()
+            .resource_mut::<Debug>()
+            .unpause(session);
         step_up_to_sum(&mut outcome, &mut context, 25.0);
 
         // Unpause until the breakpoint is reached again, then step up to the sum
-        context.app.world_mut().resource_mut::<Debug>().unpause(session);
+        context
+            .app
+            .world_mut()
+            .resource_mut::<Debug>()
+            .unpause(session);
         step_up_to_sum(&mut outcome, &mut context, 125.0);
 
         // Unpause and let the workflow finish
-        context.app.world_mut().resource_mut::<Debug>().unpause(session);
+        context
+            .app
+            .world_mut()
+            .resource_mut::<Debug>()
+            .unpause(session);
         context.run_with_conditions(&mut outcome, 1);
         assert_eq!(outcome.try_recv().unwrap().unwrap(), 125.0);
     }

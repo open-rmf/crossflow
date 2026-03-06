@@ -90,8 +90,7 @@ pub fn flush_execution() -> ScheduleConfigs<ScheduleSystem> {
 fn flush_execution_impl(
     world: &mut World,
     new_service_query: &mut QueryState<(Entity, &mut ServiceHook), Added<ServiceHook>>,
-    #[cfg(feature = "trace")]
-    debug: &mut SystemState<Option<Res<Debug>>>,
+    #[cfg(feature = "trace")] debug: &mut SystemState<Option<Res<Debug>>>,
 ) {
     let parameters = *world.get_resource_or_insert_with(FlushParameters::default);
     let mut roster = OperationRoster::new();
@@ -100,7 +99,9 @@ fn flush_execution_impl(
     #[cfg(feature = "trace")]
     {
         let debug = debug.get(world);
-        if let Some(debug) = debug && debug.is_changed() {
+        if let Some(debug) = debug
+            && debug.is_changed()
+        {
             world.get_resource_or_init::<DebugRoster>();
             world.resource_scope::<DebugRoster, _>(|world, mut debug_roster| {
                 debug_roster.release_unpaused(world, &mut roster);

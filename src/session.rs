@@ -15,7 +15,7 @@
  *
 */
 
-use bevy_ecs::prelude::{Component, Entity, World, ChildOf};
+use bevy_ecs::prelude::{ChildOf, Component, Entity, World};
 
 use crate::{Cancellation, ScopedSessionBundle, Seq};
 
@@ -76,11 +76,7 @@ pub trait ManageSession {
     /// Note that this also returns true if `parent_session == descendent_session`,
     /// so this is meant to be used when you're trying to figure out of a session
     /// exists anywhere inside another session, inclusively.
-    fn is_descendent_session(
-        &self,
-        parent_session: Entity,
-        descendent_session: Entity,
-    ) -> bool;
+    fn is_descendent_session(&self, parent_session: Entity, descendent_session: Entity) -> bool;
 }
 
 impl ManageSession for World {

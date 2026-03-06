@@ -35,7 +35,9 @@ use crate::{
 };
 
 #[cfg(feature = "trace")]
-use crate::{MessageSent, Trace, TraceToggle, TracedEvent, UniversalTraceToggle, Debug, DebugRoster};
+use crate::{
+    Debug, DebugRoster, MessageSent, Trace, TraceToggle, TracedEvent, UniversalTraceToggle,
+};
 
 pub type Seq = u32;
 
@@ -517,7 +519,11 @@ impl ManageInput for World {
                             let mut is_paused = debug.is_paused(session, world);
                             if is_paused {
                                 // We need to track this request inside the debug roster
-                                if debug_roster.is_allowed(RequestId { session, source, seq }) {
+                                if debug_roster.is_allowed(RequestId {
+                                    session,
+                                    source,
+                                    seq,
+                                }) {
                                     // If this input has been given permission to
                                     // to be taken, change is_paused to false so
                                     // it will be passed along.
@@ -531,7 +537,8 @@ impl ManageInput for World {
                         debug.notify_session_changes(world);
 
                         if let Some(rev_next) = rev_next {
-                            let mut storage = world.get_mut::<InputStorage<T>>(source).or_broken()?;
+                            let mut storage =
+                                world.get_mut::<InputStorage<T>>(source).or_broken()?;
                             let next = storage.reverse_queue.len() - rev_next - 1;
                             return Ok(Some(storage.reverse_queue.remove(next)));
                         } else {
