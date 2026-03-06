@@ -1,0 +1,55 @@
+// Copyright 2023 Intrinsic Innovation LLC
+
+syntax = "proto3";
+
+package intrinsic_proto.config;
+
+import "google/protobuf/any.proto";
+
+option go_package = "intrinsic/resources/proto/runtime_context_go_proto";
+
+message RuntimeContext {
+  enum Level {
+    UNSPECIFIED = 0;
+    REALITY = 1;
+    PHYSICS_SIM = 2;
+  }
+
+  // The port on which a resource should serve clients.
+  int32 port = 1;
+
+  // The port on which the resource should serve its http endpoint if
+  // implemented.
+  int32 http_port = 7;
+
+  // The path prefix for the http endpoint.
+  string http_path_prefix = 9;
+
+  // Similar to `simulation_level` in a skill's ExecuteRequest, a resource is
+  // expected to modify its behavior whether it's running in simulation or
+  // reality.  The resource is expected to take a safe and reasonable default in
+  // the case of an unknown value.
+  Level level = 2;
+
+  // The DNS address of the simulation server to connect to during PHYSICS_SIM.
+  // If it is unset during PHYSICS_SIM, the resource will fail to connect to the
+  // simulator and will report an error.
+  string simulation_server_address = 3;
+
+  // The address of the ProductService to connect to to access product data in
+  // the deployed solution.
+  string product_service_address = 10;
+
+  // This resource instance's name.
+  string name = 5;
+
+  // The configuration of this resource instance.
+  google.protobuf.Any config = 6;
+
+  // The topic on which the Service should publish its ServiceInspectionData
+  // message, if a Service inspection config is defined.
+  optional string service_inspection_topic = 11;
+
+  reserved 4;
+  reserved "instance";
+}

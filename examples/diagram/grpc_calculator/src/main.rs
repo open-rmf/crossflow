@@ -26,22 +26,15 @@ use crossflow::{
 };
 use std::str::FromStr;
 
-#[derive(Clone, PartialEq, ::prost::Message)]
-struct RuntimeConfigWrapper {
-    #[prost(message, optional, tag = "6")]
-    pub any: Option<AnyWrapper>,
-}
-
-#[derive(Clone, PartialEq, ::prost::Message)]
-struct AnyWrapper {
-    #[prost(bytes = "vec", tag = "2")]
-    pub value: Vec<u8>,
+pub mod config {
+    tonic::include_proto!("intrinsic_proto.config");
 }
 
 pub mod crossflow_service {
     tonic::include_proto!("crossflow_service");
 }
 
+use config::RuntimeContext;
 use crossflow_service::crossflow_trigger_service_server::{
     CrossflowTriggerService, CrossflowTriggerServiceServer,
 };
@@ -103,13 +96,19 @@ impl CrossflowTriggerService for TriggerService {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut port = 50051; // Default port
+
     let result = (|| -> Result<CrossflowServiceConfig, Box<dyn std::error::Error>> {
         let mut file = File::open("/etc/intrinsic/runtime_config.pb")?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
 
-        let wrapper = RuntimeConfigWrapper::decode(&buffer[..])?;
-        let config_bytes = wrapper.any.ok_or("config not found in wrapper")?.value;
+        let runtime_context = RuntimeContext::decode(&buffer[..])?;
+        if runtime_context.port != 0 {
+            port = runtime_context.port as u16;
+        }
+        
+        let config_bytes = runtime_context.config.ok_or("config not found in wrapper")?.value;
         Ok(CrossflowServiceConfig::decode(&config_bytes[..])?)
     })();
 
@@ -120,7 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => println!("Failed to parse config: {}. Proceeding with defaults.", e),
     }
 
-    let addr = "[::]:50051".parse()?;
+    let addr = format!("[::]:{}", port).parse()?;
     let service = TriggerService::default();
 
     println!("TriggerService listening on {}", addr);
