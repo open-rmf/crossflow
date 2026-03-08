@@ -8,7 +8,7 @@ message CrossflowServiceConfig {
 }
 
 message TriggerRequest {
-  string diagram_path = 1;
+  string diagram = 1;
   string request = 2;
 }
 

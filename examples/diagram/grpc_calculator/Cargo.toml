@@ -3,6 +3,10 @@ name = "grpc_calculator"
 version = "0.0.6"
 edition = "2024"
 
+[[bin]]
+name = "send_diagram"
+path = "src/send-diagram.rs"
+
 [dependencies]
 crossflow_diagram_editor = { path = "../../../diagram-editor", features = ["basic_executor"] }
 calculator_ops_catalog = { path = "../calculator_ops_catalog" }

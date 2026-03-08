@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 Open Source Robotics Foundation
+ * Copyright (C) 2026 Open Source Robotics Foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -59,12 +59,12 @@ impl CrossflowService for TriggerService {
         request: Request<TriggerRequest>,
     ) -> Result<Response<TriggerResponse>, Status> {
         let req = request.into_inner();
-        let diagram_path = req.diagram_path;
+        let diagram_json = req.diagram;
         let request_json = req.request;
 
         println!(
-            "Received request: path: {}, request: {}",
-            diagram_path, request_json
+            "Received request: diagram: {}, request: {}",
+            diagram_json, request_json
         );
 
         let result = tokio::task::spawn_blocking(move || {
@@ -73,10 +73,8 @@ impl CrossflowService for TriggerService {
 
             let BasicExecutorSetup { mut app, registry } = BasicExecutorSetup::minimal(registry);
             app.add_plugins(CrossflowExecutorApp::default());
-            let file =
-                File::open(&diagram_path).map_err(|e| format!("Failed to open diagram: {}", e))?;
             let diagram =
-                Diagram::from_reader(file).map_err(|e| format!("Failed to read diagram: {}", e))?;
+                Diagram::from_json_str(diagram_json.as_str()).map_err(|e| format!("Failed to parse diagram: {}", e))?;
 
             let request_val = serde_json::Value::from_str(&request_json)
                 .map_err(|e| format!("Invalid JSON: {}", e))?;
@@ -152,10 +150,35 @@ mod tests {
     #[tokio::test]
     async fn test_trigger_service() {
         let service = TriggerService::default();
-        let diagram_path = "diagrams/multiply_by_3.json";
+        let diagram_json_str = r#"
+        {
+            "$schema": "https://raw.githubusercontent.com/open-rmf/crossflow/refs/heads/main/diagram.schema.json",
+            "version": "0.1.0",
+            "description": "Basic workflow that multiplies the interger input by 3.",
+            "input_examples": [
+                {
+                "description": "Multiply 123 by 3 to get 369",
+                "value": "123"
+                },
+                {
+                "description": "Multiply 456 by 3 to get 1368",
+                "value": "456"
+                }
+            ],
+            "start": "mul3",
+            "ops": {
+                "mul3": {
+                "type": "node",
+                "builder": "mul",
+                "config": 3,
+                "next": { "builtin": "terminate" }
+                }
+            }
+        }
+        "#;
 
         let req = TriggerRequest {
-            diagram_path: diagram_path.to_string(),
+            diagram: diagram_json_str.to_string(),
             request: "10".to_string(),
         };
 
