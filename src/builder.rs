@@ -23,12 +23,12 @@ use smallvec::SmallVec;
 
 use crate::{
     Accessible, Accessing, Accessor, AddOperation, Buffer, BufferKeys, BufferLocation, BufferMap,
-    BufferSettings, Bufferable, Buffering, Chain, Collect, ForkClone, ForkCloneOutput,
-    ForkOptionOutput, ForkResultOutput, ForkTargetStorage, Gate, GateRequest, IncompatibleLayout,
-    Injection, InputSlot, IntoAsyncMap, IntoBlockingMap, IntoMap, Joinable, Joined, Node,
-    OperateBuffer, OperateCancel, OperateDynamicGate, OperateQuietCancel, OperateScope,
-    OperateSplit, OperateStaticGate, Output, Provider, RequestOfMap, ResponseOfMap, Scope,
-    ScopeEndpoints, ScopeSettings, ScopeSettingsStorage, Sendish, ServiceInstructions,
+    BufferSettings, Bufferable, Buffering, Chain, Collect, DuplicateBuffer, ForkClone,
+    ForkCloneOutput, ForkOptionOutput, ForkResultOutput, ForkTargetStorage, Gate, GateRequest,
+    IncompatibleLayout, Injection, InputSlot, IntoAsyncMap, IntoBlockingMap, IntoMap, Joinable,
+    Joined, Node, OperateBuffer, OperateCancel, OperateDynamicGate, OperateQuietCancel,
+    OperateScope, OperateSplit, OperateStaticGate, Output, Provider, RequestOfMap, ResponseOfMap,
+    Scope, ScopeEndpoints, ScopeSettings, ScopeSettingsStorage, Sendish, ServiceInstructions,
     SplitOutputs, Splittable, StreamPack, StreamTargetMap, StreamsOfMap, Trim, TrimBranch,
     UnusedTarget, Unzippable, make_option_branching, make_result_branching,
 };
@@ -317,6 +317,14 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
     /// Alternative way of calling [`Joinable::join`]
     pub fn join<'b, B: Joinable>(&'b mut self, buffers: B) -> Chain<'w, 's, 'a, 'b, B::Item> {
         buffers.join(self)
+    }
+
+    /// Alternative way of calling [`Joinable::safe_join`]
+    pub fn safe_join<'b, B: Joinable>(
+        &'b mut self,
+        buffers: B,
+    ) -> Result<Chain<'w, 's, 'a, 'b, B::Item>, DuplicateBuffer> {
+        buffers.safe_join(self)
     }
 
     /// Try joining a map of buffers into a single value.

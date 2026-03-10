@@ -19,8 +19,8 @@ use smallvec::SmallVec;
 use variadics_please::all_tuples;
 
 use crate::{
-    Accessing, AddOperation, Buffer, BufferSettings, Buffering, Builder, Chain, CloneFromBuffer,
-    Join, Joining, Output, UnusedTarget,
+    Accessing, Buffer, BufferSettings, Buffering, Builder, Chain, CloneFromBuffer, DuplicateBuffer,
+    Joining, Output,
 };
 
 pub type BufferKeys<B> = <<B as Bufferable>::BufferType as Accessing>::Key;
@@ -63,6 +63,11 @@ impl<T: 'static + Send + Sync> Bufferable for Output<T> {
 pub trait Joinable: Bufferable {
     type Item: 'static + Send + Sync;
 
+    fn safe_join<'w, 's, 'a, 'b>(
+        self,
+        builder: &'b mut Builder<'w, 's, 'a>,
+    ) -> Result<Chain<'w, 's, 'a, 'b, Self::Item>, DuplicateBuffer>;
+
     fn join<'w, 's, 'a, 'b>(
         self,
         builder: &'b mut Builder<'w, 's, 'a>,
@@ -84,6 +89,13 @@ where
     ///
     /// If you need a more general way to get access to one or more buffers,
     /// use [`listen`](Accessible::listen) instead.
+    fn safe_join<'w, 's, 'a, 'b>(
+        self,
+        builder: &'b mut Builder<'w, 's, 'a>,
+    ) -> Result<Chain<'w, 's, 'a, 'b, Self::Item>, DuplicateBuffer> {
+        self.into_buffer(builder).safe_join(builder)
+    }
+
     fn join<'w, 's, 'a, 'b>(
         self,
         builder: &'b mut Builder<'w, 's, 'a>,
@@ -169,6 +181,21 @@ pub trait IterBufferable {
         builder: &mut Builder,
     ) -> SmallVec<[Self::BufferElement; N]>;
 
+    fn safe_join_vec<'w, 's, 'a, 'b, const N: usize>(
+        self,
+        builder: &'b mut Builder<'w, 's, 'a>,
+    ) -> Result<
+        Chain<'w, 's, 'a, 'b, SmallVec<[<Self::BufferElement as Joining>::Item; N]>>,
+        DuplicateBuffer,
+    >
+    where
+        Self: Sized,
+        Self::BufferElement: 'static + Send + Sync,
+        <Self::BufferElement as Joining>::Item: 'static + Send + Sync,
+    {
+        self.into_buffer_vec::<N>(builder).safe_join(builder)
+    }
+
     /// Join an iterable collection of bufferable workflow elements.
     ///
     /// Performance is best if you can choose an `N` which is equal to the
@@ -183,16 +210,7 @@ pub trait IterBufferable {
         Self::BufferElement: 'static + Send + Sync,
         <Self::BufferElement as Joining>::Item: 'static + Send + Sync,
     {
-        let buffers = self.into_buffer_vec::<N>(builder);
-        let join = builder.commands.spawn(()).id();
-        let target = builder.commands.spawn(UnusedTarget).id();
-        builder.commands.queue(AddOperation::new(
-            Some(builder.scope()),
-            join,
-            Join::new(buffers, target),
-        ));
-
-        Output::new(builder.scope(), target).chain(builder)
+        self.safe_join_vec::<N>(builder).unwrap()
     }
 }
 

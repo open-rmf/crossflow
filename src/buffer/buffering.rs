@@ -23,6 +23,8 @@ use variadics_please::all_tuples;
 
 use smallvec::SmallVec;
 
+use thiserror::Error as ThisError;
+
 use crate::{
     AddOperation, BeginCleanupWorkflow, Buffer, BufferAccessors, BufferKey, BufferKeyBuilder,
     BufferKeyLifecycle, BufferKeyTag, BufferStorage, BufferWorldAccess, Builder, Chain,
@@ -31,6 +33,22 @@ use crate::{
     OperationError, OperationResult, OperationRoster, OrBroken, Output, RequestId, Scope,
     ScopeSettings, SingleInputStorage, UnusedTarget,
 };
+
+#[derive(ThisError, Debug, Clone)]
+#[error("buffer {0:?} was given more than once in a single join operation")]
+pub struct DuplicateBuffer(pub Entity);
+
+fn check_for_duplicate_buffers(
+    inputs: &SmallVec<[Entity; 8]>,
+) -> Result<(), DuplicateBuffer> {
+    let mut seen = std::collections::HashSet::new();
+    for &entity in inputs {
+        if !seen.insert(entity) {
+            return Err(DuplicateBuffer(entity));
+        }
+    }
+    Ok(())
+}
 
 pub trait Buffering: 'static + Send + Sync + Clone {
     fn verify_scope(&self, scope: Entity);
@@ -69,6 +87,25 @@ pub trait Joining: Buffering {
         world: &mut World,
     ) -> Result<Self::Item, OperationError>;
 
+    fn safe_join<'w, 's, 'a, 'b>(
+        self,
+        builder: &'b mut Builder<'w, 's, 'a>,
+    ) -> Result<Chain<'w, 's, 'a, 'b, Self::Item>, DuplicateBuffer> {
+        let scope = builder.scope();
+        self.verify_scope(scope);
+        check_for_duplicate_buffers(&self.as_input())?;
+
+        let join = builder.commands.spawn(()).id();
+        let target = builder.commands.spawn(UnusedTarget).id();
+        builder.commands.queue(AddOperation::new(
+            Some(scope),
+            join,
+            Join::new(self, target),
+        ));
+
+        Ok(Output::new(scope, target).chain(builder))
+    }
+
     /// Join these bufferable workflow elements. Each time every buffer contains
     /// at least one element, this will pull the oldest element from each buffer
     /// and join them into a tuple that gets sent to the target.
@@ -79,18 +116,7 @@ pub trait Joining: Buffering {
         self,
         builder: &'b mut Builder<'w, 's, 'a>,
     ) -> Chain<'w, 's, 'a, 'b, Self::Item> {
-        let scope = builder.scope();
-        self.verify_scope(scope);
-
-        let join = builder.commands.spawn(()).id();
-        let target = builder.commands.spawn(UnusedTarget).id();
-        builder.commands.queue(AddOperation::new(
-            Some(scope),
-            join,
-            Join::new(self, target),
-        ));
-
-        Output::new(scope, target).chain(builder)
+        self.safe_join(builder).unwrap()
     }
 }
 
