@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "was given more than once in a single join operation")]
     fn test_join_panics_on_duplicate_buffer() {
         let mut context = TestingContext::minimal_plugins();
         context.spawn_io_workflow(|scope: Scope<(), (f64, f64)>, builder| {

@@ -210,7 +210,8 @@ pub trait IterBufferable {
         Self::BufferElement: 'static + Send + Sync,
         <Self::BufferElement as Joining>::Item: 'static + Send + Sync,
     {
-        self.safe_join_vec::<N>(builder).unwrap()
+        self.safe_join_vec::<N>(builder)
+            .unwrap_or_else(|e| panic!("{}", e))
     }
 }
 

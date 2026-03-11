@@ -116,7 +116,8 @@ pub trait Joining: Buffering {
         self,
         builder: &'b mut Builder<'w, 's, 'a>,
     ) -> Chain<'w, 's, 'a, 'b, Self::Item> {
-        self.safe_join(builder).unwrap()
+        self.safe_join(builder)
+            .unwrap_or_else(|e| panic!("{}", e))
     }
 }
 
