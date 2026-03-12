@@ -52,7 +52,7 @@ mod buffer_map;
 pub use buffer_map::*;
 
 mod buffer_manager;
-pub(crate) use buffer_manager::*;
+pub use buffer_manager::*;
 
 mod buffering;
 pub use buffering::*;
@@ -927,13 +927,13 @@ where
     }
 
     /// Modify the oldest item in the buffer.
-    pub fn oldest_mut(&mut self) -> Option<&mut T> {
+    pub fn oldest_mut(&mut self) -> Option<BMut<'_, T>> {
         self.modified = true;
         self.manager.oldest_mut()
     }
 
     /// Modify the newest item in the buffer.
-    pub fn newest_mut(&mut self) -> Option<&mut T> {
+    pub fn newest_mut(&mut self) -> Option<BMut<'_, T>> {
         self.modified = true;
         self.manager.newest_mut()
     }
@@ -943,7 +943,7 @@ where
     ///
     /// This may fail to provide a mutable borrow if the buffer was already
     /// expired or if the buffer capacity was zero.
-    pub fn newest_mut_or_default(&mut self) -> Option<&mut T>
+    pub fn newest_mut_or_default(&mut self) -> Option<BMut<'_, T>>
     where
         T: Default,
     {
@@ -955,14 +955,14 @@ where
     ///
     /// This may fail to provide a mutable borrow if the buffer was already
     /// expired or if the buffer capacity was zero.
-    pub fn newest_mut_or_else(&mut self, f: impl FnOnce() -> T) -> Option<&mut T> {
+    pub fn newest_mut_or_else(&mut self, f: impl FnOnce() -> T) -> Option<BMut<'_, T>> {
         self.modified = true;
         self.manager.newest_mut_or_else(f)
     }
 
     /// Modify an item in the buffer. Index 0 is the oldest item in the buffer
     /// with the highest index being the newest item in the buffer.
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+    pub fn get_mut(&mut self, index: usize) -> Option<BMut<'_, T>> {
         self.modified = true;
         self.manager.get_mut(index)
     }
@@ -1042,7 +1042,7 @@ where
             self.manager.commands.queue(NotifyBufferUpdate::new(
                 self.buffer,
                 self.manager.req,
-                self.manager.session,
+                self.manager.key_session(),
                 self.accessor,
             ));
         }

@@ -79,10 +79,12 @@ impl Trace {
         self.serialize_value = Some(get_serialize_value::<T>);
     }
 
+    /// Change the current tracing setting for this operation.
     pub fn set_toggle(&mut self, toggle: TraceToggle) {
         self.toggle = toggle;
     }
 
+    /// Get the current tracing setting for this operation.
     pub fn toggle(&self) -> TraceToggle {
         self.toggle
     }
@@ -92,9 +94,19 @@ impl Trace {
         &self.info
     }
 
+    /// This returns a [`TracedMessage`] which will be serialized if both message
+    /// tracing is on and message serialization is enabled for this type.
+    pub fn trace_message(&self, value: &dyn Any) -> TracedMessage {
+        if self.toggle.with_messages() {
+            self.serialize_value(value)
+        } else {
+            None
+        }
+    }
+
     /// Attempt to serialize the value. This will return a None if the trace is
     /// not set up to serialize the values.
-    pub fn serialize_value(&self, value: &dyn Any) -> Option<Result<JsonMessage, GetValueError>> {
+    pub fn serialize_value(&self, value: &dyn Any) -> TracedMessage {
         self.serialize_value.map(|f| f(value))
     }
 }
@@ -266,6 +278,8 @@ pub struct TraceBuffer {
     pub labels: Option<Arc<Vec<OperationRef>>>,
 }
 
+pub type TracedMessage = Option<Result<JsonMessage, GetValueError>>;
+
 /// An event that tracks when each message is sent for a request or within a
 /// workflow.
 #[derive(Debug, Clone, Event)]
@@ -278,14 +292,14 @@ pub struct MessageSent {
     pub input: TraceTarget,
     /// The message itself, if message tracing is turned on and the message
     /// could be serialized.
-    pub message: Option<Result<JsonMessage, GetValueError>>,
+    pub message: TracedMessage,
 }
 
 impl MessageSent {
     pub(crate) fn trace(
         route: Routing,
         target_seq: Seq,
-        message: Option<Result<JsonMessage, GetValueError>>,
+        message: TracedMessage,
         world: &mut World,
     ) {
         let mut output = SmallVec::new();
@@ -362,7 +376,50 @@ pub struct BufferEvent {
 #[derive(Debug, Clone)]
 pub enum BufferAccessRecord {
     Viewed,
-    Modified,
+    Modified(BufferModification),
+    Pushed(BufferPush),
+    Removed(BufferRemoval),
+}
+
+/// A record of a modification performed on a buffer.
+#[derive(Debug, Clone)]
+pub struct BufferModification {
+    /// The sequence number of the message within the buffer. This is unique
+    /// across all sessions for each new item that is added to a buffer. The
+    /// sequence number does not necessarily reflect the positioning of the
+    /// messages with the buffer because users are allowed to insert new messages
+    /// into arbitary positions.
+    pub seq: Seq,
+    /// The original message before the modification.
+    pub original: TracedMessage,
+    /// The new message after the modification.
+    pub modified: TracedMessage,
+}
+
+/// A record of a message being pushed into a buffer.
+#[derive(Debug, Clone)]
+pub struct BufferPush {
+    /// The sequence number of the message within the buffer. This is unique
+    /// across all sessions for each new item that is added to a buffer. The
+    /// sequence number does not necessarily reflect the positioning of the
+    /// messages with the buffer because users are allowed to insert new messages
+    /// into arbitary positions.
+    pub seq: Seq,
+    /// The position that the message was placed within the buffer for this session.
+    pub position: usize,
+    /// The message that was pushed.
+    pub message: TracedMessage,
+}
+
+/// A record of a message being removed from a buffer.
+#[derive(Debug, Clone)]
+pub struct BufferRemoval {
+    /// The sequence number of the message within the buffer. This is unique
+    /// across all sessions for each new item that is added to a buffer. The
+    /// sequence number does not necessarily reflect the positioning of the
+    /// messages with the buffer because users are allowed to insert new messages
+    /// into arbitary positions.
+    pub seq: Seq,
 }
 
 #[derive(SystemParam)]
@@ -371,67 +428,77 @@ pub(crate) struct BufferTracer<'w, 's> {
     child_of: Query<'w, 's, &'static ChildOf>,
     labels: Query<'w, 's, &'static OperationLabels>,
     op_type: Query<'w, 's, &'static OperationType>,
-    info: Query<'w, 's, &'static Trace>,
     universal: Option<Res<'w, UniversalTraceToggle>>,
     commands: Commands<'w, 's>,
 }
 
 impl<'w, 's> BufferTracer<'w, 's> {
     pub(crate) fn trace(&mut self, req: RequestId, key: &BufferKeyTag, access: BufferAccessRecord) {
-        let toggle = if let Some(universal) = self.universal.as_ref().map(|u| ***u).flatten() {
-            universal
-        } else if let Ok(buffer_trace) = self.trace.get(key.buffer) {
-            buffer_trace.toggle
-        } else {
-            return;
-        };
-
+        let toggle = self.get_trace_toggle(key);
         if !toggle.is_on() {
             return;
         }
 
         // let buffer_trace = self.trace.get(key.buffer).ok();
-        let buffer_labels = self.labels.get(key.buffer).ok().map(|l| l.input.clone());
-        let accessor_labels = self.labels.get(req.source).ok().map(|l| l.input.clone());
-
         // let value_serializer = if toggle.with_messages() {
         //     buffer_trace.map(|t| t.serialize_value).flatten()
         // } else {
         //     None
         // };
 
-        let accessor_session_stack = get_session_stack(req.session, &self.child_of);
-        let buffer_session_stack = if key.session == req.session {
-            accessor_session_stack.clone()
-        } else {
-            get_session_stack(key.session, &self.child_of)
-        };
-
-        let operation_type = self
-            .op_type
-            .get(key.buffer)
-            .map(|op| (**op).clone())
-            .unwrap_or_else(|_| "<unknown>".into());
-        let info = self.info.get(key.buffer).ok().map(|t| t.info.clone());
-
+        let accessor = self.get_trace_target(req);
+        let buffer = self.get_trace_buffer(key);
         let buffer_event = BufferEvent {
-            accessor: TraceTarget {
-                session_stack: accessor_session_stack,
-                target: req.source,
-                seq: req.seq,
-                labels: accessor_labels,
-                operation_type,
-                info,
-            },
-            buffer: TraceBuffer {
-                session_stack: buffer_session_stack,
-                id: key.buffer,
-                labels: buffer_labels,
-            },
+            accessor,
+            buffer,
             access,
         };
 
         self.commands.trigger(TracedEvent::now(buffer_event));
+    }
+
+    pub(crate) fn get_trace(&self, key: &BufferKeyTag) -> Option<&Trace> {
+        self.trace.get(key.buffer).ok()
+    }
+
+    pub(crate) fn get_trace_toggle(&self, key: &BufferKeyTag) -> TraceToggle {
+        if let Some(universal) = self.universal.as_ref().map(|u| ***u).flatten() {
+            universal
+        } else if let Ok(buffer_trace) = self.trace.get(key.buffer) {
+            buffer_trace.toggle
+        } else {
+            TraceToggle::Off
+        }
+    }
+
+    pub(crate) fn get_trace_buffer(&self, key: &BufferKeyTag) -> TraceBuffer {
+        let session_stack = get_session_stack(key.session, &self.child_of);
+        let labels = self.labels.get(key.buffer).ok().map(|l| l.input.clone());
+        TraceBuffer {
+            session_stack,
+            id: key.buffer,
+            labels: labels,
+        }
+    }
+
+    pub(crate) fn get_trace_target(&self, req: RequestId) -> TraceTarget {
+        let labels = self.labels.get(req.source).ok().map(|l| l.input.clone());
+        let session_stack = get_session_stack(req.session, &self.child_of);
+        let operation_type = self
+            .op_type
+            .get(req.source)
+            .map(|op| (**op).clone())
+            .unwrap_or_else(|_| "<unknown>".into());
+        let info = self.trace.get(req.source).ok().map(|t| t.info.clone());
+
+        TraceTarget {
+            session_stack,
+            target: req.source,
+            seq: req.seq,
+            labels,
+            operation_type,
+            info,
+        }
     }
 }
 
