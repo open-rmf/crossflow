@@ -13,6 +13,7 @@ export interface CommandPanelProps {
   onNodeChanges: (changes: NodeChange<DiagramEditorNode>[]) => void;
   onExportClick: () => void;
   onLoadDiagram: (jsonStr: string, filename: string) => void;
+  onClearDiagram: () => void;
   enableExport: boolean;
 }
 
@@ -32,6 +33,7 @@ function CommandPanel({
   onNodeChanges,
   onExportClick,
   onLoadDiagram,
+  onClearDiagram,
   enableExport,
 }: CommandPanelProps) {
   const theme = useTheme();
@@ -79,6 +81,13 @@ function CommandPanel({
             >
               <Button onClick={onExportClick} disabled={!enableExport}>
                 <MaterialSymbol symbol="download" />
+              </Button>
+            </Tooltip>
+          )}
+          {editorMode.mode === EditorMode.Normal && (
+            <Tooltip title="Clear Diagram">
+              <Button onClick={onClearDiagram}>
+                <MaterialSymbol symbol="delete_sweep" />
               </Button>
             </Tooltip>
           )}

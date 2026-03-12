@@ -30,6 +30,7 @@ import { inflateSync, strFromU8 } from 'fflate';
 import React, { Suspense } from 'react';
 import AddOperation from './add-operation';
 import CommandPanel from './command-panel';
+import { ConnectionHintPanel } from './connection-hint-panel';
 import type { DiagramEditorEdge } from './edges';
 import {
   createBaseEdge,
@@ -47,7 +48,7 @@ import { ExportDiagramDialog } from './export-diagram-dialog';
 import { defaultEdgeData, EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
 import { type LoadContext, LoadContextProvider } from './load-context-provider';
-import { type DiagramProperties, DiagramPropertiesProvider } from './diagram-properties-provider';
+import { DiagramPropertiesProvider } from './diagram-properties-provider';
 import { NodeManager, NodeManagerProvider } from './node-manager';
 import {
   type DiagramEditorNode,
@@ -151,6 +152,7 @@ function DiagramEditor() {
     DiagramEditorNode,
     DiagramEditorEdge
   > | null>(null);
+  const suppressNextPaneClick = React.useRef(false);
 
   const [editorMode, setEditorMode] = React.useState<EditorModeContext>({
     mode: EditorMode.Normal,
@@ -392,10 +394,15 @@ function DiagramEditor() {
     open: boolean;
     popOverPosition: PopoverPosition;
     parentId: string | null;
+    sourceConnection: {
+      sourceNodeId: string;
+      sourceHandle: string | null;
+    } | null;
   }>({
     open: false,
     popOverPosition: { left: 0, top: 0 },
     parentId: null,
+    sourceConnection: null,
   });
   const addOperationNewNodePosition = React.useMemo<XYPosition>(() => {
     if (!reactFlowInstance.current) {
@@ -455,7 +462,11 @@ function DiagramEditor() {
   const closeAllPopovers = React.useCallback(() => {
     setEditingNodeId(null);
     setEditingEdgeId(null);
-    setAddOperationPopover((prev) => ({ ...prev, open: false }));
+    setAddOperationPopover((prev) => ({
+      ...prev,
+      open: false,
+      sourceConnection: null,
+    }));
     setEditOpFormPopoverProps({ open: false });
   }, []);
 
@@ -488,6 +499,7 @@ function DiagramEditor() {
                 open: true,
                 popOverPosition: { left: ev.clientX, top: ev.clientY },
                 parentId: node.id,
+                sourceConnection: null,
               });
             }}
           />
@@ -544,6 +556,17 @@ function DiagramEditor() {
     [closeAllPopovers, showErrorToast],
   );
 
+  const handleClearDiagram = React.useCallback(() => {
+    const graph = loadEmpty();
+    setNodes(graph.nodes);
+    setEdges(graph.edges);
+    setLoadContext(null);
+    setRecentlyUsedFilename(null);
+    setEnableExport(true);
+    closeAllPopovers();
+    reactFlowInstance.current?.fitView();
+  }, [closeAllPopovers]);
+
   const [openExportDiagramDialog, setOpenExportDiagramDialog] =
     React.useState(false);
 
@@ -551,10 +574,30 @@ function DiagramEditor() {
     mouseDownTime.current = Date.now();
   }, []);
 
+  const getClientPosition = React.useCallback(
+    (event: MouseEvent | TouchEvent): XYPosition | null => {
+      if ('clientX' in event) {
+        return { x: event.clientX, y: event.clientY };
+      }
+
+      const touch = event.changedTouches[0] || event.touches[0];
+      if (!touch) {
+        return null;
+      }
+
+      return { x: touch.clientX, y: touch.clientY };
+    },
+    [],
+  );
+
   const tryCreateEdge = React.useCallback(
-    (conn: Connection, id?: string): DiagramEditorEdge | null => {
+    (
+      conn: Connection,
+      id?: string,
+      targetNodeOverride?: DiagramEditorNode,
+    ): DiagramEditorEdge | null => {
       const sourceNode = nodeManager.tryGetNode(conn.source);
-      const targetNode = nodeManager.tryGetNode(conn.target);
+      const targetNode = targetNodeOverride || nodeManager.tryGetNode(conn.target);
       if (!sourceNode || !targetNode) {
         throw new Error('cannot find source or target node');
       }
@@ -598,7 +641,14 @@ function DiagramEditor() {
         }
       }
 
-      const validationResult = validateEdgeSimple(newEdge, nodeManager, edges);
+      const validationNodeManager = targetNodeOverride
+        ? new NodeManager([...nodeManager.nodes, targetNodeOverride])
+        : nodeManager;
+      const validationResult = validateEdgeSimple(
+        newEdge,
+        validationNodeManager,
+        edges,
+      );
       if (!validationResult.valid) {
         showErrorToast(validationResult.error);
         return null;
@@ -676,6 +726,49 @@ function DiagramEditor() {
             setEdges((prev) => reconnectEdge(oldEdge, newConnection, prev));
           }
         }}
+        onConnectEnd={(event, connectionState) => {
+          if (!connectionState.fromHandle) {
+            return;
+          }
+
+          if (connectionState.isValid === false && connectionState.toHandle) {
+            const result = validateConnectionQuick(
+              {
+                source: connectionState.fromHandle.nodeId,
+                sourceHandle: connectionState.fromHandle.id || null,
+                target: connectionState.toHandle.nodeId,
+                targetHandle: connectionState.toHandle.id || null,
+              },
+              nodeManager,
+            );
+
+            if (!result.valid) {
+              showErrorToast(result.error);
+            }
+            return;
+          }
+
+          if (connectionState.toHandle || connectionState.isValid) {
+            return;
+          }
+
+          const sourceNode = nodeManager.tryGetNode(connectionState.fromHandle.nodeId);
+          const clientPosition = getClientPosition(event);
+          if (!sourceNode || !clientPosition) {
+            return;
+          }
+
+          setAddOperationPopover({
+            open: true,
+            popOverPosition: { left: clientPosition.x, top: clientPosition.y },
+            parentId: sourceNode.parentId || null,
+            sourceConnection: {
+              sourceNodeId: sourceNode.id,
+              sourceHandle: connectionState.fromHandle.id || null,
+            },
+          });
+          suppressNextPaneClick.current = true;
+        }}
         onNodeClick={(ev, node) => {
           ev.stopPropagation();
           closeAllPopovers();
@@ -710,6 +803,11 @@ function DiagramEditor() {
           });
         }}
         onPaneClick={(ev) => {
+          if (suppressNextPaneClick.current) {
+            suppressNextPaneClick.current = false;
+            return;
+          }
+
           if (addOperationPopover.open || editOpFormPopoverProps.open) {
             closeAllPopovers();
             return;
@@ -724,6 +822,7 @@ function DiagramEditor() {
             open: true,
             popOverPosition: { left: ev.clientX, top: ev.clientY },
             parentId: null,
+            sourceConnection: null,
           });
         }}
         onMouseDownCapture={handleMouseDown}
@@ -741,6 +840,7 @@ function DiagramEditor() {
             <Typography variant="h4">{editorMode.templateId}</Typography>
           </Panel>
         )}
+        <ConnectionHintPanel nodeManager={nodeManager} />
         <CommandPanel
           onNodeChanges={handleNodeChanges}
           onExportClick={React.useCallback(
@@ -748,6 +848,7 @@ function DiagramEditor() {
             [],
           )}
           onLoadDiagram={loadDiagram}
+          onClearDiagram={handleClearDiagram}
           enableExport={enableExport}
         />
         {editorMode.mode === EditorMode.Template && (
@@ -773,9 +874,7 @@ function DiagramEditor() {
         )}
         <Popover
           open={addOperationPopover.open}
-          onClose={() =>
-            setAddOperationPopover((prev) => ({ ...prev, open: false }))
-          }
+          onClose={closeAllPopovers}
           anchorReference="anchorPosition"
           anchorPosition={addOperationPopover.popOverPosition}
           // use a custom component to prevent the popover from creating an invisible element that blocks clicks
@@ -784,8 +883,29 @@ function DiagramEditor() {
           <AddOperation
             parentId={addOperationPopover.parentId || undefined}
             newNodePosition={addOperationNewNodePosition}
-            onAdd={(changes) => {
+            sourceConnection={addOperationPopover.sourceConnection}
+            onAdd={({ changes, primaryNodeId }) => {
               handleNodeChanges(changes);
+              if (addOperationPopover.sourceConnection) {
+                const targetNode =
+                  changes.find((change) => change.item.id === primaryNodeId)?.item ||
+                  null;
+                if (targetNode) {
+                  const newEdge = tryCreateEdge(
+                    {
+                      source: addOperationPopover.sourceConnection.sourceNodeId,
+                      sourceHandle: addOperationPopover.sourceConnection.sourceHandle,
+                      target: targetNode.id,
+                      targetHandle: null,
+                    },
+                    undefined,
+                    targetNode,
+                  );
+                  if (newEdge) {
+                    setEdges((prev) => addEdge(newEdge, prev));
+                  }
+                }
+              }
               closeAllPopovers();
             }}
           />

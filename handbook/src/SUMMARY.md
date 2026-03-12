@@ -51,3 +51,4 @@
     - [Zenoh](./diagram-zenoh.md)
     - [ROS 2](./diagram-ros2.md)
 - [Multi-Agent State Machines](./multi-agent-state-machines.md)
+- [Diagram Editor UX Roadmap](./diagram-editor-ux-roadmap.md)

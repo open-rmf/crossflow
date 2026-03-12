@@ -115,8 +115,13 @@ export function RunButton({ requestJsonString }: RunButtonProps) {
         slotProps={{
           paper: {
             sx: {
-              overflow: 'visible',
+              overflow: 'hidden',
               mt: 0.5,
+              width: 'min(560px, calc(100vw - 32px))',
+              maxWidth: 'calc(100vw - 32px)',
+              maxHeight: 'calc(100vh - 32px)',
+              display: 'flex',
+              flexDirection: 'column',
               backgroundColor: theme.palette.background.paper,
               border: `1px solid ${theme.palette.divider}`,
               '&:before': {
@@ -138,13 +143,20 @@ export function RunButton({ requestJsonString }: RunButtonProps) {
       >
         <DialogTitle>Run Workflow</DialogTitle>
         <Divider />
-        <DialogContent sx={{ width: 500 }}>
+        <DialogContent
+          sx={{
+            width: '100%',
+            overflowY: 'auto',
+            flex: 1,
+          }}
+        >
           <Stack spacing={2}>
             <Typography variant="body1">Request:</Typography>
             <TextField
               fullWidth
               multiline
-              rows={10}
+              minRows={6}
+              maxRows={10}
               variant="outlined"
               value={requestJson}
               slotProps={{
@@ -179,7 +191,8 @@ export function RunButton({ requestJsonString }: RunButtonProps) {
             <TextField
               fullWidth
               multiline
-              rows={10}
+              minRows={6}
+              maxRows={10}
               variant="outlined"
               value={responseValue}
               slotProps={{
@@ -191,7 +204,7 @@ export function RunButton({ requestJsonString }: RunButtonProps) {
             />
           </Stack>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ flexShrink: 0 }}>
           <Button
             variant="contained"
             onClick={handleRunClick}
