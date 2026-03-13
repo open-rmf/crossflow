@@ -1047,4 +1047,42 @@ mod tests {
             assert_eq!(expected_root_session, actual_root_session);
         }
     }
+
+    #[test]
+    fn test_tracing_buffer_input() {
+        let mut fixture = DiagramTestFixture::new();
+        enable_trace_recording(&mut fixture.context.app);
+
+        #[derive(StreamPack)]
+        struct TestStream {
+            integers: u64
+        }
+
+        fixture.registry.register_node_builder(
+            NodeBuilderOptions::new("spread"),
+            |builder, _: ()| {
+                let f = |input: Blocking<Vec<u64>, TestStream>| {
+                    for value in input.request {
+                        input.streams.integers.send(value);
+                    }
+                };
+                builder.create_node(f.into_map())
+            }
+        );
+
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "default_trace": "messages",
+            "start": "spread",
+            "ops": {
+                "spread": {
+                    "type": "node",
+                    "builder": "spread",
+                    "stream_out": {
+                        "integers":
+                    }
+                }
+            }
+        }));
+    }
 }
