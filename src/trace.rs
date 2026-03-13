@@ -94,16 +94,6 @@ impl Trace {
         &self.info
     }
 
-    /// This returns a [`TracedMessage`] which will be serialized if both message
-    /// tracing is on and message serialization is enabled for this type.
-    pub fn trace_message(&self, value: &dyn Any) -> TracedMessage {
-        if self.toggle.with_messages() {
-            self.serialize_value(value)
-        } else {
-            None
-        }
-    }
-
     /// Attempt to serialize the value. This will return a None if the trace is
     /// not set up to serialize the values.
     pub fn serialize_value(&self, value: &dyn Any) -> TracedMessage {
@@ -422,6 +412,7 @@ pub struct BufferRemoval {
     pub seq: Seq,
 }
 
+/// This system param is used by the `BufferManager` to trace the buffer activity.
 #[derive(SystemParam)]
 pub(crate) struct BufferTracer<'w, 's> {
     trace: Query<'w, 's, &'static Trace>,
@@ -432,19 +423,42 @@ pub(crate) struct BufferTracer<'w, 's> {
     commands: Commands<'w, 's>,
 }
 
+/// This is a small wrapper of the minimal borrows needed to trace modifications
+/// on a single item in a buffer. This is used by BMut.
+#[derive(Clone, Copy)]
+pub(crate) struct MessageTracer<'a> {
+    trace: Option<&'a Trace>,
+    universal: Option<&'a TraceToggle>,
+}
+
+impl<'a> MessageTracer<'a> {
+    pub(crate) fn is_on(&self) -> bool {
+        if let Some(toggle) = self.universal {
+            return toggle.is_on();
+        }
+
+        self.trace.is_some_and(|t| t.toggle().is_on())
+    }
+
+    pub(crate) fn trace_message(&self, value: &dyn Any) -> TracedMessage {
+        let Some(toggle) = self.universal.or_else(|| self.trace.map(|t| &t.toggle)) else {
+            return None;
+        };
+
+        if toggle.with_messages() && let Some(trace) = self.trace {
+            trace.serialize_value(value)
+        } else {
+            None
+        }
+    }
+}
+
 impl<'w, 's> BufferTracer<'w, 's> {
     pub(crate) fn trace(&mut self, req: RequestId, key: &BufferKeyTag, access: BufferAccessRecord) {
         let toggle = self.get_trace_toggle(key);
         if !toggle.is_on() {
             return;
         }
-
-        // let buffer_trace = self.trace.get(key.buffer).ok();
-        // let value_serializer = if toggle.with_messages() {
-        //     buffer_trace.map(|t| t.serialize_value).flatten()
-        // } else {
-        //     None
-        // };
 
         let accessor = self.get_trace_target(req);
         let buffer = self.get_trace_buffer(key);
@@ -457,8 +471,10 @@ impl<'w, 's> BufferTracer<'w, 's> {
         self.commands.trigger(TracedEvent::now(buffer_event));
     }
 
-    pub(crate) fn get_trace(&self, key: &BufferKeyTag) -> Option<&Trace> {
-        self.trace.get(key.buffer).ok()
+    pub(crate) fn get_message_tracer(&self, key: &BufferKeyTag) -> MessageTracer<'_> {
+        let trace = self.trace.get(key.buffer).ok();
+        let universal = self.universal.as_ref().map(|u| u.0.as_ref()).flatten();
+        MessageTracer { trace, universal }
     }
 
     pub(crate) fn get_trace_toggle(&self, key: &BufferKeyTag) -> TraceToggle {

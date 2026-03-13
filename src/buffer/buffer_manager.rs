@@ -36,7 +36,7 @@ use crate::{
 };
 
 #[cfg(feature = "trace")]
-use crate::{Trace, TracedMessage, TracedEvent, BufferModification, BufferAccessRecord, BufferEvent, BufferTracer};
+use crate::{Trace, TracedMessage, TracedEvent, BufferModification, BufferAccessRecord, BufferEvent, BufferTracer, MessageTracer};
 
 /// A wrapper type that allows the tracing feature to track changes to buffer
 /// values. If the tracing feature is disabled, this will just provide regular
@@ -48,7 +48,7 @@ pub struct BMut<'a, T> {
 
 pub(crate) struct BMutTracer<'a> {
     #[cfg(feature = "trace")]
-    trace: Option<&'a Trace>,
+    trace: MessageTracer<'a>,
     _ignore: std::marker::PhantomData<fn(&'a ())>,
 }
 
@@ -60,11 +60,9 @@ impl<'a> BMutTracer<'a> {
     ) {
         #[cfg(feature = "trace")]
         {
-            if let Some(trace) = self.trace {
-                if entry.original.is_none() && trace.toggle().is_on() {
-                    let msg = trace.trace_message(&entry.message);
-                    entry.original = Some(msg);
-                }
+            if entry.original.is_none() && self.trace.is_on() {
+                let msg = self.trace.trace_message(&entry.message);
+                entry.original = Some(msg);
             }
         }
     }
@@ -165,7 +163,7 @@ impl<'w, 's, 'a> BMutBuilder<'w, 's, 'a> {
             entry,
             tracer: BMutTracer {
                 #[cfg(feature = "trace")]
-                trace: self.tracer.get_trace(&self.key),
+                trace: self.tracer.get_message_tracer(&self.key),
                 _ignore: Default::default(),
             },
         }
@@ -283,7 +281,7 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
                 .get_mut(&self.bmut.key.session)
                 .map(|q| q.iter_mut().rev()),
             #[cfg(feature = "trace")]
-            trace: self.bmut.tracer.get_trace(&self.bmut.key),
+            trace: self.bmut.tracer.get_message_tracer(&self.bmut.key),
         }
     }
 
@@ -355,6 +353,10 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
         retention: RetentionPolicy,
         seq: Seq,
         message: T,
+        _req: &RequestId,
+        _key: &BufferKeyTag,
+        #[cfg(feature = "trace")]
+        tracer: &mut BufferTracer,
     ) -> Option<BufferEntry<T>> {
         let entry = BufferEntry::new(seq, message);
         let replaced = match retention {
@@ -380,6 +382,17 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
             RetentionPolicy::KeepAll => None,
         };
 
+        #[cfg(feature = "trace")]
+        {
+            let toggle = tracer.get_trace_toggle(_key);
+            if toggle.is_on() {
+                let trace = tracer.get_message_tracer(_key);
+                if let Some(replaced) = &replaced {
+
+                }
+            }
+        }
+
         reverse_queue.insert(0, entry);
         replaced
     }
@@ -395,7 +408,7 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
         let time = std::time::SystemTime::now();
         let accessor = self.bmut.tracer.get_trace_target(self.req);
         let buffer = self.bmut.tracer.get_trace_buffer(&self.bmut.key);
-        let trace = self.bmut.tracer.get_trace(&self.bmut.key);
+        let trace = self.bmut.tracer.get_message_tracer(&self.bmut.key);
 
         if let Some(reverse_queue) = self.storage.reverse_queues.get_mut(&self.bmut.key.session) {
             for BufferEntry { seq, message, original } in reverse_queue.iter_mut().rev() {
@@ -406,7 +419,7 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
                         access: BufferAccessRecord::Modified(BufferModification {
                             seq: *seq,
                             original,
-                            modified: trace.map(|t| t.trace_message(message)).flatten(),
+                            modified: trace.trace_message(message),
                         })
                     };
 
@@ -566,7 +579,7 @@ where
 {
     iter: Option<Rev<IterMut<'b, BufferEntry<T>>>>,
     #[cfg(feature = "trace")]
-    trace: Option<&'b Trace>,
+    trace: MessageTracer<'b>,
 }
 
 impl<'b, T> Iterator for IterBufferMut<'b, T>
