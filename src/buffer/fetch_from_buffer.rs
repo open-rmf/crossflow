@@ -21,9 +21,9 @@ use smallvec::SmallVec;
 
 use crate::{
     Accessing, AnyBuffer, AsAnyBuffer, Buffer, BufferKey, BufferKeyBuilder, BufferKeyLifecycle,
-    BufferLocation, Bufferable, Buffering, Builder, CloneFromBuffer, Gate, InputSlot,
-    InspectBuffer, JoinBehavior, Joining, ManageBuffer, MessageTypeHint, OperationError,
-    OperationResult, OperationRoster, OrBroken,
+    BufferKeyTag, BufferLocation, BufferWorldAccess, Bufferable, Buffering, Builder,
+    CloneFromBuffer, Gate, InputSlot, JoinBehavior, Joining, MessageTypeHint, OperationError,
+    OperationResult, OperationRoster, OrBroken, RequestId,
 };
 
 /// This is an alternative to the [`Buffer`] and [`CloneFromBuffer`] structs
@@ -40,7 +40,7 @@ pub struct FetchFromBuffer<T> {
 }
 
 pub(super) type FetchFromBufferFn<T> =
-    fn(&FetchFromBuffer<T>, Entity, &mut World) -> Result<T, OperationError>;
+    fn(&FetchFromBuffer<T>, RequestId, Entity, &mut World) -> Result<T, OperationError>;
 
 impl<T: 'static + Send + Sync> FetchFromBuffer<T> {
     /// Get an input slot for this buffer.
@@ -147,24 +147,40 @@ impl<T: 'static + Send + Sync> TryFrom<AnyBuffer> for FetchFromBuffer<T> {
 
 fn pull_for_join<T: 'static + Send + Sync>(
     buffer: &FetchFromBuffer<T>,
+    req: RequestId,
     session: Entity,
     world: &mut World,
 ) -> Result<T, OperationError> {
+    let key = BufferKeyTag {
+        buffer: buffer.id(),
+        session,
+        accessor: buffer.id(),
+        lifecycle: None,
+    };
     world
-        .get_entity_mut(buffer.id())
+        .unchecked_buffer_mut::<T, _>(req, &key, |mut buffer| buffer.pull())
         .or_broken()?
-        .pull_from_buffer::<T>(session)
+        .or_broken()
 }
 
 pub(super) fn clone_for_join<T: 'static + Send + Sync + Clone>(
     buffer: &FetchFromBuffer<T>,
+    req: RequestId,
     session: Entity,
     world: &mut World,
 ) -> Result<T, OperationError> {
-    world
-        .get_entity(buffer.id())
+    let key = BufferKeyTag {
+        buffer: buffer.id(),
+        session,
+        accessor: buffer.id(),
+        lifecycle: None,
+    };
+    let value = world
+        .unchecked_buffer_view::<T>(req, &key)
         .or_broken()?
-        .clone_from_buffer::<T>(session)
+        .newest()
+        .or_broken()?;
+    Ok(value.clone())
 }
 
 impl<T: 'static + Send + Sync> Bufferable for FetchFromBuffer<T> {
@@ -199,12 +215,13 @@ impl<T: 'static + Send + Sync> Buffering for FetchFromBuffer<T> {
 
     fn gate_action(
         &self,
+        req: RequestId,
         session: Entity,
         action: Gate,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult {
-        Buffer::<T>::gate_action(&(*self).into(), session, action, world, roster)
+        Buffer::<T>::gate_action(&(*self).into(), req, session, action, world, roster)
     }
 
     fn as_input(&self) -> SmallVec<[Entity; 8]> {
@@ -220,11 +237,12 @@ impl<T: 'static + Send + Sync> Joining for FetchFromBuffer<T> {
     type Item = T;
     fn fetch_for_join(
         &self,
+        req: RequestId,
         session: Entity,
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
         let f = self.fetch_for_join;
-        f(self, session, world)
+        f(self, req, session, world)
     }
 }
 

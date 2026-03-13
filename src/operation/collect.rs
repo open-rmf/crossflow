@@ -22,10 +22,11 @@ use std::collections::HashMap;
 use smallvec::SmallVec;
 
 use crate::{
-    Disposal, DisposalListener, DisposalUpdate, Input, InputBundle, ManageInput, Operation,
-    OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationRoster,
-    OperationSetup, OrBroken, ReachabilityResult, SingleInputStorage, SingleTargetStorage,
-    emit_disposal, is_downstream_of,
+    Disposal, DisposalInformation, DisposalListener, DisposalUpdate, Input, InputBundle,
+    ManageDisposal, ManageInput, Operation, OperationCleanup, OperationReachability,
+    OperationRequest, OperationResult, OperationRoster, OperationSetup, OrBroken,
+    ReachabilityResult, RouteSource, RouteTarget, Routing, Seq, SingleInputStorage,
+    SingleTargetStorage, is_downstream_of, output_port,
 };
 
 pub(crate) struct Collect<T, const N: usize> {
@@ -82,8 +83,8 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
+        let Input { session, data, seq } = world.take_input::<T>(source)?;
         let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { session, data } = source_mut.take_input::<T>()?;
         let target = source_mut.get::<SingleTargetStorage>().or_broken()?.get();
         let mut collection = source_mut
             .get_mut::<CollectionStorage<T, N>>()
@@ -91,16 +92,28 @@ where
         let min = collection.min;
         let max = collection.max;
         let progress = collection.map.entry(session).or_default();
-        progress.push(data);
+        progress.push((seq, data));
         let len = progress.len();
 
         if max.is_some_and(|max| len >= max) {
             // We have obtained enough elements to send off the collection.
-            let output: SmallVec<[T; N]> = progress.drain(..).collect();
-            world
-                .get_entity_mut(target)
-                .or_broken()?
-                .give_input(session, output, roster)?;
+            let (seqs, message): (SmallVec<[Seq; N]>, SmallVec<[T; N]>) =
+                progress.drain(..).collect();
+
+            let port = output_port::next();
+            let route = Routing {
+                outputs: seqs
+                    .into_iter()
+                    .map(|seq| RouteSource {
+                        session,
+                        source,
+                        seq,
+                        port: &port,
+                    })
+                    .collect(),
+                input: RouteTarget { session, target },
+            };
+            world.give_input(route, message, roster)?;
             return Ok(());
         }
 
@@ -109,7 +122,16 @@ where
         if !is_upstream_active::<T>(session, source, None, world)? {
             // This node is not reachable, so we need to either give an output
             // or emit a disposal.
-            on_unreachable_collection::<T, N>(source, session, target, min, len, world, roster)?;
+            on_unreachable_collection::<T, N>(
+                source,
+                session,
+                Some(seq),
+                target,
+                min,
+                len,
+                world,
+                roster,
+            )?;
         }
 
         // The collection node is still reachable so we can just wait until the
@@ -167,7 +189,7 @@ where
 
 #[derive(Component)]
 struct CollectionStorage<T, const N: usize> {
-    map: HashMap<Entity, SmallVec<[T; N]>>,
+    map: HashMap<Entity, SmallVec<[(Seq, T); N]>>,
     min: usize,
     max: Option<usize>,
 }
@@ -184,9 +206,14 @@ impl<T, const N: usize> CollectionStorage<T, N> {
 
 fn collection_disposal_listener<T, const N: usize>(
     DisposalUpdate {
-        source,
-        origin,
-        session,
+        info:
+            DisposalInformation {
+                listener: source,
+                trigger: _,
+                disposed,
+                session,
+                disposal: _,
+            },
         world,
         roster,
     }: DisposalUpdate,
@@ -194,18 +221,18 @@ fn collection_disposal_listener<T, const N: usize>(
 where
     T: 'static + Send + Sync,
 {
-    if source == origin {
+    if source == disposed {
         // We should ignore disposals that were produced by our own operation
         return Ok(());
     }
 
-    if !is_downstream_of(origin, source, world) {
+    if !is_downstream_of(disposed, source, world) {
         // We should ignore disposals that were not produced downstream of this
         // operation
         return Ok(());
     }
 
-    if is_upstream_active::<T>(session, source, Some(origin), world)? {
+    if is_upstream_active::<T>(session, source, Some(disposed), world)? {
         // The collection node is still reachable, so no action is needed.
         return Ok(());
     }
@@ -216,7 +243,7 @@ where
     let min = collection.min;
     let len = collection.map.get(&session).map(|c| c.len()).unwrap_or(0);
 
-    on_unreachable_collection::<T, N>(source, session, target, min, len, world, roster)
+    on_unreachable_collection::<T, N>(source, session, None, target, min, len, world, roster)
 }
 
 // Check if there is still upstream activity.
@@ -249,6 +276,7 @@ fn is_upstream_active<T: 'static + Send + Sync>(
 fn on_unreachable_collection<T: 'static + Send + Sync, const N: usize>(
     source: Entity,
     session: Entity,
+    seq: Option<Seq>,
     target: Entity,
     min: usize,
     len: usize,
@@ -260,25 +288,49 @@ fn on_unreachable_collection<T: 'static + Send + Sync, const N: usize>(
         // collection yet. Since we do not detect any more entries coming,
         // we need to emit a disposal notice.
         let disposal = Disposal::deficient_collection(source, min, len);
-        emit_disposal(source, session, disposal, world, roster);
+        let seq = if let Some(seq) = seq {
+            seq
+        } else {
+            world.increment_input_seq::<T>(source)?
+        };
+
+        let port = output_port::dispose();
+        let route = RouteSource {
+            session,
+            source,
+            seq,
+            port: &port,
+        };
+        world.emit_disposal(route, disposal, roster);
         return Ok(());
     }
 
     // The size of the collection is not smaller than the minimum length
     // which means we can go ahead and send it.
-    let mut collection = world
-        .get_mut::<CollectionStorage<T, N>>(source)
+    let mut source_mut = world.get_entity_mut(source).or_broken()?;
+    let mut collection = source_mut
+        .get_mut::<CollectionStorage<T, N>>()
         .or_broken()?;
-    let output: SmallVec<[T; N]> = collection
+    let (seqs, message): (SmallVec<[Seq; N]>, SmallVec<[T; N]>) = collection
         .map
         .entry(session)
         .or_default()
         .drain(..)
         .collect();
 
-    world
-        .get_entity_mut(target)
-        .or_broken()?
-        .give_input(session, output, roster)?;
+    let port = output_port::next();
+    let route = Routing {
+        outputs: seqs
+            .into_iter()
+            .map(|seq| RouteSource {
+                session,
+                source,
+                seq,
+                port: &port,
+            })
+            .collect(),
+        input: RouteTarget { session, target },
+    };
+    world.give_input(route, message, roster)?;
     Ok(())
 }

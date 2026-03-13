@@ -17,7 +17,8 @@
 
 use crate::{
     Blocker, DeliveryInstructions, DeliveryLabelId, OperationCleanup, OperationReachability,
-    OperationResult, OperationRoster, OrBroken, ProviderStorage, ReachabilityResult,
+    OperationResult, OperationRoster, OrBroken, ProviderStorage, ReachabilityResult, RequestId,
+    Seq,
 };
 
 use bevy_ecs::prelude::{Component, Entity, World};
@@ -66,8 +67,7 @@ where
     serial.delivering = None;
 
     let DeliveryOrder {
-        source,
-        session,
+        request_id,
         task_id,
         request,
         instructions,
@@ -75,15 +75,13 @@ where
 
     let blocker = Blocker {
         provider,
-        source,
-        session,
+        request_id,
         label: instructions.as_ref().map(|x| x.label.clone()),
         serve_next,
     };
 
     serial.delivering = Some(ActiveDelivery {
-        source,
-        session,
+        request_id,
         task_id,
         instructions,
     });
@@ -99,12 +97,16 @@ pub struct Deliver<Request> {
     /// For async services this is the Entity that manages the async task.
     /// For workflows this is the scoped session Entity.
     pub task_id: Entity,
+    /// Information about the blocking nature of this request, i.e.:
+    /// - What is it's Request ID?
+    /// - What label is it blocking?
+    /// - What provider is it blokcing?
+    /// - How do we serve the next task blocked by this when the time comes?
     pub blocker: Blocker,
 }
 
 pub(crate) struct DeliveryOrder<Request> {
-    pub(crate) source: Entity,
-    pub(crate) session: Entity,
+    pub(crate) request_id: RequestId,
     /// For async services this is the Entity that manages the async task.
     /// For workflows this is the scoped session Entity.
     pub(crate) task_id: Entity,
@@ -113,8 +115,8 @@ pub(crate) struct DeliveryOrder<Request> {
 }
 
 struct ActiveDelivery {
-    source: Entity,
-    session: Entity,
+    /// The identifiy of the request that initiated this delivery
+    request_id: RequestId,
     /// For async services this is the Entity that manages the async task.
     /// For workflows this is the scoped session Entity.
     task_id: Entity,
@@ -187,10 +189,13 @@ pub(crate) struct SerialDelivery<Request> {
 
 impl<Request> SerialDelivery<Request> {
     fn contains_session(&self, session: Entity) -> bool {
-        self.queue.iter().any(|order| order.session == session)
+        self.queue
+            .iter()
+            .any(|order| order.request_id.session == session)
     }
     fn cleanup(&mut self, session: Entity) {
-        self.queue.retain(|order| order.session != session);
+        self.queue
+            .retain(|order| order.request_id.session != session);
     }
 }
 
@@ -234,6 +239,7 @@ pub enum DeliveryUpdate<Request> {
     Immediate {
         blocking: Option<Option<DeliveryLabelId>>,
         request: Request,
+        seq: Seq,
     },
     /// The new request has been placed in the queue
     Queued {
@@ -247,8 +253,8 @@ pub enum DeliveryUpdate<Request> {
 }
 
 pub struct DeliveryStoppage {
-    pub source: Entity,
-    pub session: Entity,
+    /// The request that initiatied the task
+    pub request_id: RequestId,
     /// For async services this is the Entity that manages the async task.
     /// For workflows this is the scoped session Entity.
     pub task_id: Entity,
@@ -267,6 +273,7 @@ pub fn insert_new_order<Request>(
             }
             None => DeliveryUpdate::Immediate {
                 request: order.request,
+                seq: order.request_id.seq,
                 blocking: None,
             },
         },
@@ -283,8 +290,7 @@ fn insert_serial_order<Request>(
         // delivering is empty then the queue should be as well.
         assert!(serial.queue.is_empty());
         serial.delivering = Some(ActiveDelivery {
-            source: order.source,
-            session: order.session,
+            request_id: order.request_id,
             task_id: order.task_id,
             instructions: order.instructions.clone(),
         });
@@ -292,6 +298,7 @@ fn insert_serial_order<Request>(
         return DeliveryUpdate::Immediate {
             blocking: Some(label),
             request: order.request,
+            seq: order.request_id.seq,
         };
     };
 
@@ -316,8 +323,7 @@ fn insert_serial_order<Request>(
             let discard = e.instructions.as_ref().is_some_and(should_discard);
             if discard {
                 cancelled.push(DeliveryStoppage {
-                    source: e.source,
-                    session: e.session,
+                    request_id: e.request_id,
                     task_id: e.task_id,
                 });
             }
@@ -327,8 +333,7 @@ fn insert_serial_order<Request>(
 
         if delivering.instructions.as_ref().is_some_and(should_discard) {
             stop = Some(DeliveryStoppage {
-                source: delivering.source,
-                session: delivering.session,
+                request_id: delivering.request_id,
                 task_id: delivering.task_id,
             });
         }

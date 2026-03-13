@@ -78,7 +78,7 @@ pub fn zenoh_subscription_node<T: 'static + Send + Sync + Message + Default>(
     topic_name: Arc<str>,
     builder: &mut Builder,
 ) -> Node<(), Result<(), ArcError>, ZenohSubscriptionStream<T>> {
-    let callback = move |In(input): AsyncCallbackInput<(), ZenohSubscriptionStream<T>>,
+    let callback = move |input: Async<(), ZenohSubscriptionStream<T>>,
                          session: Res<ZenohSession>| {
         let session = session.outcome.clone();
         let topic_name = topic_name.clone();
@@ -106,7 +106,7 @@ pub fn zenoh_subscription_node<T: 'static + Send + Sync + Message + Default>(
         }
     };
 
-    builder.create_node(callback.as_callback())
+    builder.create_node(callback.into_callback())
 }
 
 pub fn zenoh_publisher_node<T: 'static + Send + Sync + Message + std::fmt::Debug>(
@@ -115,10 +115,7 @@ pub fn zenoh_publisher_node<T: 'static + Send + Sync + Message + std::fmt::Debug
 ) -> Node<T, Result<(), ArcError>> {
     let publisher = builder
         .commands()
-        .request(
-            topic_name.clone(),
-            get_zenoh_publisher.into_async_callback(),
-        )
+        .request(topic_name.clone(), get_zenoh_publisher.into_callback())
         .outcome();
     let publisher = publisher.shared();
 
@@ -140,7 +137,10 @@ pub fn zenoh_publisher_node<T: 'static + Send + Sync + Message + std::fmt::Debug
 }
 
 fn get_zenoh_publisher(
-    In(topic_name): In<Arc<str>>,
+    Async {
+        request: topic_name,
+        ..
+    }: Async<Arc<str>>,
     session: Res<ZenohSession>,
 ) -> impl Future<Output = Result<Arc<AdvancedPublisher<'static>>, ArcError>> + use<> {
     let session_outcome = session.outcome.clone();

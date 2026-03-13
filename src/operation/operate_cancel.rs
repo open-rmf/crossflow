@@ -16,9 +16,10 @@
 */
 
 use crate::{
-    Cancellation, Input, InputBundle, ManageCancellation, ManageInput, Operation, OperationCleanup,
-    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ReachabilityResult, SingleInputStorage,
+    Cancellation, InScope, Input, InputBundle, ManageCancellation, ManageInput, Operation,
+    OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationSetup,
+    OrBroken, ReachabilityResult, RouteSource, ScopeEndpoints, SingleInputStorage,
+    SingleTargetStorage, output_port,
 };
 
 /// Create an operation that will cancel a scope. The incoming message will be
@@ -46,9 +47,8 @@ impl<T> Operation for OperateCancel<T>
 where
     T: 'static + Send + Sync + ToString,
 {
-    fn setup(self, OperationSetup { source, world }: OperationSetup) -> OperationResult {
-        world.entity_mut(source).insert(InputBundle::<T>::new());
-        Ok(())
+    fn setup(self, setup: OperationSetup) -> OperationResult {
+        setup_cancel_operation::<T>(setup)
     }
 
     fn execute(
@@ -58,11 +58,16 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { session, data } = source_mut.take_input::<T>().or_broken()?;
-
+        let Input { session, data, seq } = world.take_input::<T>(source).or_broken()?;
         let cancellation = Cancellation::triggered(source, Some(data.to_string()));
-        source_mut.emit_cancel(session, cancellation, roster);
+
+        let route = RouteSource {
+            session,
+            source,
+            seq,
+            port: &output_port::cancel(),
+        };
+        world.emit_scope_cancel(route, session, cancellation, roster);
         Ok(())
     }
 
@@ -86,9 +91,8 @@ where
 pub struct OperateQuietCancel;
 
 impl Operation for OperateQuietCancel {
-    fn setup(self, OperationSetup { source, world }: OperationSetup) -> OperationResult {
-        world.entity_mut(source).insert(InputBundle::<()>::new());
-        Ok(())
+    fn setup(self, setup: OperationSetup) -> OperationResult {
+        setup_cancel_operation::<()>(setup)
     }
 
     fn execute(
@@ -98,11 +102,16 @@ impl Operation for OperateQuietCancel {
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { session, .. } = source_mut.take_input::<()>().or_broken()?;
+        let Input { session, seq, .. } = world.take_input::<()>(source).or_broken()?;
 
         let cancellation = Cancellation::triggered(source, None);
-        source_mut.emit_cancel(session, cancellation, roster);
+        let route = RouteSource {
+            session,
+            source,
+            seq,
+            port: &output_port::cancel(),
+        };
+        world.emit_scope_cancel(route, session, cancellation, roster);
         Ok(())
     }
 
@@ -118,4 +127,22 @@ impl Operation for OperateQuietCancel {
 
         SingleInputStorage::is_reachable(&mut reachability)
     }
+}
+
+fn setup_cancel_operation<T: 'static + Send + Sync>(
+    OperationSetup { source, world }: OperationSetup,
+) -> OperationResult {
+    let scope = **world.get::<InScope>(source).or_broken()?;
+
+    let cancel_target = world.get::<ScopeEndpoints>(scope).or_broken()?.cancel_scope;
+    world
+        .get_mut::<SingleInputStorage>(cancel_target)
+        .or_broken()?
+        .add(source);
+
+    world.entity_mut(source).insert((
+        InputBundle::<T>::new(),
+        SingleTargetStorage::new(cancel_target),
+    ));
+    Ok(())
 }

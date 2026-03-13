@@ -18,9 +18,10 @@
 use bevy_ecs::prelude::{Component, Entity};
 
 use crate::{
-    Buffering, Disposal, Gate, GateRequest, Input, InputBundle, ManageInput, Operation,
-    OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationSetup,
-    OrBroken, ReachabilityResult, SingleInputStorage, SingleTargetStorage, emit_disposal,
+    Buffering, Disposal, Gate, GateRequest, Input, InputBundle, ManageDisposal, ManageInput,
+    Operation, OperationCleanup, OperationReachability, OperationRequest, OperationResult,
+    OperationSetup, OrBroken, ReachabilityResult, RequestId, SingleInputStorage,
+    SingleTargetStorage, output_port,
 };
 
 #[derive(Component)]
@@ -78,32 +79,38 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
         let Input {
             session,
             data: GateRequest { action, data },
-        } = source_mut.take_input::<GateRequest<T>>()?;
+            seq,
+        } = world.take_input::<GateRequest<T>>(source)?;
+        let request_id = RequestId {
+            session,
+            source,
+            seq,
+        };
 
-        let target = source_mut.get::<SingleTargetStorage>().or_broken()?.get();
-        let buffers = source_mut
+        let source_ref = world.get_entity(source).or_broken()?;
+        let target = source_ref.get::<SingleTargetStorage>().or_broken()?.get();
+        let buffers = source_ref
             .get::<BufferRelationStorage<B>>()
             .or_broken()?
             .0
             .clone();
 
-        buffers.gate_action(session, action, world, roster)?;
+        buffers.gate_action(request_id, session, action, world, roster)?;
 
-        world
-            .get_entity_mut(target)
-            .or_broken()?
-            .give_input(session, data, roster)?;
+        let port = output_port::next();
+        world.give_input(request_id.to_message_route(&port, target), data, roster)?;
 
         if action.is_closed() {
             // When doing a closing, we should emit a disposal because we are
             // cutting off part of the workflow, which may alter the
             // reachability of the terminal node.
             let disposal = Disposal::closed_gate(source, buffers.as_input());
-            emit_disposal(source, session, disposal, world, roster);
+            let port = output_port::dispose();
+            let route = request_id.to_route_source(&port);
+            world.emit_disposal(route, disposal, roster);
         }
 
         Ok(())
@@ -170,30 +177,36 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
-        let Input { session, data } = source_mut.take_input::<T>()?;
+        let Input { session, data, seq } = world.take_input::<T>(source)?;
+        let request_id = RequestId {
+            session,
+            source,
+            seq,
+        };
 
-        let target = source_mut.get::<SingleTargetStorage>().or_broken()?.get();
-        let action = source_mut.get::<GateActionStorage>().or_broken()?.0;
-        let buffers = source_mut
+        let source_ref = world.get_entity(source).or_broken()?;
+        let target = source_ref.get::<SingleTargetStorage>().or_broken()?.get();
+        let action = source_ref.get::<GateActionStorage>().or_broken()?.0;
+        let buffers = source_ref
             .get::<BufferRelationStorage<B>>()
             .or_broken()?
             .0
             .clone();
 
-        buffers.gate_action(session, action, world, roster)?;
+        buffers.gate_action(request_id, session, action, world, roster)?;
 
-        world
-            .get_entity_mut(target)
-            .or_broken()?
-            .give_input(session, data, roster)?;
+        let port = output_port::next();
+        let route = request_id.to_message_route(&port, target);
+        world.give_input(route, data, roster)?;
 
         if action.is_closed() {
             // When doing a closing, we should emit a disposal because we are
             // cutting off part of the workflow, which may alter the
             // reachability of the terminal node.
             let disposal = Disposal::closed_gate(source, buffers.as_input());
-            emit_disposal(source, session, disposal, world, roster);
+            let port = output_port::dispose();
+            let route = request_id.to_route_source(&port);
+            world.emit_disposal(route, disposal, roster);
         }
 
         Ok(())

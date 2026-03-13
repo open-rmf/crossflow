@@ -16,8 +16,9 @@
 */
 
 use crate::{
-    Accessing, BufferAccessStorage, ManageDisposal, ManageInput, MiscellaneousFailure,
-    OperationError, OperationResult, OperationRoster, OrBroken, ScopeStorage, UnhandledErrors,
+    Accessing, BufferAccessStorage, CleanInputsOf, InScope, InSeries, ManageDisposal, ManageInput,
+    MiscellaneousFailure, OperationError, OperationResult, OperationRoster, OrBroken, RequestId,
+    UnhandledErrors,
 };
 
 use bevy_ecs::prelude::{Component, Entity, World};
@@ -40,7 +41,7 @@ impl<'a> OperationCleanup<'a> {
         cleaner: Entity,
         node: Entity,
         session: Entity,
-        cleanup_id: Entity,
+        cleanup_id: RequestId,
         world: &'a mut World,
         roster: &'a mut OperationRoster,
     ) -> Self {
@@ -58,9 +59,13 @@ impl<'a> OperationCleanup<'a> {
         }
     }
 
-    pub fn clean(&mut self) {
-        let Some(cleanup) = self.world.get::<OperationCleanupStorage>(self.source) else {
-            return;
+    /// Instruct the operation `node` to clean itself for `session`.
+    ///
+    /// Returns true/false based on whether the operation has any cleanup
+    /// capabilities.
+    pub fn clean(&mut self) -> bool {
+        let Some(cleanup) = self.world.get::<OnCleanup>(self.source) else {
+            return false;
         };
 
         let cleanup = cleanup.0;
@@ -75,23 +80,31 @@ impl<'a> OperationCleanup<'a> {
                 .operations
                 .push(error);
         }
+
+        true
     }
 
     pub fn cleanup_inputs<T: 'static + Send + Sync>(&mut self) -> OperationResult {
-        self.world
-            .get_entity_mut(self.source)
-            .or_broken()?
-            .cleanup_inputs::<T>(self.cleanup.session);
+        self.world.cleanup_inputs::<T>(CleanInputsOf {
+            session: self.cleanup.session,
+            source: self.source,
+        });
         Ok(())
     }
 
     pub fn cleanup_disposals(&mut self) -> OperationResult {
-        let mut source_mut = self.world.get_entity_mut(self.source).or_broken()?;
+        if self.world.get::<InSeries>(self.source).is_some() {
+            // Ignore disposal cleanup for operations that are in a series rather
+            // than in a scope. These operations will be dropped as soon as the
+            // series is finished.
+            return Ok(());
+        }
 
-        let scope = source_mut.get::<ScopeStorage>().or_broken()?.get();
+        let scope = self.world.get::<InScope>(self.source).or_broken()?.scope();
         if self.cleanup.cleaner == scope {
             // Only erase disposals if the cleanup is being triggered by the scope
-            source_mut.clear_disposals(self.cleanup.session);
+            self.world
+                .clear_disposals(self.cleanup.session, self.source);
         }
         Ok(())
     }
@@ -101,11 +114,7 @@ impl<'a> OperationCleanup<'a> {
         B: Accessing + 'static + Send + Sync,
         B::Key: 'static + Send + Sync,
     {
-        let scope = self
-            .world
-            .get::<ScopeStorage>(self.source)
-            .or_broken()?
-            .get();
+        let scope = self.world.get::<InScope>(self.source).or_broken()?.scope();
         if self.cleanup.cleaner == scope {
             // If the scope is telling us to clean up, then we should fully
             // remove the key for this session. Otherwise we should not remove
@@ -133,9 +142,9 @@ impl<'a> OperationCleanup<'a> {
 }
 
 /// The contents that an operation is willing to clean.
-#[derive(Default, Component)]
+#[derive(Debug, Default, Component)]
 pub struct CleanupContents {
-    awaiting_cleanup: HashMap<Entity, SmallVec<[Entity; 16]>>,
+    awaiting_cleanup: HashMap<RequestId, SmallVec<[Entity; 16]>>,
 }
 
 impl CleanupContents {
@@ -143,11 +152,11 @@ impl CleanupContents {
         Self::default()
     }
 
-    pub fn add_cleanup(&mut self, cleanup_id: Entity, nodes: SmallVec<[Entity; 16]>) {
+    pub fn add_cleanup(&mut self, cleanup_id: RequestId, nodes: SmallVec<[Entity; 16]>) {
         self.awaiting_cleanup.insert(cleanup_id, nodes);
     }
 
-    pub fn register_cleanup_of_node(&mut self, cleanup_id: Entity, node: Entity) -> bool {
+    pub fn register_cleanup_of_node(&mut self, cleanup_id: RequestId, node: Entity) -> bool {
         let Some(nodes) = self.awaiting_cleanup.get_mut(&cleanup_id) else {
             return false;
         };
@@ -163,7 +172,7 @@ pub struct FinalizeCleanupRequest<'a> {
 }
 
 #[derive(Component)]
-pub(crate) struct OperationCleanupStorage(pub(super) fn(OperationCleanup) -> OperationResult);
+pub(crate) struct OnCleanup(pub(super) fn(OperationCleanup) -> OperationResult);
 
 #[derive(Component, Clone, Copy)]
 pub struct FinalizeCleanup(pub(crate) fn(FinalizeCleanupRequest) -> OperationResult);
@@ -177,6 +186,8 @@ impl FinalizeCleanup {
 /// Notify the scope manager that the request may be finished with cleanup
 #[derive(Clone, Copy, Debug)]
 pub struct Cleanup {
+    /// This is the ID of the scope operation that initiated the cleanup. This
+    /// will typically be the trim or terminate operation.
     pub cleaner: Entity,
     /// This is the operation node that the Cleanup request was sent to. The
     /// request might need to move across other operation nodes while it is
@@ -184,10 +195,10 @@ pub struct Cleanup {
     /// that the cleaner can be correctly notified about which node finished
     /// cleaning up.
     pub node: Entity,
+    /// This is the session that the node shoudl clean.
     pub session: Entity,
-    // A unique ID for this cleanup operation. For final scope cleanup, this
-    // will be equal to the session ID.
-    pub cleanup_id: Entity,
+    // A unique ID for this cleanup operation.
+    pub cleanup_id: RequestId,
 }
 
 impl Cleanup {

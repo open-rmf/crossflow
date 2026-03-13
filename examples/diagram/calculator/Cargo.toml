@@ -1,11 +1,11 @@
 [package]
 name = "calculator"
-version = "0.0.6"
+version = "0.0.7"
 edition = "2024"
 
 [dependencies]
-crossflow_diagram_editor = { path = "../../../diagram-editor", features = ["basic_executor"] }
-calculator_ops_catalog = { path = "../calculator_ops_catalog" }
+crossflow_diagram_editor = { path = "../../../diagram-editor", features = ["basic_executor"] , version = "0.0.7" }
+calculator_ops_catalog = { path = "../calculator_ops_catalog" , version = "0.0.7" }
 
 [dev-dependencies]
 assert_cmd = "2.1.2"

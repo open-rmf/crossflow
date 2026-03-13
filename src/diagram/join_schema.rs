@@ -24,7 +24,7 @@ use super::{
     JsonMessage, NextOperation, OperationName,
 };
 use crate::{
-    BufferIdentifier, BufferMap, BufferMapLayout, BufferMapLayoutHints, Builder, DynOutput,
+    BufferMap, BufferMapLayout, BufferMapLayoutHints, Builder, DynOutput, IdentifierRef,
     InferenceContext, Joined, MessageRegistry, TraceSettings, default_as_false, is_default,
     is_false, output_ref,
 };
@@ -93,7 +93,7 @@ pub struct JoinSchema {
     /// the value will leave the buffer unchanged after the join operation takes
     /// place.
     #[serde(default, skip_serializing_if = "is_default")]
-    pub clone: Vec<BufferIdentifier<'static>>,
+    pub clone: Vec<IdentifierRef<'static>>,
 
     /// Whether or not to automatically serialize the inputs into a single JsonMessage.
     /// This will only work if all input types are serializable, otherwise you will

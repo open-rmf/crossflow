@@ -141,7 +141,7 @@ mod tests {
         fixture.registry.register_node_builder(
             NodeBuilderOptions::new("streaming_node"),
             |builder, _config: ()| {
-                builder.create_map(|input: BlockingMap<Vec<String>, TestStreamPack>| {
+                builder.create_map(|input: Blocking<Vec<String>, TestStreamPack>| {
                     for r in input.request {
                         if let Ok(value) = r.parse::<u32>() {
                             input.streams.stream_u32.send(value);

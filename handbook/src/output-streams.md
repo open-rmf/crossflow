@@ -35,10 +35,10 @@ While a Fibonacci sequence is a trivial use case, this same approach can be used
 In the previous example you might have noticed
 
 ```rust,no_run,noplayground
-let stream = input.streams;
+streams: stream;
 ```
 
-The plural `input.streams` was renamed to a singular `stream` variable.
+The plural `streams` was renamed to a singular `stream` variable.
 This is because in general services expect that multiple streams need to be supported.
 In the case of `StreamOf<T>` the potentially multiple streams get reduced to one stream.
 
@@ -49,7 +49,7 @@ Here's a slightly tweaked version of the previous example that additionally stre
 {{#include ./examples/handbook_snippets/src/native-snippets.rs:fibonacci_string_example}}
 ```
 
-Now `input.streams` contains two streams, packed together as a tuple.
+Now `streams` contains two streams, packed together as a tuple.
 Since they are packed into a tuple, they continue to be anonymous (unnamed), but they can be accessed separately and send different outputs.
 
 > [!WARNING]
@@ -68,7 +68,7 @@ Simply apply `#[derive(StreamPack)]` to that struct, and now you can use those s
 {{#include ./examples/handbook_snippets/src/native-snippets.rs:fibonacci_stream_pack_example}}
 ```
 
-Now `input.streams` contains a separate named field for each of the streams in the stream pack.
+Now `streams` contains a separate named field for each of the streams in the stream pack.
 Each of those fields lets you send output messages for each stream.
 The compiler will ensure that the messages you send are compatible with the stream's type.
 
@@ -90,7 +90,7 @@ While the robot makes progress towards its destination, the service will emit `N
 ```
 
 A few important details of the above example:
-* We use the `fn _(AsyncServiceInput) -> impl Future<Output = _>` syntax so we can have an async service that accesses the `NavigationGraph` resource at startup.
+* We use the `fn _(AsyncService) -> impl Future<Output = _>` syntax so we can have an async service that accesses the `NavigationGraph` resource at startup.
 * We use the `async move { ... }` syntax to create the long-running Future that will run in the AsyncComputeTaskPool.
 * All relevant input data is unpacked and then moved into the async block.
 * We create a [callback](./callbacks.md) to periodically fetch data from the position buffer while our async block is running using the [async channel]. This is the most effective way for async tasks to access Bevy ECS data.
@@ -107,7 +107,7 @@ However the API has an important difference: a continuous service can see all it
 {{#include ./examples/handbook_snippets/src/native-snippets.rs:continuous_streams_example}}
 ```
 
-In the above example you can see that the output streams are accessed through `order.streams()` instead of `input.streams`.
+In the above example you can see that the output streams are accessed through `order.streams()` instead of `streams`.
 Each order comes from a different request message passed into the continuous service---potentially from many different workflows or sessions at once.
 Forcing you to send streams through the [`OrderMut`] API ensures that the messages you stream out are only going to the specific order that they're meant for.
 

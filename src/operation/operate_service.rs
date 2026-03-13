@@ -19,8 +19,9 @@ use crate::{
     ActiveContinuousSessions, ActiveTasksStorage, Delivery, DeliveryInstructions, Disposal,
     DisposalFailure, Input, InputBundle, ManageDisposal, ManageInput, Operation, OperationCleanup,
     OperationReachability, OperationRequest, OperationResult, OperationRoster, OperationSetup,
-    OrBroken, ReachabilityResult, ServiceInstructions, ServiceRequest, SingleInputStorage,
-    SingleTargetStorage, UnhandledErrors, WorkflowHooks, dispatch_service,
+    OrBroken, ReachabilityResult, RouteSource, ServiceInstructions, ServiceRequest,
+    SingleInputStorage, SingleTargetStorage, UnhandledErrors, WorkflowHooks, dispatch_service,
+    output_port,
 };
 
 use bevy_ecs::{
@@ -110,7 +111,6 @@ impl<Request: 'static + Send + Sync> Operation for OperateService<Request> {
 
         // TODO(@mxgrey): Seriously consider how to make all these different
         // service cleanup routes more maintainable.
-
         clean.notify_cleaned()
     }
 
@@ -198,18 +198,14 @@ fn dispose_for_unavailable_service<T: 'static + Send + Sync>(
     roster: &mut OperationRoster,
 ) {
     let disposal = Disposal::service_unavailable(service, source);
-    if let Ok(mut source_mut) = world.get_entity_mut(source) {
-        while let Ok(Input { session, .. }) = source_mut.take_input::<T>() {
-            source_mut.emit_disposal(session, disposal.clone(), roster);
-        }
-    } else {
-        world
-            .get_resource_or_insert_with(UnhandledErrors::default)
-            .disposals
-            .push(DisposalFailure {
-                disposal,
-                broken_node: source,
-                backtrace: Some(Backtrace::new()),
-            });
+    let port = output_port::unavailable();
+    while let Ok(Input { session, seq, .. }) = world.take_input::<T>(source) {
+        let route = RouteSource {
+            session,
+            source,
+            seq,
+            port: &port,
+        };
+        world.emit_disposal(route, disposal.clone(), roster);
     }
 }

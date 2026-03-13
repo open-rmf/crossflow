@@ -19,8 +19,9 @@ use bevy_ecs::prelude::{Component, Entity};
 
 use crate::{
     Cancellation, Disposal, Input, InputBundle, ManageCancellation, ManageDisposal, ManageInput,
-    Operation, OperationCleanup, OperationReachability, OperationRequest, OperationResult,
-    OperationSetup, OrBroken, ReachabilityResult, SingleInputStorage, SingleTargetStorage,
+    MessageRoute, Operation, OperationCleanup, OperationReachability, OperationRequest,
+    OperationResult, OperationSetup, OrBroken, ReachabilityResult, RouteSource, SingleInputStorage,
+    SingleTargetStorage, output_port,
 };
 
 use std::error::Error;
@@ -157,32 +158,42 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
         let Input {
             session,
             data: input,
-        } = source_mut.take_input::<InputT>()?;
-        let target = source_mut.get::<SingleTargetStorage>().or_broken()?.get();
-        let FilterStorage::<F>(filter) = *source_mut.get().or_broken()?;
+            seq,
+        } = world.take_input::<InputT>(source)?;
+
+        let source_ref = world.get_entity(source).or_broken()?;
+        let target = source_ref.get::<SingleTargetStorage>().or_broken()?.get();
+        let FilterStorage::<F>(filter) = *source_ref.get().or_broken()?;
 
         // This is where we cancel if the filter function does not return anything.
         let output = match filter(input) {
             Ok(output) => output,
             Err(reason) => {
                 let cancellation = Cancellation::filtered(source, reason);
-                source_mut.emit_cancel(session, cancellation, roster);
-                // We've queued up a cancellation of this link, so we don't want any
-                // automatic cleanup to happen.
+                let route = RouteSource {
+                    session,
+                    source,
+                    seq,
+                    port: &output_port::cancel(),
+                };
+                world.emit_scope_cancel(route, session, cancellation, roster);
                 return Ok(());
             }
         };
 
         // At this point we have the correct type to deliver to the target, so
         // we proceed with doing that.
-        world
-            .get_entity_mut(target)
-            .or_broken()?
-            .give_input(session, output, roster)
+        let route = MessageRoute {
+            session,
+            source,
+            seq,
+            port: &output_port::next(),
+            target,
+        };
+        world.give_input(route, output, roster)
     }
 
     fn cleanup(mut clean: OperationCleanup) -> OperationResult {
@@ -306,27 +317,39 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
         let Input {
             session,
             data: input,
-        } = source_mut.take_input::<InputT>()?;
-        let target = source_mut.get::<SingleTargetStorage>().or_broken()?.get();
-        let FilterStorage::<F>(filter) = *source_mut.get().or_broken()?;
+            seq,
+        } = world.take_input::<InputT>(source)?;
+
+        let source_ref = world.get_entity(source).or_broken()?;
+        let target = source_ref.get::<SingleTargetStorage>().or_broken()?.get();
+        let FilterStorage::<F>(filter) = *source_ref.get().or_broken()?;
 
         let output = match filter(input) {
             Ok(output) => output,
             Err(reason) => {
                 let disposal = Disposal::filtered(source, reason);
-                source_mut.emit_disposal(session, disposal, roster);
+                let route = RouteSource {
+                    session,
+                    source,
+                    seq,
+                    port: &output_port::dispose(),
+                };
+                world.emit_disposal(route, disposal, roster);
                 return Ok(());
             }
         };
 
-        world
-            .get_entity_mut(target)
-            .or_broken()?
-            .give_input(session, output, roster)
+        let route = MessageRoute {
+            session,
+            source,
+            seq,
+            port: &output_port::next(),
+            target,
+        };
+        world.give_input(route, output, roster)
     }
 
     fn cleanup(mut clean: OperationCleanup) -> OperationResult {

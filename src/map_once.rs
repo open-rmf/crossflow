@@ -16,7 +16,7 @@
 */
 
 use crate::{
-    AddExecution, AsyncMap, AsyncMapMarker, AsyncMapOnce, BlockingMap, BlockingMapMarker,
+    AddExecution, Async, AsyncMapMarker, AsyncMapOnce, Blocking, BlockingMapMarker,
     BlockingMapOnce, ProvideOnce, Sendish, StreamPack,
 };
 
@@ -27,7 +27,7 @@ use std::future::Future;
 /// A newtype to indicate that the map definition is given directly by F.
 pub struct MapOnceDef<F>(F);
 
-/// Convert an [`FnOnce`] that takes in a [`BlockingMap`] or an [`AsyncMap`]
+/// Convert an [`FnOnce`] that takes an input of [`Blocking`] or an [`Async`]
 /// into a recognized map type.
 #[allow(clippy::wrong_self_convention)]
 pub trait AsMapOnce<M> {
@@ -36,23 +36,23 @@ pub trait AsMapOnce<M> {
 }
 
 pub(crate) trait CallBlockingMapOnce<Request, Response, Streams: StreamPack> {
-    fn call(self, input: BlockingMap<Request, Streams>) -> Response;
+    fn call(self, input: Blocking<Request, Streams>) -> Response;
 }
 
 impl<F, Request, Response, Streams> CallBlockingMapOnce<Request, Response, Streams>
     for MapOnceDef<F>
 where
-    F: FnOnce(BlockingMap<Request, Streams>) -> Response + 'static + Send + Sync,
+    F: FnOnce(Blocking<Request, Streams>) -> Response + 'static + Send + Sync,
     Request: 'static + Send + Sync,
     Response: 'static + Send + Sync,
     Streams: StreamPack,
 {
-    fn call(self, input: BlockingMap<Request, Streams>) -> Response {
+    fn call(self, input: Blocking<Request, Streams>) -> Response {
         (self.0)(input)
     }
 }
 
-/// A newtype to mark the definition of a BlockingMap.
+/// A newtype to mark the definition of a blocking map.
 ///
 /// Maps cannot contain Bevy Systems; they can only contain objects that
 /// implement [`FnOnce`].
@@ -75,7 +75,6 @@ where
 
     fn connect(self, _: Option<Entity>, source: Entity, target: Entity, commands: &mut Commands) {
         commands.queue(AddExecution::new(
-            None,
             source,
             BlockingMapOnce::new(target, self.def),
         ));
@@ -84,7 +83,7 @@ where
 
 impl<F, Request, Response, Streams> AsMapOnce<(Request, Response, Streams, BlockingMapMarker)> for F
 where
-    F: FnOnce(BlockingMap<Request, Streams>) -> Response + 'static + Send + Sync,
+    F: FnOnce(Blocking<Request, Streams>) -> Response + 'static + Send + Sync,
     Request: 'static + Send + Sync,
     Response: 'static + Send + Sync,
     Streams: StreamPack,
@@ -125,29 +124,29 @@ impl<F, Request, Response> CallBlockingMapOnce<Request, Response, ()> for Blocki
 where
     F: FnOnce(Request) -> Response,
 {
-    fn call(self, BlockingMap { request, .. }: BlockingMap<Request, ()>) -> Response {
+    fn call(self, Blocking { request, .. }: Blocking<Request, ()>) -> Response {
         (self.0)(request)
     }
 }
 
 pub(crate) trait CallAsyncMapOnce<Request, Task, Streams: StreamPack> {
-    fn call(self, input: AsyncMap<Request, Streams>) -> Task;
+    fn call(self, input: Async<Request, Streams>) -> Task;
 }
 
 impl<F, Request, Task, Streams> CallAsyncMapOnce<Request, Task, Streams> for MapOnceDef<F>
 where
-    F: FnOnce(AsyncMap<Request, Streams>) -> Task + 'static + Send + Sync,
+    F: FnOnce(Async<Request, Streams>) -> Task + 'static + Send + Sync,
     Request: 'static + Send + Sync,
     Streams: StreamPack,
 {
-    fn call(self, input: AsyncMap<Request, Streams>) -> Task {
+    fn call(self, input: Async<Request, Streams>) -> Task {
         (self.0)(input)
     }
 }
 
 impl<F, Request, Task, Streams> AsMapOnce<(Request, Task, Streams, AsyncMapMarker)> for F
 where
-    F: FnOnce(AsyncMap<Request, Streams>) -> Task + 'static + Send + Sync,
+    F: FnOnce(Async<Request, Streams>) -> Task + 'static + Send + Sync,
     Task: Future + 'static + Sendish,
     Request: 'static + Send + Sync,
     Task::Output: 'static + Send + Sync,
@@ -162,7 +161,7 @@ where
     }
 }
 
-/// A newtype to mark the definition of an AsyncMap.
+/// A newtype to mark the definition of an Async map.
 ///
 /// Maps cannot contain Bevy Systems; they can only contain objects that
 /// implement [`FnOnce`].
@@ -185,7 +184,6 @@ where
 
     fn connect(self, _: Option<Entity>, source: Entity, target: Entity, commands: &mut Commands) {
         commands.queue(AddExecution::new(
-            None,
             source,
             AsyncMapOnce::new(target, self.def),
         ));
@@ -220,7 +218,7 @@ where
     F: FnOnce(Request) -> Task + 'static + Send + Sync,
     Task: Future + 'static + Sendish,
 {
-    fn call(self, AsyncMap { request, .. }: AsyncMap<Request, ()>) -> Task {
+    fn call(self, Async { request, .. }: Async<Request, ()>) -> Task {
         (self.0)(request)
     }
 }

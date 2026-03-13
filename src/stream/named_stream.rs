@@ -26,11 +26,11 @@ use tokio::sync::mpsc::unbounded_channel;
 
 use crate::{
     AddExecution, AddOperation, Builder, DefaultStreamBufferContainer, DeferredRoster,
-    ExitTargetStorage, InnerChannel, Input, InputBundle, InputSlot, ManageInput, OperationRequest,
-    OperationResult, OperationRoster, OperationSetup, OrBroken, Output, Push, Receiver,
-    RedirectScopeStream, RedirectWorkflowStream, ReportUnhandled, ScopeStorage, SingleInputStorage,
-    StreamEffect, StreamRedirect, StreamRequest, StreamTargetMap, TakenStream, UnusedStreams,
-    UnusedTarget,
+    ExitTargetStorage, InScope, InnerChannel, Input, InputBundle, InputSlot, ManageInput,
+    OperationRequest, OperationResult, OperationRoster, OperationSetup, OrBroken, Output, Push,
+    Receiver, RedirectScopeStream, RedirectWorkflowStream, ReportUnhandled, RequestId,
+    SingleInputStorage, StreamEffect, StreamRedirect, StreamRequest, StreamTarget, StreamTargetMap,
+    TakenStream, UnusedStreams, UnusedTarget, output_port,
 };
 
 pub struct NamedStream<S: StreamEffect>(std::marker::PhantomData<fn(S)>);
@@ -93,7 +93,7 @@ impl<S: StreamEffect> NamedStream<S> {
         let target = commands.spawn(()).insert(ChildOf(source)).id();
 
         map.add_named::<S::Output>(name.into(), target, commands);
-        commands.queue(AddExecution::new(None, target, TakenStream::new(sender)));
+        commands.queue(AddExecution::new(target, TakenStream::new(sender)));
 
         receiver
     }
@@ -108,7 +108,6 @@ impl<S: StreamEffect> NamedStream<S> {
         let name = name.into();
         let redirect = commands.spawn(()).insert(ChildOf(source)).id();
         commands.queue(AddExecution::new(
-            None,
             redirect,
             Push::<S::Output>::new(target, true).with_name(name.clone()),
         ));
@@ -136,8 +135,7 @@ impl<S: StreamEffect> NamedStream<S> {
     pub fn process_stream_buffer(
         name: impl Into<Cow<'static, str>>,
         buffer: NamedStreamBuffer<S::Input>,
-        source: Entity,
-        session: Entity,
+        request_id: RequestId,
         unused: &mut UnusedStreams,
         world: &mut World,
         roster: &mut OperationRoster,
@@ -151,11 +149,15 @@ impl<S: StreamEffect> NamedStream<S> {
             .into_iter()
         {
             was_unused = false;
+            let RequestId {
+                session, source, ..
+            } = request_id;
             let target = targets.get(&name);
+            let port = output_port::stream_out(name.as_ref());
             let mut request = StreamRequest {
-                source,
-                session,
-                target: target.map(NamedTarget::as_entity),
+                request_id,
+                port: &port,
+                target: NamedTarget::to_stream_target(target, session),
                 world,
                 roster,
             };
@@ -187,8 +189,7 @@ impl<S: StreamEffect> NamedStream<S> {
     pub fn defer_buffer(
         name: impl Into<Cow<'static, str>>,
         buffer: NamedStreamBuffer<S::Input>,
-        source: Entity,
-        session: Entity,
+        request_id: RequestId,
         commands: &mut Commands,
     ) {
         let name = name.into();
@@ -205,7 +206,7 @@ impl<S: StreamEffect> NamedStream<S> {
         commands.queue(SendNamedStreams::<
             S,
             DefaultStreamBufferContainer<NamedValue<S::Input>>,
-        >::new(container, source, session, buffer.targets));
+        >::new(container, request_id, buffer.targets));
     }
 }
 
@@ -292,6 +293,14 @@ impl NamedTarget {
         }
     }
 
+    pub fn to_stream_target(this: Option<Self>, session: Entity) -> Option<StreamTarget> {
+        let target = this?.as_entity();
+        Some(StreamTarget {
+            id: target,
+            session,
+        })
+    }
+
     pub fn send_output<T: 'static + Send + Sync>(
         self,
         NamedValue { name, value }: NamedValue<T>,
@@ -306,8 +315,7 @@ impl NamedTarget {
 
 pub struct SendNamedStreams<S, Container> {
     container: Container,
-    source: Entity,
-    session: Entity,
+    request_id: RequestId,
     targets: Arc<NamedStreamTargets>,
     _ignore: std::marker::PhantomData<fn(S)>,
 }
@@ -315,14 +323,12 @@ pub struct SendNamedStreams<S, Container> {
 impl<S, Container> SendNamedStreams<S, Container> {
     pub fn new(
         container: Container,
-        source: Entity,
-        session: Entity,
+        request_id: RequestId,
         targets: Arc<NamedStreamTargets>,
     ) -> Self {
         Self {
             container,
-            source,
-            session,
+            request_id,
             targets,
             _ignore: Default::default(),
         }
@@ -335,26 +341,35 @@ where
     Container: 'static + Send + Sync + IntoIterator<Item = NamedValue<S::Input>>,
 {
     fn apply(self, world: &mut World) {
-        world.get_resource_or_insert_with(DeferredRoster::default);
+        world.get_resource_or_init::<DeferredRoster>();
         world.resource_scope::<DeferredRoster, _>(|world, mut deferred| {
             for data in self.container {
                 let NamedValue { name, value } = data;
                 let target = self.targets.get(&name);
+                let port = output_port::stream_out(name.as_ref());
                 let mut request = StreamRequest {
-                    source: self.source,
-                    session: self.session,
-                    target: target.map(NamedTarget::as_entity),
+                    request_id: self.request_id,
+                    port: &port,
+                    target: NamedTarget::to_stream_target(target, self.request_id.session),
                     world,
                     roster: &mut deferred,
                 };
 
                 S::side_effect(value, &mut request)
-                    .and_then(move |value| {
+                    .and_then(|value| {
                         target
-                            .map(|t| t.send_output(NamedValue { name, value }, request))
+                            .map(|t| {
+                                t.send_output(
+                                    NamedValue {
+                                        name: name.clone(),
+                                        value,
+                                    },
+                                    request,
+                                )
+                            })
                             .unwrap_or(Ok(()))
                     })
-                    .report_unhandled(self.source, world);
+                    .report_unhandled(self.request_id.source, world);
             }
         });
     }
@@ -411,18 +426,19 @@ impl<S: StreamEffect> StreamRedirect for NamedStreamRedirect<S> {
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
+        let source_ref = world.get_entity(source).or_broken()?;
+        let static_name = source_ref.get::<StaticStreamName>().or_broken()?.0.clone();
 
-        let static_name = source_mut.get::<StaticStreamName>().or_broken()?.0.clone();
-        let (scoped_session, name, value) = match static_name {
+        let (scoped_session, name, value, seq) = match static_name {
             Some(name) => {
                 // If this named stream has a static name then we expect to receive
                 // a plain S::Input and use the stream's static name.
                 let Input {
                     session: scoped_session,
                     data: value,
-                } = source_mut.take_input::<S::Input>()?;
-                (scoped_session, name, value)
+                    seq,
+                } = world.take_input::<S::Input>(source)?;
+                (scoped_session, name, value, seq)
             }
             None => {
                 // f this named stream does not have a static name then it's for
@@ -431,12 +447,13 @@ impl<S: StreamEffect> StreamRedirect for NamedStreamRedirect<S> {
                 let Input {
                     session: scoped_session,
                     data: NamedValue { name, value },
-                } = source_mut.take_input::<NamedValue<S::Input>>()?;
-                (scoped_session, name, value)
+                    seq,
+                } = world.take_input::<NamedValue<S::Input>>(source)?;
+                (scoped_session, name, value, seq)
             }
         };
 
-        let scope = world.get::<ScopeStorage>(source).or_broken()?.get();
+        let scope = world.get::<InScope>(source).or_broken()?.scope();
 
         let exit = world
             .get::<ExitTargetStorage>(scope)
@@ -445,23 +462,38 @@ impl<S: StreamEffect> StreamRedirect for NamedStreamRedirect<S> {
             .get(&scoped_session)
             .or_not_ready()?;
 
-        let exit_source = exit.source;
+        let exit_source = exit.request_id;
         let parent_session = exit.parent_session;
 
-        let stream_targets = world.get::<StreamTargetMap>(exit_source).or_broken()?;
+        let stream_targets = world
+            .get::<StreamTargetMap>(exit_source.source)
+            .or_broken()?;
 
         let target = stream_targets.get_named_or_anonymous::<S::Output>(&name);
+        let port = output_port::stream_out(name.as_ref());
         let mut request = StreamRequest {
-            source,
-            session: parent_session,
-            target: target.map(NamedTarget::as_entity),
+            request_id: RequestId {
+                source,
+                seq,
+                session: scoped_session,
+            },
+            port: &port,
+            target: NamedTarget::to_stream_target(target, parent_session),
             world,
             roster,
         };
 
         S::side_effect(value, &mut request).and_then(|value| {
             target
-                .map(|t| t.send_output(NamedValue { name, value }, request))
+                .map(|t| {
+                    t.send_output(
+                        NamedValue {
+                            name: name.clone(),
+                            value,
+                        },
+                        request,
+                    )
+                })
                 .unwrap_or(Ok(()))
         })?;
 
@@ -479,8 +511,7 @@ pub struct NamedStreamChannel<S> {
 impl<S: StreamEffect> NamedStreamChannel<S> {
     pub fn send(&self, data: S::Input) {
         let f = send_named_stream::<S>(
-            self.inner.source,
-            self.inner.session,
+            self.inner.request_id,
             Arc::clone(&self.targets),
             self.name.clone(),
             data,
@@ -515,18 +546,18 @@ impl<S> Clone for NamedStreamChannel<S> {
 }
 
 pub(crate) fn send_named_stream<S: StreamEffect>(
-    source: Entity,
-    session: Entity,
+    request_id: RequestId,
     targets: Arc<NamedStreamTargets>,
     name: Cow<'static, str>,
     value: S::Input,
 ) -> impl FnOnce(&mut World, &mut OperationRoster) {
     move |world: &mut World, roster: &mut OperationRoster| {
         let target = targets.get(&name);
+        let port = output_port::stream_out(name.as_ref());
         let mut request = StreamRequest {
-            source,
-            session,
-            target: target.map(NamedTarget::as_entity),
+            request_id,
+            port: &port,
+            target: NamedTarget::to_stream_target(target, request_id.session),
             world,
             roster,
         };
@@ -534,10 +565,18 @@ pub(crate) fn send_named_stream<S: StreamEffect>(
         S::side_effect(value, &mut request)
             .and_then(|value| {
                 target
-                    .map(|t| t.send_output(NamedValue { name, value }, request))
+                    .map(|t| {
+                        t.send_output(
+                            NamedValue {
+                                name: name.clone(),
+                                value,
+                            },
+                            request,
+                        )
+                    })
                     .unwrap_or(Ok(()))
             })
-            .report_unhandled(source, world);
+            .report_unhandled(request_id.source, world);
     }
 }
 

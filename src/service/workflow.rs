@@ -16,15 +16,15 @@
 */
 
 use crate::{
-    Blocker, Cancel, Cancellation, Deliver, Delivery, DeliveryOrder, DeliveryUpdate, Disposal,
-    ExitTarget, ExitTargetStorage, Input, ManageInput, OperationCleanup, OperationError,
-    OperationReachability, OperationRequest, OperationResult, OperationRoster, OrBroken,
-    ParentSession, ProviderStorage, ReachabilityResult, Service, ServiceRequest, ServiceTrait,
-    SessionStatus, SingleTargetStorage, StreamPack, begin_scope, dispose_for_despawned_service,
-    emit_disposal, insert_new_order, pop_next_delivery,
+    Blocker, Cancellation, Deliver, Delivery, DeliveryOrder, DeliveryUpdate, Disposal, ExitTarget,
+    ExitTargetStorage, Input, ManageCancellation, ManageDisposal, ManageInput, ManageSession,
+    OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
+    OperationRoster, OrBroken, ProviderStorage, ReachabilityResult, RequestId, RouteSource, Seq,
+    Service, ServiceRequest, ServiceTrait, SingleTargetStorage, StreamPack, begin_scope,
+    dispose_for_despawned_service, insert_new_order, output_port, pop_next_delivery,
 };
 
-use bevy_ecs::prelude::{ChildOf, Component, Entity, World};
+use bevy_ecs::prelude::{Component, Entity, World};
 
 pub(crate) struct WorkflowHooks {}
 
@@ -112,20 +112,21 @@ where
                 },
         }: ServiceRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
         let Input {
             session,
             data: request,
-        } = source_mut.take_input::<Request>()?;
-        let scoped_session = world
-            .spawn((ParentSession::new(session), SessionStatus::Active))
-            .insert(ChildOf(session))
-            .id();
+            seq,
+        } = world.take_input::<Request>(source)?;
+
+        let scope = world.get::<WorkflowStorage>(provider).or_broken()?.scope;
+        let scoped_session = world.spawn_scoped_session(session, scope, seq);
 
         let result = serve_workflow_impl::<Request, Response, Streams>(
             request,
             session,
             scoped_session,
+            scope,
+            seq,
             ServiceRequest {
                 provider,
                 target,
@@ -139,9 +140,7 @@ where
         );
 
         if result.is_err() {
-            if let Ok(scoped_session_mut) = world.get_entity_mut(scoped_session) {
-                scoped_session_mut.despawn();
-            }
+            world.despawn_session(scoped_session);
         }
 
         result
@@ -152,6 +151,8 @@ fn serve_workflow_impl<Request, Response, Streams>(
     request: Request,
     parent_session: Entity,
     scoped_session: Entity,
+    scope: Entity,
+    seq: Seq,
     ServiceRequest {
         provider,
         target,
@@ -169,7 +170,6 @@ where
     Response: 'static + Send + Sync,
     Streams: StreamPack,
 {
-    let workflow = *world.get::<WorkflowStorage>(provider).or_broken()?;
     let Some(mut delivery) = world.get_mut::<Delivery<Request>>(provider) else {
         // The workflow has been despawned, so we should treat the request
         // as cancelled.
@@ -180,42 +180,67 @@ where
     let update = insert_new_order::<Request>(
         delivery.as_mut(),
         DeliveryOrder {
-            source,
-            session: parent_session,
+            request_id: RequestId {
+                session: parent_session,
+                source,
+                seq,
+            },
             task_id: scoped_session,
             request,
             instructions,
         },
     );
 
-    let (request, blocker) = match update {
-        DeliveryUpdate::Immediate { blocking, request } => {
+    let (request, blocker, seq) = match update {
+        DeliveryUpdate::Immediate {
+            blocking,
+            request,
+            seq,
+        } => {
             let serve_next = serve_next_workflow_request::<Request, Response, Streams>;
             let blocker = blocking.map(|label| Blocker {
                 provider,
-                source,
-                session: parent_session,
+                request_id: RequestId {
+                    session: parent_session,
+                    source,
+                    seq,
+                },
                 label,
                 serve_next,
             });
-            (request, blocker)
+            (request, blocker, seq)
         }
         DeliveryUpdate::Queued {
             cancelled, stop, ..
         } => {
             for cancelled in cancelled {
-                let disposal = Disposal::supplanted(cancelled.source, source, parent_session);
-                emit_disposal(cancelled.source, cancelled.session, disposal, world, roster);
+                let disposal = Disposal::supplanted(RequestId {
+                    session: parent_session,
+                    source,
+                    seq,
+                });
+                let port = output_port::next();
+                let route = cancelled.request_id.to_route_source(&port);
+                world.emit_disposal(route, disposal, roster);
             }
             if let Some(stop) = stop {
                 // This workflow is already running and we need to stop it at the
                 // scope level
-                roster.cancel(Cancel {
-                    origin: source,
-                    target: workflow.scope,
-                    session: Some(stop.session),
-                    cancellation: Cancellation::supplanted(stop.source, source, parent_session),
-                });
+                world.emit_scope_cancel(
+                    RouteSource {
+                        session: parent_session,
+                        source,
+                        seq,
+                        port: &output_port::name_str("supplant"),
+                    },
+                    stop.task_id,
+                    Cancellation::supplanted(RequestId {
+                        session: parent_session,
+                        source,
+                        seq,
+                    }),
+                    roster,
+                );
             }
 
             // The request has been queued up and should be delivered later.
@@ -226,13 +251,14 @@ where
     let input = Input {
         session: parent_session,
         data: request,
+        seq,
     };
     begin_workflow::<Request, Response, Streams>(
         input,
         source,
         target,
         scoped_session,
-        workflow.scope,
+        scope,
         blocker,
         world,
         roster,
@@ -261,7 +287,11 @@ where
         scoped_session,
         ExitTarget {
             target,
-            source,
+            request_id: RequestId {
+                source,
+                session: input.session,
+                seq: input.seq,
+            },
             parent_session,
             blocker,
         },
@@ -310,9 +340,11 @@ fn serve_next_workflow_request<Request, Response, Streams>(
             return;
         };
 
-        let parent_session = blocker.session;
-        let source = blocker.source;
-
+        let RequestId {
+            session: parent_session,
+            source,
+            seq,
+        } = blocker.request_id;
         let Some(target) = world.get::<SingleTargetStorage>(source) else {
             // This will not be able to run, so we should move onto the next
             // item in the queue.
@@ -324,6 +356,7 @@ fn serve_next_workflow_request<Request, Response, Streams>(
             Input {
                 session: parent_session,
                 data: request,
+                seq,
             },
             source,
             target,

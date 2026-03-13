@@ -20,13 +20,20 @@ use bevy_ecs::prelude::{Component, Entity, World};
 use crate::{
     Disposal, ForkTargetStorage, Input, InputBundle, ManageDisposal, ManageInput, Operation,
     OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationRoster,
-    OperationSetup, OrBroken, ReachabilityResult, SingleInputStorage,
+    OperationSetup, OrBroken, ReachabilityResult, RequestId, Seq, SingleInputStorage, output_port,
 };
+
+use smallvec::{SmallVec, smallvec};
 
 use thiserror::Error as ThisError;
 
 pub struct Branching<Input, Outputs, F> {
     activator: F,
+    // TODO(@mxgrey): Consider expanding support for these port identifiers
+    // beyond string literals. Maybe we should support entire OutputKeys. The
+    // main question is how to do this such that there is no overhead from
+    // heap allocations in the hot loop.
+    ports: SmallVec<[&'static str; 8]>,
     targets: ForkTargetStorage,
     _ignore: std::marker::PhantomData<fn(Input, Outputs)>,
 }
@@ -37,6 +44,7 @@ pub(crate) fn make_result_branching<T, E>(
 ) -> Branching<Result<T, E>, (T, E), fn(Result<T, E>) -> (BranchResult<T>, BranchResult<E>)> {
     Branching {
         activator: branch_result,
+        ports: smallvec!["ok", "err"],
         targets,
         _ignore: Default::default(),
     }
@@ -48,13 +56,17 @@ pub(crate) fn make_option_branching<T>(
 ) -> Branching<Option<T>, (T, ()), fn(Option<T>) -> (BranchResult<T>, BranchResult<()>)> {
     Branching {
         activator: branch_option,
+        ports: smallvec!["some", "none"],
         targets,
         _ignore: Default::default(),
     }
 }
 
-#[derive(Component, Clone, Copy)]
-struct BranchingActivatorStorage<F: 'static + Send + Sync + Copy>(F);
+#[derive(Component, Clone)]
+struct BranchingActivatorStorage<F: 'static + Send + Sync + Copy> {
+    activator: F,
+    ports: SmallVec<[&'static str; 8]>,
+}
 
 impl<InputT, Outputs, F> Operation for Branching<InputT, Outputs, F>
 where
@@ -72,7 +84,10 @@ where
         world.entity_mut(source).insert((
             self.targets,
             InputBundle::<InputT>::new(),
-            BranchingActivatorStorage(self.activator),
+            BranchingActivatorStorage {
+                activator: self.activator,
+                ports: self.ports,
+            },
         ));
         Ok(())
     }
@@ -84,15 +99,20 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let mut source_mut = world.get_entity_mut(source).or_broken()?;
         let Input {
             session,
             data: input,
-        } = source_mut.take_input::<InputT>()?;
-        let BranchingActivatorStorage::<F>(activator) = source_mut.get().copied().or_broken()?;
+            seq,
+        } = world.take_input::<InputT>(source)?;
+        let BranchingActivatorStorage::<F> { activator, ports } = world
+            .get_entity_mut(source)
+            .or_broken()?
+            .get()
+            .cloned()
+            .or_broken()?;
 
         let activation = activator(input);
-        Outputs::activate(session, activation, source, world, roster)
+        Outputs::activate(session, activation, source, seq, &ports, world, roster)
     }
 
     fn cleanup(mut clean: OperationCleanup) -> OperationResult {
@@ -117,6 +137,8 @@ pub trait Branchable {
         session: Entity,
         activation: Self::Activation,
         source: Entity,
+        seq: Seq,
+        ports: &[&'static str],
         world: &'a mut World,
         roster: &'a mut OperationRoster,
     ) -> OperationResult;
@@ -135,6 +157,8 @@ where
         session: Entity,
         (a, b): Self::Activation,
         source: Entity,
+        seq: Seq,
+        ports: &[&'static str],
         world: &'a mut World,
         roster: &'a mut OperationRoster,
     ) -> OperationResult {
@@ -142,28 +166,35 @@ where
         #[allow(clippy::get_first)]
         let target_a = *targets.0.get(0).or_broken()?;
         let target_b = *targets.0.get(1).or_broken()?;
+        let req = RequestId {
+            session,
+            source,
+            seq,
+        };
 
-        let mut target_a_mut = world.get_entity_mut(target_a).or_broken()?;
+        let port_a = output_port::name_str(ports[0]);
         match a {
-            Ok(a) => target_a_mut.give_input(session, a, roster)?,
+            Ok(a) => {
+                let route = req.to_message_route(&port_a, target_a);
+                world.give_input(route, a, roster)?;
+            }
             Err(reason) => {
+                let route = req.to_route_source(&port_a);
                 let disposal = Disposal::branching(source, target_a, reason);
-                world
-                    .get_entity_mut(source)
-                    .or_broken()?
-                    .emit_disposal(session, disposal, roster);
+                world.emit_disposal(route, disposal, roster);
             }
         }
 
-        let mut target_b_mut = world.get_entity_mut(target_b).or_broken()?;
+        let port_b = output_port::name_str(ports[1]);
         match b {
-            Ok(b) => target_b_mut.give_input(session, b, roster)?,
+            Ok(b) => {
+                let route = req.to_message_route(&port_b, target_b);
+                world.give_input(route, b, roster)?;
+            }
             Err(reason) => {
+                let route = req.to_route_source(&port_b);
                 let disposal = Disposal::branching(source, target_b, reason);
-                world
-                    .get_entity_mut(source)
-                    .or_broken()?
-                    .emit_disposal(session, disposal, roster);
+                world.emit_disposal(route, disposal, roster);
             }
         }
 

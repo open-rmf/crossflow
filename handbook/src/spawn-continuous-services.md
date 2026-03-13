@@ -62,7 +62,7 @@ or an async service. These differences come from two facts:
 This first difference means that **continuous services *must* query for their order queue**.
 In the `hello_continuous_service` example below you can see the `query` argument
 takes in a `ContinuousQuery` whose generic parameters perfectly match the generic
-parameters of `ContinuousServiceInput` above it. This pattern is mandatory for
+parameters of `ContinuousService` above it. This pattern is mandatory for
 continuous services so they can access their order queue.
 
 ```rust,no_run,noplayground

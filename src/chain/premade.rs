@@ -15,15 +15,12 @@
  *
 */
 
-use bevy_ecs::{
-    prelude::{Entity, In},
-    query::QueryEntityError,
-};
+use bevy_ecs::{prelude::Entity, query::QueryEntityError};
 
 use smallvec::SmallVec;
 use thiserror::Error;
 
-use crate::{BufferAccessMut, BufferKey};
+use crate::{Blocking, BufferAccessMut, BufferKey};
 
 #[derive(Debug, Error)]
 pub enum BufferAccessError {
@@ -36,13 +33,15 @@ pub enum BufferAccessError {
 }
 
 pub(super) fn consume_buffer<const N: usize, T>(
-    In(key): In<BufferKey<T>>,
+    Blocking {
+        request: key, id, ..
+    }: Blocking<BufferKey<T>>,
     mut access: BufferAccessMut<T>,
 ) -> SmallVec<[T; N]>
 where
     T: 'static + Send + Sync,
 {
-    let Ok(mut buffer) = access.get_mut(&key) else {
+    let Ok(mut buffer) = access.get_mut(id, &key) else {
         return SmallVec::new();
     };
 
@@ -50,11 +49,15 @@ where
 }
 
 pub fn push_into_buffer<T: 'static + Send + Sync>(
-    In((input, key)): In<(T, BufferKey<T>)>,
+    Blocking {
+        request: (input, key),
+        id,
+        ..
+    }: Blocking<(T, BufferKey<T>)>,
     mut access: BufferAccessMut<T>,
 ) -> Result<(), BufferAccessError> {
     access
-        .get_mut(&key)
+        .get_mut(id, &key)
         .map_err(|err| match err {
             QueryEntityError::QueryDoesNotMatch(e, _) => BufferAccessError::QueryDoesNotMatch(e),
             QueryEntityError::EntityDoesNotExist(e) => {

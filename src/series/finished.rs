@@ -15,7 +15,11 @@
  *
 */
 
-use crate::{Executable, OperationRequest, OperationResult, OperationSetup, OrBroken};
+use bevy_ecs::prelude::ChildOf;
+
+use crate::{
+    Executable, ManageSession, OperationRequest, OperationResult, OperationSetup, OrBroken,
+};
 
 /// During an execution flush, this executable gets automatically added to the end of
 /// any chain which has an unused target but was also marked as detached. This
@@ -29,8 +33,10 @@ impl Executable for Finished {
     }
 
     fn execute(OperationRequest { source, world, .. }: OperationRequest) -> OperationResult {
-        // If this gets triggered that means the series is finished
-        world.get_entity_mut(source).or_broken()?.despawn();
+        // If this gets triggered that means the series is finished. The parent
+        // of the source is always set to its session.
+        let session = world.get::<ChildOf>(source).or_broken()?.parent();
+        world.despawn_session(session);
         Ok(())
     }
 }

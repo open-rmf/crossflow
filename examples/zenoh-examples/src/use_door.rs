@@ -197,7 +197,7 @@ fn main() {
             .unwrap();
         let _ = commands
             .request((), workflow)
-            .then(exit_app.into_blocking_callback())
+            .then(exit_app.into_callback())
             .detach();
     });
 
@@ -224,7 +224,7 @@ enum DoorUsageMode {
 }
 
 fn move_robot(
-    In(service): ContinuousServiceInput<((), BufferKey<f32>), ()>,
+    service: ContinuousService<((), BufferKey<f32>), ()>,
     mut query: ContinuousQuery<((), BufferKey<f32>), ()>,
     mut remaining_time_access: BufferAccessMut<f32>,
     time: Res<Time>,
@@ -235,7 +235,8 @@ fn move_robot(
 
     requests.for_each(|order| {
         let time_key = &order.request().1;
-        let Ok(mut remaining_time) = remaining_time_access.get_mut(time_key) else {
+        let id = order.id();
+        let Ok(mut remaining_time) = remaining_time_access.get_mut(id, time_key) else {
             error!("Unable to access remaining time buffer");
             return;
         };
@@ -251,6 +252,6 @@ fn move_robot(
     });
 }
 
-fn exit_app(In(_): In<()>, mut exit: EventWriter<AppExit>) {
+fn exit_app(_: Blocking<()>, mut exit: EventWriter<AppExit>) {
     exit.write(AppExit::Success);
 }

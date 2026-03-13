@@ -25,7 +25,7 @@ use std::{
 use schemars::{JsonSchema, json_schema};
 use serde::{Deserialize, Serialize};
 
-use crate::{NameOrIndex, NamespaceList, OperationName};
+use crate::{Identifier, NamespaceList, OperationName};
 
 #[derive(
     Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
@@ -100,21 +100,21 @@ impl NamedOutputBuilder {
     pub fn next_index(self, index: usize) -> NamedOutputRef {
         self.key(OutputKey(smallvec![
             "next".into(),
-            NameOrIndex::Index(index)
+            Identifier::Index(index)
         ]))
     }
 
     pub fn sequential(self, index: usize) -> NamedOutputRef {
         self.key(OutputKey(smallvec![
             "sequential".into(),
-            NameOrIndex::Index(index)
+            Identifier::Index(index)
         ]))
     }
 
     pub fn keyed(self, key: &OperationName) -> NamedOutputRef {
         self.key(OutputKey(smallvec![
             "keyed".into(),
-            NameOrIndex::Name(Arc::clone(key))
+            Identifier::Name(Arc::clone(key))
         ]))
     }
 
@@ -172,10 +172,10 @@ impl NamedOutputRef {
 /// - ["ok"]
 /// - ["err"]
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct OutputKey(pub SmallVec<[NameOrIndex; 4]>);
+pub struct OutputKey(pub SmallVec<[Identifier; 4]>);
 
 impl Deref for OutputKey {
-    type Target = [NameOrIndex];
+    type Target = [Identifier];
     fn deref(&self) -> &Self::Target {
         self.0.as_slice()
     }
@@ -183,7 +183,7 @@ impl Deref for OutputKey {
 
 impl<I: IntoIterator> From<I> for OutputKey
 where
-    I::Item: Into<NameOrIndex>,
+    I::Item: Into<Identifier>,
 {
     fn from(value: I) -> Self {
         let inner = value.into_iter().map(|value| value.into()).collect();
@@ -195,10 +195,10 @@ impl std::fmt::Display for &'_ OutputKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for (i, key) in self.iter().enumerate() {
             match key {
-                NameOrIndex::Name(name) => {
+                Identifier::Name(name) => {
                     write!(f, "\"{name}\"")?;
                 }
-                NameOrIndex::Index(index) => {
+                Identifier::Index(index) => {
                     write!(f, "{index}")?;
                 }
             }

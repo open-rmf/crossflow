@@ -22,8 +22,8 @@ use std::{
 };
 
 use crate::{
-    AnyBuffer, BufferIdentifier, BufferMap, Builder, BuilderScopeContext, JsonMessage, PortRef,
-    Scope, StreamPack, dyn_node::DynStreamInputPack,
+    AnyBuffer, BufferMap, Builder, BuilderScopeContext, IdentifierRef, JsonMessage, PortRef, Scope,
+    StreamPack, dyn_node::DynStreamInputPack,
 };
 
 #[cfg(feature = "trace")]
@@ -287,7 +287,7 @@ impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
                 let mut buffer_map = BufferMap::with_capacity(mapping.len());
                 for (k, op_id) in mapping {
                     buffer_map.insert(
-                        BufferIdentifier::Name(k.clone().into()),
+                        IdentifierRef::Name(k.clone().into()),
                         attempt_get_buffer(op_id)?,
                     );
                 }
@@ -296,7 +296,7 @@ impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
             BufferSelection::Array(arr) => {
                 let mut buffer_map = BufferMap::with_capacity(arr.len());
                 for (i, op_id) in arr.into_iter().enumerate() {
-                    buffer_map.insert(BufferIdentifier::Index(i), attempt_get_buffer(op_id)?);
+                    buffer_map.insert(IdentifierRef::Index(i), attempt_get_buffer(op_id)?);
                 }
                 Ok(buffer_map)
             }

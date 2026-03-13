@@ -31,12 +31,12 @@ use tokio::sync::mpsc::{
 use smallvec::SmallVec;
 
 use crate::{
-    AddOperation, Blocker, Broken, ChannelItem, ChannelQueue, Cleanup, Disposal, ManageInput,
-    Operation, OperationCleanup, OperationError, OperationReachability, OperationRequest,
-    OperationResult, OperationRoster, OperationSetup, OrBroken, ReachabilityResult, ScopeStorage,
-    StreamPack, UnhandledErrors,
+    AddOperation, Blocker, Broken, ChannelItem, ChannelQueue, Cleanup, Disposal, InScope,
+    ManageDisposal, ManageInput, Operation, OperationCleanup, OperationError,
+    OperationReachability, OperationRequest, OperationResult, OperationRoster, OperationSetup,
+    OrBroken, ReachabilityResult, RequestId, StreamPack, UnhandledErrors,
     async_execution::{CancelSender, TaskHandle, task_cancel_sender},
-    emit_disposal,
+    output_port,
 };
 
 struct JobWaker {
@@ -69,8 +69,7 @@ impl WakeQueue {
 #[derive(Component)]
 pub(crate) struct OperateTask<Response: 'static + Send + Sync, Streams: StreamPack> {
     source: Entity,
-    session: Entity,
-    node: Entity,
+    request_id: RequestId,
     target: Entity,
     task: Option<TaskHandle<Response>>,
     cancel_sender: CancelSender,
@@ -86,8 +85,7 @@ impl<Response: 'static + Send + Sync, Streams: StreamPack> OperateTask<Response,
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         source: Entity,
-        session: Entity,
-        node: Entity,
+        request_id: RequestId,
         target: Entity,
         task: TaskHandle<Response>,
         cancel_sender: CancelSender,
@@ -96,8 +94,7 @@ impl<Response: 'static + Send + Sync, Streams: StreamPack> OperateTask<Response,
     ) -> Self {
         Self {
             source,
-            session,
-            node,
+            request_id,
             target,
             task: Some(task),
             cancel_sender,
@@ -112,15 +109,19 @@ impl<Response: 'static + Send + Sync, Streams: StreamPack> OperateTask<Response,
 
     pub(crate) fn add(self, world: &mut World, roster: &mut OperationRoster) {
         let source = self.source;
-        let scope = world.get::<ScopeStorage>(self.node).map(|s| s.get());
+        let scope = world.get::<InScope>(self.node()).map(|s| s.scope());
         let mut source_mut = world.entity_mut(source);
-        source_mut.insert(ChildOf(self.node));
+        source_mut.insert(ChildOf(self.node()));
         if let Some(scope) = scope {
-            source_mut.insert(ScopeStorage::new(scope));
+            source_mut.insert(InScope::new(scope));
         }
 
         AddOperation::new(None, source, self).apply(world);
         roster.queue(source);
+    }
+
+    fn node(&self) -> Entity {
+        self.request_id.source
     }
 }
 
@@ -136,8 +137,8 @@ where
         }
 
         let source = self.source;
-        let session = self.session;
-        let node = self.node;
+        let request_id = self.request_id;
+        let node = self.node();
         let task = self.task.take();
         let unblock = self.blocker.take();
         let sender = self.sender.clone();
@@ -158,7 +159,12 @@ where
                         if disposed {
                             let disposal =
                                 disposal.unwrap_or_else(|| Disposal::task_despawned(source, node));
-                            emit_disposal(node, session, disposal, world, roster);
+                            let port = output_port::next();
+                            world.emit_disposal(
+                                request_id.to_route_source(&port),
+                                disposal,
+                                roster,
+                            );
                         }
                     },
                 ))
@@ -180,8 +186,8 @@ where
         });
 
         let mut source_mut = world.entity_mut(source);
-        let node = self.node;
-        let session = self.session;
+        let node = self.node();
+        let session = self.request_id.session;
         source_mut
             .insert((
                 self,
@@ -225,8 +231,8 @@ where
         }
         let mut task = operation.task.take().or_broken()?;
         let target = operation.target;
-        let session = operation.session;
-        let node = operation.node;
+        let node = operation.node();
+        let request_id = operation.request_id;
         let being_cleaned = operation.being_cleaned;
         // We take out unblock here just in case the entity gets despawned and/or
         // the OperateTask component gets dropped before we reach the end of the
@@ -248,9 +254,9 @@ where
                 // Task has finished. We will defer its input until after the
                 // ChannelQueue has been processed so that any streams from this
                 // task will be delivered before the final output.
-                let r = world
-                    .entity_mut(target)
-                    .defer_input(session, result, roster);
+                let port = output_port::next();
+                let route = request_id.to_message_route(&port, target);
+                let r = world.defer_input(route, result, roster);
 
                 world
                     .get_mut::<OperateTask<Response, Streams>>(source)
@@ -259,7 +265,7 @@ where
                 cleanup_task(source, node, unblock, being_cleaned, world, roster);
 
                 if Streams::has_streams() {
-                    if let Some(scope) = world.get::<ScopeStorage>(node) {
+                    if world.get::<InScope>(node).is_some() {
                         // When an async task with any number of streams >= 1 is
                         // finished, we should always do a disposal notification
                         // to force a reachability check. Normally there are
@@ -275,7 +281,10 @@ where
                         // trigger this disposal if we detected that a
                         // reachability test happened while this task was
                         // running.
-                        roster.disposed(scope.get(), source, session);
+                        let disposal = Disposal::async_node_with_streams();
+                        let port = output_port::all_stream_out();
+                        let route = request_id.to_route_source(&port);
+                        world.emit_disposal(route, disposal, roster);
                     }
                 }
 
@@ -303,8 +312,7 @@ where
 
                     let operation = OperateTask::<_, Streams>::new(
                         source,
-                        session,
-                        node,
+                        request_id,
                         target,
                         task,
                         cancel_sender,
@@ -330,7 +338,7 @@ where
             .or_broken()?;
         operation.being_cleaned = Some(cleanup);
         operation.finished_normally = true;
-        let node = operation.node;
+        let node = operation.node();
         let task = operation.task.take();
         let unblock = operation.blocker.take();
         let sender = operation.sender.clone();
@@ -366,6 +374,7 @@ where
             .or_broken()?
             .get::<OperateTask<Response, Streams>>()
             .or_broken()?
+            .request_id
             .session;
         Ok(session == reachability.session)
     }

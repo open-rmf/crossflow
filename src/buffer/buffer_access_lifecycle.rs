@@ -21,7 +21,10 @@ use tokio::sync::mpsc::UnboundedSender as TokioSender;
 
 use std::sync::Arc;
 
-use crate::{BufferKeyBuilder, ChannelItem, Disposal, OperationRoster, emit_disposal};
+use crate::{
+    BufferKeyBuilder, ChannelItem, Disposal, ManageDisposal, OperationRoster, RouteSource, Seq,
+    output_port,
+};
 
 /// This is used as a field inside of [`crate::BufferKey`] which keeps track of
 /// when a key that was sent out into the world gets fully dropped from use. We
@@ -33,6 +36,7 @@ pub struct BufferAccessLifecycle {
     scope: Entity,
     accessor: Entity,
     session: Entity,
+    seq: Seq,
     buffer: Entity,
     sender: TokioSender<ChannelItem>,
     /// This tracker is an additional layer of indirection that allows the
@@ -46,6 +50,7 @@ impl BufferAccessLifecycle {
         scope: Entity,
         buffer: Entity,
         session: Entity,
+        seq: Seq,
         accessor: Entity,
         sender: TokioSender<ChannelItem>,
         tracker: Arc<()>,
@@ -54,6 +59,7 @@ impl BufferAccessLifecycle {
             scope,
             accessor,
             session,
+            seq,
             buffer,
             sender,
             tracker,
@@ -71,11 +77,19 @@ impl Drop for BufferAccessLifecycle {
             let scope = self.scope;
             let accessor = self.accessor;
             let session = self.session;
+            let seq = self.seq;
             let buffer = self.buffer;
             if let Err(err) = self.sender.send(Box::new(
                 move |world: &mut World, roster: &mut OperationRoster| {
                     let disposal = Disposal::buffer_key(accessor, buffer);
-                    emit_disposal(accessor, session, disposal, world, roster);
+                    let port = output_port::drop();
+                    let route = RouteSource {
+                        session,
+                        source: accessor,
+                        seq,
+                        port: &port,
+                    };
+                    world.emit_disposal(route, disposal, roster);
                 },
             )) {
                 eprintln!(

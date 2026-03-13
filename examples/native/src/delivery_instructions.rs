@@ -39,7 +39,7 @@ fn main() {
 
     let waiting_service =
         app.world_mut()
-            .spawn_service(move |In(input): AsyncServiceInput<String>| async move {
+            .spawn_service(move |input: AsyncService<String>| async move {
                 // Create a future that will never finish
                 let never = pending::<()>();
                 // Wait on the never-ending future until a timeout finishes.

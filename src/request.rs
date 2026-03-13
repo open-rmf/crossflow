@@ -24,9 +24,13 @@ use bevy_ecs::{
 use std::future::Future;
 
 use crate::{
-    Cancellable, Detached, InputCommand, IntoAsyncMap, IntoBlockingMapOnce, ProvideOnce, Series,
-    SeriesMarker, SessionStatus, StreamPack, UnusedTarget, cancel_execution,
+    Cancellable, Detached, IntoAsyncMap, IntoBlockingMapOnce, ProvideOnce, Series, SeriesRequest,
+    SeriesSessionBundle, SessionStatus, StreamPack, UnusedTarget, cancel_series,
+    series::internal::AddToSeries,
 };
+
+#[cfg(feature = "trace")]
+use crate::TraceSeriesSessionSpawned;
 
 /// Extensions for creating a series of execution by making a request to a provider or
 /// serving a value. This is implemented for [`Commands`].
@@ -95,29 +99,38 @@ impl<'w, 's> RequestExt<'w, 's> for Commands<'w, 's> {
         P::Response: 'static + Send + Sync,
         P::Streams: StreamPack,
     {
-        let target = self
-            .spawn((Detached::default(), UnusedTarget, SeriesMarker))
-            .id();
+        let session = self.spawn(SeriesSessionBundle::new()).id();
+
+        #[cfg(feature = "trace")]
+        {
+            self.queue(TraceSeriesSessionSpawned { session });
+        }
 
         let source = self
             .spawn((
-                Cancellable::new(cancel_execution),
-                SeriesMarker,
+                ChildOf(session),
+                Cancellable::new(cancel_series),
                 SessionStatus::Active,
             ))
-            // We set the parent of this source to the target so that when the
-            // target gets despawned, this will also be despawned.
-            .insert(ChildOf(target))
             .id();
 
+        self.queue(AddToSeries::new(session, source));
+
+        let target = self
+            .spawn((ChildOf(session), Detached::default(), UnusedTarget))
+            .id();
+
+        self.queue(AddToSeries::new(session, target));
+
         provider.connect(None, source, target, self);
-        self.queue(InputCommand {
-            session: source,
-            target: source,
+        self.queue(SeriesRequest {
+            session,
+            start: source,
             data: request,
         });
 
         Series {
+            session,
             source,
             target,
             commands: self,

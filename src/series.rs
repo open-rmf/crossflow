@@ -23,8 +23,9 @@ use bevy_ecs::{
 use std::future::Future;
 
 use crate::{
-    AsMapOnce, Cancellable, IntoAsyncMapOnce, IntoBlockingMapOnce, Outcome, Promise, ProvideOnce,
-    Sendish, StreamPack, StreamTargetMap, UnusedTarget,
+    AsMapOnce, IntoAsyncMapOnce, IntoBlockingMapOnce, Outcome, Promise, ProvideOnce, Sendish,
+    StreamPack, StreamTargetMap, UnusedTarget,
+    series::internal::{AddExecutableToSeries, AddToSeries},
 };
 
 mod detach;
@@ -36,7 +37,7 @@ pub(crate) use finished::*;
 mod insert;
 pub(crate) use insert::*;
 
-mod internal;
+pub(crate) mod internal;
 pub(crate) use internal::*;
 
 mod map;
@@ -76,6 +77,7 @@ pub(crate) use taken::*;
 /// from happening, you can use [`Series::detach`] to lock in the execution of
 /// the series (or a subset of the series) no matter what happens downstream.
 pub struct Series<'w, 's, 'a, Response, Streams> {
+    pub(crate) session: Entity,
     pub(crate) source: Entity,
     pub(crate) target: Entity,
     pub(crate) commands: &'a mut Commands<'w, 's>,
@@ -109,7 +111,7 @@ where
 
     /// This is the session ID of the last request so far in the series.
     pub fn session_id(&self) -> Entity {
-        self.source
+        self.session
     }
 
     /// Capture the outcome of the series and all the stream data of the final
@@ -117,6 +119,7 @@ where
     #[must_use]
     pub fn capture(self) -> Capture<Response, Streams> {
         let target = self.target;
+        let session = self.session;
         let mut map = StreamTargetMap::default();
         let stream_receivers = Streams::take_streams(target, &mut map, self.commands);
         self.commands.entity(self.source).insert(map);
@@ -127,7 +130,7 @@ where
         Capture {
             outcome,
             streams: stream_receivers,
-            session: target,
+            session,
         }
     }
 
@@ -137,8 +140,8 @@ where
     #[deprecated(since = "0.0.6", note = "Use .capture() instead")]
     pub fn take(self) -> Recipient<Response, Streams> {
         let (response_sender, response_promise) = Promise::<Response>::new();
-        self.commands.queue(AddExecution::new(
-            Some(self.source),
+        self.commands.queue(AddExecutableToSeries::new(
+            self.session,
             self.target,
             TakenResponse::<Response>::new(response_sender),
         ));
@@ -165,8 +168,8 @@ where
     #[deprecated(since = "0.0.6", note = "Use .outcome() instead")]
     pub fn take_response(self) -> Promise<Response> {
         let (response_sender, response_promise) = Promise::<Response>::new();
-        self.commands.queue(AddExecution::new(
-            Some(self.source),
+        self.commands.queue(AddExecutableToSeries::new(
+            self.session,
             self.target,
             TakenResponse::<Response>::new(response_sender),
         ));
@@ -179,21 +182,21 @@ where
         self,
         provider: P,
     ) -> Series<'w, 's, 'a, P::Response, P::Streams> {
+        let session = self.session;
         let source = self.target;
+
+        self.commands.entity(source).remove::<UnusedTarget>();
+
         let target = self
             .commands
-            .spawn((Detached::default(), UnusedTarget, SeriesMarker))
+            .spawn((ChildOf(session), Detached::default(), UnusedTarget))
             .id();
 
-        // We should automatically delete the previous step in the chain once
-        // this one is finished.
-        self.commands
-            .entity(source)
-            .insert((Cancellable::new(cancel_execution), SeriesMarker))
-            .remove::<UnusedTarget>()
-            .insert(ChildOf(target));
+        self.commands.queue(AddToSeries::new(session, target));
+
         provider.connect(None, source, target, self.commands);
         Series {
+            session,
             source,
             target,
             commands: self.commands,
@@ -237,8 +240,8 @@ where
     }
 
     /// Apply a one-time map that implements one of
-    /// - [`FnOnce(BlockingMap<Request, Streams>) -> Response`](crate::BlockingMap)
-    /// - [`FnOnce(AsyncMap<Request, Streams>) -> impl Future<Response>`](crate::AsyncMap)
+    /// - [`FnOnce(Blocking<Request, Streams>) -> Response`](crate::Blocking)
+    /// - [`FnOnce(Async<Request, Streams>) -> impl Future<Response>`](crate::Async)
     ///
     /// If you do not care about providing streams then you can use
     /// [`Self::map_block`] or [`Self::map_async`] instead.
@@ -269,8 +272,8 @@ where
     /// If the entity despawns then the request gets cancelled unless you used
     /// [`Self::detach`] before calling this.
     pub fn store(self, target: Entity) {
-        self.commands.queue(AddExecution::new(
-            Some(self.source),
+        self.commands.queue(AddExecutableToSeries::new(
+            self.session,
             self.target,
             Store::<Response>::new(target),
         ));
@@ -287,6 +290,8 @@ where
     /// still decide what to do with the final response data.
     #[must_use]
     pub fn collect_streams(self, target: Entity) -> Series<'w, 's, 'a, Response, ()> {
+        let session = self.session;
+
         let mut map = StreamTargetMap::default();
         let stream_targets = Streams::collect_streams(self.source, target, &mut map, self.commands);
         self.commands
@@ -294,6 +299,7 @@ where
             .insert((stream_targets, map));
 
         Series {
+            session,
             source: self.source,
             target: self.target,
             commands: self.commands,
@@ -310,8 +316,8 @@ where
     /// If the entity despawns then the request gets cancelled unless you used
     /// [`Self::detach`] before calling this.
     pub fn push(self, target: Entity) {
-        self.commands.queue(AddExecution::new(
-            Some(self.source),
+        self.commands.queue(AddExecutableToSeries::new(
+            self.session,
             self.target,
             Push::<Response>::new(target, false),
         ));
@@ -325,8 +331,11 @@ where
 
     /// Used internally to implement various ways of capturing an outcome.
     pub(crate) fn send_outcome(self, capture: CaptureOutcome<Response>) {
-        self.commands
-            .queue(AddExecution::new(Some(self.source), self.target, capture));
+        self.commands.queue(AddExecutableToSeries::new(
+            self.session,
+            self.target,
+            capture,
+        ));
     }
 
     // TODO(@mxgrey): Consider offering ways for users to respond to cancellations.
@@ -350,8 +359,8 @@ where
     /// [`Self::store`] or [`Self::push`]. Alternatively you can transform it
     /// into a bundle using [`Self::map_block`] or [`Self::map_async`].
     pub fn insert(self, target: Entity) {
-        self.commands.queue(AddExecution::new(
-            Some(self.source),
+        self.commands.queue(AddExecutableToSeries::new(
+            self.session,
             self.target,
             Insert::<Response>::new(target),
         ));
@@ -367,8 +376,8 @@ where
     ///
     /// Using this will also effectively [detach](Self::detach) the series.
     pub fn send_event(self) {
-        self.commands.queue(AddExecution::new(
-            Some(self.source),
+        self.commands.queue(AddExecutableToSeries::new(
+            self.session,
             self.target,
             SendEvent::<Response>::new(),
         ));
@@ -431,7 +440,7 @@ mod tests {
     use tokio::sync::mpsc::unbounded_channel;
 
     #[test]
-    fn test_dropped_chain() {
+    fn test_dropped_series() {
         let mut context = TestingContext::minimal_plugins();
 
         let (detached_sender, mut detached_receiver) = unbounded_channel();
@@ -550,10 +559,96 @@ mod tests {
     }
 
     #[test]
-    fn test_detach() {
+    fn test_cancel_on_drop() {
+        // This test ensures that cancellation behavior works correctly when
+        // dropping without detaching, and conversely that it does not cancel
+        // when dropping from a detached outcome.
+        let mut context = TestingContext::minimal_plugins();
+
+        let (initial_sender, mut initial_receiver) = tokio::sync::oneshot::channel();
+        let (middle_sender, middle_receiver) = tokio::sync::oneshot::channel();
+        let (final_sender, mut final_receiver) = tokio::sync::oneshot::channel();
+
+        let outcome = context.command(|commands| {
+            commands
+                .provide(())
+                .map(move |_: Async<()>| {
+                    async move {
+                        let _ = initial_sender.send(());
+
+                        // hold the service here to give time for the outcome to be
+                        // dropped and processed.
+                        let _ = middle_receiver.await;
+
+                        let _ = final_sender.send(());
+                    }
+                })
+                .outcome()
+        });
+
+        context.run_with_conditions(&mut initial_receiver, Duration::from_secs(2));
+        assert!(initial_receiver.try_recv().is_ok());
+        assert!(final_receiver.try_recv().is_err());
+
+        drop(outcome);
+
+        context.run_with_conditions(&mut final_receiver, Duration::from_secs(2));
+        // The final message should not have been received because the async
+        // execution should have been dropped before finishing.
+        assert!(final_receiver.try_recv().is_err());
+
+        // We use the sender at the end of this function to ensure the compiler
+        // does not drop it prematurely, which would negatively impact the test.
+        let _ = middle_sender.send(());
+    }
+
+    #[test]
+    fn test_explicit_series_cancel() {
+        // This test ensures that cancellation behavior works correctly when
+        // dropping without detaching, and conversely that it does not cancel
+        // when dropping from a detached outcome.
+        let mut context = TestingContext::minimal_plugins();
+
+        let (initial_sender, mut initial_receiver) = tokio::sync::oneshot::channel();
+        let (final_sender, mut final_receiver) = tokio::sync::oneshot::channel();
+
+        let mut outcome = context.command(|commands| {
+            commands
+                .provide(())
+                .map(move |_: Async<()>| {
+                    async move {
+                        let _ = initial_sender.send(());
+
+                        // hold the service here to give time for the outcome to be
+                        // dropped and processed.
+                        let never = async_std::future::pending::<()>();
+                        let timeout = Duration::from_secs(2);
+                        let _ = async_std::future::timeout(timeout, never).await;
+                        let _ = final_sender.send(());
+                    }
+                })
+                .outcome()
+        });
+
+        context.run_with_conditions(&mut initial_receiver, Duration::from_secs(2));
+        assert!(initial_receiver.try_recv().is_ok());
+        assert!(final_receiver.try_recv().is_err());
+
+        outcome.cancel(anyhow::anyhow!("testing explicit cancel"));
+
+        context.run_with_conditions(&mut outcome, Duration::from_secs(2));
+        assert!(outcome.try_recv().unwrap().is_err());
+        // The final message should not have been received because the async
+        // execution should have been dropped before finishing.
+        assert!(final_receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_detach_regression() {
         // This is a regression test that covers a bug which existed due to
         // an incorrect handling of detached series when giving input.
         let mut context = TestingContext::minimal_plugins();
+
         let service = context.spawn_delayed_map(Duration::from_millis(1), |n| *n + 1);
 
         context.command(|commands| {
@@ -590,6 +685,7 @@ mod tests {
     #[test]
     fn test_delivery_instructions() {
         let mut context = TestingContext::minimal_plugins();
+
         let service = context.spawn_delayed_map_with_viewer(
             Duration::from_secs_f32(0.01),
             |counter: &Arc<Mutex<u64>>| {

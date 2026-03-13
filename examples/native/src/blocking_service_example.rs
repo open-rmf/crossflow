@@ -54,12 +54,17 @@ fn main() {
 #[derive(Component, Deref)]
 struct Offset(Vec2);
 
-fn apply_offset(In(input): BlockingServiceInput<Vec2>, offsets: Query<&Offset>) -> Vec2 {
+fn apply_offset(
+    BlockingService {
+        request, provider, ..
+    }: BlockingService<Vec2>,
+    offsets: Query<&Offset>,
+) -> Vec2 {
     let offset = offsets
-        .get(input.provider)
+        .get(provider)
         .map(|offset| **offset)
         .unwrap_or(Vec2::ZERO);
 
-    input.request + offset
+    request + offset
 }
 // ANCHOR_END: example

@@ -22,8 +22,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    Builder, ForRemaining, FromSequential, FromSpecific, InferenceContext, ListSplitKey,
-    MapSplitKey, OperationResult, SplitDispatcher, Splittable, is_default,
+    BasicIdentification, Builder, ForRemaining, FromSequential, FromSpecific, InferenceContext,
+    ListSplitKey, MapSplitKey, OperationResult, SplitDispatcher, Splittable, is_default,
 };
 
 use super::{
@@ -147,8 +147,9 @@ impl BuildDiagramOperation for SplitSchema {
 
 impl Splittable for Value {
     type Key = MapSplitKey<String>;
-    type Identifier = JsonPosition;
+    type Label = JsonPosition;
     type Item = Value;
+    type Id = BasicIdentification;
 
     fn validate(_: &Self::Key) -> bool {
         true
@@ -160,7 +161,7 @@ impl Splittable for Value {
 
     fn split(
         self,
-        mut dispatcher: SplitDispatcher<'_, Self::Key, Self::Identifier, Self::Item>,
+        mut dispatcher: SplitDispatcher<'_, Self::Key, Self::Label, Self::Item>,
     ) -> OperationResult {
         match self {
             Value::Array(array) => {

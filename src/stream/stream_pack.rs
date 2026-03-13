@@ -21,8 +21,8 @@ use variadics_please::all_tuples;
 use std::sync::Arc;
 
 use crate::{
-    Builder, InnerChannel, OperationError, OperationResult, OperationRoster, StreamAvailability,
-    StreamTargetMap, UnusedStreams,
+    Builder, InnerChannel, OperationError, OperationResult, OperationRoster, RequestId,
+    StreamAvailability, StreamTargetMap, UnusedStreams,
     dyn_node::{DynStreamInputPack, DynStreamOutputPack},
 };
 
@@ -89,19 +89,13 @@ pub trait StreamPack: 'static + Send + Sync {
 
     fn process_stream_buffers(
         buffer: Self::StreamBuffers,
-        source: Entity,
-        session: Entity,
+        request_id: RequestId,
         unused: &mut UnusedStreams,
         world: &mut World,
         roster: &mut OperationRoster,
     ) -> OperationResult;
 
-    fn defer_buffers(
-        buffer: Self::StreamBuffers,
-        source: Entity,
-        session: Entity,
-        commands: &mut Commands,
-    );
+    fn defer_buffers(buffer: Self::StreamBuffers, request_id: RequestId, commands: &mut Commands);
 
     fn set_stream_availability(availability: &mut StreamAvailability);
 
@@ -161,8 +155,7 @@ impl StreamPack for () {
 
     fn process_stream_buffers(
         _: Self::StreamBuffers,
-        _: Entity,
-        _: Entity,
+        _: RequestId,
         _: &mut UnusedStreams,
         _: &mut World,
         _: &mut OperationRoster,
@@ -170,7 +163,7 @@ impl StreamPack for () {
         Ok(())
     }
 
-    fn defer_buffers(_: Self::StreamBuffers, _: Entity, _: Entity, _: &mut Commands) {}
+    fn defer_buffers(_: Self::StreamBuffers, _: RequestId, _: &mut Commands) {}
 
     fn set_stream_availability(_: &mut StreamAvailability) {
         // Do nothing
@@ -294,28 +287,26 @@ macro_rules! impl_streampack_for_tuple {
 
             fn process_stream_buffers(
                 buffer: Self::StreamBuffers,
-                source: Entity,
-                session: Entity,
+                request_id: RequestId,
                 unused: &mut UnusedStreams,
                 world: &mut World,
                 roster: &mut OperationRoster,
             ) -> OperationResult {
                 let ($($T,)*) = buffer;
                 $(
-                    $T::process_stream_buffers($T, source, session, unused, world, roster)?;
+                    $T::process_stream_buffers($T, request_id, unused, world, roster)?;
                 )*
                 Ok(())
             }
 
             fn defer_buffers(
                 buffer: Self::StreamBuffers,
-                source: Entity,
-                session: Entity,
+                request_id: RequestId,
                 commands: &mut Commands,
             ) {
                 let ($($T,)*) = buffer;
                 $(
-                    $T::defer_buffers($T, source, session, commands);
+                    $T::defer_buffers($T, request_id, commands);
                 )*
             }
 

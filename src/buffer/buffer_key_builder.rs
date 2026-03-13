@@ -19,13 +19,13 @@ use bevy_ecs::prelude::Entity;
 
 use std::sync::Arc;
 
-use crate::{BufferAccessLifecycle, BufferKeyTag, ChannelSender};
+use crate::{BufferAccessLifecycle, BufferKeyTag, ChannelSender, Seq};
 
 pub struct BufferKeyBuilder {
     scope: Entity,
     session: Entity,
     accessor: Entity,
-    lifecycle: Option<(ChannelSender, Arc<()>)>,
+    lifecycle: Option<(Seq, ChannelSender, Arc<()>)>,
 }
 
 impl BufferKeyBuilder {
@@ -35,11 +35,12 @@ impl BufferKeyBuilder {
             buffer,
             session: self.session,
             accessor: self.accessor,
-            lifecycle: self.lifecycle.as_ref().map(|(sender, tracker)| {
+            lifecycle: self.lifecycle.as_ref().map(|(seq, sender, tracker)| {
                 Arc::new(BufferAccessLifecycle::new(
                     self.scope,
                     buffer,
                     self.session,
+                    *seq,
                     self.accessor,
                     sender.clone(),
                     tracker.clone(),
@@ -52,6 +53,7 @@ impl BufferKeyBuilder {
         scope: Entity,
         session: Entity,
         accessor: Entity,
+        seq: Seq,
         sender: ChannelSender,
         tracker: Arc<()>,
     ) -> Self {
@@ -59,7 +61,7 @@ impl BufferKeyBuilder {
             scope,
             session,
             accessor,
-            lifecycle: Some((sender, tracker)),
+            lifecycle: Some((seq, sender, tracker)),
         }
     }
 

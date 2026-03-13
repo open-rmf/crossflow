@@ -16,7 +16,7 @@
 */
 
 use super::*;
-use crate::{AsyncMap, NeverFinish};
+use crate::{Async, Identifier, NeverFinish};
 
 use bevy_derive::{Deref, DerefMut};
 
@@ -64,7 +64,7 @@ pub struct GrpcConfig {
     /// that the client should call.
     pub service: Arc<str>,
     /// Name of the method within the chosen service.
-    pub method: Option<NameOrIndex>,
+    pub method: Option<Identifier>,
     /// URI of where the service should be accessed.
     pub uri: Arc<str>,
     /// A timeout (in seconds) for how long to wait for the service to finish before
@@ -160,37 +160,36 @@ impl DiagramElementRegistry {
                     let path = PathAndQuery::from_maybe_shared(path.clone())?;
 
                     let rt = Arc::clone(&rt);
-                    let node =
-                        builder.create_map(move |input: AsyncMap<JsonMessage, GrpcStreams>| {
-                            let client = client.clone();
-                            let codec = codec.clone();
-                            let path = path.clone();
+                    let node = builder.create_map(move |input: Async<JsonMessage, GrpcStreams>| {
+                        let client = client.clone();
+                        let codec = codec.clone();
+                        let path = path.clone();
 
-                            // The tonic gRPC client needs to be run inside a tokio
-                            // async runtime, so we spawn a tokio task here and use the
-                            // JoinHandle to pass its result through the workflow.
-                            let task = rt
-                                .spawn(async move {
-                                    let client = client.await?;
+                        // The tonic gRPC client needs to be run inside a tokio
+                        // async runtime, so we spawn a tokio task here and use the
+                        // JoinHandle to pass its result through the workflow.
+                        let task = rt
+                            .spawn(async move {
+                                let client = client.await?;
 
-                                    // Convert the request message into a stream of a single dynamic message
-                                    let request = input.request;
-                                    let request = Request::new(once(async move { request }));
-                                    execute(
-                                        request,
-                                        client,
-                                        codec,
-                                        path,
-                                        config.timeout,
-                                        input.streams,
-                                        is_server_streaming,
-                                    )
-                                    .await
-                                })
-                                .abort_on_drop();
+                                // Convert the request message into a stream of a single dynamic message
+                                let request = input.request;
+                                let request = Request::new(once(async move { request }));
+                                execute(
+                                    request,
+                                    client,
+                                    codec,
+                                    path,
+                                    config.timeout,
+                                    input.streams,
+                                    is_server_streaming,
+                                )
+                                .await
+                            })
+                            .abort_on_drop();
 
-                            async move { task.await.map_err(|e| format!("{e}")).flatten() }
-                        });
+                        async move { task.await.map_err(|e| format!("{e}")).flatten() }
+                    });
 
                     Ok(node)
                 },
@@ -220,7 +219,7 @@ impl DiagramElementRegistry {
 
                     let rt = Arc::clone(&rt);
                     let node = builder.create_map(
-                        move |input: AsyncMap<UnboundedReceiver<JsonMessage>, GrpcStreams>| {
+                        move |input: Async<UnboundedReceiver<JsonMessage>, GrpcStreams>| {
                             let client = client.clone();
                             let codec = codec.clone();
                             let path = path.clone();
@@ -309,11 +308,11 @@ fn get_descriptions(config: &GrpcConfig) -> Result<GrpcDescriptions, Anyhow> {
         .get_service_by_name(&service_name)
         .ok_or_else(|| anyhow!("could not find service name [{}]", config.service))?;
 
-    let method = match config.method.as_ref().unwrap_or(&NameOrIndex::Index(0)) {
-        NameOrIndex::Index(index) => service.methods().skip(*index).next().ok_or_else(|| {
+    let method = match config.method.as_ref().unwrap_or(&Identifier::Index(0)) {
+        Identifier::Index(index) => service.methods().skip(*index).next().ok_or_else(|| {
             anyhow!("service [{service_name}] does not have a method with index [{index}]")
         })?,
-        NameOrIndex::Name(name) => {
+        Identifier::Name(name) => {
             service
                 .methods()
                 .find(|m| m.name() == &**name)
@@ -481,7 +480,7 @@ impl Decoder for DynamicMessageCodec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{diagram::testing::*, prelude::*, testing::*, utils::*};
+    use crate::{diagram::testing::*, prelude::*, utils::*};
     use futures::channel::oneshot::{self, Sender as OneShotSender};
     use prost_reflect::Kind;
     use protos::{
@@ -693,10 +692,7 @@ mod tests {
             .minimal()
             .register_message::<GoalTracker>();
 
-        let reached_listener = fixture
-            .context
-            .app
-            .spawn_service(check_if_reached.into_blocking_service());
+        let reached_listener = fixture.context.app.spawn_service(check_if_reached);
         fixture
             .registry
             .opt_out()
@@ -849,7 +845,7 @@ mod tests {
         builder: &mut Builder,
         config: GuideThroughGoals,
     ) -> Node<(), (), GuideStreams> {
-        builder.create_map(move |input: AsyncMap<(), GuideStreams>| {
+        builder.create_map(move |input: Async<(), GuideStreams>| {
             let goals = config.goals.clone();
             async move {
                 let (goal_sender, goal_receiver) = unbounded_channel::<JsonMessage>();
@@ -890,15 +886,17 @@ mod tests {
     }
 
     fn check_if_reached(
-        In(keys): In<ReachedKeys>,
-        update_buffer: BufferAccess<JsonMessage>,
+        Blocking {
+            request: keys, id, ..
+        }: Blocking<ReachedKeys>,
+        mut update_buffer: BufferAccess<JsonMessage>,
         mut goal_buffer: BufferAccessMut<GoalTracker>,
     ) {
-        let Some(update) = update_buffer.get_newest(&keys.navigation_update) else {
+        let Some(update) = update_buffer.get_newest(id, &keys.navigation_update) else {
             return;
         };
 
-        let mut tracker_buffer = goal_buffer.get_mut(&keys.goal_tracker).unwrap();
+        let mut tracker_buffer = goal_buffer.get_mut(id, &keys.goal_tracker).unwrap();
         let Some(tracker) = tracker_buffer.newest_mut() else {
             return;
         };
