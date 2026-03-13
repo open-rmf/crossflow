@@ -99,7 +99,10 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     // =========================================================================
     let start_engine_description = "Starts the engine";
     fn start_engine(
-        In(distance_to_destination): In<f32>,
+        Blocking {
+            request: distance_to_destination,
+            ..
+        }: Blocking<f32>,
         mut vehicle_state: ResMut<VehicleState>,
     ) -> Result<(), TripRequestError> {
         vehicle_state.toggle_engine(true);
@@ -117,7 +120,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
             Err(TripRequestError::EngineStartError)
         }
     }
-    let start_engine_service = app.spawn_service(start_engine.into_blocking_service());
+    let start_engine_service = app.spawn_service(start_engine);
     registry
         .register_node_builder(
             NodeBuilderOptions::new("start_engine".to_string())
@@ -130,12 +133,12 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     let begin_vehicle_check_description = "Kicks off a vehicle check to ensure that \
         all components are in ready-state";
     fn begin_vehicle_check(
-        In(_): In<()>,
+        Blocking { .. }: Blocking<()>,
         vehicle_state: Res<VehicleState>,
     ) -> HashMap<String, ReadyState> {
         vehicle_state.checklist().clone()
     }
-    let begin_vehicle_service = app.spawn_service(begin_vehicle_check.into_blocking_service());
+    let begin_vehicle_service = app.spawn_service(begin_vehicle_check);
     registry.register_node_builder(
         NodeBuilderOptions::new("begin_vehicle_check".to_string())
             .with_description(begin_vehicle_check_description),
@@ -167,7 +170,9 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     let validate_vehicle_check_description = "Validates items in vehicle checklist are ready";
     fn validate_vehicle_check(
         // TODO(@xiyuoh) Use Collect operation when it's ready on the diagram editor
-        In(checklist): In<Vec<ReadyState>>,
+        Blocking {
+            request: checklist, ..
+        }: Blocking<Vec<ReadyState>>,
         mut vehicle_state: ResMut<VehicleState>,
     ) -> Result<(), TripRequestError> {
         for item in checklist.iter() {
@@ -182,8 +187,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
 
         Ok(())
     }
-    let validate_vehicle_check_service =
-        app.spawn_service(validate_vehicle_check.into_blocking_service());
+    let validate_vehicle_check_service = app.spawn_service(validate_vehicle_check);
     registry
         .register_node_builder(
             NodeBuilderOptions::new("validate_vehicle_check".to_string())
@@ -197,11 +201,11 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     // =========================================================================
     let detect_traffic_signal_description = "Detects traffic signal updates via Query";
     fn detect_traffic_signal(
-        In(ContinuousService { key }): ContinuousServiceInput<(), (), TrafficStateStreams>,
+        srv: ContinuousService<(), (), TrafficStateStreams>,
         mut orders: ContinuousQuery<(), (), TrafficStateStreams>,
         mut upcoming_signal: EventReader<UpcomingTrafficSignal>,
     ) {
-        let Some(mut orders) = orders.get_mut(&key) else {
+        let Some(mut orders) = orders.get_mut(&srv.key) else {
             return;
         };
 
@@ -241,11 +245,15 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     let process_traffic_signal_description = "Process the latest traffic signal \
         upon trigger and make a decision on what the vehicle should do next";
     fn process_traffic_signal(
-        In(((), key)): In<((), BufferKey<TrafficSignal>)>,
-        access: BufferAccess<TrafficSignal>,
+        Blocking {
+            request: (_, key),
+            id,
+            ..
+        }: Blocking<((), BufferKey<TrafficSignal>)>,
+        mut access: BufferAccessMut<TrafficSignal>,
     ) -> Result<MoveVehicle, ()> {
         let Some(signal) = access
-            .get(&key)
+            .get_mut(id, &key)
             .ok()
             .map(|res| res.newest().cloned())
             .flatten()
@@ -262,9 +270,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         .register_node_builder(
             NodeBuilderOptions::new("process_traffic_signal".to_owned())
                 .with_description(process_traffic_signal_description),
-            |builder, _config: ()| {
-                builder.create_node(process_traffic_signal.into_blocking_callback())
-            },
+            |builder, _config: ()| builder.create_node(process_traffic_signal.into_callback()),
         )
         .with_buffer_access()
         .with_result()
@@ -273,13 +279,13 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     // =========================================================================
     let detect_obstacles_description = "Detects obstacles in range via event reader";
     fn detect_obstacles(
-        In(ContinuousService { key }): ContinuousServiceInput<(), (), TrafficStateStreams>,
+        srv: ContinuousService<(), (), TrafficStateStreams>,
         mut orders: ContinuousQuery<(), (), TrafficStateStreams>,
         main_vehicle: Query<&Transform, (With<MainVehicle>, Without<Obstacle>)>,
         obstacles: Query<&Transform, (With<Obstacle>, Without<MainVehicle>)>,
         world_limits: Res<WorldLimits>,
     ) {
-        let Some(mut orders) = orders.get_mut(&key) else {
+        let Some(mut orders) = orders.get_mut(&srv.key) else {
             return;
         };
         if orders.is_empty() {
@@ -325,35 +331,25 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     let process_obstacles_description = "Process the current obstacles in range upon \
         trigger and make a decision on what the vehicle should do next";
     fn process_obstacles(
-        In(((), key)): In<((), BufferKey<Obstacles>)>,
+        Blocking {
+            request: (_, key),
+            id,
+            ..
+        }: Blocking<((), BufferKey<Obstacles>)>,
         mut access: BufferAccessMut<Obstacles>,
-        user_panel: Res<UserPanel>,
-        vehicle_state: Res<VehicleState>,
         world_limits: Res<WorldLimits>,
-        main_vehicle: Query<&Transform, With<MainVehicle>>,
     ) -> Result<MoveVehicle, ()> {
-        let Ok(vehicle_x) = main_vehicle.single().map(|t| t.translation.x) else {
-            return Err(());
-        };
-
         access
-            .get_mut(&key)
+            .get_mut(id, &key)
             .ok()
             .map(|mut res| res.pull_newest())
             .flatten()
             .ok_or(())
             .and_then(|obstacles| {
-                determine_next_move_from_obstacles(
-                    &obstacles,
-                    user_panel.allow_change_lane,
-                    vehicle_x,
-                    &world_limits,
-                    &vehicle_state,
-                )
-                .map_err(|_| ())
+                determine_next_move_from_obstacles(&obstacles, &world_limits).map_err(|_| ())
             })
     }
-    let process_obstacles_service = app.spawn_service(process_obstacles.into_blocking_service());
+    let process_obstacles_service = app.spawn_service(process_obstacles);
     registry
         .opt_out()
         .no_serializing()
@@ -371,7 +367,11 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     let check_change_lane_description = "Check whether changing lane is an option \
         based on obstacles buffer and vehicle's current lane status";
     fn check_change_lane(
-        In((next_move, key)): In<(MoveVehicle, BufferKey<Obstacles>)>,
+        Blocking {
+            request: (next_move, key),
+            id,
+            ..
+        }: Blocking<(MoveVehicle, BufferKey<Obstacles>)>,
         mut access: BufferAccessMut<Obstacles>,
         user_panel: Res<UserPanel>,
         vehicle_state: Res<VehicleState>,
@@ -415,7 +415,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         let limits = &world_limits.obstacle_limits;
 
         let Some(obstacles) = access
-            .get_mut(&key)
+            .get_mut(id, &key)
             .ok()
             .map(|mut res| res.pull_newest())
             .flatten()
@@ -435,7 +435,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
 
         next_move
     }
-    let check_change_lane_service = app.spawn_service(check_change_lane.into_blocking_service());
+    let check_change_lane_service = app.spawn_service(check_change_lane);
     registry
         .opt_out()
         .no_serializing()
@@ -455,16 +455,9 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     let join_traffic_signal_and_obstacles_description = "Join the latest traffic signal \
         and obstacles buffers and determine the best move from both input";
     fn join_traffic_signal_and_obstacles(
-        In(input): In<TrafficSignalWithObstacles>,
-        user_panel: Res<UserPanel>,
+        Blocking { request: input, .. }: Blocking<TrafficSignalWithObstacles>,
         world_limits: Res<WorldLimits>,
-        vehicle_state: Res<VehicleState>,
-        main_vehicle: Query<&Transform, With<MainVehicle>>,
     ) -> Result<MoveVehicle, TripRequestError> {
-        let Ok(vehicle_x) = main_vehicle.single().map(|t| t.translation.x) else {
-            return Err(TripRequestError::VehiclePositionError);
-        };
-
         // Since this is a Join operation, we have input from both TrafficSignal
         // and Obstacles. We can determine what is the next best move from both.
 
@@ -476,13 +469,9 @@ pub fn register(setup: &mut BasicExecutorSetup) {
 
         let next_move_for_signal = determine_next_move_from_traffic_signal(&input.traffic_signal);
 
-        let Ok(next_move_for_obstacles) = determine_next_move_from_obstacles(
-            &input.obstacles,
-            user_panel.allow_change_lane,
-            vehicle_x,
-            &world_limits,
-            &vehicle_state,
-        ) else {
+        let Ok(next_move_for_obstacles) =
+            determine_next_move_from_obstacles(&input.obstacles, &world_limits)
+        else {
             return Err(TripRequestError::NextMoveError);
         };
 
@@ -492,7 +481,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         ))
     }
     let join_traffic_signal_and_obstacles_service =
-        app.spawn_service(join_traffic_signal_and_obstacles.into_blocking_service());
+        app.spawn_service(join_traffic_signal_and_obstacles);
     registry
         .opt_out()
         .no_serializing()
@@ -513,20 +502,15 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         signal and obstacles buffers and determine the next move based on the \
         combination of buffer activated.";
     fn listen_traffic_signal_and_obstacles(
-        In(keys): In<TrafficSignalWithObstaclesAccessor>,
-        traffic_signal_access: BufferAccess<TrafficSignal>,
+        Blocking {
+            request: keys, id, ..
+        }: Blocking<TrafficSignalWithObstaclesAccessor>,
+        mut traffic_signal_access: BufferAccessMut<TrafficSignal>,
         mut obstacles_access: BufferAccessMut<Obstacles>,
-        user_panel: Res<UserPanel>,
-        vehicle_state: Res<VehicleState>,
         world_limits: Res<WorldLimits>,
-        main_vehicle: Query<&Transform, With<MainVehicle>>,
     ) -> Result<MoveVehicle, TripRequestError> {
-        let Ok(vehicle_x) = main_vehicle.single().map(|t| t.translation.x) else {
-            return Err(TripRequestError::VehiclePositionError);
-        };
-
         let signal_next_move = traffic_signal_access
-            .get(&keys.traffic_signal)
+            .get_mut(id, &keys.traffic_signal)
             .ok()
             .map(|res| res.newest().cloned())
             .flatten()
@@ -542,20 +526,12 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         }
 
         let obstacles_next_move = obstacles_access
-            .get_mut(&keys.obstacles)
+            .get_mut(id, &keys.obstacles)
             .ok()
             .map(|mut res| res.pull_newest())
             .flatten()
             .ok_or(TripRequestError::BufferEmptyError)
-            .and_then(|obstacles| {
-                determine_next_move_from_obstacles(
-                    &obstacles,
-                    user_panel.allow_change_lane,
-                    vehicle_x,
-                    &world_limits,
-                    &vehicle_state,
-                )
-            })
+            .and_then(|obstacles| determine_next_move_from_obstacles(&obstacles, &world_limits))
             .ok();
 
         if signal_next_move.is_none() && obstacles_next_move.is_none() {
@@ -574,7 +550,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         ))
     }
     let listen_traffic_signal_and_obstacles_service =
-        app.spawn_service(listen_traffic_signal_and_obstacles.into_blocking_service());
+        app.spawn_service(listen_traffic_signal_and_obstacles);
     registry
         .opt_out()
         .no_serializing()
@@ -593,7 +569,10 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     // =========================================================================
     let move_vehicle_description = "Move vehicle";
     fn move_vehicle(
-        In(move_vehicle): In<MoveVehicle>,
+        Blocking {
+            request: move_vehicle,
+            ..
+        }: Blocking<MoveVehicle>,
         mut commands: Commands,
         mut vehicle_state: ResMut<VehicleState>,
         vehicle_velocity: Query<Entity, (With<MainVehicle>, With<Velocity>)>,
@@ -604,7 +583,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         let e_cmds = commands.entity(e);
         vehicle_state.try_move(e_cmds, move_vehicle);
     }
-    let move_vehicle_service = app.spawn_service(move_vehicle.into_blocking_service());
+    let move_vehicle_service = app.spawn_service(move_vehicle);
     registry.register_node_builder(
         NodeBuilderOptions::new("move_vehicle".to_string())
             .with_description(move_vehicle_description),
@@ -613,15 +592,17 @@ pub fn register(setup: &mut BasicExecutorSetup) {
 
     // =========================================================================
     let destination_reached_description = "Check if the main vehicle has reached the destination";
-    fn destination_reached(In(_): In<()>, vehicle_state: Res<VehicleState>) -> Result<(), ()> {
+    fn destination_reached(
+        Blocking { .. }: Blocking<()>,
+        vehicle_state: Res<VehicleState>,
+    ) -> Result<(), ()> {
         if vehicle_state.at_destination() {
             Ok(())
         } else {
             Err(())
         }
     }
-    let destination_reached_service =
-        app.spawn_service(destination_reached.into_blocking_service());
+    let destination_reached_service = app.spawn_service(destination_reached);
     registry
         .register_node_builder(
             NodeBuilderOptions::new("destination_reached".to_string())
@@ -633,7 +614,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     // =========================================================================
     let stop_engine_description = "Stop engine and reset vehicle";
     fn stop_engine(
-        In(_): In<()>,
+        Blocking { .. }: Blocking<()>,
         mut commands: Commands,
         mut vehicle_state: ResMut<VehicleState>,
         vehicle_velocity: Query<Entity, (With<MainVehicle>, With<Velocity>)>,
@@ -648,7 +629,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
             .reset();
         info!("Vehicle successfully completed its trip!");
     }
-    let stop_engine_service = app.spawn_service(stop_engine.into_blocking_service());
+    let stop_engine_service = app.spawn_service(stop_engine);
     registry.register_node_builder(
         NodeBuilderOptions::new("stop_engine".to_string())
             .with_description(stop_engine_description),
@@ -682,10 +663,7 @@ fn determine_next_move_from_traffic_signal(signal: &TrafficSignal) -> MoveVehicl
 
 fn determine_next_move_from_obstacles(
     obstacles: &Obstacles,
-    allow_change_lane: bool,
-    vehicle_x: f32,
     world_limits: &WorldLimits,
-    vehicle_state: &VehicleState,
 ) -> Result<MoveVehicle, TripRequestError> {
     let limits = &world_limits.obstacle_limits;
     let mut next_move = MoveVehicle::Forward(Velocity::default_forward());
