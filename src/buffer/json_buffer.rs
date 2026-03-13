@@ -1092,7 +1092,7 @@ trait DrainJsonBufferInterface {
     fn json_next(&mut self) -> Option<Result<JsonMessage, serde_json::Error>>;
 }
 
-impl<T: 'static + Send + Sync + Serialize> DrainJsonBufferInterface for DrainBuffer<'_, T> {
+impl<'w, 's, T: 'static + Send + Sync + Serialize> DrainJsonBufferInterface for DrainBuffer<'w, 's, '_, T> {
     fn json_next(&mut self) -> Option<Result<JsonMessage, serde_json::Error>> {
         self.next().map(serde_json::to_value)
     }

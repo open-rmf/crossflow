@@ -39,6 +39,7 @@ use crate::{
 use crate::{
     TracedMessage, TracedEvent, BufferModification, BufferAccessRecord,
     BufferEvent, BufferTracer, MessageTracer, BufferRemoval, BufferPush,
+    TraceTarget, TraceBuffer,
 };
 
 /// A wrapper type that allows the tracing feature to track changes to buffer
@@ -379,18 +380,24 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
             .map(|e| self.bmut.build(e))
     }
 
-    pub(crate) fn drain<R>(&mut self, range: R) -> DrainBuffer<'_, T>
+    pub(crate) fn drain<R>(&mut self, range: R) -> DrainBuffer<'w, 's, '_, T>
     where
         T: 'static + Send + Sync,
         R: RangeBounds<usize>,
     {
-        let f = entry_into_message::<T> as fn(BufferEntry<T>) -> T;
         DrainBuffer {
             drain: self
                 .storage
                 .reverse_queues
                 .get_mut(&self.bmut.key.session)
-                .map(|q| q.drain(range).map(f).rev()),
+                .map(|q| q.drain(range).rev()),
+            _commands: self.commands,
+            #[cfg(feature = "trace")]
+            tracer: self.bmut.tracer.get_message_tracer(&self.bmut.key),
+            #[cfg(feature = "trace")]
+            accessor: self.bmut.tracer.get_trace_target(self.req),
+            #[cfg(feature = "trace")]
+            buffer: self.bmut.tracer.get_trace_buffer(&self.bmut.key),
         }
     }
 
@@ -652,10 +659,6 @@ fn get_message_ref<T>(entry: &BufferEntry<T>) -> &T {
     &entry.message
 }
 
-fn entry_into_message<T>(entry: BufferEntry<T>) -> T {
-    entry.message
-}
-
 pub struct IterBufferView<'b, T>
 where
     T: 'static + Send + Sync,
@@ -712,14 +715,21 @@ where
     }
 }
 
-pub struct DrainBuffer<'b, T>
+pub struct DrainBuffer<'w, 's, 'b, T>
 where
     T: 'static + Send + Sync,
 {
-    drain: Option<Rev<Map<Drain<'b, [BufferEntry<T>; 16]>, fn(BufferEntry<T>) -> T>>>,
+    drain: Option<Rev<Drain<'b, [BufferEntry<T>; 16]>>>,
+    _commands: &'b mut Commands<'w, 's>,
+    #[cfg(feature = "trace")]
+    tracer: MessageTracer<'b>,
+    #[cfg(feature = "trace")]
+    accessor: TraceTarget,
+    #[cfg(feature = "trace")]
+    buffer: TraceBuffer,
 }
 
-impl<'b, T> Iterator for DrainBuffer<'b, T>
+impl<'w, 's, 'b, T> Iterator for DrainBuffer<'w, 's, 'b, T>
 where
     T: 'static + Send + Sync,
 {
@@ -727,7 +737,27 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(drain) = &mut self.drain {
-            drain.next()
+            let entry = drain.next();
+
+            #[cfg(feature = "trace")]
+            if self.tracer.is_on() && let Some(entry) = &entry {
+                let seq = entry.seq;
+                let instant = std::time::Instant::now();
+                let time = std::time::SystemTime::now();
+                let access = BufferAccessRecord::Removed(BufferRemoval { seq });
+                let event = BufferEvent {
+                    accessor: self.accessor.clone(),
+                    buffer: self.buffer.clone(),
+                    access,
+                };
+                self._commands.trigger(TracedEvent {
+                    event: event.into(),
+                    instant,
+                    time,
+                });
+            }
+
+            entry.map(|e| e.message)
         } else {
             None
         }

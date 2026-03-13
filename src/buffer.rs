@@ -968,7 +968,7 @@ where
     }
 
     /// Drain items out of the buffer
-    pub fn drain<R>(&mut self, range: R) -> DrainBuffer<'_, T>
+    pub fn drain<R>(&mut self, range: R) -> DrainBuffer<'w, 's, '_, T>
     where
         R: RangeBounds<usize>,
     {

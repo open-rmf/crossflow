@@ -1262,7 +1262,7 @@ trait DrainAnyBufferInterface {
     fn any_next(&mut self) -> Option<AnyMessageBox>;
 }
 
-impl<T: 'static + Send + Sync + Any> DrainAnyBufferInterface for DrainBuffer<'_, T> {
+impl<'w, 's, T: 'static + Send + Sync + Any> DrainAnyBufferInterface for DrainBuffer<'w, 's, '_, T> {
     fn any_next(&mut self) -> Option<AnyMessageBox> {
         self.next().map(to_any_message)
     }
