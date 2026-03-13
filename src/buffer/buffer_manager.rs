@@ -36,7 +36,10 @@ use crate::{
 };
 
 #[cfg(feature = "trace")]
-use crate::{Trace, TracedMessage, TracedEvent, BufferModification, BufferAccessRecord, BufferEvent, BufferTracer, MessageTracer};
+use crate::{
+    TracedMessage, TracedEvent, BufferModification, BufferAccessRecord,
+    BufferEvent, BufferTracer, MessageTracer, BufferRemoval, BufferPush,
+};
 
 /// A wrapper type that allows the tracing feature to track changes to buffer
 /// values. If the tracing feature is disabled, this will just provide regular
@@ -206,6 +209,11 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
             retention,
             seq,
             value,
+            &self.req,
+            &self.bmut.key,
+            self.commands,
+            #[cfg(feature = "trace")]
+            &self.bmut.tracer,
         );
 
         removed.map(|e| e.message)
@@ -218,7 +226,17 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
         };
 
         let seq = self.input.increment_seq();
-        let removed = Self::impl_push(reverse_queue, retention, seq, message);
+        let removed = Self::impl_push(
+            reverse_queue,
+            retention,
+            seq,
+            message,
+            &self.req,
+            &self.bmut.key,
+            self.commands,
+            #[cfg(feature = "trace")]
+            &self.bmut.tracer,
+        );
 
         removed.map(|e| e.message)
     }
@@ -249,16 +267,30 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
             RetentionPolicy::KeepAll => None,
         };
 
+        #[cfg(feature = "trace")]
+        Self::trace_message_replacement(
+            &replaced,
+            &entry,
+            reverse_queue.len(),
+            &self.req,
+            &self.bmut.key,
+            self.commands,
+            self.bmut.tracer,
+        );
+
         reverse_queue.push(entry);
         replaced.map(|e| e.message)
     }
 
     pub(crate) fn pull(&mut self) -> Option<T> {
-        self.storage
-            .reverse_queues
-            .get_mut(&self.bmut.key.session)?
-            .pop()
-            .map(|e| e.message)
+        let entry = self.storage.reverse_queues.get_mut(&self.bmut.key.session)?.pop();
+
+        #[cfg(feature = "trace")]
+        if let Some(entry) = &entry {
+            self.trace_removal(entry.seq);
+        }
+
+        entry.map(|e| e.message)
     }
 
     pub(crate) fn pull_newest(&mut self) -> Option<T> {
@@ -267,7 +299,11 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
             return None;
         }
 
-        Some(reverse_queue.remove(0).message)
+        let entry = reverse_queue.remove(0);
+        #[cfg(feature = "trace")]
+        self.trace_removal(entry.seq);
+
+        Some(entry.message)
     }
 
     pub(crate) fn iter_mut(&mut self) -> IterBufferMut<'_, T>
@@ -314,7 +350,17 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
             .and_then(|q| {
                 if q.is_empty() {
                     let (seq, message) = f();
-                    Self::impl_push(q, retention, seq, message);
+                    Self::impl_push(
+                        q,
+                        retention,
+                        seq,
+                        message,
+                        &self.req,
+                        &self.bmut.key,
+                        self.commands,
+                        #[cfg(feature = "trace")]
+                        &self.bmut.tracer,
+                    );
                 }
 
                 q.first_mut().map(|e| self.bmut.build(e))
@@ -355,8 +401,9 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
         message: T,
         _req: &RequestId,
         _key: &BufferKeyTag,
+        _cmds: &mut Commands,
         #[cfg(feature = "trace")]
-        tracer: &mut BufferTracer,
+        tracer: &BufferTracer,
     ) -> Option<BufferEntry<T>> {
         let entry = BufferEntry::new(seq, message);
         let replaced = match retention {
@@ -383,15 +430,7 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
         };
 
         #[cfg(feature = "trace")]
-        {
-            let toggle = tracer.get_trace_toggle(_key);
-            if toggle.is_on() {
-                let trace = tracer.get_message_tracer(_key);
-                if let Some(replaced) = &replaced {
-
-                }
-            }
-        }
+        Self::trace_message_replacement(&replaced, &entry, 0, _req, _key, _cmds, tracer);
 
         reverse_queue.insert(0, entry);
         replaced
@@ -430,6 +469,72 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
                     });
                 }
             }
+        }
+    }
+
+    #[cfg(feature = "trace")]
+    fn trace_message_replacement(
+        replaced: &Option<BufferEntry<T>>,
+        pushed: &BufferEntry<T>,
+        position: usize,
+        req: &RequestId,
+        key: &BufferKeyTag,
+        cmds: &mut Commands,
+        tracer: &BufferTracer,
+    ) {
+        let toggle = tracer.get_trace_toggle(key);
+        if toggle.is_on() {
+            let trace = tracer.get_message_tracer(key);
+            let instant = std::time::Instant::now();
+            let time = std::time::SystemTime::now();
+            let accessor = tracer.get_trace_target(*req);
+            let buffer = tracer.get_trace_buffer(key);
+            if let Some(replaced) = replaced {
+                let seq = replaced.seq;
+                let access = BufferAccessRecord::Removed(BufferRemoval { seq });
+                let event = BufferEvent {
+                    accessor: accessor.clone(),
+                    buffer: buffer.clone(),
+                    access,
+                };
+                cmds.trigger(TracedEvent {
+                    event: event.into(),
+                    instant,
+                    time,
+                });
+            }
+
+            let seq = pushed.seq;
+            let message = trace.trace_message(&pushed.message);
+            let access = BufferAccessRecord::Pushed(BufferPush {
+                seq,
+                position,
+                message,
+            });
+            let event = BufferEvent { accessor, buffer, access };
+            cmds.trigger(TracedEvent {
+                event: event.into(),
+                instant,
+                time,
+            });
+        }
+    }
+
+    #[cfg(feature = "trace")]
+    fn trace_removal(&mut self, seq: Seq) {
+        let toggle = self.bmut.tracer.get_trace_toggle(&self.bmut.key);
+        if toggle.is_on() {
+            let instant = std::time::Instant::now();
+            let time = std::time::SystemTime::now();
+            let accessor = self.bmut.tracer.get_trace_target(self.req);
+            let buffer = self.bmut.tracer.get_trace_buffer(&self.bmut.key);
+            let access = BufferAccessRecord::Removed(BufferRemoval { seq });
+            let event = BufferEvent { accessor, buffer, access };
+            self.commands.trigger(TracedEvent {
+                event: event.into(),
+                instant,
+                time,
+            });
         }
     }
 }

@@ -420,7 +420,7 @@ pub(crate) struct BufferTracer<'w, 's> {
     labels: Query<'w, 's, &'static OperationLabels>,
     op_type: Query<'w, 's, &'static OperationType>,
     universal: Option<Res<'w, UniversalTraceToggle>>,
-    commands: Commands<'w, 's>,
+    pub(crate) commands: Commands<'w, 's>,
 }
 
 /// This is a small wrapper of the minimal borrows needed to trace modifications
