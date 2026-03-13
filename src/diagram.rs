@@ -295,7 +295,20 @@ pub enum BuiltinTarget {
     /// When triggered, cancel the current scope. If this is an inner scope of a
     /// workflow then the parent scope will see a disposal happen. If this is
     /// the root scope of a workflow then the whole workflow will cancel.
+    ///
+    /// When there is a path within a scope that can reach a cancel operation,
+    /// we consider that scope to still be reachable. This allows you to safely
+    /// and reliably perform cleanup actions along the path to a cancellation.
+    /// However this also means that if any part of a scope can reach a cancel
+    /// operation then the scope will keep running, even if that part of the
+    /// workflow far removed from the intended happy path of the workflow.
+    /// Consider using implicit cancel if you do not want the cancellation to
+    /// affect the lifespan of the scope.
     Cancel,
+
+    /// Same as cancel, except using this will not affect the lifespan of the
+    /// scope.
+    ImplicitCancel,
 }
 
 #[derive(
@@ -706,7 +719,7 @@ impl Diagram {
         self.on_implicit_error
             .clone()
             .unwrap_or(NextOperation::Builtin {
-                builtin: BuiltinTarget::Cancel,
+                builtin: BuiltinTarget::ImplicitCancel,
             })
     }
 }

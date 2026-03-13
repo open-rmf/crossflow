@@ -837,6 +837,8 @@ impl UnfinishedOperation {
     }
 }
 
+// TODO(@mxgrey): Consider whether this can be generalized so that the scope
+// operator can also use it instead of reimplementing much of the logic here.
 fn initialize_builtin_operations<Request, Response, Streams>(
     start: NextOperation,
     scope: Scope<Request, Response, Streams>,
@@ -869,11 +871,17 @@ where
     // Add the dispose operation
     ctx.set_connect_into_target(OperationRef::Dispose, ConnectToDispose)?;
 
-    // Add the cancel operation
-    let connect_to_cancel = ConnectToCancel::new(ctx.builder)?;
+    // Add the cancel operations
+    let connect_to_cancel = ConnectToCancel::explicit(ctx.builder)?;
     ctx.set_connect_into_target(
         OperationRef::Cancel(NamespaceList::default()),
         connect_to_cancel,
+    )?;
+
+    let connect_to_implicit_cancel = ConnectToCancel::implicit(ctx.builder)?;
+    ctx.set_connect_into_target(
+        OperationRef::ImplicitCancel(NamespaceList::default()),
+        connect_to_implicit_cancel,
     )?;
 
     Ok(())
@@ -1004,7 +1012,7 @@ impl ConnectIntoTarget for BasicConnect {
     }
 }
 
-struct ConnectToCancel {
+pub(crate) struct ConnectToCancel {
     quiet_cancel: DynInputSlot,
     implicit_serialization: ImplicitSerialization,
     implicit_stringify: ImplicitStringify,
@@ -1012,13 +1020,37 @@ struct ConnectToCancel {
 }
 
 impl ConnectToCancel {
-    fn new(builder: &mut Builder) -> Result<Self, DiagramErrorCode> {
+    pub(crate) fn explicit(builder: &mut Builder) -> Result<Self, DiagramErrorCode> {
+        Self::new(false, builder)
+    }
+
+    pub(crate) fn implicit(builder: &mut Builder) -> Result<Self, DiagramErrorCode> {
+        Self::new(true, builder)
+    }
+
+    fn new(implicit: bool, builder: &mut Builder) -> Result<Self, DiagramErrorCode> {
+        let quiet_cancel = if implicit {
+            builder.create_implicit_quiet_cancel()
+        } else {
+            builder.create_quiet_cancel()
+        };
+
+        let cancel_serialize = if implicit {
+            builder.create_implicit_cancel::<JsonMessage>()
+        } else {
+            builder.create_cancel::<JsonMessage>()
+        };
+
+        let cancel_stringify = if implicit {
+            builder.create_implicit_cancel::<String>()
+        } else {
+            builder.create_cancel::<String>()
+        };
+
         Ok(Self {
-            quiet_cancel: builder.create_quiet_cancel().into(),
-            implicit_serialization: ImplicitSerialization::new(
-                builder.create_cancel::<JsonMessage>().into(),
-            )?,
-            implicit_stringify: ImplicitStringify::new(builder.create_cancel::<String>().into())?,
+            quiet_cancel: quiet_cancel.into(),
+            implicit_serialization: ImplicitSerialization::new(cancel_serialize.into())?,
+            implicit_stringify: ImplicitStringify::new(cancel_stringify.into())?,
             triggers: Default::default(),
         })
     }
