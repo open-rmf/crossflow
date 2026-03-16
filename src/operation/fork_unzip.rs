@@ -21,13 +21,15 @@ use crate::{
     SingleInputStorage, Unzippable,
 };
 
-pub(crate) struct ForkUnzip<T> {
+/// Internal operation used by [`crate::Unzippable`] to route one input into many typed outputs.
+pub struct ForkUnzip<T> {
     targets: ForkTargetStorage,
     _ignore: std::marker::PhantomData<fn(T)>,
 }
 
 impl<T> ForkUnzip<T> {
-    pub(crate) fn new(targets: ForkTargetStorage) -> Self {
+    /// Create a new unzip operation that will route outputs to the provided targets.
+    pub fn new(targets: ForkTargetStorage) -> Self {
         Self {
             targets,
             _ignore: Default::default(),

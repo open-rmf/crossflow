@@ -24,6 +24,9 @@ use derive_section::impl_section;
 mod derive_stream;
 use derive_stream::impl_derive_stream;
 
+mod derive_fork;
+use derive_fork::impl_fork_enum;
+
 mod derive_stream_pack;
 use derive_stream_pack::impl_stream_pack;
 
@@ -113,6 +116,19 @@ pub fn derive_stream_pack(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as ItemStruct);
     match impl_stream_pack(&input) {
         Ok(ok) => ok.into(),
+        Err(msg) => quote! {
+            compile_error!(#msg);
+        }
+        .into(),
+    }
+}
+
+/// Derive [`crossflow::Unzippable`] for enums so each variant can branch as a fork output.
+#[proc_macro_derive(Fork)]
+pub fn derive_fork(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    match impl_fork_enum(&input) {
+        Ok(tokens) => tokens.into(),
         Err(msg) => quote! {
             compile_error!(#msg);
         }

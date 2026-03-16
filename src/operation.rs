@@ -51,7 +51,7 @@ mod fork_clone;
 pub(crate) use fork_clone::*;
 
 mod fork_unzip;
-pub(crate) use fork_unzip::*;
+pub use fork_unzip::*;
 
 mod injection;
 pub(crate) use injection::*;
