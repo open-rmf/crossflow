@@ -928,7 +928,7 @@ impl<B: 'static + Send + Sync + AsAnyBuffer + Clone, const N: usize> BufferMapLa
 
 #[cfg(test)]
 mod tests {
-    use crate::{AddBufferToMap, BufferMap, prelude::*, testing::*};
+    use crate::{AddBufferToMap, BufferMap, TryJoinError, prelude::*, testing::*};
 
     #[derive(Joined)]
     struct TestJoinedValue<T: Send + Sync + 'static + Clone> {
@@ -938,6 +938,13 @@ mod tests {
         generic: T,
         #[joined(buffer = AnyBuffer)]
         any: AnyMessageBox,
+    }
+
+    #[derive(Joined)]
+    #[allow(dead_code)]
+    struct TestDuplicateJoinedValue {
+        first: i64,
+        second: i64,
     }
 
     #[test]
@@ -979,6 +986,27 @@ mod tests {
         assert_eq!(value.generic, "world");
         assert_eq!(*value.any.downcast::<i64>().unwrap(), 42);
         assert!(context.no_unhandled_errors());
+    }
+
+    #[test]
+    fn test_try_join_rejects_duplicate_buffer() {
+        let mut context = TestingContext::minimal_plugins();
+        let mut is_duplicate_error = false;
+
+        let _workflow = context.spawn_io_workflow(|_scope: Scope<(), ()>, builder| {
+            let buffer_i64 = builder.create_buffer::<i64>(BufferSettings::default());
+
+            let mut buffers = BufferMap::default();
+            buffers.insert_buffer("first", buffer_i64);
+            buffers.insert_buffer("second", buffer_i64);
+
+            is_duplicate_error = matches!(
+                builder.try_join::<TestDuplicateJoinedValue>(&buffers),
+                Err(TryJoinError::DuplicateBuffer(_))
+            );
+        });
+
+        assert!(is_duplicate_error);
     }
 
     #[test]

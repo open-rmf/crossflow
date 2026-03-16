@@ -17,9 +17,10 @@
 
 use bevy_ecs::prelude::{Commands, Entity};
 
-use std::future::Future;
+use std::{collections::HashSet, future::Future};
 
 use smallvec::SmallVec;
+use thiserror::Error as ThisError;
 
 use crate::{
     Accessible, Accessing, Accessor, AddOperation, Buffer, BufferKeys, BufferLocation, BufferMap,
@@ -55,6 +56,14 @@ pub struct BuilderScopeContext {
     pub(crate) scope: Entity,
     /// The target for cancellation workflows
     pub(crate) finish_scope_cleanup: Entity,
+}
+
+#[derive(ThisError, Debug, Clone)]
+pub enum TryJoinError {
+    #[error(transparent)]
+    IncompatibleLayout(#[from] IncompatibleLayout),
+    #[error(transparent)]
+    DuplicateBuffer(#[from] DuplicateBuffer),
 }
 
 impl<'w, 's, 'a> Builder<'w, 's, 'a> {
@@ -319,7 +328,10 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
         buffers.join(self)
     }
 
-    /// Alternative way of calling [`Joinable::safe_join`]
+    /// Alternative way of calling [`Joinable::safe_join`].
+    ///
+    /// Unlike [`Self::join`], this returns an error instead of panicking when
+    /// the same buffer is used multiple times in one join operation.
     pub fn safe_join<'b, B: Joinable>(
         &'b mut self,
         buffers: B,
@@ -328,11 +340,24 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
     }
 
     /// Try joining a map of buffers into a single value.
+    ///
+    /// This returns [`TryJoinError::IncompatibleLayout`] if the requested join
+    /// type does not match the provided buffer map layout, or
+    /// [`TryJoinError::DuplicateBuffer`] if the same buffer appears multiple
+    /// times in the map under different identifiers.
     pub fn try_join<'b, J: Joined>(
         &'b mut self,
         buffers: &BufferMap,
-    ) -> Result<Chain<'w, 's, 'a, 'b, J>, IncompatibleLayout> {
-        J::try_join_from(buffers, self)
+    ) -> Result<Chain<'w, 's, 'a, 'b, J>, TryJoinError> {
+        let mut seen = HashSet::new();
+        for buffer in buffers.values() {
+            let id = buffer.id();
+            if !seen.insert(id) {
+                return Err(DuplicateBuffer(id).into());
+            }
+        }
+
+        Ok(J::try_join_from(buffers, self)?)
     }
 
     /// Alternative way of calling [`Accessible::listen`].

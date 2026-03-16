@@ -63,6 +63,8 @@ impl<T: 'static + Send + Sync> Bufferable for Output<T> {
 pub trait Joinable: Bufferable {
     type Item: 'static + Send + Sync;
 
+    /// Join these bufferable workflow elements and return an error if any
+    /// buffer appears more than once in the same join operation.
     fn safe_join<'w, 's, 'a, 'b>(
         self,
         builder: &'b mut Builder<'w, 's, 'a>,
@@ -181,6 +183,11 @@ pub trait IterBufferable {
         builder: &mut Builder,
     ) -> SmallVec<[Self::BufferElement; N]>;
 
+    /// Join an iterable collection of bufferable workflow elements.
+    ///
+    /// Unlike [`join_vec`](Self::join_vec), this returns an error instead of
+    /// panicking if any buffer appears more than once in the same join
+    /// operation.
     fn safe_join_vec<'w, 's, 'a, 'b, const N: usize>(
         self,
         builder: &'b mut Builder<'w, 's, 'a>,

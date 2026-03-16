@@ -87,6 +87,11 @@ pub trait Joining: Buffering {
         world: &mut World,
     ) -> Result<Self::Item, OperationError>;
 
+    /// Join these bufferable workflow elements while validating the join
+    /// construction.
+    ///
+    /// This returns an error if any buffer is included more than once in the
+    /// same join operation.
     fn safe_join<'w, 's, 'a, 'b>(
         self,
         builder: &'b mut Builder<'w, 's, 'a>,
