@@ -1,5 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { DiagramEditorEdge } from '../edges';
+import {
+  createSplitKeyEdge,
+  createSplitSeqEdge,
+  type DiagramEditorEdge,
+} from '../edges';
 import { NodeManager } from '../node-manager';
 import {
   createOperationNode,
@@ -139,4 +143,45 @@ test('export diagram with templates', () => {
     throw new Error('expected template buffers to be a mapping');
   }
   expect(template.buffers.test_buffer).toBe('test_op_buffer');
+});
+
+test('export diagram fails when a split mixes keyed and sequential edges', () => {
+  const splitNode = createOperationNode(
+    ROOT_NAMESPACE,
+    undefined,
+    { x: 0, y: 0 },
+    { type: 'split' },
+    'split',
+  );
+  const targetA = createOperationNode(
+    ROOT_NAMESPACE,
+    undefined,
+    { x: 0, y: 0 },
+    { type: 'buffer' },
+    'buffer_a',
+  );
+  const targetB = createOperationNode(
+    ROOT_NAMESPACE,
+    undefined,
+    { x: 0, y: 0 },
+    { type: 'buffer' },
+    'buffer_b',
+  );
+
+  const edges: DiagramEditorEdge[] = [
+    createSplitSeqEdge(splitNode.id, null, targetA.id, null, { seq: 0 }),
+    createSplitKeyEdge(splitNode.id, null, targetB.id, null, { key: 'a' }),
+  ];
+
+  expect(() =>
+    exportDiagram(
+      stubRegistry,
+      new NodeManager([splitNode, targetA, targetB]),
+      edges,
+      {},
+      {},
+    ),
+  ).toThrow(
+    'A keyed split edge must be assigned to a keyed split selection.',
+  );
 });

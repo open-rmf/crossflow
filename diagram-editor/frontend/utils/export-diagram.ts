@@ -196,6 +196,30 @@ function syncBufferSelection(
   }
 }
 
+function validateSplitSelection(
+  sourceOp: Extract<DiagramOperation, { type: 'split' }>,
+  edge: DiagramEditorEdge,
+) {
+  // Keep split slot selection consistent per source node to avoid keyed/sequential export conflicts.
+  if (edge.type === 'splitKey') {
+    if (sourceOp.sequential && sourceOp.sequential.length > 0) {
+      throw new Error(
+        'A keyed split edge must be assigned to a keyed split selection. \
+        Ensure that other split edges connected to the same source node have \
+        the same slot type.',
+      );
+    }
+  } else if (edge.type === 'splitSeq') {
+    if (sourceOp.keyed && Object.keys(sourceOp.keyed).length > 0) {
+      throw new Error(
+        'A sequential split edge must be assigned to an array of split selections. \
+        Ensure that other split edges connected to the same source node have \
+        the same slot type.',
+      );
+    }
+  }
+}
+
 function setSequentialKey(
   sequences: NextOperation[],
   idx: number,
@@ -297,6 +321,7 @@ function syncEdge(
       case 'split': {
         switch (edge.type) {
           case 'splitKey': {
+            validateSplitSelection(sourceOp, edge);
             if (!sourceOp.keyed) {
               sourceOp.keyed = {};
             }
@@ -305,6 +330,7 @@ function syncEdge(
             break;
           }
           case 'splitSeq': {
+            validateSplitSelection(sourceOp, edge);
             if (!sourceOp.sequential) {
               sourceOp.sequential = [];
             }
