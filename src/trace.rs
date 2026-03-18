@@ -371,6 +371,33 @@ pub enum BufferAccessRecord {
     Removed(BufferRemoval),
 }
 
+impl BufferAccessRecord {
+    pub fn is_viewed(&self) -> bool {
+        matches!(self, Self::Viewed)
+    }
+
+    pub fn modified(&self) -> Option<&BufferModification> {
+        match self {
+            Self::Modified(modified) => Some(modified),
+            _ => None,
+        }
+    }
+
+    pub fn pushed(&self) -> Option<&BufferPush> {
+        match self {
+            Self::Pushed(pushed) => Some(pushed),
+            _ => None,
+        }
+    }
+
+    pub fn removed(&self) -> Option<&BufferRemoval> {
+        match self {
+            Self::Removed(removed) => Some(removed),
+            _ => None,
+        }
+    }
+}
+
 /// A record of a modification performed on a buffer.
 #[derive(Debug, Clone)]
 pub struct BufferModification {
@@ -1000,7 +1027,7 @@ mod tests {
             .world_mut()
             .resource_mut::<TraceRecorder>()
             .clone();
-        confirm_trace(&recorder, route, session);
+        confirm_trace(recorder, route, session);
 
         // Clear the record so these results do not interfere with the next test
         fixture
@@ -1013,11 +1040,11 @@ mod tests {
     }
 
     fn confirm_trace(
-        recorder: &TraceRecorder,
+        recorder: TraceRecorder,
         expectation: &[&str],
         expected_root_session: Entity,
     ) {
-        let mut actual = recorder.record.clone();
+        let mut actual = recorder.record;
         for next_op_name in expectation {
             let name: Arc<str> = (*next_op_name).into();
             let expected_op = OperationRef::Named((&name).into());
@@ -1058,6 +1085,11 @@ mod tests {
             integers: u64
         }
 
+        #[derive(Accessor, Clone)]
+        struct TestAccessor {
+            integers: BufferKey<u64>,
+        }
+
         fixture.registry.register_node_builder(
             NodeBuilderOptions::new("spread"),
             |builder, _: ()| {
@@ -1070,6 +1102,21 @@ mod tests {
             }
         );
 
+        fixture.registry
+            .opt_out()
+            .no_serializing()
+            .no_deserializing()
+            .register_node_builder(
+                NodeBuilderOptions::new("drain"),
+                |builder, _: ()| {
+                    let f = |srv: Blocking<((), TestAccessor)>, mut access: BufferAccessMut<u64>| {
+                        let _: Vec<_> = access.get_mut(srv.id, &srv.request.1.integers).unwrap().drain(..).collect();
+                    };
+                    builder.create_node(f.into_callback())
+                }
+            )
+            .with_buffer_access();
+
         let diagram = Diagram::from_json(json!({
             "version": "0.1.0",
             "default_trace": "messages",
@@ -1079,10 +1126,104 @@ mod tests {
                     "type": "node",
                     "builder": "spread",
                     "stream_out": {
-                        "integers":
+                        "integers": "test_buffer"
+                    },
+                    "next": "access"
+                },
+                "test_buffer": {
+                    "type": "buffer",
+                    "settings": {
+                        "retention": "keep_all"
                     }
+                },
+                "access": {
+                    "type": "buffer_access",
+                    "buffers": {
+                        "integers": "test_buffer"
+                    },
+                    "next": "drain"
+                },
+                "drain": {
+                    "type": "node",
+                    "builder": "drain",
+                    "next": { "builtin" : "terminate" }
                 }
             }
-        }));
+        }))
+        .unwrap();
+
+        let sequence = vec![0, 1, 2, 3, 4, 5];
+        fixture.spawn_and_run::<Vec<u64>, ()>(&diagram, sequence.clone()).unwrap();
+
+        let recorder = fixture
+            .context
+            .app
+            .world_mut()
+            .resource_mut::<TraceRecorder>()
+            .clone();
+        confirm_buffer_sequence(recorder, sequence);
+    }
+
+    fn confirm_buffer_sequence(
+        recorder: TraceRecorder,
+        expected_sequence: Vec<u64>,
+    ) {
+        let mut actual = recorder.record.clone();
+        let mut seqs = Vec::new();
+
+        for next_item in expected_sequence {
+            let next_actual = loop {
+                let Some(next) = actual.pop_front() else {
+                    break None;
+                };
+
+                match next.event {
+                    TracedEventKind::BufferEvent(event) => {
+                        break Some(event);
+                    }
+                    _ => {
+                        continue;
+                    }
+                }
+            };
+
+            let pushed = next_actual.as_ref().unwrap().access.pushed().unwrap();
+            seqs.push(pushed.seq);
+
+            let value = pushed
+                .message
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .as_number()
+                .unwrap()
+                .as_i64()
+                .unwrap()
+                as u64;
+
+            assert_eq!(next_item, value);
+        }
+
+        // Test that we also traced the items being drained
+        for seq in seqs {
+            let next_actual = loop {
+                let Some(next) = actual.pop_front() else {
+                    break None;
+                };
+
+                match next.event {
+                    TracedEventKind::BufferEvent(event) => {
+                        break Some(event);
+                    }
+                    _ => {
+                        continue;
+                    }
+                }
+            };
+
+            let removal = next_actual.as_ref().unwrap().access.removed().unwrap();
+            assert_eq!(seq, removal.seq);
+        }
     }
 }
