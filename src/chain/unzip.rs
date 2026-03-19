@@ -143,7 +143,7 @@ mod tests {
         Unit,
         Single(i32),
         Pair(i32, i32),
-        Named { left: i32, right: i32 },
+        Named { value: i32 },
     }
 
     #[test]
@@ -175,15 +175,21 @@ mod tests {
 
         let workflow = context.spawn_io_workflow(|scope: Scope<Multi, i32>, builder| {
             let (unit, single, pair, named) = builder.chain(scope.start).unzip();
-            builder.chain(unit).map_block(|_| 0).connect(scope.terminate);
-            builder.chain(single).map_block(|v| v).connect(scope.terminate);
+            builder
+                .chain(unit)
+                .map_block(|_| 0)
+                .connect(scope.terminate);
+            builder
+                .chain(single)
+                .map_block(|v| v)
+                .connect(scope.terminate);
             builder
                 .chain(pair)
                 .map_block(|(a, b)| a + b)
                 .connect(scope.terminate);
             builder
                 .chain(named)
-                .map_block(|(left, right)| left - right)
+                .map_block(|value| value * 2)
                 .connect(scope.terminate);
         });
 
@@ -191,8 +197,8 @@ mod tests {
         assert_eq!(context.resolve_request(Multi::Single(7), workflow), 7);
         assert_eq!(context.resolve_request(Multi::Pair(4, 9), workflow), 13);
         assert_eq!(
-            context.resolve_request(Multi::Named { left: 11, right: 6 }, workflow),
-            5
+            context.resolve_request(Multi::Named { value: 11 }, workflow),
+            22
         );
     }
 }

@@ -32,6 +32,8 @@ pub(crate) fn impl_fork_enum(input: &DeriveInput) -> Result<TokenStream> {
         return Err("Fork derive requires an enum with at least one variant".to_string());
     }
 
+    validate_named_field_variants(enum_ident, enum_data)?;
+
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     // One output slot per enum variant.
     let unzipped_outputs = make_unzipped_outputs(enum_data);
@@ -93,6 +95,21 @@ pub(crate) fn impl_fork_enum(input: &DeriveInput) -> Result<TokenStream> {
             }
         }
     })
+}
+
+fn validate_named_field_variants(enum_ident: &syn::Ident, enum_data: &DataEnum) -> Result<()> {
+    for variant in &enum_data.variants {
+        if let Fields::Named(fields) = &variant.fields
+            && fields.named.len() > 1
+        {
+            return Err(format!(
+                "Fork derive does not support variants with more than one named field: {}::{}",
+                enum_ident, variant.ident
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn make_unzipped_outputs(enum_data: &DataEnum) -> Vec<TokenStream> {
@@ -205,7 +222,10 @@ fn variant_output_type(fields: &Fields) -> TokenStream {
     }
 }
 
-fn variant_pattern_and_value(fields: &Fields, variant_ident: &syn::Ident) -> (TokenStream, TokenStream) {
+fn variant_pattern_and_value(
+    fields: &Fields,
+    variant_ident: &syn::Ident,
+) -> (TokenStream, TokenStream) {
     match fields {
         Fields::Unit => (quote! {}, quote! { () }),
         Fields::Unnamed(fields) => {
@@ -225,7 +245,12 @@ fn variant_pattern_and_value(fields: &Fields, variant_ident: &syn::Ident) -> (To
             let names: Vec<_> = fields
                 .named
                 .iter()
-                .map(|field| field.ident.clone().expect("named field must have identifier"))
+                .map(|field| {
+                    field
+                        .ident
+                        .clone()
+                        .expect("named field must have identifier")
+                })
                 .collect();
 
             if names.len() == 1 {
@@ -235,5 +260,39 @@ fn variant_pattern_and_value(fields: &Fields, variant_ident: &syn::Ident) -> (To
                 (quote! { { #(#names,)* } }, quote! { (#(#names,)*) })
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::impl_fork_enum;
+
+    #[test]
+    fn test_fork_rejects_variants_with_multiple_named_fields() {
+        let input: syn::DeriveInput = syn::parse_quote! {
+            enum Decision {
+                Continue(i32),
+                Named { left: i32, right: i32 },
+            }
+        };
+
+        let err = impl_fork_enum(&input)
+            .expect_err("expected derive to reject named multi-field variant");
+        assert!(
+            err.contains("more than one named field") && err.contains("Decision::Named"),
+            "unexpected error message: {err}"
+        );
+    }
+
+    #[test]
+    fn test_fork_allows_variant_with_single_named_field() {
+        let input: syn::DeriveInput = syn::parse_quote! {
+            enum Decision {
+                Continue(i32),
+                Named { value: i32 },
+            }
+        };
+
+        impl_fork_enum(&input).expect("expected derive to allow single named field variant");
     }
 }
