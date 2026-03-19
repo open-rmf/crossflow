@@ -719,12 +719,10 @@ mod tests {
             // a bug in the expectations then we will eventually catch it.
             let test = move || {
                 let mut context = TestingContext::minimal_plugins();
-                let service = context.spawn_async_delayed_map(
-                    timeout,
-                    |counter: Arc<Mutex<u64>>| {
+                let service =
+                    context.spawn_async_delayed_map(timeout, |counter: Arc<Mutex<u64>>| {
                         *counter.lock().unwrap() += 1;
-                    },
-                );
+                    });
 
                 verify_delivery_instruction_matrix(service, &mut context);
 
