@@ -42,7 +42,7 @@ use crate::{
     BufferMap, BufferMapLayout, BufferMapLayoutHints, BufferMapStruct, BufferStorage, BufferView,
     BufferWorldAccess, Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer,
     DynamicBufferMapLayoutHints, Gate, GateState, IdentifierRef, IncompatibleLayout,
-    InspectBufferSessions, JoinBehavior, Joined, Joining, ManageBufferSessions, MessageTypeHint,
+    InspectBufferSessions, FetchBehavior, Joined, Joining, ManageBufferSessions, MessageTypeHint,
     MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate, OperationError,
     OperationResult, OrBroken, RequestId, TypeInfo, add_listener_to_source,
 };
@@ -56,7 +56,7 @@ use crate::{BufferAccessRecord, BufferTracer};
 #[derive(Clone, Copy, Debug)]
 pub struct JsonBuffer {
     location: BufferLocation,
-    join_behavior: JoinBehavior,
+    join_behavior: FetchBehavior,
     interface: &'static (dyn JsonBufferAccessInterface + Send + Sync),
 }
 
@@ -86,7 +86,7 @@ impl JsonBuffer {
     #[must_use]
     pub fn join_by_cloning(self) -> Self {
         Self {
-            join_behavior: JoinBehavior::Clone,
+            join_behavior: FetchBehavior::Clone,
             ..self
         }
     }
@@ -98,14 +98,14 @@ impl JsonBuffer {
     #[must_use]
     pub fn join_by_pulling(self) -> Self {
         Self {
-            join_behavior: JoinBehavior::Pull,
+            join_behavior: FetchBehavior::Pull,
             ..self
         }
     }
 
     /// What is the intended join behavior for this buffer reference?
     #[must_use]
-    pub fn join_behavior(&self) -> JoinBehavior {
+    pub fn join_behavior(&self) -> FetchBehavior {
         self.join_behavior
     }
 
@@ -145,7 +145,7 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> From<Buffer<T>> fo
     fn from(value: Buffer<T>) -> Self {
         Self {
             location: value.location,
-            join_behavior: JoinBehavior::Pull,
+            join_behavior: FetchBehavior::Pull,
             interface: JsonBufferAccessImpl::<T>::get_interface(),
         }
     }
@@ -157,7 +157,7 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned + Clone> From<Clone
     fn from(value: CloneFromBuffer<T>) -> Self {
         Self {
             location: value.location,
-            join_behavior: JoinBehavior::Clone,
+            join_behavior: FetchBehavior::Clone,
             interface: JsonBufferAccessImpl::<T>::get_interface(),
         }
     }
@@ -277,24 +277,24 @@ impl From<JsonBufferKey> for AnyBufferKey {
 /// serializable data type, and only the [`JsonBufferKey`] will know the actual
 /// data type.
 pub struct JsonBufferView<'a> {
-    viewing: Box<dyn JsonBufferViewing + 'a>,
+    viewing: Box<dyn JsonBufferViewing<'a> + 'a>,
     gate: &'a GateState,
     session: Entity,
 }
 
 impl<'a> JsonBufferView<'a> {
     /// Get a serialized copy of the oldest message in the buffer.
-    pub fn oldest(&self) -> JsonMessageViewResult {
+    pub fn oldest(&self) -> Option<JsonRef<'a>> {
         self.viewing.json_oldest()
     }
 
     /// Get a serialized copy of the newest message in the buffer.
-    pub fn newest(&self) -> JsonMessageViewResult {
+    pub fn newest(&self) -> Option<JsonRef<'a>> {
         self.viewing.json_newest()
     }
 
     /// Get a serialized copy of a message in the buffer.
-    pub fn get(&self, index: usize) -> JsonMessageViewResult {
+    pub fn get(&self, index: usize) -> Option<JsonRef<'a>> {
         self.viewing.json_get(index)
     }
 
@@ -309,8 +309,8 @@ impl<'a> JsonBufferView<'a> {
     }
 
     /// Iterate through the current elements of the buffer.
-    pub fn iter(&self) -> IterJsonBufferView<'a, '_> {
-        IterJsonBufferView {
+    pub fn iter(&self) -> IterJsonBuffer<'a, '_> {
+        IterJsonBuffer {
             index: 0,
             view: self,
         }
@@ -326,17 +326,17 @@ impl<'a> JsonBufferView<'a> {
     }
 }
 
-pub struct IterJsonBufferView<'a, 'b> {
+pub struct IterJsonBuffer<'a, 'b> {
     index: usize,
     view: &'b JsonBufferView<'a>,
 }
 
-impl<'a, 'b> Iterator for IterJsonBufferView<'a, 'b> {
-    type Item = Result<JsonMessage, serde_json::Error>;
+impl<'a, 'b> Iterator for IterJsonBuffer<'a, 'b> {
+    type Item = JsonRef<'a>;
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.index;
         self.index += 1;
-        self.view.get(next).transpose()
+        self.view.get(next)
     }
 }
 
@@ -367,17 +367,17 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
     }
 
     /// Get a serialized copy of the oldest message in the buffer.
-    pub fn oldest(&self) -> JsonMessageViewResult {
+    pub fn oldest(&self) -> Option<JsonRef<'a>> {
         self.manager.json_oldest()
     }
 
     /// Get a serialized copy of the newest message in the buffer.
-    pub fn newest(&self) -> JsonMessageViewResult {
+    pub fn newest(&self) -> Option<JsonRef<'a>> {
         self.manager.json_newest()
     }
 
     /// Get a serialized copy of a message in the buffer.
-    pub fn get(&self, index: usize) -> JsonMessageViewResult {
+    pub fn get(&self, index: usize) -> Option<JsonRef<'a>> {
         self.manager.json_get(index)
     }
 
@@ -416,30 +416,28 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
 
     /// Pull the oldest message from the buffer as a JSON value. Unlike
     /// [`Self::oldest`] this will remove the message from the buffer.
-    pub fn pull(&mut self) -> JsonMessageViewResult {
+    pub fn pull(&mut self) -> Option<JsonFetchResult> {
         self.modified = true;
         self.manager.json_pull()
     }
 
     /// Pull the oldest message from the buffer and attempt to deserialize it
     /// into the target type.
-    pub fn pull_as<T: DeserializeOwned>(&mut self) -> Result<Option<T>, serde_json::Error> {
-        self.pull()?.map(|m| serde_json::from_value(m)).transpose()
+    pub fn pull_as<T: DeserializeOwned>(&mut self) -> Option<Result<T, serde_json::Error>> {
+        Some(self.pull()?.and_then(|m| serde_json::from_value(m)))
     }
 
     /// Pull the newest message from the buffer as a JSON value. Unlike
     /// [`Self::newest`] this will remove the message from the buffer.
-    pub fn pull_newest(&mut self) -> JsonMessageViewResult {
+    pub fn pull_newest(&mut self) -> Option<JsonFetchResult> {
         self.modified = true;
         self.manager.json_pull_newest()
     }
 
     /// Pull the newest message from the buffer and attempt to deserialize it
     /// into the target type.
-    pub fn pull_newest_as<T: DeserializeOwned>(&mut self) -> Result<Option<T>, serde_json::Error> {
-        self.pull_newest()?
-            .map(|m| serde_json::from_value(m))
-            .transpose()
+    pub fn pull_newest_as<T: DeserializeOwned>(&mut self) -> Option<Result<T, serde_json::Error>> {
+        Some(self.pull_newest()?.and_then(|m| serde_json::from_value(m)))
     }
 
     /// Attempt to push a new value into the buffer.
@@ -593,9 +591,19 @@ impl JsonBufferWorldAccess for World {
     }
 }
 
+pub struct JsonRef<'a> {
+    entry: &'a dyn JsonEntry,
+}
+
+impl<'a> JsonRef<'a> {
+    pub fn serialize(&self) -> JsonFetchResult {
+        self.entry.serialize()
+    }
+}
+
 /// View or modify a buffer message in terms of JSON values.
 pub struct JsonMut<'a> {
-    entry: &'a mut dyn JsonMutEntry,
+    entry: &'a mut dyn JsonEntry,
     modified: &'a mut bool,
     tracer: BMutTracer<'a>,
 }
@@ -605,7 +613,7 @@ impl<'a> JsonMut<'a> {
     ///
     /// This new [`JsonMessage`] will be a duplicate of the data of the message
     /// inside the buffer, effectively meaning this function clones the data.
-    pub fn serialize(&self) -> Result<JsonMessage, serde_json::Error> {
+    pub fn serialize(&self) -> JsonFetchResult {
         self.entry.serialize()
     }
 
@@ -625,7 +633,7 @@ impl<'a> JsonMut<'a> {
     /// Replace the underlying message with new data, and receive its original
     /// data as JSON.
     #[must_use = "if you are going to discard the returned message, use insert instead"]
-    pub fn replace(&mut self, message: JsonMessage) -> JsonMessageReplaceResult {
+    pub fn replace(&mut self, message: JsonMessage) -> JsonFetchResult {
         *self.modified = true;
         self.entry.replace(message, &self.tracer)
     }
@@ -649,14 +657,10 @@ impl<'a> JsonMut<'a> {
     }
 }
 
-/// The return type for functions that give a JSON view of a message in a buffer.
+/// The return type for functions that fetch a JSON message from a buffer.
 /// If an error occurs while attempting to serialize the message, this will return
 /// [`Err`].
-///
-/// If this returns [`Ok`] then [`None`] means there was no message available at
-/// the requested location while [`Some`] will contain a serialized copy of the
-/// message.
-pub type JsonMessageViewResult = Result<Option<JsonMessage>, serde_json::Error>;
+pub type JsonFetchResult = Result<JsonMessage, serde_json::Error>;
 
 /// The return type for functions that push a new message into a buffer. If an
 /// error occurs while deserializing the message into the buffer's message type
@@ -667,26 +671,18 @@ pub type JsonMessageViewResult = Result<Option<JsonMessage>, serde_json::Error>;
 /// old message which has now been removed from the buffer.
 pub type JsonMessagePushResult = Result<Option<JsonMessage>, serde_json::Error>;
 
-/// The return type for functions that replace (swap out) one message with
-/// another. If an error occurs while serializing or deserializing either
-/// message to/from the buffer's message type then this will return [`Err`].
-///
-/// If this returns [`Ok`] then the message was successfully replaced, and the
-/// value inside [`Ok`] is the message that was previously in the buffer.
-pub type JsonMessageReplaceResult = Result<JsonMessage, serde_json::Error>;
-
-trait JsonBufferViewing {
+trait JsonBufferViewing<'a> {
     fn json_count(&self) -> usize;
-    fn json_oldest<'a>(&'a self) -> JsonMessageViewResult;
-    fn json_newest<'a>(&'a self) -> JsonMessageViewResult;
-    fn json_get<'a>(&'a self, index: usize) -> JsonMessageViewResult;
+    fn json_oldest(&self) -> Option<JsonRef<'a>>;
+    fn json_newest(&self) -> Option<JsonRef<'a>>;
+    fn json_get(&self, index: usize) -> Option<JsonRef<'a>>;
 }
 
 trait JsonBufferManagement: JsonBufferViewing {
     fn json_push(&mut self, value: JsonMessage) -> JsonMessagePushResult;
     fn json_push_as_oldest(&mut self, value: JsonMessage) -> JsonMessagePushResult;
-    fn json_pull(&mut self) -> JsonMessageViewResult;
-    fn json_pull_newest(&mut self) -> JsonMessageViewResult;
+    fn json_pull(&mut self) -> Option<JsonFetchResult>;
+    fn json_pull_newest(&mut self) -> Option<JsonFetchResult>;
     fn json_oldest_mut<'a>(&'a mut self, modified: &'a mut bool) -> Option<JsonMut<'a>>;
     fn json_newest_mut<'a>(&'a mut self, modified: &'a mut bool) -> Option<JsonMut<'a>>;
     fn json_get_mut<'a>(&'a mut self, index: usize, modified: &'a mut bool) -> Option<JsonMut<'a>>;
@@ -791,12 +787,12 @@ where
     }
 }
 
-trait JsonMutEntry {
+trait JsonEntry {
     /// Serialize the underlying message into JSON
-    fn serialize(&self) -> Result<JsonMessage, serde_json::Error>;
+    fn serialize(&self) -> JsonFetchResult;
     /// Replace the underlying message with new data, and receive its original
     /// data as JSON
-    fn replace(&mut self, message: JsonMessage, tracer: &BMutTracer) -> JsonMessageReplaceResult;
+    fn replace(&mut self, message: JsonMessage, tracer: &BMutTracer) -> JsonFetchResult;
     /// Insert new data into the underyling message. This is the same as replace
     /// except it is more efficient if you don't care about the original data,
     /// because it will discard the original data instead of serializing it.
@@ -807,7 +803,7 @@ trait JsonMutEntry {
     ) -> Result<(), serde_json::Error>;
 }
 
-impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonMutEntry for BufferEntry<T> {
+impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonEntry for BufferEntry<T> {
     fn serialize(&self) -> Result<JsonMessage, serde_json::Error> {
         serde_json::to_value(&self.message)
     }
@@ -1179,8 +1175,8 @@ impl Joining for JsonBuffer {
             lifecycle: None,
         };
         match self.join_behavior {
-            JoinBehavior::Pull => self.interface.pull(req, &key, world),
-            JoinBehavior::Clone => self.interface.clone_from_buffer(req, &key, world),
+            FetchBehavior::Pull => self.interface.pull(req, &key, world),
+            FetchBehavior::Clone => self.interface.clone_from_buffer(req, &key, world),
         }
     }
 }
@@ -1213,6 +1209,28 @@ impl Accessing for JsonBuffer {
 
 impl Accessor for JsonBufferKey {
     type Buffers = JsonBuffer;
+
+    fn can_access(&self, world: &World) -> bool {
+        let Ok(view) = world.json_buffer_view_untraced(self) else {
+            return false;
+        };
+        view.oldest().is_ok()
+    }
+
+    type Fetched = Result<JsonMessage, serde_json::Error>;
+    fn fetch(&self, req: RequestId, world: &mut World) -> Option<Self::Fetched> {
+        world.json_buffer_mut(req, self, |mut buffer| {
+            buffer.pull().transpose()
+        })
+        .ok()
+        .flatten()
+    }
+
+    type Viewed<'a> = Result<JsonMessage, serde_json::Error>;
+    fn view<'a>(&self, world: &'a World) -> Option<Self::Viewed<'a>> {
+        world.json_buffer_view_untraced(self).ok().map(|view| view.oldest().transpose()).flatten()
+    }
+
 }
 
 impl BufferMapLayout for JsonBuffer {

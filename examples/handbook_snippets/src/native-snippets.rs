@@ -1467,6 +1467,8 @@ fn navigate(
                 .ok()
                 .flatten();
 
+            let position = channel.buffers().get_newest()
+
             let Some(position) = position else {
                 // Position has not been reported yet, so just try again later.
                 continue;

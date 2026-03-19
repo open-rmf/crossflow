@@ -42,6 +42,9 @@ mod buffer_access_lifecycle;
 pub use buffer_access_lifecycle::BufferKeyLifecycle;
 pub(crate) use buffer_access_lifecycle::*;
 
+mod buffer_command;
+pub use buffer_command::*;
+
 mod buffer_key_builder;
 pub use buffer_key_builder::*;
 

@@ -30,8 +30,8 @@ use bevy_ecs::prelude::{Entity, World};
 use crate::{
     Accessing, AnyBuffer, AnyBufferKey, AnyMessageBox, AsAnyBuffer, Buffer, BufferKeyBuilder,
     BufferKeyLifecycle, Bufferable, Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer,
-    Gate, GateState, IdentifierRef, Joining, Node, OperationError, OperationResult,
-    OperationRoster, RequestId, TypeInfo, add_listener_to_source,
+    Gate, GateState, IdentifierRef, Joining, Node, OperationError, OperationResult, BufferWorldAccess,
+    OperationRoster, RequestId, TypeInfo, add_listener_to_source, IterBufferView,
 };
 
 #[cfg(feature = "diagram")]
@@ -665,6 +665,17 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
         let buffers: Self::Buffers = Self::Buffers::try_from_buffer_map(buffers)?;
         Ok(buffers.access(builder))
     }
+
+    fn can_access(&self, world: &World) -> bool;
+
+    type Fetched: 'static + Send + Sync;
+    fn fetch(&self, req: RequestId, world: &mut World) -> Option<Self::Fetched>;
+
+    type Viewed<'a>;
+    fn view<'a>(&self, world: &'a World) -> Option<Self::Viewed<'a>>;
+
+    type Iter<'a>;
+    fn iter<'a>(&self, world: &'a World) -> Option<Self::Iter<'a>>;
 }
 
 impl<T> Accessor for BufferKey<T>
@@ -672,13 +683,77 @@ where
     T: Send + Sync + 'static,
 {
     type Buffers = Buffer<T>;
+
+    fn can_access(&self, world: &World) -> bool {
+        let Ok(view) = world.buffer_view_untraced::<T>(self.tag()) else {
+            return false;
+        };
+        view.oldest().is_some()
+    }
+
+    type Fetched = T;
+    fn fetch(&self, req: RequestId, world: &mut World) -> Option<Self::Fetched> {
+        world.buffer_mut(req, self, |mut buffer| {
+            buffer.pull()
+        }).ok().flatten()
+    }
+
+    type Viewed<'a> = &'a T;
+    fn view<'a>(&self, world: &'a World) -> Option<Self::Viewed<'a>> {
+        world.buffer_view_untraced::<T>(self.tag()).ok().map(|view| view.oldest()).flatten()
+    }
+
+    type Iter<'a> = IterBufferView<'a, T>;
+    fn iter<'a>(&self, world: &'a World) -> Option<Self::Iter<'a>> {
+        world.buffer_view_untraced::<T>(self.tag()).ok().map(|view| view.iter())
+    }
 }
 
-impl<T> Accessor for Vec<BufferKey<T>>
+impl<A: Accessor> Accessor for Vec<A>
 where
-    T: Send + Sync + 'static,
+    Vec<A::Buffers>: 'static + BufferMapLayout + Accessing<Key = Vec<A>> + Send + Sync,
 {
-    type Buffers = Vec<Buffer<T>>;
+    type Buffers = Vec<A::Buffers>;
+
+    fn can_access(&self, world: &World) -> bool {
+        for key in self {
+            if !key.can_access(world) {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    type Fetched = Vec<A::Fetched>;
+    fn fetch(&self, req: RequestId, world: &mut World) -> Option<Self::Fetched> {
+        let mut fetched = Vec::new();
+        for key in self {
+            fetched.push(key.fetch(req, world)?);
+        }
+
+        Some(fetched)
+    }
+
+    type Viewed<'a> = Vec<A::Viewed<'a>>;
+    fn view<'a>(&self, world: &'a World) -> Option<Self::Viewed<'a>> {
+        let mut viewed = Vec::new();
+        for key in self {
+            viewed.push(key.view(world)?);
+        }
+
+        Some(viewed)
+    }
+
+    type Iter<'a> = Vec<A::Iter<'a>>;
+    fn iter<'a>(&self, world: &'a World) -> Option<Self::Iter<'a>> {
+        let mut iters = Vec::new();
+        for key in self {
+            iters.push(key.iter(world)?);
+        }
+
+        Some(iters)
+    }
 }
 
 impl BufferMapLayout for BufferMap {

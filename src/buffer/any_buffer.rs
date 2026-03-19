@@ -41,7 +41,7 @@ use crate::{
     FetchFromBuffer, Gate, GateState, IdentifierRef, IncompatibleLayout, InspectBufferSessions,
     Joining, ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
     NotifyBufferUpdate, OperationError, OperationResult, OperationRoster, OrBroken, RequestId,
-    TypeInfo, add_listener_to_source,
+    TypeInfo, add_listener_to_source, IterBufferView,
 };
 
 #[cfg(feature = "trace")]
@@ -52,7 +52,7 @@ use crate::{BufferAccessRecord, BufferTracer};
 #[derive(Clone, Copy)]
 pub struct AnyBuffer {
     pub(crate) location: BufferLocation,
-    pub(crate) join_behavior: JoinBehavior,
+    pub(crate) join_behavior: FetchBehavior,
     pub(crate) interface: &'static (dyn AnyBufferAccessInterface + Send + Sync),
 }
 
@@ -60,7 +60,7 @@ impl AnyBuffer {
     /// Specify that you want this buffer to join by pulling an element. This is
     /// always supported.
     pub fn join_by_pulling(mut self) -> AnyBuffer {
-        self.join_behavior = JoinBehavior::Pull;
+        self.join_behavior = FetchBehavior::Pull;
         self
     }
 
@@ -72,7 +72,7 @@ impl AnyBuffer {
     /// stored by this buffer has registered its [`Clone`] trait.
     pub fn join_by_cloning(mut self) -> Option<AnyBuffer> {
         self.interface.clone_for_join_fn()?;
-        self.join_behavior = JoinBehavior::Clone;
+        self.join_behavior = FetchBehavior::Clone;
         Some(self)
     }
 
@@ -168,7 +168,7 @@ impl<T: 'static + Send + Sync> From<Buffer<T>> for AnyBuffer {
         let interface = AnyBuffer::interface_for::<T>();
         AnyBuffer {
             location: value.location,
-            join_behavior: JoinBehavior::Pull,
+            join_behavior: FetchBehavior::Pull,
             interface,
         }
     }
@@ -179,7 +179,7 @@ impl<T: 'static + Send + Sync + Clone> From<CloneFromBuffer<T>> for AnyBuffer {
         let interface = AnyBuffer::interface_for::<T>();
         AnyBuffer {
             location: value.location,
-            join_behavior: JoinBehavior::Clone,
+            join_behavior: FetchBehavior::Clone,
             interface,
         }
     }
@@ -189,7 +189,7 @@ impl<T: 'static + Send + Sync + Clone> From<CloneFromBuffer<T>> for AnyBuffer {
 /// make copies of the [`Buffer`] reference and give each copy a different behavior
 /// so that it gets used differently for each join operation that it takes part in.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum JoinBehavior {
+pub enum FetchBehavior {
     /// Pull a value from the buffer while joining
     #[default]
     Pull,
@@ -328,6 +328,30 @@ impl<T: 'static + Send + Sync + Any> From<BufferKey<T>> for AnyBufferKey {
 
 impl Accessor for AnyBufferKey {
     type Buffers = AnyBuffer;
+
+    fn can_access(&self, world: &World) -> bool {
+        let Ok(view) = world.any_buffer_view_untraced(self) else {
+            return false;
+        };
+        view.oldest().is_some()
+    }
+
+    type Fetched = AnyMessageBox;
+    fn fetch(&self, req: RequestId, world: &mut World) -> Option<Self::Fetched> {
+        world.any_buffer_mut(req, self, |mut buffer| {
+            buffer.pull()
+        }).ok().flatten()
+    }
+
+    type Viewed<'a> = AnyMessageRef<'a>;
+    fn view<'a>(&self, world: &'a World) -> Option<Self::Viewed<'a>> {
+        world.any_buffer_view_untraced(self).map(|view| view.oldest()).ok().flatten()
+    }
+
+    type Iter<'a> = IterAnyBuffer<'a>;
+    fn iter<'a>(&self, world: &'a World) -> Option<Self::Iter<'a>> {
+        world.any_buffer_view_untraced(self).ok().map(|view| view.iter())
+    }
 }
 
 impl BufferMapLayout for AnyBuffer {
@@ -365,26 +389,33 @@ impl BufferMapLayout for AnyBuffer {
 /// an [`AnyBufferKey`], so it can work for any buffer whose message types
 /// support serialization and deserialization.
 pub struct AnyBufferView<'a> {
-    viewing: Box<dyn AnyBufferViewing + 'a>,
+    viewing: Box<dyn AnyBufferViewing<'a> + 'a>,
     gate: &'a GateState,
     session: Entity,
 }
 
 impl<'a> AnyBufferView<'a> {
     /// Look at the oldest message in the buffer.
-    pub fn oldest(&self) -> Option<AnyMessageRef<'_>> {
+    pub fn oldest(&self) -> Option<AnyMessageRef<'a>> {
         self.viewing.any_oldest()
     }
 
     /// Look at the newest message in the buffer.
-    pub fn newest(&self) -> Option<AnyMessageRef<'_>> {
+    pub fn newest(&self) -> Option<AnyMessageRef<'a>> {
         self.viewing.any_newest()
     }
 
     /// Borrow a message from the buffer. Index 0 is the oldest message in the buffer
     /// while the highest index is the newest message in the buffer.
-    pub fn get(&self, index: usize) -> Option<AnyMessageRef<'_>> {
+    pub fn get(&self, index: usize) -> Option<AnyMessageRef<'a>> {
         self.viewing.any_get(index)
+    }
+
+    /// Iterate through the contents of this buffer.
+    pub fn iter(&self) -> IterAnyBuffer<'a> {
+        IterAnyBuffer {
+            interface: self.viewing.any_iter(),
+        }
     }
 
     /// Get how many messages are in this buffer.
@@ -607,20 +638,20 @@ pub trait AnyBufferWorldAccess {
     /// if the tracing feature is enabled. If you want to view the buffer with
     /// non-mutable access, you can use `any_buffer_view_untraced`, but the
     /// viewing activity will not be traced.
-    fn any_buffer_view(
-        &mut self,
+    fn any_buffer_view<'a>(
+        &'a mut self,
         req: RequestId,
         key: &AnyBufferKey,
-    ) -> Result<AnyBufferView<'_>, BufferError>;
+    ) -> Result<AnyBufferView<'a>, BufferError>;
 
     /// Call this to get read-only access to any buffer.
     ///
     /// This buffer viewing will not be traced, which may be confusing if you
     /// review a log of the workflow activity.
-    fn any_buffer_view_untraced(
-        &self,
+    fn any_buffer_view_untraced<'a>(
+        &'a self,
         key: &AnyBufferKey,
-    ) -> Result<AnyBufferView<'_>, BufferError>;
+    ) -> Result<AnyBufferView<'a>, BufferError>;
 
     /// Call this to get mutable access to any buffer.
     ///
@@ -635,11 +666,11 @@ pub trait AnyBufferWorldAccess {
 }
 
 impl AnyBufferWorldAccess for World {
-    fn any_buffer_view(
-        &mut self,
+    fn any_buffer_view<'a>(
+        &'a mut self,
         _req: RequestId,
         key: &AnyBufferKey,
-    ) -> Result<AnyBufferView<'_>, BufferError> {
+    ) -> Result<AnyBufferView<'a>, BufferError> {
         #[cfg(feature = "trace")]
         {
             let mut tracer_state: SystemState<BufferTracer> = SystemState::new(self);
@@ -651,10 +682,10 @@ impl AnyBufferWorldAccess for World {
         key.interface.create_any_buffer_view(key, self)
     }
 
-    fn any_buffer_view_untraced(
-        &self,
+    fn any_buffer_view_untraced<'a>(
+        &'a self,
         key: &AnyBufferKey,
-    ) -> Result<AnyBufferView<'_>, BufferError> {
+    ) -> Result<AnyBufferView<'a>, BufferError> {
         key.interface.create_any_buffer_view(key, self)
     }
 
@@ -672,23 +703,31 @@ impl AnyBufferWorldAccess for World {
     }
 }
 
-trait AnyBufferViewing {
+trait AnyBufferViewing<'a> {
     fn any_count(&self) -> usize;
-    fn any_oldest<'a>(&'a self) -> Option<AnyMessageRef<'a>>;
-    fn any_newest<'a>(&'a self) -> Option<AnyMessageRef<'a>>;
-    fn any_get<'a>(&'a self, index: usize) -> Option<AnyMessageRef<'a>>;
+    fn any_oldest(&self) -> Option<AnyMessageRef<'a>>;
+    fn any_newest(&self) -> Option<AnyMessageRef<'a>>;
+    fn any_get(&self, index: usize) -> Option<AnyMessageRef<'a>>;
+    fn any_iter(&self) -> Box<dyn IterAnyBufferInterface<'a> + 'a>;
     fn any_message_type(&self) -> TypeId;
 }
 
-trait AnyBufferManagement: AnyBufferViewing {
+trait AnyBufferManagement {
+    fn any_count(&self) -> usize;
+    fn any_oldest(&self) -> Option<AnyMessageRef<'_>>;
+    fn any_newest(&self) -> Option<AnyMessageRef<'_>>;
+    fn any_get(&self, index: usize) -> Option<AnyMessageRef<'_>>;
+    fn any_iter(&self) -> Box<dyn IterAnyBufferInterface<'_> + '_>;
+    fn any_message_type(&self) -> TypeId;
+
     fn any_push(&mut self, value: AnyMessageBox) -> AnyMessagePushResult;
     fn any_push_as_oldest(&mut self, value: AnyMessageBox) -> AnyMessagePushResult;
     fn any_pull(&mut self) -> Option<AnyMessageBox>;
     fn any_pull_newest(&mut self) -> Option<AnyMessageBox>;
-    fn any_oldest_mut<'a>(&'a mut self) -> Option<AnyMut<'a>>;
-    fn any_newest_mut<'a>(&'a mut self) -> Option<AnyMut<'a>>;
-    fn any_get_mut<'a>(&'a mut self, index: usize) -> Option<AnyMut<'a>>;
-    fn any_drain<'a>(&'a mut self, range: AnyRange) -> Box<dyn DrainAnyBufferInterface + 'a>;
+    fn any_oldest_mut(&mut self) -> Option<AnyMut<'_>>;
+    fn any_newest_mut(&mut self) -> Option<AnyMut<'_>>;
+    fn any_get_mut(&mut self, index: usize) -> Option<AnyMut<'_>>;
+    fn any_drain(&mut self, range: AnyRange) -> Box<dyn DrainAnyBufferInterface + '_>;
 }
 
 pub(crate) struct AnyRange {
@@ -761,43 +800,25 @@ impl std::ops::RangeBounds<usize> for AnyRange {
 
 pub type AnyMessageRef<'a> = &'a (dyn Any + 'static + Send + Sync);
 
-impl<T: 'static + Send + Sync + Any> AnyBufferViewing for BufferView<'_, T> {
+impl<'a, T: 'static + Send + Sync + Any> AnyBufferViewing<'a> for BufferView<'a, T> {
     fn any_count(&self) -> usize {
         self.len()
     }
 
-    fn any_oldest<'a>(&'a self) -> Option<AnyMessageRef<'a>> {
+    fn any_oldest(&self) -> Option<AnyMessageRef<'a>> {
         self.oldest().map(to_any_ref)
     }
 
-    fn any_newest<'a>(&'a self) -> Option<AnyMessageRef<'a>> {
+    fn any_newest(&self) -> Option<AnyMessageRef<'a>> {
         self.newest().map(to_any_ref)
     }
 
-    fn any_get<'a>(&'a self, index: usize) -> Option<AnyMessageRef<'a>> {
+    fn any_get(&self, index: usize) -> Option<AnyMessageRef<'a>> {
         self.get(index).map(to_any_ref)
     }
 
-    fn any_message_type(&self) -> TypeId {
-        TypeId::of::<T>()
-    }
-}
-
-impl<T: 'static + Send + Sync + Any> AnyBufferViewing for BufferManager<'_, '_, '_, T> {
-    fn any_count(&self) -> usize {
-        self.len()
-    }
-
-    fn any_oldest<'a>(&'a self) -> Option<AnyMessageRef<'a>> {
-        self.oldest().map(to_any_ref)
-    }
-
-    fn any_newest<'a>(&'a self) -> Option<AnyMessageRef<'a>> {
-        self.newest().map(to_any_ref)
-    }
-
-    fn any_get<'a>(&'a self, index: usize) -> Option<AnyMessageRef<'a>> {
-        self.get(index).map(to_any_ref)
+    fn any_iter(&self) -> Box<dyn IterAnyBufferInterface<'a> + 'a> {
+        Box::new(self.iter())
     }
 
     fn any_message_type(&self) -> TypeId {
@@ -856,6 +877,30 @@ pub struct AnyMessageError {
 pub type AnyMessagePushResult = Result<Option<AnyMessageBox>, AnyMessageError>;
 
 impl<T: 'static + Send + Sync + Any> AnyBufferManagement for BufferManager<'_, '_, '_, T> {
+    fn any_count(&self) -> usize {
+        self.len()
+    }
+
+    fn any_oldest(&self) -> Option<AnyMessageRef<'_>> {
+        self.oldest().map(to_any_ref)
+    }
+
+    fn any_newest(&self) -> Option<AnyMessageRef<'_>> {
+        self.newest().map(to_any_ref)
+    }
+
+    fn any_get(&self, index: usize) -> Option<AnyMessageRef<'_>> {
+        self.get(index).map(to_any_ref)
+    }
+
+    fn any_iter(&self) -> Box<dyn IterAnyBufferInterface<'_> + '_> {
+        Box::new(self.iter())
+    }
+
+    fn any_message_type(&self) -> TypeId {
+        TypeId::of::<T>()
+    }
+
     fn any_push(&mut self, value: AnyMessageBox) -> AnyMessagePushResult {
         let value = from_any_message::<T>(value)?;
         Ok(self.push(value).map(to_any_message))
@@ -1249,6 +1294,28 @@ impl<T: 'static + Send + Sync + Any> AnyBufferAccessInterface for AnyBufferAcces
     }
 }
 
+pub struct IterAnyBuffer<'a> {
+    interface: Box<dyn IterAnyBufferInterface<'a> + 'a>,
+}
+
+impl<'a> Iterator for IterAnyBuffer<'a> {
+    type Item = AnyMessageRef<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.interface.any_next()
+    }
+}
+
+trait IterAnyBufferInterface<'a> {
+    fn any_next(&mut self) -> Option<AnyMessageRef<'a>>;
+}
+
+impl<'a, T: 'static + Send + Sync + Any> IterAnyBufferInterface<'a> for IterBufferView<'a, T> {
+    fn any_next(&mut self) -> Option<AnyMessageRef<'a>> {
+        self.next().map(to_any_ref)
+    }
+}
+
 pub struct DrainAnyBuffer<'a> {
     interface: Box<dyn DrainAnyBufferInterface + 'a>,
 }
@@ -1344,8 +1411,8 @@ impl Joining for AnyBuffer {
             lifecycle: None,
         };
         match self.join_behavior {
-            JoinBehavior::Pull => self.interface.pull(req, &key, world),
-            JoinBehavior::Clone => self.interface.clone_from_buffer(req, &key, world),
+            FetchBehavior::Pull => self.interface.pull(req, &key, world),
+            FetchBehavior::Clone => self.interface.clone_from_buffer(req, &key, world),
         }
     }
 }

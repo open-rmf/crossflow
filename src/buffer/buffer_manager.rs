@@ -659,7 +659,7 @@ impl<T> BufferStorage<T> {
         }
     }
 
-    pub(crate) fn oldest(&self, session: Entity) -> Option<&T> {
+    pub(crate) fn oldest<'a>(&'a self, session: Entity) -> Option<&'a T> {
         self.reverse_queues
             .get(&session)
             .and_then(|q| q.last())
