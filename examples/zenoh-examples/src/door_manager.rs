@@ -155,7 +155,7 @@ fn process_request(
         return DoorCommand::Close;
     };
 
-    let sessions = sessions.newest_mut_or_default().unwrap();
+    let mut sessions = sessions.newest_mut_or_default().unwrap();
 
     match request.mode() {
         protos::door_request::Mode::Open => {
@@ -196,7 +196,7 @@ fn door_controller(
             error!("Position buffer is broken");
             return;
         };
-        let Some(state) = position_buffer.newest_mut_or_default() else {
+        let Some(mut state) = position_buffer.newest_mut_or_default() else {
             return;
         };
 
