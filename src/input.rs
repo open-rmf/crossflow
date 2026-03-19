@@ -28,9 +28,9 @@ use backtrace::Backtrace;
 
 use crate::{
     Broken, BufferKeyTag, BufferStorage, BufferWorldAccess, Cancellation, CancellationCause,
-    DeferredRoster, Detached, IdentifierRef, ManageCancellation, ManageSession,
-    MiscellaneousFailure, OperationError, OperationResult, OperationRoster, OrBroken, OutputPort,
-    ProgressInSeries, RequestId, SequenceInSeries, SessionStatus, UnhandledErrors, UnusedTarget,
+    DeferredRoster, Detached, IdentifierRef, ManageCancellation, MiscellaneousFailure,
+    OperationError, OperationResult, OperationRoster, OrBroken, OutputPort, ProgressInSeries,
+    RequestId, SequenceInSeries, SessionStatus, UnhandledErrors, UnusedTarget,
     finalize_series_cancel, output_port,
 };
 
@@ -432,7 +432,7 @@ impl ManageInput for World {
                     // The input is going to a detached series that will not
                     // react any further. We need to tell that detached series
                     // to despawn since it is no longer needed.
-                    self.despawn_session(session);
+                    roster.defer_despawn_session(session);
 
                     // No error occurred, but the caller should not queue the
                     // operation into the roster because it is being despawned.

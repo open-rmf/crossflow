@@ -52,7 +52,7 @@ mod buffer_map;
 pub use buffer_map::*;
 
 mod buffer_manager;
-pub(crate) use buffer_manager::*;
+pub use buffer_manager::*;
 
 mod buffering;
 pub use buffering::*;
@@ -515,22 +515,10 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
 
     pub fn get_newest<'a>(
         &'a mut self,
-        _req: impl Into<RequestId>,
+        req: impl Into<RequestId>,
         key: &BufferKey<T>,
     ) -> Option<&'a T> {
-        #[cfg(feature = "trace")]
-        {
-            self.tracer
-                .trace(_req.into(), key.tag(), BufferAccessRecord::Viewed);
-        }
-        self.get_newest_untraced(key)
-    }
-
-    pub fn get_newest_untraced<'a>(&'a self, key: &BufferKey<T>) -> Option<&'a T> {
-        self.get_untraced(key)
-            .ok()
-            .map(|view| view.newest())
-            .flatten()
+        self.get(req, key).ok().map(|view| view.newest()).flatten()
     }
 }
 
@@ -594,12 +582,27 @@ impl<'w, 's, T> BufferAccessMut<'w, 's, T>
 where
     T: 'static + Send + Sync,
 {
-    pub fn get<'a>(&'a self, key: &BufferKey<T>) -> Result<BufferView<'a, T>, QueryEntityError> {
-        self.inner.get_view(key.tag())
+    pub fn get<'a>(
+        &'a mut self,
+        req: impl Into<RequestId>,
+        key: &BufferKey<T>,
+    ) -> Result<BufferView<'a, T>, QueryEntityError> {
+        self.inner.get_view(req.into(), key.tag())
     }
 
-    pub fn get_newest<'a>(&'a self, key: &BufferKey<T>) -> Option<&'a T> {
-        self.get(key).ok().map(|view| view.newest()).flatten()
+    pub fn get_untraced<'a>(
+        &'a self,
+        key: &BufferKey<T>,
+    ) -> Result<BufferView<'a, T>, QueryEntityError> {
+        self.inner.get_view_untraced(key.tag())
+    }
+
+    pub fn get_newest<'a>(
+        &'a mut self,
+        req: impl Into<RequestId>,
+        key: &BufferKey<T>,
+    ) -> Option<&'a T> {
+        self.get(req, key).ok().map(|view| view.newest()).flatten()
     }
 
     pub fn get_mut<'a>(
@@ -927,13 +930,13 @@ where
     }
 
     /// Modify the oldest item in the buffer.
-    pub fn oldest_mut(&mut self) -> Option<&mut T> {
+    pub fn oldest_mut(&mut self) -> Option<BMut<'_, T>> {
         self.modified = true;
         self.manager.oldest_mut()
     }
 
     /// Modify the newest item in the buffer.
-    pub fn newest_mut(&mut self) -> Option<&mut T> {
+    pub fn newest_mut(&mut self) -> Option<BMut<'_, T>> {
         self.modified = true;
         self.manager.newest_mut()
     }
@@ -943,7 +946,7 @@ where
     ///
     /// This may fail to provide a mutable borrow if the buffer was already
     /// expired or if the buffer capacity was zero.
-    pub fn newest_mut_or_default(&mut self) -> Option<&mut T>
+    pub fn newest_mut_or_default(&mut self) -> Option<BMut<'_, T>>
     where
         T: Default,
     {
@@ -955,20 +958,20 @@ where
     ///
     /// This may fail to provide a mutable borrow if the buffer was already
     /// expired or if the buffer capacity was zero.
-    pub fn newest_mut_or_else(&mut self, f: impl FnOnce() -> T) -> Option<&mut T> {
+    pub fn newest_mut_or_else(&mut self, f: impl FnOnce() -> T) -> Option<BMut<'_, T>> {
         self.modified = true;
         self.manager.newest_mut_or_else(f)
     }
 
     /// Modify an item in the buffer. Index 0 is the oldest item in the buffer
     /// with the highest index being the newest item in the buffer.
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+    pub fn get_mut(&mut self, index: usize) -> Option<BMut<'_, T>> {
         self.modified = true;
         self.manager.get_mut(index)
     }
 
     /// Drain items out of the buffer
-    pub fn drain<R>(&mut self, range: R) -> DrainBuffer<'_, T>
+    pub fn drain<R>(&mut self, range: R) -> DrainBuffer<'w, 's, '_, T>
     where
         R: RangeBounds<usize>,
     {
@@ -1042,7 +1045,7 @@ where
             self.manager.commands.queue(NotifyBufferUpdate::new(
                 self.buffer,
                 self.manager.req,
-                self.manager.session,
+                self.manager.key_session(),
                 self.accessor,
             ));
         }
@@ -1189,11 +1192,11 @@ mod tests {
         }: Blocking<(BufferKey<f64>, BufferKey<f64>)>,
         mut access: BufferAccessMut<f64>,
     ) -> Option<f64> {
-        if access.get(&key_a).unwrap().is_empty() {
+        if access.get(id, &key_a).unwrap().is_empty() {
             return None;
         }
 
-        if access.get(&key_b).unwrap().is_empty() {
+        if access.get(id, &key_b).unwrap().is_empty() {
             return None;
         }
 

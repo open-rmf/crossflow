@@ -38,6 +38,7 @@ pub enum OperationRef {
     Terminate(NamespaceList),
     Dispose,
     Cancel(NamespaceList),
+    ImplicitCancel(NamespaceList),
     StreamOut(StreamOutRef),
 }
 
@@ -51,6 +52,9 @@ impl OperationRef {
             Self::Dispose => Self::Dispose,
             Self::Cancel(namespaces) => {
                 Self::Cancel(namespaces.with_parent_namespaces(parent_namespaces))
+            }
+            Self::ImplicitCancel(namespaces) => {
+                Self::ImplicitCancel(namespaces.with_parent_namespaces(parent_namespaces))
             }
             Self::StreamOut(stream_out) => {
                 Self::StreamOut(stream_out.in_namespaces(parent_namespaces))
@@ -80,6 +84,14 @@ impl OperationRef {
         Self::Terminate(NamespaceList::for_child_of(Arc::clone(namespace)))
     }
 
+    pub fn cancel_for(namespace: &OperationName) -> Self {
+        Self::Cancel(NamespaceList::for_child_of(Arc::clone(namespace)))
+    }
+
+    pub fn implicit_cancel_for(namespace: &OperationName) -> Self {
+        Self::ImplicitCancel(NamespaceList::for_child_of(Arc::clone(namespace)))
+    }
+
     pub fn exposed_input(section_id: &OperationName, input_id: &OperationName) -> Self {
         Self::Named(NamedOperationRef {
             namespaces: Default::default(),
@@ -98,6 +110,9 @@ impl<'a> From<&'a NextOperation> for OperationRef {
                 BuiltinTarget::Terminate => OperationRef::Terminate(NamespaceList::default()),
                 BuiltinTarget::Dispose => OperationRef::Dispose,
                 BuiltinTarget::Cancel => OperationRef::Cancel(NamespaceList::default()),
+                BuiltinTarget::ImplicitCancel => {
+                    OperationRef::ImplicitCancel(NamespaceList::default())
+                }
             },
         }
     }
@@ -123,6 +138,7 @@ impl std::fmt::Display for OperationRef {
                 write!(f, "{}(terminate)", namespaces)
             }
             Self::Cancel(namespaces) => write!(f, "{}(cancel)", namespaces),
+            Self::ImplicitCancel(namespaces) => write!(f, "{}(implicit_cancel)", namespaces),
             Self::Dispose => write!(f, "(dispose)"),
             Self::StreamOut(stream_out) => write!(f, "{stream_out}"),
         }

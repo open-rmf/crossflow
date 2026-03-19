@@ -457,6 +457,10 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
     /// If you need to cancel for a type that does not implement [`ToString`]
     /// then convert it to a trigger `()` and then connect it to
     /// [`Self::create_quiet_cancel`].
+    ///
+    /// This is an explicit cancel, so the scope will remain alive as long as
+    /// this cancel operation is reachable. This allows you to safely and reliably
+    /// do cleanup actions along the path to a cancellation.
     pub fn create_cancel<T>(&mut self) -> InputSlot<T>
     where
         T: 'static + Send + Sync + ToString,
@@ -465,7 +469,25 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
         self.commands.queue(AddOperation::new(
             Some(self.scope()),
             source,
-            OperateCancel::<T>::new(),
+            OperateCancel::<T>::explicit(),
+        ));
+
+        InputSlot::new(self.scope(), source)
+    }
+
+    /// The same as [`Self::create_cancel`] except this will not keep the scope
+    /// alive, even if it is reachable. This can be used to create paths in the
+    /// workflow which allow a cancellation to happen but which should not be
+    /// seen as a valid target for the workflow to reach for.
+    pub fn create_implicit_cancel<T>(&mut self) -> InputSlot<T>
+    where
+        T: 'static + Send + Sync + ToString,
+    {
+        let source = self.commands.spawn(()).id();
+        self.commands.queue(AddOperation::new(
+            Some(self.scope()),
+            source,
+            OperateCancel::<T>::implicit(),
         ));
 
         InputSlot::new(self.scope(), source)
@@ -481,7 +503,22 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
         self.commands.queue(AddOperation::new(
             Some(self.scope()),
             source,
-            OperateQuietCancel,
+            OperateQuietCancel::explicit(),
+        ));
+
+        InputSlot::new(self.scope(), source)
+    }
+
+    /// The same as [`Self::create_quiet_cancel`] except this will not keep the scope
+    /// alive, even if it is reachable. This can be used to create paths in the
+    /// workflow which allow a cancellation to happen but which should not be
+    /// seen as a valid target for the workflow to reach for.
+    pub fn create_implicit_quiet_cancel(&mut self) -> InputSlot<()> {
+        let source = self.commands.spawn(()).id();
+        self.commands.queue(AddOperation::new(
+            Some(self.scope()),
+            source,
+            OperateQuietCancel::implicit(),
         ));
 
         InputSlot::new(self.scope(), source)
