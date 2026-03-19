@@ -188,9 +188,14 @@
           "const": "dispose"
         },
         {
-          "description": "When triggered, cancel the current scope. If this is an inner scope of a\nworkflow then the parent scope will see a disposal happen. If this is\nthe root scope of a workflow then the whole workflow will cancel.",
+          "description": "When triggered, cancel the current scope. If this is an inner scope of a\nworkflow then the parent scope will see a disposal happen. If this is\nthe root scope of a workflow then the whole workflow will cancel.\n\nWhen there is a path within a scope that can reach a cancel operation,\nwe consider that scope to still be reachable. This allows you to safely\nand reliably perform cleanup actions along the path to a cancellation.\nHowever this also means that if any part of a scope can reach a cancel\noperation then the scope will keep running, even if that part of the\nworkflow far removed from the intended happy path of the workflow.\nConsider using implicit cancel if you do not want the cancellation to\naffect the lifespan of the scope.",
           "type": "string",
           "const": "cancel"
+        },
+        {
+          "description": "Same as cancel, except using this will not affect the lifespan of the\nscope.",
+          "type": "string",
+          "const": "implicit_cancel"
         }
       ]
     },

@@ -476,7 +476,7 @@ impl Plugin for CrossflowExecutorApp {
 
 pub mod prelude {
     pub use crate::{
-        Async, AsyncService, Blocking, BlockingService, Capture, ContinuousQuery,
+        Async, AsyncService, BMut, Blocking, BlockingService, Capture, ContinuousQuery,
         ContinuousService, CrossflowExecutorApp, CrossflowPlugin, Identification, Outcome,
         buffer::{
             Accessible, Accessor, AnyBuffer, AnyBufferKey, AnyBufferMut, AnyBufferWorldAccess,

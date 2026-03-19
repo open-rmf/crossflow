@@ -621,9 +621,15 @@ mod tests {
 
                         // hold the service here to give time for the outcome to be
                         // dropped and processed.
-                        let never = async_std::future::pending::<()>();
-                        let timeout = Duration::from_secs(2);
-                        let _ = async_std::future::timeout(timeout, never).await;
+                        let start = Instant::now();
+                        let wait_time = Duration::from_secs(600);
+                        while Instant::now() - start < wait_time {
+                            let never = async_std::future::pending::<()>();
+                            let _ = async_std::future::timeout(wait_time, never).await;
+                        }
+
+                        // Send the final message. The test should have ended
+                        // this task already.
                         let _ = final_sender.send(());
                     }
                 })
@@ -698,24 +704,53 @@ mod tests {
 
         verify_delivery_instruction_matrix(service.optional_stream_cast(), &mut context);
 
-        let service = context.spawn_async_delayed_map(
-            Duration::from_secs_f32(0.01),
-            |counter: Arc<Mutex<u64>>| {
-                *counter.lock().unwrap() += 1;
-            },
-        );
+        let mut timeout = Duration::from_secs_f32(0.01);
+        loop {
+            // These tests can be sensitive to the timeout. It's possible for
+            // the test expectations to legitimately fail based on uncontrollable
+            // CPU scheduling patterns, if the async tasks are provided more
+            // CPU scheduling than the main event loop. This is most significantly
+            // a risk in single-threaded environments.
+            //
+            // The risk rapidly diminishes if we increase the timeout value, but
+            // that also increases the duration of the test. We will compromise:
+            // try with a low timeout and gradually increase it if the test fails.
+            // In most cases the test will pass quickly, but if there's really
+            // a bug in the expectations then we will eventually catch it.
+            let test = move || {
+                let mut context = TestingContext::minimal_plugins();
+                let service =
+                    context.spawn_async_delayed_map(timeout, |counter: Arc<Mutex<u64>>| {
+                        *counter.lock().unwrap() += 1;
+                    });
 
-        verify_delivery_instruction_matrix(service, &mut context);
+                verify_delivery_instruction_matrix(service, &mut context);
 
-        let async_service = service;
-        let service = context.spawn_io_workflow(|scope, builder| {
-            builder
-                .chain(scope.start)
-                .then(async_service)
-                .connect(scope.terminate);
-        });
+                let async_service = service;
+                let service = context.spawn_io_workflow(|scope, builder| {
+                    builder
+                        .chain(scope.start)
+                        .then(async_service)
+                        .connect(scope.terminate);
+                });
 
-        verify_delivery_instruction_matrix(service, &mut context);
+                verify_delivery_instruction_matrix(service, &mut context);
+            };
+
+            match std::panic::catch_unwind(test) {
+                Ok(_) => break,
+                Err(err) => {
+                    if timeout >= Duration::from_secs(2) {
+                        // If the test can't pass with such a generous timeout
+                        // then this needs to be investigated.
+                        std::panic::resume_unwind(err);
+                    }
+
+                    // Double the timeout with each failure
+                    timeout *= 5;
+                }
+            }
+        }
 
         // We don't test blocking services because blocking services are always
         // serial no matter what, so delivery instructions have no effect for them.

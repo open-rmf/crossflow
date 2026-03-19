@@ -37,14 +37,14 @@ use smallvec::SmallVec;
 
 use crate::{
     Accessing, Accessor, AnyBuffer, AnyBufferAccessInterface, AnyBufferKey, AnyRange, AsAnyBuffer,
-    Buffer, BufferAccessMut, BufferAccessors, BufferError, BufferKey, BufferKeyBuilder,
-    BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferManager, BufferMap, BufferMapLayout,
-    BufferMapLayoutHints, BufferMapStruct, BufferStorage, BufferView, BufferWorldAccess,
-    Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer, DynamicBufferMapLayoutHints,
-    Gate, GateState, IdentifierRef, IncompatibleLayout, InspectBufferSessions, JoinBehavior,
-    Joined, Joining, ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation,
-    MessageTypeHintMap, NotifyBufferUpdate, OperationError, OperationResult, OrBroken, RequestId,
-    TypeInfo, add_listener_to_source,
+    BMut, BMutTracer, Buffer, BufferAccessMut, BufferAccessors, BufferEntry, BufferError,
+    BufferKey, BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferManager,
+    BufferMap, BufferMapLayout, BufferMapLayoutHints, BufferMapStruct, BufferStorage, BufferView,
+    BufferWorldAccess, Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer,
+    DynamicBufferMapLayoutHints, Gate, GateState, IdentifierRef, IncompatibleLayout,
+    InspectBufferSessions, JoinBehavior, Joined, Joining, ManageBufferSessions, MessageTypeHint,
+    MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate, OperationError,
+    OperationResult, OrBroken, RequestId, TypeInfo, add_listener_to_source,
 };
 
 #[cfg(feature = "trace")]
@@ -593,10 +593,11 @@ impl JsonBufferWorldAccess for World {
     }
 }
 
-///  View or modify a buffer message in terms of JSON values.
+/// View or modify a buffer message in terms of JSON values.
 pub struct JsonMut<'a> {
-    interface: &'a mut dyn JsonMutInterface,
+    entry: &'a mut dyn JsonMutEntry,
     modified: &'a mut bool,
+    tracer: BMutTracer<'a>,
 }
 
 impl<'a> JsonMut<'a> {
@@ -605,7 +606,7 @@ impl<'a> JsonMut<'a> {
     /// This new [`JsonMessage`] will be a duplicate of the data of the message
     /// inside the buffer, effectively meaning this function clones the data.
     pub fn serialize(&self) -> Result<JsonMessage, serde_json::Error> {
-        self.interface.serialize()
+        self.entry.serialize()
     }
 
     /// This will first serialize the message within the buffer into JSON and
@@ -626,15 +627,15 @@ impl<'a> JsonMut<'a> {
     #[must_use = "if you are going to discard the returned message, use insert instead"]
     pub fn replace(&mut self, message: JsonMessage) -> JsonMessageReplaceResult {
         *self.modified = true;
-        self.interface.replace(message)
+        self.entry.replace(message, &self.tracer)
     }
 
     /// Insert new data into the underyling message. This is the same as replace
-    /// except it is more efficient if you don't care about the original data,
+    /// except it is more efficient if you don't care about the original data,2
     /// because it will discard the original data instead of serializing it.
     pub fn insert(&mut self, message: JsonMessage) -> Result<(), serde_json::Error> {
         *self.modified = true;
-        self.interface.insert(message)
+        self.entry.insert(message, &self.tracer)
     }
 
     /// Modify the data of the underlying message. This is equivalent to calling
@@ -758,23 +759,26 @@ where
     }
 
     fn json_oldest_mut<'a>(&'a mut self, modified: &'a mut bool) -> Option<JsonMut<'a>> {
-        self.oldest_mut().map(|interface| JsonMut {
-            interface,
+        self.oldest_mut().map(|BMut { entry, tracer }| JsonMut {
+            entry,
             modified,
+            tracer,
         })
     }
 
     fn json_newest_mut<'a>(&'a mut self, modified: &'a mut bool) -> Option<JsonMut<'a>> {
-        self.newest_mut().map(|interface| JsonMut {
-            interface,
+        self.newest_mut().map(|BMut { entry, tracer }| JsonMut {
+            entry,
             modified,
+            tracer,
         })
     }
 
     fn json_get_mut<'a>(&'a mut self, index: usize, modified: &'a mut bool) -> Option<JsonMut<'a>> {
-        self.get_mut(index).map(|interface| JsonMut {
-            interface,
+        self.get_mut(index).map(|BMut { entry, tracer }| JsonMut {
+            entry,
             modified,
+            tracer,
         })
     }
 
@@ -787,33 +791,43 @@ where
     }
 }
 
-trait JsonMutInterface {
+trait JsonMutEntry {
     /// Serialize the underlying message into JSON
     fn serialize(&self) -> Result<JsonMessage, serde_json::Error>;
     /// Replace the underlying message with new data, and receive its original
     /// data as JSON
-    fn replace(&mut self, message: JsonMessage) -> JsonMessageReplaceResult;
+    fn replace(&mut self, message: JsonMessage, tracer: &BMutTracer) -> JsonMessageReplaceResult;
     /// Insert new data into the underyling message. This is the same as replace
     /// except it is more efficient if you don't care about the original data,
     /// because it will discard the original data instead of serializing it.
-    fn insert(&mut self, message: JsonMessage) -> Result<(), serde_json::Error>;
+    fn insert(
+        &mut self,
+        message: JsonMessage,
+        tracer: &BMutTracer,
+    ) -> Result<(), serde_json::Error>;
 }
 
-impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonMutInterface for T {
+impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonMutEntry for BufferEntry<T> {
     fn serialize(&self) -> Result<JsonMessage, serde_json::Error> {
-        serde_json::to_value(self)
+        serde_json::to_value(&self.message)
     }
 
-    fn replace(&mut self, message: JsonMessage) -> JsonMessageReplaceResult {
+    fn replace(&mut self, message: JsonMessage, tracer: &BMutTracer) -> JsonMessageReplaceResult {
+        tracer.trace_mut(self);
         let new_message: T = serde_json::from_value(message)?;
-        let old_message = serde_json::to_value(&self)?;
-        *self = new_message;
+        let old_message = serde_json::to_value(&self.message)?;
+        self.message = new_message;
         Ok(old_message)
     }
 
-    fn insert(&mut self, message: JsonMessage) -> Result<(), serde_json::Error> {
+    fn insert(
+        &mut self,
+        message: JsonMessage,
+        tracer: &BMutTracer,
+    ) -> Result<(), serde_json::Error> {
+        tracer.trace_mut(self);
         let new_message: T = serde_json::from_value(message)?;
-        *self = new_message;
+        self.message = new_message;
         Ok(())
     }
 }
@@ -1086,7 +1100,9 @@ trait DrainJsonBufferInterface {
     fn json_next(&mut self) -> Option<Result<JsonMessage, serde_json::Error>>;
 }
 
-impl<T: 'static + Send + Sync + Serialize> DrainJsonBufferInterface for DrainBuffer<'_, T> {
+impl<'w, 's, T: 'static + Send + Sync + Serialize> DrainJsonBufferInterface
+    for DrainBuffer<'w, 's, '_, T>
+{
     fn json_next(&mut self) -> Option<Result<JsonMessage, serde_json::Error>> {
         self.next().map(serde_json::to_value)
     }

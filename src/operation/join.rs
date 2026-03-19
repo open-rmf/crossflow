@@ -198,6 +198,7 @@ mod tests {
                 return;
             }
         };
+
         assert_eq!(r, 4.0);
     }
 

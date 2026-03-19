@@ -595,9 +595,7 @@ where
     if result.is_err() {
         // We won't be executing this scope after all, so despawn the scoped
         // session that we created.
-        if let Ok(scoped_session_mut) = world.get_entity_mut(scoped_session) {
-            scoped_session_mut.despawn();
-        }
+        world.despawn_session(scoped_session);
         return result;
     }
 
@@ -1388,7 +1386,7 @@ fn begin_cleanup_workflows<Response: 'static + Send + Sync>(
 /// reached at all from its entry point. This only needs to be tested once (the
 /// first time the entry node is given its initial input), and then we can reuse
 /// the result on all future runs.
-#[derive(Component)]
+#[derive(Debug, Component)]
 enum InitialReachability {
     Confirmed,
     // TODO(@mxgrey): Consider merging Invalidated into Error

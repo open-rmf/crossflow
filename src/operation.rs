@@ -237,7 +237,7 @@ pub struct OperationRoster {
     pub(crate) cleanup_finished: Vec<Cleanup>,
     /// Despawn these entities while no other operation is running. This is used
     /// to cleanup detached executions that receive no input.
-    pub(crate) deferred_despawn: Vec<Entity>,
+    pub(crate) deferred_session_despawn: Vec<Entity>,
     /// Check whether the disposals in this queue have affected a scope's
     /// reachability. These are queued in a roster because the reachability
     /// checks cannot be nested inside the execution of an operation or else we
@@ -272,8 +272,8 @@ impl OperationRoster {
         self.cleanup_finished.push(cleanup);
     }
 
-    pub fn defer_despawn(&mut self, source: Entity) {
-        self.deferred_despawn.push(source);
+    pub fn defer_despawn_session(&mut self, session: Entity) {
+        self.deferred_session_despawn.push(session);
     }
 
     pub(crate) fn reachable(&mut self, r: Reachable) {
@@ -286,7 +286,7 @@ impl OperationRoster {
             && self.deferred_queue.is_empty()
             && self.unblock.is_empty()
             && self.cleanup_finished.is_empty()
-            && self.deferred_despawn.is_empty()
+            && self.deferred_session_despawn.is_empty()
             && self.reachable.is_empty()
             && self.disposals.is_empty()
     }
@@ -299,7 +299,8 @@ impl OperationRoster {
         self.deferred_queue.append(&mut other.deferred_queue);
         self.unblock.append(&mut other.unblock);
         self.cleanup_finished.append(&mut other.cleanup_finished);
-        self.deferred_despawn.append(&mut other.deferred_despawn);
+        self.deferred_session_despawn
+            .append(&mut other.deferred_session_despawn);
         self.reachable.append(&mut other.reachable);
         self.disposals.append(&mut other.disposals);
     }
