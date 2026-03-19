@@ -37,14 +37,14 @@ use smallvec::SmallVec;
 
 use crate::{
     Accessing, Accessor, AnyBuffer, AnyBufferAccessInterface, AnyBufferKey, AnyRange, AsAnyBuffer,
-    Buffer, BufferAccessMut, BufferAccessors, BufferError, BufferKey, BufferKeyBuilder,
-    BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferManager, BufferMap, BufferMapLayout,
-    BufferMapLayoutHints, BufferMapStruct, BufferStorage, BufferView, BufferWorldAccess,
-    Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer, DynamicBufferMapLayoutHints,
-    Gate, GateState, IdentifierRef, IncompatibleLayout, InspectBufferSessions, JoinBehavior,
-    Joined, Joining, ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation,
-    MessageTypeHintMap, NotifyBufferUpdate, OperationError, OperationResult, OrBroken, RequestId,
-    TypeInfo, add_listener_to_source, BufferEntry, BMutTracer, BMut,
+    BMut, BMutTracer, Buffer, BufferAccessMut, BufferAccessors, BufferEntry, BufferError,
+    BufferKey, BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferManager,
+    BufferMap, BufferMapLayout, BufferMapLayoutHints, BufferMapStruct, BufferStorage, BufferView,
+    BufferWorldAccess, Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer,
+    DynamicBufferMapLayoutHints, Gate, GateState, IdentifierRef, IncompatibleLayout,
+    InspectBufferSessions, JoinBehavior, Joined, Joining, ManageBufferSessions, MessageTypeHint,
+    MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate, OperationError,
+    OperationResult, OrBroken, RequestId, TypeInfo, add_listener_to_source,
 };
 
 #[cfg(feature = "trace")]
@@ -800,7 +800,11 @@ trait JsonMutEntry {
     /// Insert new data into the underyling message. This is the same as replace
     /// except it is more efficient if you don't care about the original data,
     /// because it will discard the original data instead of serializing it.
-    fn insert(&mut self, message: JsonMessage, tracer: &BMutTracer) -> Result<(), serde_json::Error>;
+    fn insert(
+        &mut self,
+        message: JsonMessage,
+        tracer: &BMutTracer,
+    ) -> Result<(), serde_json::Error>;
 }
 
 impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonMutEntry for BufferEntry<T> {
@@ -816,7 +820,11 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonMutEntry for B
         Ok(old_message)
     }
 
-    fn insert(&mut self, message: JsonMessage, tracer: &BMutTracer) -> Result<(), serde_json::Error> {
+    fn insert(
+        &mut self,
+        message: JsonMessage,
+        tracer: &BMutTracer,
+    ) -> Result<(), serde_json::Error> {
         tracer.trace_mut(self);
         let new_message: T = serde_json::from_value(message)?;
         self.message = new_message;
@@ -1092,7 +1100,9 @@ trait DrainJsonBufferInterface {
     fn json_next(&mut self) -> Option<Result<JsonMessage, serde_json::Error>>;
 }
 
-impl<'w, 's, T: 'static + Send + Sync + Serialize> DrainJsonBufferInterface for DrainBuffer<'w, 's, '_, T> {
+impl<'w, 's, T: 'static + Send + Sync + Serialize> DrainJsonBufferInterface
+    for DrainBuffer<'w, 's, '_, T>
+{
     fn json_next(&mut self) -> Option<Result<JsonMessage, serde_json::Error>> {
         self.next().map(serde_json::to_value)
     }

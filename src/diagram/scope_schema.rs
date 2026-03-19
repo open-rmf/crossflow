@@ -21,9 +21,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BuildDiagramOperation, BuildStatus, BuilderContext, BuiltinTarget, DiagramErrorCode,
-    IncrementalScopeBuilder, InferenceContext, NextOperation, OperationName, OperationRef,
-    Operations, ScopeSettings, TraceInfo, TraceSettings, ConnectToCancel,
+    BuildDiagramOperation, BuildStatus, BuilderContext, BuiltinTarget, ConnectToCancel,
+    DiagramErrorCode, IncrementalScopeBuilder, InferenceContext, NextOperation, OperationName,
+    OperationRef, Operations, ScopeSettings, TraceInfo, TraceSettings,
 };
 
 /// Create a scope which will function like its own encapsulated workflow
@@ -179,10 +179,7 @@ impl BuildDiagramOperation for ScopeSchema {
 
         // Set the cancellation input slots for this scope
         let connect_to_cancel = ConnectToCancel::explicit(ctx.builder)?;
-        ctx.set_connect_into_target(
-            OperationRef::cancel_for(id),
-            connect_to_cancel,
-        )?;
+        ctx.set_connect_into_target(OperationRef::cancel_for(id), connect_to_cancel)?;
 
         let connect_to_implicit_cancel = ConnectToCancel::implicit(ctx.builder)?;
         ctx.set_connect_into_target(

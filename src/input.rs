@@ -28,9 +28,9 @@ use backtrace::Backtrace;
 
 use crate::{
     Broken, BufferKeyTag, BufferStorage, BufferWorldAccess, Cancellation, CancellationCause,
-    DeferredRoster, Detached, IdentifierRef, ManageCancellation,
-    MiscellaneousFailure, OperationError, OperationResult, OperationRoster, OrBroken, OutputPort,
-    ProgressInSeries, RequestId, SequenceInSeries, SessionStatus, UnhandledErrors, UnusedTarget,
+    DeferredRoster, Detached, IdentifierRef, ManageCancellation, MiscellaneousFailure,
+    OperationError, OperationResult, OperationRoster, OrBroken, OutputPort, ProgressInSeries,
+    RequestId, SequenceInSeries, SessionStatus, UnhandledErrors, UnusedTarget,
     finalize_series_cancel, output_port,
 };
 

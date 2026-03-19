@@ -464,7 +464,10 @@ pub(crate) struct MessageTracer<'a> {
 impl<'a> MessageTracer<'a> {
     pub(crate) fn get_for(op: Entity, world: &'a World) -> Self {
         let trace = world.get::<Trace>(op);
-        let universal = world.get_resource::<UniversalTraceToggle>().map(|u| u.0.as_ref()).flatten();
+        let universal = world
+            .get_resource::<UniversalTraceToggle>()
+            .map(|u| u.0.as_ref())
+            .flatten();
         Self { trace, universal }
     }
 
@@ -481,7 +484,9 @@ impl<'a> MessageTracer<'a> {
             return None;
         };
 
-        if toggle.with_messages() && let Some(trace) = self.trace {
+        if toggle.with_messages()
+            && let Some(trace) = self.trace
+        {
             trace.serialize_value(value)
         } else {
             None
@@ -1048,11 +1053,7 @@ mod tests {
             .clear();
     }
 
-    fn confirm_trace(
-        recorder: TraceRecorder,
-        expectation: &[&str],
-        expected_root_session: Entity,
-    ) {
+    fn confirm_trace(recorder: TraceRecorder, expectation: &[&str], expected_root_session: Entity) {
         let mut actual = recorder.record;
         for next_op_name in expectation {
             let name: Arc<str> = (*next_op_name).into();
@@ -1091,7 +1092,7 @@ mod tests {
 
         #[derive(StreamPack)]
         struct TestStream {
-            integers: u64
+            integers: u64,
         }
 
         #[derive(Accessor, Clone)]
@@ -1108,22 +1109,24 @@ mod tests {
                     }
                 };
                 builder.create_node(f.into_map())
-            }
+            },
         );
 
-        fixture.registry
+        fixture
+            .registry
             .opt_out()
             .no_serializing()
             .no_deserializing()
-            .register_node_builder(
-                NodeBuilderOptions::new("drain"),
-                |builder, _: ()| {
-                    let f = |srv: Blocking<((), TestAccessor)>, mut access: BufferAccessMut<u64>| {
-                        let _: Vec<_> = access.get_mut(srv.id, &srv.request.1.integers).unwrap().drain(..).collect();
-                    };
-                    builder.create_node(f.into_callback())
-                }
-            )
+            .register_node_builder(NodeBuilderOptions::new("drain"), |builder, _: ()| {
+                let f = |srv: Blocking<((), TestAccessor)>, mut access: BufferAccessMut<u64>| {
+                    let _: Vec<_> = access
+                        .get_mut(srv.id, &srv.request.1.integers)
+                        .unwrap()
+                        .drain(..)
+                        .collect();
+                };
+                builder.create_node(f.into_callback())
+            })
             .with_buffer_access();
 
         let diagram = Diagram::from_json(json!({
@@ -1162,7 +1165,9 @@ mod tests {
         .unwrap();
 
         let sequence = vec![0, 1, 2, 3, 4, 5];
-        fixture.spawn_and_run::<Vec<u64>, ()>(&diagram, sequence.clone()).unwrap();
+        fixture
+            .spawn_and_run::<Vec<u64>, ()>(&diagram, sequence.clone())
+            .unwrap();
 
         let recorder = fixture
             .context
@@ -1173,10 +1178,7 @@ mod tests {
         confirm_buffer_input_sequence(recorder, sequence);
     }
 
-    fn confirm_buffer_input_sequence(
-        recorder: TraceRecorder,
-        expected_sequence: Vec<u64>,
-    ) {
+    fn confirm_buffer_input_sequence(recorder: TraceRecorder, expected_sequence: Vec<u64>) {
         let mut actual = recorder.record;
         let mut seqs = Vec::new();
 
@@ -1227,14 +1229,16 @@ mod tests {
         let mut fixture = DiagramTestFixture::new();
         enable_trace_recording(&mut fixture.context.app);
 
-        fixture.registry
+        fixture
+            .registry
             .opt_out()
             .no_serializing()
             .no_deserializing()
             .register_node_builder(
                 NodeBuilderOptions::new("push_to_buffer"),
                 |builder, _: ()| {
-                    let f = |srv: Blocking<(Vec<u64>, BufferKey<u64>)>, mut access: BufferAccessMut<u64>| {
+                    let f = |srv: Blocking<(Vec<u64>, BufferKey<u64>)>,
+                             mut access: BufferAccessMut<u64>| {
                         let mut buffer = access.get_mut(srv.id, &srv.request.1).unwrap();
                         for value in srv.request.0 {
                             buffer.push(value);
@@ -1242,25 +1246,27 @@ mod tests {
                         srv.request.1
                     };
                     builder.create_node(f.into_callback())
-                }
+                },
             )
             .with_buffer_access();
 
-        fixture.registry
+        fixture
+            .registry
             .opt_out()
             .no_serializing()
             .no_deserializing()
             .register_node_builder(
                 NodeBuilderOptions::new("multiply_values_in_buffer"),
                 |builder, factor: u64| {
-                    let f = move |srv: Blocking<BufferKey<u64>>, mut access: BufferAccessMut<u64>| {
+                    let f = move |srv: Blocking<BufferKey<u64>>,
+                                  mut access: BufferAccessMut<u64>| {
                         let mut buffer = access.get_mut(srv.id, &srv.request).unwrap();
                         for mut value in buffer.iter_mut() {
                             *value = factor * *value;
                         }
                     };
                     builder.create_node(f.into_callback())
-                }
+                },
             );
 
         let factor: u64 = 5;
@@ -1296,7 +1302,9 @@ mod tests {
         .unwrap();
 
         let sequence = vec![0, 1, 2, 3, 4, 5];
-        fixture.spawn_and_run::<Vec<u64>, ()>(&diagram, sequence.clone()).unwrap();
+        fixture
+            .spawn_and_run::<Vec<u64>, ()>(&diagram, sequence.clone())
+            .unwrap();
 
         let recorder = fixture
             .context
@@ -1323,12 +1331,7 @@ mod tests {
         for next_item in expected_sequence {
             let next_actual = next_buffer_event(&mut actual);
 
-            let pushed = next_actual
-                .as_ref()
-                .unwrap()
-                .access
-                .pushed()
-                .unwrap();
+            let pushed = next_actual.as_ref().unwrap().access.pushed().unwrap();
 
             let seq = pushed.seq;
             let value = get_u64_from_trace(&pushed.message);
@@ -1345,12 +1348,7 @@ mod tests {
         for (seq, value) in entries {
             let next_actual = next_buffer_event(&mut actual);
 
-            let modification = next_actual
-                .as_ref()
-                .unwrap()
-                .access
-                .modified()
-                .unwrap();
+            let modification = next_actual.as_ref().unwrap().access.modified().unwrap();
 
             assert_eq!(modification.seq, seq);
 
@@ -1363,15 +1361,13 @@ mod tests {
     }
 
     fn get_u64_from_trace(msg: &TracedMessage) -> u64 {
-        msg
-        .as_ref()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .as_number()
-        .unwrap()
-        .as_i64()
-        .unwrap()
-        as u64
+        msg.as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .as_number()
+            .unwrap()
+            .as_i64()
+            .unwrap() as u64
     }
 }

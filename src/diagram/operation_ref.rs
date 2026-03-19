@@ -110,7 +110,9 @@ impl<'a> From<&'a NextOperation> for OperationRef {
                 BuiltinTarget::Terminate => OperationRef::Terminate(NamespaceList::default()),
                 BuiltinTarget::Dispose => OperationRef::Dispose,
                 BuiltinTarget::Cancel => OperationRef::Cancel(NamespaceList::default()),
-                BuiltinTarget::ImplicitCancel => OperationRef::ImplicitCancel(NamespaceList::default()),
+                BuiltinTarget::ImplicitCancel => {
+                    OperationRef::ImplicitCancel(NamespaceList::default())
+                }
             },
         }
     }

@@ -299,7 +299,8 @@ impl OperationRoster {
         self.deferred_queue.append(&mut other.deferred_queue);
         self.unblock.append(&mut other.unblock);
         self.cleanup_finished.append(&mut other.cleanup_finished);
-        self.deferred_session_despawn.append(&mut other.deferred_session_despawn);
+        self.deferred_session_despawn
+            .append(&mut other.deferred_session_despawn);
         self.reachable.append(&mut other.reachable);
         self.disposals.append(&mut other.disposals);
     }

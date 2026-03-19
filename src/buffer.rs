@@ -518,10 +518,7 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
         req: impl Into<RequestId>,
         key: &BufferKey<T>,
     ) -> Option<&'a T> {
-        self.get(req, key)
-            .ok()
-            .map(|view| view.newest())
-            .flatten()
+        self.get(req, key).ok().map(|view| view.newest()).flatten()
     }
 }
 

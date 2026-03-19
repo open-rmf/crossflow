@@ -34,14 +34,14 @@ use thiserror::Error as ThisError;
 use smallvec::SmallVec;
 
 use crate::{
-    Accessing, Accessor, Buffer, BufferAccessMut, BufferAccessors, BufferError, BufferKey,
-    BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferManager, BufferMap,
-    BufferMapLayout, BufferMapLayoutHints, BufferStorage, BufferView, BufferWorldAccess,
-    Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer, FetchFromBuffer, Gate, GateState,
-    IdentifierRef, IncompatibleLayout, InspectBufferSessions, Joining, ManageBufferSessions,
-    MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate,
-    OperationError, OperationResult, OperationRoster, OrBroken, RequestId, TypeInfo,
-    add_listener_to_source, BMutTracer, BufferEntry, BMut,
+    Accessing, Accessor, BMut, BMutTracer, Buffer, BufferAccessMut, BufferAccessors, BufferEntry,
+    BufferError, BufferKey, BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation,
+    BufferManager, BufferMap, BufferMapLayout, BufferMapLayoutHints, BufferStorage, BufferView,
+    BufferWorldAccess, Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer,
+    FetchFromBuffer, Gate, GateState, IdentifierRef, IncompatibleLayout, InspectBufferSessions,
+    Joining, ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
+    NotifyBufferUpdate, OperationError, OperationResult, OperationRoster, OrBroken, RequestId,
+    TypeInfo, add_listener_to_source,
 };
 
 #[cfg(feature = "trace")]
@@ -875,15 +875,18 @@ impl<T: 'static + Send + Sync + Any> AnyBufferManagement for BufferManager<'_, '
     }
 
     fn any_oldest_mut<'a>(&'a mut self) -> Option<AnyMut<'a>> {
-        self.oldest_mut().map(|BMut { entry, tracer }| AnyMut { entry, tracer })
+        self.oldest_mut()
+            .map(|BMut { entry, tracer }| AnyMut { entry, tracer })
     }
 
     fn any_newest_mut<'a>(&'a mut self) -> Option<AnyMut<'a>> {
-        self.newest_mut().map(|BMut { entry, tracer }| AnyMut { entry, tracer })
+        self.newest_mut()
+            .map(|BMut { entry, tracer }| AnyMut { entry, tracer })
     }
 
     fn any_get_mut<'a>(&'a mut self, index: usize) -> Option<AnyMut<'a>> {
-        self.get_mut(index).map(|BMut { entry, tracer }| AnyMut { entry, tracer })
+        self.get_mut(index)
+            .map(|BMut { entry, tracer }| AnyMut { entry, tracer })
     }
 
     fn any_drain<'a>(&'a mut self, range: AnyRange) -> Box<dyn DrainAnyBufferInterface + 'a> {
@@ -1262,7 +1265,9 @@ trait DrainAnyBufferInterface {
     fn any_next(&mut self) -> Option<AnyMessageBox>;
 }
 
-impl<'w, 's, T: 'static + Send + Sync + Any> DrainAnyBufferInterface for DrainBuffer<'w, 's, '_, T> {
+impl<'w, 's, T: 'static + Send + Sync + Any> DrainAnyBufferInterface
+    for DrainBuffer<'w, 's, '_, T>
+{
     fn any_next(&mut self) -> Option<AnyMessageBox> {
         self.next().map(to_any_message)
     }

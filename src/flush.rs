@@ -28,8 +28,8 @@ use smallvec::SmallVec;
 
 use crate::{
     AddExecution, ChannelQueue, Detached, DisposalListener, DisposalUpdate, Finished, FlushWarning,
-    ManageCancellation, OperationError, OperationRequest, OperationRoster, ReachableRequest,
-    SeriesLifecycleChange, SeriesLifecycleChannel, ServiceHook, ServiceLifecycle, ManageSession,
+    ManageCancellation, ManageSession, OperationError, OperationRequest, OperationRoster,
+    ReachableRequest, SeriesLifecycleChange, SeriesLifecycleChannel, ServiceHook, ServiceLifecycle,
     ServiceLifecycleChannel, UnhandledErrors, UnusedTarget, WakeQueue, awaken_task,
     dispose_for_despawned_service, drop_series_target, execute_operation,
     validate_scope_reachability,
@@ -183,7 +183,8 @@ fn flush_execution_impl(
             garbage_cleanup(world, &mut roster);
         }
 
-        let channel_empty = collect_from_channels(&parameters, new_service_query, world, &mut roster);
+        let channel_empty =
+            collect_from_channels(&parameters, new_service_query, world, &mut roster);
         garbage_cleanup(world, &mut roster);
 
         if channel_empty {
