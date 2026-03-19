@@ -621,9 +621,15 @@ mod tests {
 
                         // hold the service here to give time for the outcome to be
                         // dropped and processed.
-                        let never = async_std::future::pending::<()>();
-                        let timeout = Duration::from_secs(2);
-                        let _ = async_std::future::timeout(timeout, never).await;
+                        let start = Instant::now();
+                        let wait_time = Duration::from_secs(600);
+                        while Instant::now() - start < wait_time {
+                            let never = async_std::future::pending::<()>();
+                            let _ = async_std::future::timeout(wait_time, never).await;
+                        }
+
+                        // Send the final message. The test should have ended
+                        // this task already.
                         let _ = final_sender.send(());
                     }
                 })

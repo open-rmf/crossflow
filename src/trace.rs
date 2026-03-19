@@ -335,14 +335,17 @@ impl OutputDisposed {
         disposal: Disposal,
         world: &mut World,
     ) {
-        let trigger = TraceSource::new(trigger, world);
-        let disposed_in_session = get_session_stack_from_world(disposed_in_session, world);
-        world.trigger(TracedEvent::now(Self {
-            trigger,
-            disposed_operation,
-            disposed_in_session,
-            disposal,
-        }));
+        let tracer = MessageTracer::get_for(disposed_operation, world);
+        if tracer.is_on() {
+            let trigger = TraceSource::new(trigger, world);
+            let disposed_in_session = get_session_stack_from_world(disposed_in_session, world);
+            world.trigger(TracedEvent::now(Self {
+                trigger,
+                disposed_operation,
+                disposed_in_session,
+                disposal,
+            }));
+        }
     }
 }
 
@@ -459,6 +462,12 @@ pub(crate) struct MessageTracer<'a> {
 }
 
 impl<'a> MessageTracer<'a> {
+    pub(crate) fn get_for(op: Entity, world: &'a World) -> Self {
+        let trace = world.get::<Trace>(op);
+        let universal = world.get_resource::<UniversalTraceToggle>().map(|u| u.0.as_ref()).flatten();
+        Self { trace, universal }
+    }
+
     pub(crate) fn is_on(&self) -> bool {
         if let Some(toggle) = self.universal {
             return toggle.is_on();
@@ -836,7 +845,7 @@ fn get_session_stack_from_world(session: Entity, world: &mut World) -> SmallVec<
 mod tests {
 
     use crate::{
-        TracedEvent, TracedEventKind,
+        BufferEvent, TracedEvent, TracedEventKind, TracedMessage,
         diagram::{testing::*, *},
         prelude::*,
     };
@@ -1024,8 +1033,8 @@ mod tests {
         let recorder = fixture
             .context
             .app
-            .world_mut()
-            .resource_mut::<TraceRecorder>()
+            .world()
+            .resource::<TraceRecorder>()
             .clone();
         confirm_trace(recorder, route, session);
 
@@ -1159,71 +1168,210 @@ mod tests {
             .context
             .app
             .world_mut()
-            .resource_mut::<TraceRecorder>()
+            .resource::<TraceRecorder>()
             .clone();
-        confirm_buffer_sequence(recorder, sequence);
+        confirm_buffer_input_sequence(recorder, sequence);
     }
 
-    fn confirm_buffer_sequence(
+    fn confirm_buffer_input_sequence(
         recorder: TraceRecorder,
         expected_sequence: Vec<u64>,
     ) {
-        let mut actual = recorder.record.clone();
+        let mut actual = recorder.record;
         let mut seqs = Vec::new();
 
         for next_item in expected_sequence {
-            let next_actual = loop {
-                let Some(next) = actual.pop_front() else {
-                    break None;
-                };
+            // A viewed event happens before each push event because each buffer
+            // entry arrived through a different push operation.
+            let viewed = next_buffer_event(&mut actual).unwrap().access;
+            assert!(viewed.is_viewed());
 
-                match next.event {
-                    TracedEventKind::BufferEvent(event) => {
-                        break Some(event);
-                    }
-                    _ => {
-                        continue;
-                    }
-                }
-            };
-
+            let next_actual = next_buffer_event(&mut actual);
             let pushed = next_actual.as_ref().unwrap().access.pushed().unwrap();
             seqs.push(pushed.seq);
 
-            let value = pushed
-                .message
-                .as_ref()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .as_number()
-                .unwrap()
-                .as_i64()
-                .unwrap()
-                as u64;
-
+            let value = get_u64_from_trace(&pushed.message);
             assert_eq!(next_item, value);
         }
 
+        let viewed = next_buffer_event(&mut actual).unwrap().access;
+        assert!(viewed.is_viewed());
+
         // Test that we also traced the items being drained
         for seq in seqs {
-            let next_actual = loop {
-                let Some(next) = actual.pop_front() else {
-                    break None;
-                };
-
-                match next.event {
-                    TracedEventKind::BufferEvent(event) => {
-                        break Some(event);
-                    }
-                    _ => {
-                        continue;
-                    }
-                }
-            };
-
+            let next_actual = next_buffer_event(&mut actual);
             let removal = next_actual.as_ref().unwrap().access.removed().unwrap();
             assert_eq!(seq, removal.seq);
         }
+    }
+
+    fn next_buffer_event(queue: &mut VecDeque<TracedEvent>) -> Option<BufferEvent> {
+        loop {
+            let Some(next) = queue.pop_front() else {
+                return None;
+            };
+
+            match next.event {
+                TracedEventKind::BufferEvent(event) => {
+                    return Some(event);
+                }
+                _ => {
+                    continue;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_tracing_buffer_modifications() {
+        let mut fixture = DiagramTestFixture::new();
+        enable_trace_recording(&mut fixture.context.app);
+
+        fixture.registry
+            .opt_out()
+            .no_serializing()
+            .no_deserializing()
+            .register_node_builder(
+                NodeBuilderOptions::new("push_to_buffer"),
+                |builder, _: ()| {
+                    let f = |srv: Blocking<(Vec<u64>, BufferKey<u64>)>, mut access: BufferAccessMut<u64>| {
+                        let mut buffer = access.get_mut(srv.id, &srv.request.1).unwrap();
+                        for value in srv.request.0 {
+                            buffer.push(value);
+                        }
+                        srv.request.1
+                    };
+                    builder.create_node(f.into_callback())
+                }
+            )
+            .with_buffer_access();
+
+        fixture.registry
+            .opt_out()
+            .no_serializing()
+            .no_deserializing()
+            .register_node_builder(
+                NodeBuilderOptions::new("multiply_values_in_buffer"),
+                |builder, factor: u64| {
+                    let f = move |srv: Blocking<BufferKey<u64>>, mut access: BufferAccessMut<u64>| {
+                        let mut buffer = access.get_mut(srv.id, &srv.request).unwrap();
+                        for mut value in buffer.iter_mut() {
+                            *value = factor * *value;
+                        }
+                    };
+                    builder.create_node(f.into_callback())
+                }
+            );
+
+        let factor: u64 = 5;
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "default_trace": "messages",
+            "start": "access",
+            "ops": {
+                "test_buffer": {
+                    "type": "buffer",
+                    "settings": {
+                        "retention": "keep_all"
+                    }
+                },
+                "access": {
+                    "type": "buffer_access",
+                    "buffers": ["test_buffer"],
+                    "next": "push"
+                },
+                "push": {
+                    "type": "node",
+                    "builder": "push_to_buffer",
+                    "next": "multiply"
+                },
+                "multiply": {
+                    "type": "node",
+                    "config": factor,
+                    "builder": "multiply_values_in_buffer",
+                    "next": { "builtin" : "terminate"}
+                }
+            }
+        }))
+        .unwrap();
+
+        let sequence = vec![0, 1, 2, 3, 4, 5];
+        fixture.spawn_and_run::<Vec<u64>, ()>(&diagram, sequence.clone()).unwrap();
+
+        let recorder = fixture
+            .context
+            .app
+            .world_mut()
+            .resource::<TraceRecorder>()
+            .clone();
+        confirm_buffer_modifications(recorder, sequence, factor);
+    }
+
+    fn confirm_buffer_modifications(
+        recorder: TraceRecorder,
+        expected_sequence: Vec<u64>,
+        factor: u64,
+    ) {
+        let mut actual = recorder.record;
+        let mut entries = Vec::new();
+
+        // The buffer is only accessed one time to perform all the pushes, so
+        // we will only see one initial view event for all pushes.
+        let viewed = next_buffer_event(&mut actual).unwrap().access;
+        assert!(viewed.is_viewed());
+
+        for next_item in expected_sequence {
+            let next_actual = next_buffer_event(&mut actual);
+
+            let pushed = next_actual
+                .as_ref()
+                .unwrap()
+                .access
+                .pushed()
+                .unwrap();
+
+            let seq = pushed.seq;
+            let value = get_u64_from_trace(&pushed.message);
+
+            entries.push((seq, value));
+            assert_eq!(next_item, value);
+        }
+
+        // The buffer is only accessed one time to perform all the modifications,
+        // so we will only see one initial view event for all pushes.
+        let viewed = next_buffer_event(&mut actual).unwrap().access;
+        assert!(viewed.is_viewed());
+
+        for (seq, value) in entries {
+            let next_actual = next_buffer_event(&mut actual);
+
+            let modification = next_actual
+                .as_ref()
+                .unwrap()
+                .access
+                .modified()
+                .unwrap();
+
+            assert_eq!(modification.seq, seq);
+
+            let original = get_u64_from_trace(&modification.original);
+            assert_eq!(original, value);
+
+            let modified = get_u64_from_trace(&modification.modified);
+            assert_eq!(modified, factor * value);
+        }
+    }
+
+    fn get_u64_from_trace(msg: &TracedMessage) -> u64 {
+        msg
+        .as_ref()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .as_number()
+        .unwrap()
+        .as_i64()
+        .unwrap()
+        as u64
     }
 }

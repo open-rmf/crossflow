@@ -515,19 +515,10 @@ impl<'w, 's, T: 'static + Send + Sync> BufferAccess<'w, 's, T> {
 
     pub fn get_newest<'a>(
         &'a mut self,
-        _req: impl Into<RequestId>,
+        req: impl Into<RequestId>,
         key: &BufferKey<T>,
     ) -> Option<&'a T> {
-        #[cfg(feature = "trace")]
-        {
-            self.tracer
-                .trace(_req.into(), key.tag(), BufferAccessRecord::Viewed);
-        }
-        self.get_newest_untraced(key)
-    }
-
-    pub fn get_newest_untraced<'a>(&'a self, key: &BufferKey<T>) -> Option<&'a T> {
-        self.get_untraced(key)
+        self.get(req, key)
             .ok()
             .map(|view| view.newest())
             .flatten()
@@ -594,12 +585,27 @@ impl<'w, 's, T> BufferAccessMut<'w, 's, T>
 where
     T: 'static + Send + Sync,
 {
-    pub fn get<'a>(&'a self, key: &BufferKey<T>) -> Result<BufferView<'a, T>, QueryEntityError> {
-        self.inner.get_view(key.tag())
+    pub fn get<'a>(
+        &'a mut self,
+        req: impl Into<RequestId>,
+        key: &BufferKey<T>,
+    ) -> Result<BufferView<'a, T>, QueryEntityError> {
+        self.inner.get_view(req.into(), key.tag())
     }
 
-    pub fn get_newest<'a>(&'a self, key: &BufferKey<T>) -> Option<&'a T> {
-        self.get(key).ok().map(|view| view.newest()).flatten()
+    pub fn get_untraced<'a>(
+        &'a self,
+        key: &BufferKey<T>,
+    ) -> Result<BufferView<'a, T>, QueryEntityError> {
+        self.inner.get_view_untraced(key.tag())
+    }
+
+    pub fn get_newest<'a>(
+        &'a mut self,
+        req: impl Into<RequestId>,
+        key: &BufferKey<T>,
+    ) -> Option<&'a T> {
+        self.get(req, key).ok().map(|view| view.newest()).flatten()
     }
 
     pub fn get_mut<'a>(
@@ -1189,11 +1195,11 @@ mod tests {
         }: Blocking<(BufferKey<f64>, BufferKey<f64>)>,
         mut access: BufferAccessMut<f64>,
     ) -> Option<f64> {
-        if access.get(&key_a).unwrap().is_empty() {
+        if access.get(id, &key_a).unwrap().is_empty() {
             return None;
         }
 
-        if access.get(&key_b).unwrap().is_empty() {
+        if access.get(id, &key_b).unwrap().is_empty() {
             return None;
         }
 

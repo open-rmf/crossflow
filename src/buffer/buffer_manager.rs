@@ -104,10 +104,10 @@ impl<T: 'static + Send + Sync> DerefMut for BMut<'_, T> {
 
 #[derive(SystemParam)]
 pub(crate) struct BufferMutQuery<'w, 's, T: 'static + Send + Sync> {
-    query: Query<'w, 's, (&'static mut BufferStorage<T>, &'static mut InputStorage<T>)>,
-    commands: Commands<'w, 's>,
     #[cfg(feature = "trace")]
     tracer: BufferTracer<'w, 's>,
+    query: Query<'w, 's, (&'static mut BufferStorage<T>, &'static mut InputStorage<T>)>,
+    commands: Commands<'w, 's>,
 }
 
 impl<'w, 's, T: 'static + Send + Sync> BufferMutQuery<'w, 's, T> {
@@ -116,6 +116,11 @@ impl<'w, 's, T: 'static + Send + Sync> BufferMutQuery<'w, 's, T> {
         req: RequestId,
         key: &BufferKeyTag,
     ) -> Result<BufferManager<'w, 's, 'a, T>, QueryEntityError> {
+        #[cfg(feature = "trace")]
+        {
+            self.tracer.trace(req.into(), key, BufferAccessRecord::Viewed);
+        }
+
         let (storage, input) = self.query.get_mut(key.buffer)?;
 
         Ok(BufferManager {
@@ -133,6 +138,18 @@ impl<'w, 's, T: 'static + Send + Sync> BufferMutQuery<'w, 's, T> {
     }
 
     pub(crate) fn get_view<'a>(
+        &'a mut self,
+        _req: RequestId,
+        key: &BufferKeyTag,
+    ) -> Result<BufferView<'a, T>, QueryEntityError> {
+        #[cfg(feature = "trace")]
+        {
+            self.tracer.trace(_req.into(), key, BufferAccessRecord::Viewed);
+        }
+        self.get_view_untraced(key)
+    }
+
+    pub(crate) fn get_view_untraced<'a>(
         &'a self,
         key: &BufferKeyTag,
     ) -> Result<BufferView<'a, T>, QueryEntityError> {

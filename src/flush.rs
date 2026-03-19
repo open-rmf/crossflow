@@ -29,7 +29,7 @@ use smallvec::SmallVec;
 use crate::{
     AddExecution, ChannelQueue, Detached, DisposalListener, DisposalUpdate, Finished, FlushWarning,
     ManageCancellation, OperationError, OperationRequest, OperationRoster, ReachableRequest,
-    SeriesLifecycleChange, SeriesLifecycleChannel, ServiceHook, ServiceLifecycle,
+    SeriesLifecycleChange, SeriesLifecycleChannel, ServiceHook, ServiceLifecycle, ManageSession,
     ServiceLifecycleChannel, UnhandledErrors, UnusedTarget, WakeQueue, awaken_task,
     dispose_for_despawned_service, drop_series_target, execute_operation,
     validate_scope_reachability,
@@ -115,10 +115,8 @@ fn flush_execution_impl(
 
     let mut loop_count = 0;
     while !roster.is_empty() {
-        for e in roster.deferred_despawn.drain(..) {
-            if let Ok(e_mut) = world.get_entity_mut(e) {
-                e_mut.despawn();
-            }
+        for session in roster.deferred_session_despawn.drain(..) {
+            world.despawn_session(session);
         }
 
         let parameters = *world.get_resource_or_insert_with(FlushParameters::default);
