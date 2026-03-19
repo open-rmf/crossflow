@@ -38,9 +38,7 @@ use crate::{
 #[error("buffer {0:?} was given more than once in a single join operation")]
 pub struct DuplicateBuffer(pub Entity);
 
-fn check_for_duplicate_buffers(
-    inputs: &SmallVec<[Entity; 8]>,
-) -> Result<(), DuplicateBuffer> {
+fn check_for_duplicate_buffers(inputs: &SmallVec<[Entity; 8]>) -> Result<(), DuplicateBuffer> {
     let mut seen = std::collections::HashSet::new();
     for &entity in inputs {
         if !seen.insert(entity) {
@@ -121,8 +119,7 @@ pub trait Joining: Buffering {
         self,
         builder: &'b mut Builder<'w, 's, 'a>,
     ) -> Chain<'w, 's, 'a, 'b, Self::Item> {
-        self.safe_join(builder)
-            .unwrap_or_else(|e| panic!("{}", e))
+        self.safe_join(builder).unwrap_or_else(|e| panic!("{}", e))
     }
 }
 
