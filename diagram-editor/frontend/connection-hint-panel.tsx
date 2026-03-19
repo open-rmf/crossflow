@@ -62,7 +62,7 @@ export function ConnectionHintPanel({ nodeManager }: ConnectionHintPanelProps) {
   }
 
   return (
-    <Panel position="top-right">
+    <Panel position="top-left">
       <Paper
         elevation={3}
         sx={{

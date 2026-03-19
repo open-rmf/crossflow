@@ -556,17 +556,6 @@ function DiagramEditor() {
     [closeAllPopovers, showErrorToast],
   );
 
-  const handleClearDiagram = React.useCallback(() => {
-    const graph = loadEmpty();
-    setNodes(graph.nodes);
-    setEdges(graph.edges);
-    setLoadContext(null);
-    setRecentlyUsedFilename(null);
-    setEnableExport(true);
-    closeAllPopovers();
-    reactFlowInstance.current?.fitView();
-  }, [closeAllPopovers]);
-
   const [openExportDiagramDialog, setOpenExportDiagramDialog] =
     React.useState(false);
 
@@ -848,7 +837,6 @@ function DiagramEditor() {
             [],
           )}
           onLoadDiagram={loadDiagram}
-          onClearDiagram={handleClearDiagram}
           enableExport={enableExport}
         />
         {editorMode.mode === EditorMode.Template && (
