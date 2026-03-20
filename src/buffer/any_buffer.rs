@@ -329,7 +329,7 @@ impl<T: 'static + Send + Sync + Any> From<BufferKey<T>> for AnyBufferKey {
 impl Accessor for AnyBufferKey {
     type Buffers = AnyBuffer;
 
-    fn can_access(&self, world: &World) -> bool {
+    fn can_fetch(&self, world: &World) -> bool {
         let Ok(view) = world.any_buffer_view_untraced(self) else {
             return false;
         };
@@ -661,7 +661,7 @@ pub trait AnyBufferWorldAccess {
         &mut self,
         req: impl Into<RequestId>,
         key: &AnyBufferKey,
-        f: impl FnOnce(AnyBufferMut) -> U,
+        f: impl for<'a> FnOnce(AnyBufferMut<'a, 'a, 'a>) -> U,
     ) -> Result<U, BufferError>;
 }
 
@@ -693,13 +693,18 @@ impl AnyBufferWorldAccess for World {
         &mut self,
         req: impl Into<RequestId>,
         key: &AnyBufferKey,
-        f: impl FnOnce(AnyBufferMut) -> U,
+        f: impl for<'a> FnOnce(AnyBufferMut<'a, 'a, 'a>) -> U,
     ) -> Result<U, BufferError> {
         let interface = key.interface;
         let mut state = interface.create_any_buffer_access_mut_state(self);
-        let mut access = state.get_any_buffer_access_mut(self);
-        let buffer_mut = access.as_any_buffer_mut(req.into(), key)?;
-        Ok(f(buffer_mut))
+        let r = {
+            let mut access = state.get_any_buffer_access_mut(self);
+            let buffer_mut = access.as_any_buffer_mut(req.into(), key)?;
+            f(buffer_mut)
+        };
+
+        state.any_apply(self);
+        Ok(r)
     }
 }
 
@@ -983,6 +988,8 @@ pub trait AnyBufferAccessMutState {
         &'s mut self,
         world: &'w mut World,
     ) -> Box<dyn AnyBufferAccessMut<'w, 's> + 's>;
+
+    fn any_apply(&mut self, world: &mut World);
 }
 
 impl<T: 'static + Send + Sync + Any> AnyBufferAccessMutState
@@ -993,6 +1000,10 @@ impl<T: 'static + Send + Sync + Any> AnyBufferAccessMutState
         world: &'w mut World,
     ) -> Box<dyn AnyBufferAccessMut<'w, 's> + 's> {
         Box::new(self.get_mut(world))
+    }
+
+    fn any_apply(&mut self, world: &mut World) {
+        self.apply(world);
     }
 }
 

@@ -412,6 +412,13 @@ impl BufferKeyTag {
             .map(|l| Arc::new(l.as_ref().clone()));
         deep
     }
+
+    pub fn instance(&self) -> BufferInstanceId {
+        BufferInstanceId {
+            buffer: self.buffer,
+            session: self.session,
+        }
+    }
 }
 
 impl std::fmt::Debug for BufferKeyTag {
@@ -673,7 +680,7 @@ pub trait BufferWorldAccess {
         &mut self,
         req: impl Into<RequestId>,
         key: &BufferKey<T>,
-        f: impl FnOnce(BufferMut<T>) -> U,
+        f: impl for<'a> FnOnce(BufferMut<'a, 'a, 'a, T>) -> U,
     ) -> Result<U, BufferError>
     where
         T: 'static + Send + Sync;
@@ -687,7 +694,7 @@ pub trait BufferWorldAccess {
         &mut self,
         req: RequestId,
         key: &BufferKeyTag,
-        f: impl FnOnce(BufferMut<T>) -> U,
+        f: impl for<'a> FnOnce(BufferMut<'a, 'a, 'a, T>) -> U,
     ) -> Result<U, BufferError>
     where
         T: 'static + Send + Sync;
@@ -772,7 +779,7 @@ impl BufferWorldAccess for World {
         &mut self,
         req: impl Into<RequestId>,
         key: &BufferKey<T>,
-        f: impl FnOnce(BufferMut<T>) -> U,
+        f: impl for<'a> FnOnce(BufferMut<'a, 'a, 'a, T>) -> U,
     ) -> Result<U, BufferError>
     where
         T: 'static + Send + Sync,
@@ -784,17 +791,20 @@ impl BufferWorldAccess for World {
         &mut self,
         req: RequestId,
         key: &BufferKeyTag,
-        f: impl FnOnce(BufferMut<T>) -> U,
+        f: impl for<'a> FnOnce(BufferMut<'a, 'a, 'a, T>) -> U,
     ) -> Result<U, BufferError>
     where
         T: 'static + Send + Sync,
     {
         let mut state = SystemState::<BufferAccessMut<T>>::new(self);
         let mut buffer_access_mut = state.get_mut(self);
-        let buffer_mut = buffer_access_mut
-            .unchecked_get_mut(req, key)
-            .map_err(|_| BufferError::BufferMissing)?;
-        let r = f(buffer_mut);
+        let r = {
+            let buffer_mut = buffer_access_mut
+                .unchecked_get_mut(req, key)
+                .map_err(|_| BufferError::BufferMissing)?;
+            f(buffer_mut)
+        };
+
         state.apply(self);
         Ok(r)
     }

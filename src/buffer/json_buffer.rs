@@ -585,9 +585,14 @@ impl JsonBufferWorldAccess for World {
     ) -> Result<U, BufferError> {
         let interface = key.interface;
         let mut state = interface.create_json_buffer_access_mut_state(self);
-        let mut access = state.get_json_buffer_access_mut(self);
-        let buffer_mut = access.as_json_buffer_mut(req.into(), key)?;
-        Ok(f(buffer_mut))
+        let r = {
+            let mut access = state.get_json_buffer_access_mut(self);
+            let buffer_mut = access.as_json_buffer_mut(req.into(), key)?;
+            f(buffer_mut)
+        };
+
+        state.json_apply(self);
+        Ok(r)
     }
 }
 
@@ -1033,6 +1038,8 @@ trait JsonBufferAccessMutState {
         &'s mut self,
         world: &'w mut World,
     ) -> Box<dyn JsonBufferAccessMut<'w, 's> + 's>;
+
+    fn json_apply(&mut self, world: &mut World);
 }
 
 impl<T> JsonBufferAccessMutState for SystemState<BufferAccessMut<'static, 'static, T>>
@@ -1044,6 +1051,10 @@ where
         world: &'w mut World,
     ) -> Box<dyn JsonBufferAccessMut<'w, 's> + 's> {
         Box::new(self.get_mut(world))
+    }
+
+    fn json_apply(&mut self, world: &mut World) {
+        self.apply(world);
     }
 }
 
@@ -1210,7 +1221,7 @@ impl Accessing for JsonBuffer {
 impl Accessor for JsonBufferKey {
     type Buffers = JsonBuffer;
 
-    fn can_access(&self, world: &World) -> bool {
+    fn can_fetch(&self, world: &World) -> bool {
         let Ok(view) = world.json_buffer_view_untraced(self) else {
             return false;
         };

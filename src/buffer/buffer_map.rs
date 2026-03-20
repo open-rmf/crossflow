@@ -25,13 +25,17 @@ use thiserror::Error as ThisError;
 
 use smallvec::SmallVec;
 
-use bevy_ecs::prelude::{Entity, World};
+use bevy_ecs::{
+    prelude::{Entity, World},
+    system::SystemState,
+};
 
 use crate::{
     Accessing, AnyBuffer, AnyBufferKey, AnyMessageBox, AsAnyBuffer, Buffer, BufferKeyBuilder,
     BufferKeyLifecycle, Bufferable, Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer,
     Gate, GateState, IdentifierRef, Joining, Node, OperationError, OperationResult, BufferWorldAccess,
-    OperationRoster, RequestId, TypeInfo, add_listener_to_source, IterBufferView,
+    OperationRoster, RequestId, TypeInfo, add_listener_to_source, IterBufferView, BufferKeyTag,
+    BufferError, BufferView, BufferMut, BufferAccessMut,
 };
 
 #[cfg(feature = "diagram")]
@@ -666,16 +670,139 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
         Ok(buffers.access(builder))
     }
 
-    fn can_access(&self, world: &World) -> bool;
+    /// Check if this accessor is disjoint, meaning each key it contains accesses
+    /// a unique buffer instance. Being a unique buffer instance means the
+    /// combination of its buffer entity and session entity only appear once within
+    /// this Accessor. The same buffer entity may appear multiple times for different
+    /// sessions.
+    ///
+    /// For mutable access, including fetching, the accessor needs to be disjoint,
+    /// so this needs to return true. Read-only access can be done with non-disjoint
+    /// accessors.
+    fn is_disjoint(&self) -> Result<(), OverlapError>;
+
+    /// Check if the buffer is in a state that it's ready to be fetched from.
+    fn can_fetch(&self, world: &World) -> bool;
 
     type Fetched: 'static + Send + Sync;
+    /// Fetch a value from the buffer. For a normal [`BufferKey`] this will
+    /// pull the oldest value out of the buffer.
     fn fetch(&self, req: RequestId, world: &mut World) -> Option<Self::Fetched>;
 
-    type Viewed<'a>;
-    fn view<'a>(&self, world: &'a World) -> Option<Self::Viewed<'a>>;
+    type View<'a>;
+    /// Get access to a view of the buffer.
+    fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError>;
 
-    type Iter<'a>;
-    fn iter<'a>(&self, world: &'a World) -> Option<Self::Iter<'a>>;
+    /// Get access to a view of the buffer without tracing this access. This
+    /// allows you to view with an immutable world borrow, but
+    fn view_untraced<'a>(&self, world: &'a World) -> Result<Self::View<'a>, BufferError>;
+
+    type Access<'a>;
+    /// Get mutable access to the buffers that this Accessor is associated with.
+    fn access<U>(
+        &self,
+        req: RequestId,
+        world: &mut World,
+        f: impl FnOnce(Self::Access<'_>) -> U,
+    ) -> Result<U, AccessError>;
+}
+
+#[derive(ThisError, Debug, Clone)]
+pub enum AccessError {
+    #[error("This accessor has keys that are not disjoint: {0}")]
+    NotDisjoint(#[from] OverlapError),
+    #[error("One or more keys were for buffers instances that have shut down")]
+    Inaccessible(#[from] BufferError),
+}
+
+#[derive(ThisError, Debug, Clone)]
+#[error("The accessor has duplicate buffer instances")]
+pub struct OverlapError {
+    /// Each buffer instance with more than one key trying to access it will be
+    /// shown here.
+    pub duplicates: HashMap<BufferInstanceId, usize>,
+}
+
+/// This trait represents a single buffer key whereas Accessor can be one key or
+/// a collection of keys.
+///
+/// A single AccessKey is always itself an Accessor.
+pub trait AccessKey: Accessor {
+    /// Each key that this is called on should increment its entry in the map by
+    /// one.
+    fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool;
+
+    fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError>;
+    fn view_untraced<'a>(&self, world: &'a World) -> Result<Self::View<'a>, BufferError>;
+
+    type State;
+    type Param<'a>;
+
+    /// Get the SystemState used to access the buffer
+    fn get_state(world: &mut World) -> Self::State;
+
+    /// Get the system parameter for accessing the buffer
+    fn get_param<'a>(
+        state: &'a mut Self::State,
+        world: &'a mut World,
+    ) -> Self::Param<'a>;
+
+    /// Get the access interface that users interact with
+    fn get_mut<'a>(
+        &self,
+        req: RequestId,
+        param: &'a mut Self::Param<'a>,
+    ) -> Result<Self::Access<'a>, BufferError>;
+}
+
+/// Used by the Accessor trait to make sure an accessor with multiple keys
+/// doesn't attempt to get mutable access to the same buffer instance multiple
+/// times.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BufferInstanceId {
+    pub buffer: Entity,
+    pub session: Entity,
+}
+
+impl<T> AccessKey for BufferKey<T>
+where
+    T: Send + Sync + 'static,
+{
+    fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool {
+        let entry = included.entry(self.tag().instance()).or_default();
+        *entry += 1;
+        *entry > 1
+    }
+
+    fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError> {
+        world.buffer_view(req, self)
+    }
+
+    fn view_untraced<'a>(&self, world: &'a World) -> Result<Self::View<'a>, BufferError> {
+        world.buffer_view_untraced::<T>(self.tag())
+    }
+
+    type State = SystemState<BufferAccessMut<'static, 'static, T>>;
+    type Param<'a> = BufferAccessMut<'a, 'a, T>;
+
+    fn get_state(world: &mut World) -> Self::State {
+        SystemState::<BufferAccessMut<T>>::new(world)
+    }
+
+    fn get_param<'a>(
+        state: &'a mut Self::State,
+        world: &'a mut World,
+    ) -> Self::Param<'a> {
+        state.get_mut(world)
+    }
+
+    fn get_mut<'a>(
+        &self,
+        req: RequestId,
+        param: &'a mut Self::Param<'a>,
+    ) -> Result<Self::Access<'a>, BufferError> {
+        Ok(param.get_mut(req, self).map_err(|_| BufferError::BufferMissing)?)
+    }
 }
 
 impl<T> Accessor for BufferKey<T>
@@ -684,7 +811,12 @@ where
 {
     type Buffers = Buffer<T>;
 
-    fn can_access(&self, world: &World) -> bool {
+    fn is_disjoint(&self) -> Result<(), OverlapError> {
+        // A single key can never be disjoint
+        Ok(())
+    }
+
+    fn can_fetch(&self, world: &World) -> bool {
         let Ok(view) = world.buffer_view_untraced::<T>(self.tag()) else {
             return false;
         };
@@ -698,14 +830,24 @@ where
         }).ok().flatten()
     }
 
-    type Viewed<'a> = &'a T;
-    fn view<'a>(&self, world: &'a World) -> Option<Self::Viewed<'a>> {
-        world.buffer_view_untraced::<T>(self.tag()).ok().map(|view| view.oldest()).flatten()
+    type View<'a> = BufferView<'a, T>;
+    fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError> {
+        world.buffer_view(req, self)
     }
 
-    type Iter<'a> = IterBufferView<'a, T>;
-    fn iter<'a>(&self, world: &'a World) -> Option<Self::Iter<'a>> {
-        world.buffer_view_untraced::<T>(self.tag()).ok().map(|view| view.iter())
+    fn view_untraced<'a>(&self, world: &'a World) -> Result<Self::View<'a>, BufferError> {
+        world.buffer_view_untraced::<T>(self.tag())
+    }
+
+    type Access<'a> = BufferMut<'a, 'a, 'a, T>;
+
+    fn access<U>(
+        &self,
+        req: RequestId,
+        world: &mut World,
+        f: impl FnOnce(Self::Access<'_>) -> U,
+    ) -> Result<U, AccessError> {
+        Ok(world.buffer_mut(req, self, f)?)
     }
 }
 
@@ -715,9 +857,9 @@ where
 {
     type Buffers = Vec<A::Buffers>;
 
-    fn can_access(&self, world: &World) -> bool {
+    fn can_fetch(&self, world: &World) -> bool {
         for key in self {
-            if !key.can_access(world) {
+            if !key.can_fetch(world) {
                 return false;
             }
         }
