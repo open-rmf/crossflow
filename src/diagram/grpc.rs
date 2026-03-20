@@ -897,7 +897,7 @@ mod tests {
         };
 
         let mut tracker_buffer = goal_buffer.get_mut(id, &keys.goal_tracker).unwrap();
-        let Some(tracker) = tracker_buffer.newest_mut() else {
+        let Some(mut tracker) = tracker_buffer.newest_mut() else {
             return;
         };
         let goal = tracker.goal;

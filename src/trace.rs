@@ -79,10 +79,12 @@ impl Trace {
         self.serialize_value = Some(get_serialize_value::<T>);
     }
 
+    /// Change the current tracing setting for this operation.
     pub fn set_toggle(&mut self, toggle: TraceToggle) {
         self.toggle = toggle;
     }
 
+    /// Get the current tracing setting for this operation.
     pub fn toggle(&self) -> TraceToggle {
         self.toggle
     }
@@ -94,7 +96,7 @@ impl Trace {
 
     /// Attempt to serialize the value. This will return a None if the trace is
     /// not set up to serialize the values.
-    pub fn serialize_value(&self, value: &dyn Any) -> Option<Result<JsonMessage, GetValueError>> {
+    pub fn serialize_value(&self, value: &dyn Any) -> TracedMessage {
         self.serialize_value.map(|f| f(value))
     }
 }
@@ -266,6 +268,8 @@ pub struct TraceBuffer {
     pub labels: Option<Arc<Vec<OperationRef>>>,
 }
 
+pub type TracedMessage = Option<Result<JsonMessage, GetValueError>>;
+
 /// An event that tracks when each message is sent for a request or within a
 /// workflow.
 #[derive(Debug, Clone, Event)]
@@ -278,14 +282,14 @@ pub struct MessageSent {
     pub input: TraceTarget,
     /// The message itself, if message tracing is turned on and the message
     /// could be serialized.
-    pub message: Option<Result<JsonMessage, GetValueError>>,
+    pub message: TracedMessage,
 }
 
 impl MessageSent {
     pub(crate) fn trace(
         route: Routing,
         target_seq: Seq,
-        message: Option<Result<JsonMessage, GetValueError>>,
+        message: TracedMessage,
         world: &mut World,
     ) {
         let mut output = SmallVec::new();
@@ -331,14 +335,17 @@ impl OutputDisposed {
         disposal: Disposal,
         world: &mut World,
     ) {
-        let trigger = TraceSource::new(trigger, world);
-        let disposed_in_session = get_session_stack_from_world(disposed_in_session, world);
-        world.trigger(TracedEvent::now(Self {
-            trigger,
-            disposed_operation,
-            disposed_in_session,
-            disposal,
-        }));
+        let tracer = MessageTracer::get_for(disposed_operation, world);
+        if tracer.is_on() {
+            let trigger = TraceSource::new(trigger, world);
+            let disposed_in_session = get_session_stack_from_world(disposed_in_session, world);
+            world.trigger(TracedEvent::now(Self {
+                trigger,
+                disposed_operation,
+                disposed_in_session,
+                disposal,
+            }));
+        }
     }
 }
 
@@ -362,76 +369,193 @@ pub struct BufferEvent {
 #[derive(Debug, Clone)]
 pub enum BufferAccessRecord {
     Viewed,
-    Modified,
+    Modified(BufferModification),
+    Pushed(BufferPush),
+    Removed(BufferRemoval),
 }
 
+impl BufferAccessRecord {
+    pub fn is_viewed(&self) -> bool {
+        matches!(self, Self::Viewed)
+    }
+
+    pub fn modified(&self) -> Option<&BufferModification> {
+        match self {
+            Self::Modified(modified) => Some(modified),
+            _ => None,
+        }
+    }
+
+    pub fn pushed(&self) -> Option<&BufferPush> {
+        match self {
+            Self::Pushed(pushed) => Some(pushed),
+            _ => None,
+        }
+    }
+
+    pub fn removed(&self) -> Option<&BufferRemoval> {
+        match self {
+            Self::Removed(removed) => Some(removed),
+            _ => None,
+        }
+    }
+}
+
+/// A record of a modification performed on a buffer.
+#[derive(Debug, Clone)]
+pub struct BufferModification {
+    /// The sequence number of the message within the buffer. This is unique
+    /// across all sessions for each new item that is added to a buffer. The
+    /// sequence number does not necessarily reflect the positioning of the
+    /// messages with the buffer because users are allowed to insert new messages
+    /// into arbitary positions.
+    pub seq: Seq,
+    /// The original message before the modification.
+    pub original: TracedMessage,
+    /// The new message after the modification.
+    pub modified: TracedMessage,
+}
+
+/// A record of a message being pushed into a buffer.
+#[derive(Debug, Clone)]
+pub struct BufferPush {
+    /// The sequence number of the message within the buffer. This is unique
+    /// across all sessions for each new item that is added to a buffer. The
+    /// sequence number does not necessarily reflect the positioning of the
+    /// messages with the buffer because users are allowed to insert new messages
+    /// into arbitary positions.
+    pub seq: Seq,
+    /// The position that the message was placed within the buffer for this session.
+    pub position: usize,
+    /// The message that was pushed.
+    pub message: TracedMessage,
+}
+
+/// A record of a message being removed from a buffer.
+#[derive(Debug, Clone)]
+pub struct BufferRemoval {
+    /// The sequence number of the message within the buffer. This is unique
+    /// across all sessions for each new item that is added to a buffer. The
+    /// sequence number does not necessarily reflect the positioning of the
+    /// messages with the buffer because users are allowed to insert new messages
+    /// into arbitary positions.
+    pub seq: Seq,
+}
+
+/// This system param is used by the `BufferManager` to trace the buffer activity.
 #[derive(SystemParam)]
 pub(crate) struct BufferTracer<'w, 's> {
     trace: Query<'w, 's, &'static Trace>,
     child_of: Query<'w, 's, &'static ChildOf>,
     labels: Query<'w, 's, &'static OperationLabels>,
     op_type: Query<'w, 's, &'static OperationType>,
-    info: Query<'w, 's, &'static Trace>,
     universal: Option<Res<'w, UniversalTraceToggle>>,
-    commands: Commands<'w, 's>,
+    pub(crate) commands: Commands<'w, 's>,
+}
+
+/// This is a small wrapper of the minimal borrows needed to trace modifications
+/// on a single item in a buffer. This is used by BMut.
+#[derive(Clone, Copy)]
+pub(crate) struct MessageTracer<'a> {
+    trace: Option<&'a Trace>,
+    universal: Option<&'a TraceToggle>,
+}
+
+impl<'a> MessageTracer<'a> {
+    pub(crate) fn get_for(op: Entity, world: &'a World) -> Self {
+        let trace = world.get::<Trace>(op);
+        let universal = world
+            .get_resource::<UniversalTraceToggle>()
+            .map(|u| u.0.as_ref())
+            .flatten();
+        Self { trace, universal }
+    }
+
+    pub(crate) fn is_on(&self) -> bool {
+        if let Some(toggle) = self.universal {
+            return toggle.is_on();
+        }
+
+        self.trace.is_some_and(|t| t.toggle().is_on())
+    }
+
+    pub(crate) fn trace_message(&self, value: &dyn Any) -> TracedMessage {
+        let Some(toggle) = self.universal.or_else(|| self.trace.map(|t| &t.toggle)) else {
+            return None;
+        };
+
+        if toggle.with_messages()
+            && let Some(trace) = self.trace
+        {
+            trace.serialize_value(value)
+        } else {
+            None
+        }
+    }
 }
 
 impl<'w, 's> BufferTracer<'w, 's> {
     pub(crate) fn trace(&mut self, req: RequestId, key: &BufferKeyTag, access: BufferAccessRecord) {
-        let toggle = if let Some(universal) = self.universal.as_ref().map(|u| ***u).flatten() {
-            universal
-        } else if let Ok(buffer_trace) = self.trace.get(key.buffer) {
-            buffer_trace.toggle
-        } else {
-            return;
-        };
-
+        let toggle = self.get_trace_toggle(key);
         if !toggle.is_on() {
             return;
         }
 
-        // let buffer_trace = self.trace.get(key.buffer).ok();
-        let buffer_labels = self.labels.get(key.buffer).ok().map(|l| l.input.clone());
-        let accessor_labels = self.labels.get(req.source).ok().map(|l| l.input.clone());
-
-        // let value_serializer = if toggle.with_messages() {
-        //     buffer_trace.map(|t| t.serialize_value).flatten()
-        // } else {
-        //     None
-        // };
-
-        let accessor_session_stack = get_session_stack(req.session, &self.child_of);
-        let buffer_session_stack = if key.session == req.session {
-            accessor_session_stack.clone()
-        } else {
-            get_session_stack(key.session, &self.child_of)
-        };
-
-        let operation_type = self
-            .op_type
-            .get(key.buffer)
-            .map(|op| (**op).clone())
-            .unwrap_or_else(|_| "<unknown>".into());
-        let info = self.info.get(key.buffer).ok().map(|t| t.info.clone());
-
+        let accessor = self.get_trace_target(req);
+        let buffer = self.get_trace_buffer(key);
         let buffer_event = BufferEvent {
-            accessor: TraceTarget {
-                session_stack: accessor_session_stack,
-                target: req.source,
-                seq: req.seq,
-                labels: accessor_labels,
-                operation_type,
-                info,
-            },
-            buffer: TraceBuffer {
-                session_stack: buffer_session_stack,
-                id: key.buffer,
-                labels: buffer_labels,
-            },
+            accessor,
+            buffer,
             access,
         };
 
         self.commands.trigger(TracedEvent::now(buffer_event));
+    }
+
+    pub(crate) fn get_message_tracer(&self, key: &BufferKeyTag) -> MessageTracer<'_> {
+        let trace = self.trace.get(key.buffer).ok();
+        let universal = self.universal.as_ref().map(|u| u.0.as_ref()).flatten();
+        MessageTracer { trace, universal }
+    }
+
+    pub(crate) fn get_trace_toggle(&self, key: &BufferKeyTag) -> TraceToggle {
+        if let Some(universal) = self.universal.as_ref().map(|u| ***u).flatten() {
+            universal
+        } else if let Ok(buffer_trace) = self.trace.get(key.buffer) {
+            buffer_trace.toggle
+        } else {
+            TraceToggle::Off
+        }
+    }
+
+    pub(crate) fn get_trace_buffer(&self, key: &BufferKeyTag) -> TraceBuffer {
+        let session_stack = get_session_stack(key.session, &self.child_of);
+        let labels = self.labels.get(key.buffer).ok().map(|l| l.input.clone());
+        TraceBuffer {
+            session_stack,
+            id: key.buffer,
+            labels: labels,
+        }
+    }
+
+    pub(crate) fn get_trace_target(&self, req: RequestId) -> TraceTarget {
+        let labels = self.labels.get(req.source).ok().map(|l| l.input.clone());
+        let session_stack = get_session_stack(req.session, &self.child_of);
+        let operation_type = self
+            .op_type
+            .get(req.source)
+            .map(|op| (**op).clone())
+            .unwrap_or_else(|_| "<unknown>".into());
+        let info = self.trace.get(req.source).ok().map(|t| t.info.clone());
+
+        TraceTarget {
+            session_stack,
+            target: req.source,
+            seq: req.seq,
+            labels,
+            operation_type,
+            info,
+        }
     }
 }
 
@@ -726,7 +850,7 @@ fn get_session_stack_from_world(session: Entity, world: &mut World) -> SmallVec<
 mod tests {
 
     use crate::{
-        TracedEvent, TracedEventKind,
+        BufferEvent, TracedEvent, TracedEventKind, TracedMessage,
         diagram::{testing::*, *},
         prelude::*,
     };
@@ -914,10 +1038,10 @@ mod tests {
         let recorder = fixture
             .context
             .app
-            .world_mut()
-            .resource_mut::<TraceRecorder>()
+            .world()
+            .resource::<TraceRecorder>()
             .clone();
-        confirm_trace(&recorder, route, session);
+        confirm_trace(recorder, route, session);
 
         // Clear the record so these results do not interfere with the next test
         fixture
@@ -929,12 +1053,8 @@ mod tests {
             .clear();
     }
 
-    fn confirm_trace(
-        recorder: &TraceRecorder,
-        expectation: &[&str],
-        expected_root_session: Entity,
-    ) {
-        let mut actual = recorder.record.clone();
+    fn confirm_trace(recorder: TraceRecorder, expectation: &[&str], expected_root_session: Entity) {
+        let mut actual = recorder.record;
         for next_op_name in expectation {
             let name: Arc<str> = (*next_op_name).into();
             let expected_op = OperationRef::Named((&name).into());
@@ -963,5 +1083,291 @@ mod tests {
             let actual_root_session = *actual_session_stack.first().unwrap();
             assert_eq!(expected_root_session, actual_root_session);
         }
+    }
+
+    #[test]
+    fn test_tracing_buffer_input() {
+        let mut fixture = DiagramTestFixture::new();
+        enable_trace_recording(&mut fixture.context.app);
+
+        #[derive(StreamPack)]
+        struct TestStream {
+            integers: u64,
+        }
+
+        #[derive(Accessor, Clone)]
+        struct TestAccessor {
+            integers: BufferKey<u64>,
+        }
+
+        fixture.registry.register_node_builder(
+            NodeBuilderOptions::new("spread"),
+            |builder, _: ()| {
+                let f = |input: Blocking<Vec<u64>, TestStream>| {
+                    for value in input.request {
+                        input.streams.integers.send(value);
+                    }
+                };
+                builder.create_node(f.into_map())
+            },
+        );
+
+        fixture
+            .registry
+            .opt_out()
+            .no_serializing()
+            .no_deserializing()
+            .register_node_builder(NodeBuilderOptions::new("drain"), |builder, _: ()| {
+                let f = |srv: Blocking<((), TestAccessor)>, mut access: BufferAccessMut<u64>| {
+                    let _: Vec<_> = access
+                        .get_mut(srv.id, &srv.request.1.integers)
+                        .unwrap()
+                        .drain(..)
+                        .collect();
+                };
+                builder.create_node(f.into_callback())
+            })
+            .with_buffer_access();
+
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "default_trace": "messages",
+            "start": "spread",
+            "ops": {
+                "spread": {
+                    "type": "node",
+                    "builder": "spread",
+                    "stream_out": {
+                        "integers": "test_buffer"
+                    },
+                    "next": "access"
+                },
+                "test_buffer": {
+                    "type": "buffer",
+                    "settings": {
+                        "retention": "keep_all"
+                    }
+                },
+                "access": {
+                    "type": "buffer_access",
+                    "buffers": {
+                        "integers": "test_buffer"
+                    },
+                    "next": "drain"
+                },
+                "drain": {
+                    "type": "node",
+                    "builder": "drain",
+                    "next": { "builtin" : "terminate" }
+                }
+            }
+        }))
+        .unwrap();
+
+        let sequence = vec![0, 1, 2, 3, 4, 5];
+        fixture
+            .spawn_and_run::<Vec<u64>, ()>(&diagram, sequence.clone())
+            .unwrap();
+
+        let recorder = fixture
+            .context
+            .app
+            .world_mut()
+            .resource::<TraceRecorder>()
+            .clone();
+        confirm_buffer_input_sequence(recorder, sequence);
+    }
+
+    fn confirm_buffer_input_sequence(recorder: TraceRecorder, expected_sequence: Vec<u64>) {
+        let mut actual = recorder.record;
+        let mut seqs = Vec::new();
+
+        for next_item in expected_sequence {
+            // A viewed event happens before each push event because each buffer
+            // entry arrived through a different push operation.
+            let viewed = next_buffer_event(&mut actual).unwrap().access;
+            assert!(viewed.is_viewed());
+
+            let next_actual = next_buffer_event(&mut actual);
+            let pushed = next_actual.as_ref().unwrap().access.pushed().unwrap();
+            seqs.push(pushed.seq);
+
+            let value = get_u64_from_trace(&pushed.message);
+            assert_eq!(next_item, value);
+        }
+
+        let viewed = next_buffer_event(&mut actual).unwrap().access;
+        assert!(viewed.is_viewed());
+
+        // Test that we also traced the items being drained
+        for seq in seqs {
+            let next_actual = next_buffer_event(&mut actual);
+            let removal = next_actual.as_ref().unwrap().access.removed().unwrap();
+            assert_eq!(seq, removal.seq);
+        }
+    }
+
+    fn next_buffer_event(queue: &mut VecDeque<TracedEvent>) -> Option<BufferEvent> {
+        loop {
+            let Some(next) = queue.pop_front() else {
+                return None;
+            };
+
+            match next.event {
+                TracedEventKind::BufferEvent(event) => {
+                    return Some(event);
+                }
+                _ => {
+                    continue;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_tracing_buffer_modifications() {
+        let mut fixture = DiagramTestFixture::new();
+        enable_trace_recording(&mut fixture.context.app);
+
+        fixture
+            .registry
+            .opt_out()
+            .no_serializing()
+            .no_deserializing()
+            .register_node_builder(
+                NodeBuilderOptions::new("push_to_buffer"),
+                |builder, _: ()| {
+                    let f = |srv: Blocking<(Vec<u64>, BufferKey<u64>)>,
+                             mut access: BufferAccessMut<u64>| {
+                        let mut buffer = access.get_mut(srv.id, &srv.request.1).unwrap();
+                        for value in srv.request.0 {
+                            buffer.push(value);
+                        }
+                        srv.request.1
+                    };
+                    builder.create_node(f.into_callback())
+                },
+            )
+            .with_buffer_access();
+
+        fixture
+            .registry
+            .opt_out()
+            .no_serializing()
+            .no_deserializing()
+            .register_node_builder(
+                NodeBuilderOptions::new("multiply_values_in_buffer"),
+                |builder, factor: u64| {
+                    let f = move |srv: Blocking<BufferKey<u64>>,
+                                  mut access: BufferAccessMut<u64>| {
+                        let mut buffer = access.get_mut(srv.id, &srv.request).unwrap();
+                        for mut value in buffer.iter_mut() {
+                            *value = factor * *value;
+                        }
+                    };
+                    builder.create_node(f.into_callback())
+                },
+            );
+
+        let factor: u64 = 5;
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "default_trace": "messages",
+            "start": "access",
+            "ops": {
+                "test_buffer": {
+                    "type": "buffer",
+                    "settings": {
+                        "retention": "keep_all"
+                    }
+                },
+                "access": {
+                    "type": "buffer_access",
+                    "buffers": ["test_buffer"],
+                    "next": "push"
+                },
+                "push": {
+                    "type": "node",
+                    "builder": "push_to_buffer",
+                    "next": "multiply"
+                },
+                "multiply": {
+                    "type": "node",
+                    "config": factor,
+                    "builder": "multiply_values_in_buffer",
+                    "next": { "builtin" : "terminate"}
+                }
+            }
+        }))
+        .unwrap();
+
+        let sequence = vec![0, 1, 2, 3, 4, 5];
+        fixture
+            .spawn_and_run::<Vec<u64>, ()>(&diagram, sequence.clone())
+            .unwrap();
+
+        let recorder = fixture
+            .context
+            .app
+            .world_mut()
+            .resource::<TraceRecorder>()
+            .clone();
+        confirm_buffer_modifications(recorder, sequence, factor);
+    }
+
+    fn confirm_buffer_modifications(
+        recorder: TraceRecorder,
+        expected_sequence: Vec<u64>,
+        factor: u64,
+    ) {
+        let mut actual = recorder.record;
+        let mut entries = Vec::new();
+
+        // The buffer is only accessed one time to perform all the pushes, so
+        // we will only see one initial view event for all pushes.
+        let viewed = next_buffer_event(&mut actual).unwrap().access;
+        assert!(viewed.is_viewed());
+
+        for next_item in expected_sequence {
+            let next_actual = next_buffer_event(&mut actual);
+
+            let pushed = next_actual.as_ref().unwrap().access.pushed().unwrap();
+
+            let seq = pushed.seq;
+            let value = get_u64_from_trace(&pushed.message);
+
+            entries.push((seq, value));
+            assert_eq!(next_item, value);
+        }
+
+        // The buffer is only accessed one time to perform all the modifications,
+        // so we will only see one initial view event for all pushes.
+        let viewed = next_buffer_event(&mut actual).unwrap().access;
+        assert!(viewed.is_viewed());
+
+        for (seq, value) in entries {
+            let next_actual = next_buffer_event(&mut actual);
+
+            let modification = next_actual.as_ref().unwrap().access.modified().unwrap();
+
+            assert_eq!(modification.seq, seq);
+
+            let original = get_u64_from_trace(&modification.original);
+            assert_eq!(original, value);
+
+            let modified = get_u64_from_trace(&modification.modified);
+            assert_eq!(modified, factor * value);
+        }
+    }
+
+    fn get_u64_from_trace(msg: &TracedMessage) -> u64 {
+        msg.as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .as_number()
+            .unwrap()
+            .as_i64()
+            .unwrap() as u64
     }
 }

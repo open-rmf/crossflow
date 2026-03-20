@@ -34,14 +34,14 @@ use thiserror::Error as ThisError;
 use smallvec::SmallVec;
 
 use crate::{
-    Accessing, Accessor, Buffer, BufferAccessMut, BufferAccessors, BufferError, BufferKey,
-    BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferManager, BufferMap,
-    BufferMapLayout, BufferMapLayoutHints, BufferStorage, BufferView, BufferWorldAccess,
-    Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer, FetchFromBuffer, Gate, GateState,
-    IdentifierRef, IncompatibleLayout, InspectBufferSessions, Joining, ManageBufferSessions,
-    MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate,
-    OperationError, OperationResult, OperationRoster, OrBroken, RequestId, TypeInfo,
-    add_listener_to_source,
+    Accessing, Accessor, BMut, BMutTracer, Buffer, BufferAccessMut, BufferAccessors, BufferEntry,
+    BufferError, BufferKey, BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation,
+    BufferManager, BufferMap, BufferMapLayout, BufferMapLayoutHints, BufferStorage, BufferView,
+    BufferWorldAccess, Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer,
+    FetchFromBuffer, Gate, GateState, IdentifierRef, IncompatibleLayout, InspectBufferSessions,
+    Joining, ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
+    NotifyBufferUpdate, OperationError, OperationResult, OperationRoster, OrBroken, RequestId,
+    TypeInfo, add_listener_to_source,
 };
 
 #[cfg(feature = "trace")]
@@ -456,20 +456,20 @@ impl<'w, 's, 'a> AnyBufferMut<'w, 's, 'a> {
     }
 
     /// Modify the oldest message in the buffer.
-    pub fn oldest_mut(&mut self) -> Option<AnyMessageMut<'_>> {
+    pub fn oldest_mut(&mut self) -> Option<AnyMut<'_>> {
         self.modified = true;
         self.manager.any_oldest_mut()
     }
 
     /// Modify the newest message in the buffer.
-    pub fn newest_mut(&mut self) -> Option<AnyMessageMut<'_>> {
+    pub fn newest_mut(&mut self) -> Option<AnyMut<'_>> {
         self.modified = true;
         self.manager.any_newest_mut()
     }
 
     /// Modify a message in the buffer. Index 0 is the oldest message in the buffer
     /// with the highest index being the newest message in the buffer.
-    pub fn get_mut(&mut self, index: usize) -> Option<AnyMessageMut<'_>> {
+    pub fn get_mut(&mut self, index: usize) -> Option<AnyMut<'_>> {
         self.modified = true;
         self.manager.any_get_mut(index)
     }
@@ -685,9 +685,9 @@ trait AnyBufferManagement: AnyBufferViewing {
     fn any_push_as_oldest(&mut self, value: AnyMessageBox) -> AnyMessagePushResult;
     fn any_pull(&mut self) -> Option<AnyMessageBox>;
     fn any_pull_newest(&mut self) -> Option<AnyMessageBox>;
-    fn any_oldest_mut<'a>(&'a mut self) -> Option<AnyMessageMut<'a>>;
-    fn any_newest_mut<'a>(&'a mut self) -> Option<AnyMessageMut<'a>>;
-    fn any_get_mut<'a>(&'a mut self, index: usize) -> Option<AnyMessageMut<'a>>;
+    fn any_oldest_mut<'a>(&'a mut self) -> Option<AnyMut<'a>>;
+    fn any_newest_mut<'a>(&'a mut self) -> Option<AnyMut<'a>>;
+    fn any_get_mut<'a>(&'a mut self, index: usize) -> Option<AnyMut<'a>>;
     fn any_drain<'a>(&'a mut self, range: AnyRange) -> Box<dyn DrainAnyBufferInterface + 'a>;
 }
 
@@ -806,6 +806,39 @@ impl<T: 'static + Send + Sync + Any> AnyBufferViewing for BufferManager<'_, '_, 
 }
 
 pub type AnyMessageMut<'a> = &'a mut (dyn Any + 'static + Send + Sync);
+pub struct AnyMut<'a> {
+    entry: &'a mut dyn AnyMutEntry,
+    tracer: BMutTracer<'a>,
+}
+
+impl<'a> AnyMut<'a> {
+    /// View the message inside the buffer via the [`Any`] interface. This will
+    /// not be traced as a modification.
+    pub fn get(&self) -> &dyn Any {
+        self.entry.get_any()
+    }
+
+    /// Get mutable access to the message inside the buffer via the [`Any`]
+    /// interface. This will be traced as a modification even if you do not change
+    /// the value.
+    pub fn get_mut(&mut self) -> &mut dyn Any {
+        self.entry.get_any_mut(&self.tracer)
+    }
+}
+
+impl<'a> std::ops::Deref for AnyMut<'a> {
+    type Target = dyn Any;
+
+    fn deref(&self) -> &Self::Target {
+        self.get()
+    }
+}
+
+impl<'a> std::ops::DerefMut for AnyMut<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.get_mut()
+    }
+}
 
 pub type AnyMessageBox = Box<dyn Any + 'static + Send + Sync>;
 
@@ -841,16 +874,19 @@ impl<T: 'static + Send + Sync + Any> AnyBufferManagement for BufferManager<'_, '
         self.pull_newest().map(to_any_message)
     }
 
-    fn any_oldest_mut<'a>(&'a mut self) -> Option<AnyMessageMut<'a>> {
-        self.oldest_mut().map(to_any_mut)
+    fn any_oldest_mut<'a>(&'a mut self) -> Option<AnyMut<'a>> {
+        self.oldest_mut()
+            .map(|BMut { entry, tracer }| AnyMut { entry, tracer })
     }
 
-    fn any_newest_mut<'a>(&'a mut self) -> Option<AnyMessageMut<'a>> {
-        self.newest_mut().map(to_any_mut)
+    fn any_newest_mut<'a>(&'a mut self) -> Option<AnyMut<'a>> {
+        self.newest_mut()
+            .map(|BMut { entry, tracer }| AnyMut { entry, tracer })
     }
 
-    fn any_get_mut<'a>(&'a mut self, index: usize) -> Option<AnyMessageMut<'a>> {
-        self.get_mut(index).map(to_any_mut)
+    fn any_get_mut<'a>(&'a mut self, index: usize) -> Option<AnyMut<'a>> {
+        self.get_mut(index)
+            .map(|BMut { entry, tracer }| AnyMut { entry, tracer })
     }
 
     fn any_drain<'a>(&'a mut self, range: AnyRange) -> Box<dyn DrainAnyBufferInterface + 'a> {
@@ -859,10 +895,6 @@ impl<T: 'static + Send + Sync + Any> AnyBufferManagement for BufferManager<'_, '
 }
 
 fn to_any_ref<'a, T: 'static + Send + Sync + Any>(x: &'a T) -> AnyMessageRef<'a> {
-    x
-}
-
-fn to_any_mut<'a, T: 'static + Send + Sync + Any>(x: &'a mut T) -> AnyMessageMut<'a> {
     x
 }
 
@@ -883,6 +915,22 @@ where
     })?;
 
     Ok(*value)
+}
+
+trait AnyMutEntry {
+    fn get_any(&self) -> &(dyn Any + 'static + Send + Sync);
+    fn get_any_mut(&mut self, tracer: &BMutTracer) -> &mut (dyn Any + 'static + Send + Sync);
+}
+
+impl<T: 'static + Send + Sync> AnyMutEntry for BufferEntry<T> {
+    fn get_any(&self) -> &(dyn Any + 'static + Send + Sync) {
+        &self.message
+    }
+
+    fn get_any_mut(&mut self, tracer: &BMutTracer) -> &mut (dyn Any + 'static + Send + Sync) {
+        tracer.trace_mut(self);
+        &mut self.message
+    }
 }
 
 pub trait AnyBufferAccessMutState {
@@ -1217,7 +1265,9 @@ trait DrainAnyBufferInterface {
     fn any_next(&mut self) -> Option<AnyMessageBox>;
 }
 
-impl<T: 'static + Send + Sync + Any> DrainAnyBufferInterface for DrainBuffer<'_, T> {
+impl<'w, 's, T: 'static + Send + Sync + Any> DrainAnyBufferInterface
+    for DrainBuffer<'w, 's, '_, T>
+{
     fn any_next(&mut self) -> Option<AnyMessageBox> {
         self.next().map(to_any_message)
     }
@@ -1413,7 +1463,7 @@ mod tests {
         world
             .any_buffer_mut(id, &key, |mut access| {
                 for i in 0..access.len() {
-                    access.get_mut(i).map(|value| {
+                    access.get_mut(i).map(|mut value| {
                         *value.downcast_mut::<usize>().unwrap() *= i;
                     });
                 }

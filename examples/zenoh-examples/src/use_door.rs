@@ -241,7 +241,7 @@ fn move_robot(
             return;
         };
 
-        let Some(t) = remaining_time.newest_mut() else {
+        let Some(mut t) = remaining_time.newest_mut() else {
             return;
         };
 
