@@ -115,28 +115,6 @@ function getChangeParentIdAndPosition(
   }
 }
 
-function getMixedSplitSlotSourceIds(edges: DiagramEditorEdge[]): Set<string> {
-  // Split edges from a single source must all use the same slot type.
-  const splitSourceSlotType = new Map<string, 'keyed' | 'sequential'>();
-  const mixedSources = new Set<string>();
-
-  for (const edge of edges) {
-    if (edge.type !== 'splitKey' && edge.type !== 'splitSeq') {
-      continue;
-    }
-
-    const edgeSlotType = edge.type === 'splitKey' ? 'keyed' : 'sequential';
-    const previousSlotType = splitSourceSlotType.get(edge.source);
-    if (previousSlotType && previousSlotType !== edgeSlotType) {
-      mixedSources.add(edge.source);
-      continue;
-    }
-    splitSourceSlotType.set(edge.source, edgeSlotType);
-  }
-
-  return mixedSources;
-}
-
 export type MaybeValid = { ok: true } | { ok: false, errorMessage: string };
 
 interface ProvidersProps {
@@ -632,40 +610,6 @@ function DiagramEditor() {
   );
 
   const [enableExport, setEnableExport] = React.useState(true);
-  const mixedSplitSourceIds = React.useMemo(
-    () => getMixedSplitSlotSourceIds(edges),
-    [edges],
-  );
-  const disableExportFromSplitSlots = mixedSplitSourceIds.size > 0;
-
-  React.useEffect(() => {
-    // Keep split edge error highlighting in sync with current mixed-slot violations.
-    setEdges((prev) => {
-      let changed = false;
-      const next = prev.map((edge) => {
-        if (edge.type !== 'splitKey' && edge.type !== 'splitSeq') {
-          return edge;
-        }
-
-        const shouldHighlight = mixedSplitSourceIds.has(edge.source);
-        const nextStroke = shouldHighlight ? theme.palette.error.main : undefined;
-        if (edge.style?.stroke === nextStroke) {
-          return edge;
-        }
-
-        changed = true;
-        return {
-          ...edge,
-          style: {
-            ...edge.style,
-            stroke: nextStroke,
-          },
-        };
-      });
-
-      return changed ? next : prev;
-    });
-  }, [mixedSplitSourceIds, theme.palette.error.main]);
 
   return (
     <Providers
@@ -804,7 +748,7 @@ function DiagramEditor() {
             [],
           )}
           onLoadDiagram={loadDiagram}
-          enableExport={enableExport && !disableExportFromSplitSlots}
+          enableExport={enableExport}
         />
         {editorMode.mode === EditorMode.Template && (
           <Fab
