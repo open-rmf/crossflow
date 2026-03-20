@@ -38,7 +38,7 @@ use crate::{
 #[cfg(feature = "trace")]
 use crate::{
     BufferAccessRecord, BufferEvent, BufferModification, BufferPush, BufferRemoval, BufferTracer,
-    MessageTracer, TraceBuffer, TraceTarget, TracedEvent, TracedMessage,
+    MessageTracer, TraceBuffer, TraceTarget, TracedEvent, TracedMessage, WriteToTraceLog,
 };
 
 /// A wrapper type that allows the tracing feature to track changes to buffer
@@ -505,7 +505,7 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
                         }),
                     };
 
-                    self.commands.trigger(TracedEvent {
+                    self.commands.write_trace(TracedEvent {
                         event: event.into(),
                         instant,
                         time,
@@ -540,7 +540,7 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
                     buffer: buffer.clone(),
                     access,
                 };
-                cmds.trigger(TracedEvent {
+                cmds.write_trace(TracedEvent {
                     event: event.into(),
                     instant,
                     time,
@@ -559,7 +559,7 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
                 buffer,
                 access,
             };
-            cmds.trigger(TracedEvent {
+            cmds.write_trace(TracedEvent {
                 event: event.into(),
                 instant,
                 time,
@@ -581,7 +581,7 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
                 buffer,
                 access,
             };
-            self.commands.trigger(TracedEvent {
+            self.commands.write_trace(TracedEvent {
                 event: event.into(),
                 instant,
                 time,
@@ -793,7 +793,7 @@ where
                     buffer: self.buffer.clone(),
                     access,
                 };
-                self._commands.trigger(TracedEvent {
+                self._commands.write_trace(TracedEvent {
                     event: event.into(),
                     instant,
                     time,

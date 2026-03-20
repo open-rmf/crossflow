@@ -41,7 +41,7 @@ use crate::{
     FetchFromBuffer, Gate, GateState, IdentifierRef, IncompatibleLayout, InspectBufferSessions,
     Joining, ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
     NotifyBufferUpdate, OperationError, OperationResult, OperationRoster, OrBroken, RequestId,
-    TypeInfo, add_listener_to_source, IterBufferView,
+    TypeInfo, add_listener_to_source, IterBufferView, AccessKey, BufferInstanceId, AccessError,
 };
 
 #[cfg(feature = "trace")]
@@ -326,14 +326,54 @@ impl<T: 'static + Send + Sync + Any> From<BufferKey<T>> for AnyBufferKey {
     }
 }
 
+impl AccessKey for AnyBufferKey {
+    fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool {
+        let entry = included.entry(self.tag.instance()).or_default();
+        *entry += 1;
+        *entry == 1
+    }
+
+    type State = Box<dyn AnyBufferAccessMutState>;
+    type Param<'a> = Box<dyn AnyBufferAccessMut<'a, 'a>>;
+
+    fn get_state(&self, world: &mut World) -> Self::State {
+        self.interface.create_any_buffer_access_mut_state(world)
+    }
+
+    fn get_param<'a>(
+        state: &'a mut Self::State,
+        world: &'a mut World,
+    ) -> Self::Param<'a> {
+        state.get_any_buffer_access_mut(world)
+    }
+
+    fn get_mut<'a>(
+        &self,
+        req: RequestId,
+        param: &'a mut Self::Param<'a>,
+    ) -> Result<AnyBufferMut<'a, 'a, 'a>, BufferError> {
+        param.as_any_buffer_mut(req, self)
+    }
+
+    fn apply_state(
+        state: &mut Self::State,
+        world: &mut World,
+    ) {
+        state.any_apply(world);
+    }
+}
+
 impl Accessor for AnyBufferKey {
     type Buffers = AnyBuffer;
 
-    fn can_fetch(&self, world: &World) -> bool {
-        let Ok(view) = world.any_buffer_view_untraced(self) else {
-            return false;
-        };
-        view.oldest().is_some()
+    fn is_disjoint(&self) -> Result<(), super::OverlapError> {
+        // A single buffer key is always disjoint
+        Ok(())
+    }
+
+    fn can_fetch(&self, world: &World) -> Result<bool, AccessError> {
+        let view = world.any_buffer_view_untraced(self)?;
+        Ok(view.oldest().is_some())
     }
 
     type Fetched = AnyMessageBox;
@@ -343,14 +383,23 @@ impl Accessor for AnyBufferKey {
         }).ok().flatten()
     }
 
-    type Viewed<'a> = AnyMessageRef<'a>;
-    fn view<'a>(&self, world: &'a World) -> Option<Self::Viewed<'a>> {
-        world.any_buffer_view_untraced(self).map(|view| view.oldest()).ok().flatten()
+    type View<'a> = AnyBufferView<'a>;
+    fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError> {
+        world.any_buffer_view(req, self)
     }
 
-    type Iter<'a> = IterAnyBuffer<'a>;
-    fn iter<'a>(&self, world: &'a World) -> Option<Self::Iter<'a>> {
-        world.any_buffer_view_untraced(self).ok().map(|view| view.iter())
+    fn view_untraced<'a>(&self, world: &'a World) -> Result<Self::View<'a>, BufferError> {
+        world.any_buffer_view_untraced(self)
+    }
+
+    type Access<'a> = AnyBufferMut<'a, 'a, 'a>;
+    fn access<U>(
+        &self,
+        req: RequestId,
+        world: &mut World,
+        f: impl for<'a> FnOnce(AnyBufferMut<'a, 'a, 'a>) -> U,
+    ) -> Result<U, AccessError> {
+        Ok(world.any_buffer_mut(req, self, f)?)
     }
 }
 
@@ -700,11 +749,12 @@ impl AnyBufferWorldAccess for World {
         let r = {
             let mut access = state.get_any_buffer_access_mut(self);
             let buffer_mut = access.as_any_buffer_mut(req.into(), key)?;
-            f(buffer_mut)
+            // f(buffer_mut)
         };
 
         state.any_apply(self);
-        Ok(r)
+        // Ok(r)
+        Err(BufferError::BufferMissing)
     }
 }
 
@@ -993,7 +1043,7 @@ pub trait AnyBufferAccessMutState {
 }
 
 impl<T: 'static + Send + Sync + Any> AnyBufferAccessMutState
-    for SystemState<BufferAccessMut<'static, 'static, T>>
+    for SystemState<BufferAccessMut<'_, '_, T>>
 {
     fn get_any_buffer_access_mut<'s, 'w: 's>(
         &'s mut self,

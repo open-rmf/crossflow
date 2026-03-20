@@ -682,7 +682,7 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
     fn is_disjoint(&self) -> Result<(), OverlapError>;
 
     /// Check if the buffer is in a state that it's ready to be fetched from.
-    fn can_fetch(&self, world: &World) -> bool;
+    fn can_fetch(&self, world: &World) -> Result<bool, AccessError>;
 
     type Fetched: 'static + Send + Sync;
     /// Fetch a value from the buffer. For a normal [`BufferKey`] this will
@@ -732,14 +732,11 @@ pub trait AccessKey: Accessor {
     /// one.
     fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool;
 
-    fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError>;
-    fn view_untraced<'a>(&self, world: &'a World) -> Result<Self::View<'a>, BufferError>;
-
     type State;
-    type Param<'a>;
+    type Param<'a>: 'a;
 
     /// Get the SystemState used to access the buffer
-    fn get_state(world: &mut World) -> Self::State;
+    fn get_state(&self, world: &mut World) -> Self::State;
 
     /// Get the system parameter for accessing the buffer
     fn get_param<'a>(
@@ -753,6 +750,13 @@ pub trait AccessKey: Accessor {
         req: RequestId,
         param: &'a mut Self::Param<'a>,
     ) -> Result<Self::Access<'a>, BufferError>;
+
+    /// Apply the SystemState to the world. This is called after the access is
+    /// finished.
+    fn apply_state(
+        state: &mut Self::State,
+        world: &mut World,
+    );
 }
 
 /// Used by the Accessor trait to make sure an accessor with multiple keys
@@ -771,21 +775,13 @@ where
     fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool {
         let entry = included.entry(self.tag().instance()).or_default();
         *entry += 1;
-        *entry > 1
-    }
-
-    fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError> {
-        world.buffer_view(req, self)
-    }
-
-    fn view_untraced<'a>(&self, world: &'a World) -> Result<Self::View<'a>, BufferError> {
-        world.buffer_view_untraced::<T>(self.tag())
+        *entry == 1
     }
 
     type State = SystemState<BufferAccessMut<'static, 'static, T>>;
     type Param<'a> = BufferAccessMut<'a, 'a, T>;
 
-    fn get_state(world: &mut World) -> Self::State {
+    fn get_state(&self, world: &mut World) -> Self::State {
         SystemState::<BufferAccessMut<T>>::new(world)
     }
 
@@ -803,6 +799,13 @@ where
     ) -> Result<Self::Access<'a>, BufferError> {
         Ok(param.get_mut(req, self).map_err(|_| BufferError::BufferMissing)?)
     }
+
+    fn apply_state(
+        state: &mut Self::State,
+        world: &mut World,
+    ) {
+        state.apply(world);
+    }
 }
 
 impl<T> Accessor for BufferKey<T>
@@ -812,15 +815,13 @@ where
     type Buffers = Buffer<T>;
 
     fn is_disjoint(&self) -> Result<(), OverlapError> {
-        // A single key can never be disjoint
+        // A single buffer key is always disjoint
         Ok(())
     }
 
-    fn can_fetch(&self, world: &World) -> bool {
-        let Ok(view) = world.buffer_view_untraced::<T>(self.tag()) else {
-            return false;
-        };
-        view.oldest().is_some()
+    fn can_fetch(&self, world: &World) -> Result<bool, AccessError> {
+        let view = world.buffer_view_untraced::<T>(self.tag())?;
+        Ok(view.oldest().is_some())
     }
 
     type Fetched = T;
@@ -851,20 +852,42 @@ where
     }
 }
 
-impl<A: Accessor> Accessor for Vec<A>
+impl<A: AccessKey> Accessor for Vec<A>
 where
     Vec<A::Buffers>: 'static + BufferMapLayout + Accessing<Key = Vec<A>> + Send + Sync,
 {
     type Buffers = Vec<A::Buffers>;
 
-    fn can_fetch(&self, world: &World) -> bool {
+    fn is_disjoint(&self) -> Result<(), OverlapError> {
+        let mut included = HashMap::new();
+        let mut is_disjoint = true;
         for key in self {
-            if !key.can_fetch(world) {
-                return false;
+            is_disjoint &= key.validate_disjoint(&mut included);
+        }
+
+        if !is_disjoint {
+            let mut duplicates = HashMap::new();
+            for (entry, count) in included {
+                if count > 1 {
+                    duplicates.insert(entry, count);
+                }
+            }
+
+            return Err(OverlapError { duplicates })
+        }
+
+        return Ok(())
+    }
+
+    fn can_fetch(&self, world: &World) -> Result<bool, AccessError> {
+        self.is_disjoint()?;
+        for key in self {
+            if !key.can_fetch(world)? {
+                return Ok(false);
             }
         }
 
-        true
+        Ok(true)
     }
 
     type Fetched = Vec<A::Fetched>;
@@ -877,24 +900,88 @@ where
         Some(fetched)
     }
 
-    type Viewed<'a> = Vec<A::Viewed<'a>>;
-    fn view<'a>(&self, world: &'a World) -> Option<Self::Viewed<'a>> {
-        let mut viewed = Vec::new();
+    type View<'a> = Vec<A::View<'a>>;
+    fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError> {
+        let mut view = Vec::new();
+        let world_cell = world.as_unsafe_world_cell();
         for key in self {
-            viewed.push(key.view(world)?);
+            view.push(key.view(
+                req,
+                unsafe {
+                    // SAFETY: We require a &mut World as input to this function,
+                    // so we know that nothing else is interacting with the world
+                    // right now. We only need mutability for the tracing to be
+                    // performed. After that all access is read-only.
+                    world_cell.world_mut()
+                }
+            )?);
         }
 
-        Some(viewed)
+        Ok(view)
     }
 
-    type Iter<'a> = Vec<A::Iter<'a>>;
-    fn iter<'a>(&self, world: &'a World) -> Option<Self::Iter<'a>> {
-        let mut iters = Vec::new();
+    fn view_untraced<'a>(&self, world: &'a World) -> Result<Self::View<'a>, BufferError> {
+        let mut view = Vec::new();
         for key in self {
-            iters.push(key.iter(world)?);
+            view.push(key.view_untraced(world)?);
         }
 
-        Some(iters)
+        Ok(view)
+    }
+
+    type Access<'a> = Vec<A::Access<'a>>;
+    fn access<U>(
+        &self,
+        req: RequestId,
+        world: &mut World,
+        f: impl FnOnce(Self::Access<'_>) -> U,
+    ) -> Result<U, AccessError> {
+        self.is_disjoint()?;
+
+        let mut states = Vec::new();
+        let world_cell = world.as_unsafe_world_cell();
+        for key in self {
+            let state = key.get_state(unsafe {
+                // SAFETY: We make sure the accessor is disjoint at the start
+                // of the function. After that there is no overlap in the mutable
+                // world access needed by the system states. Their commands will
+                // be flushed serially at the end of this function.
+                world_cell.world_mut()
+            });
+            states.push(state);
+        }
+
+        let r = {
+            let mut params = Vec::new();
+            for state in &mut states {
+                let accessor = A::get_param(
+                    state,
+                    unsafe {
+                        // SAFETY: Same rationale as earlier in this function.
+                        world_cell.world_mut()
+                    },
+                );
+
+                params.push(accessor);
+            }
+
+            let mut accesses = Vec::new();
+            for (key, param) in self.iter().zip(params.iter_mut()) {
+                let access = A::get_mut(key, req, param)?;
+                accesses.push(access);
+            }
+
+            f(accesses)
+        };
+
+        for state in &mut states {
+            A::apply_state(state, unsafe {
+                // SAFETY: Same rationale as earlier in this function
+                world_cell.world_mut()
+            });
+        }
+
+        Ok(r)
     }
 }
 
