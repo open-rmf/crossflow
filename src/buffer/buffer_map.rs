@@ -34,7 +34,7 @@ use crate::{
     Accessing, AnyBuffer, AnyBufferKey, AnyMessageBox, AsAnyBuffer, Buffer, BufferKeyBuilder,
     BufferKeyLifecycle, Bufferable, Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer,
     Gate, GateState, IdentifierRef, Joining, Node, OperationError, OperationResult, BufferWorldAccess,
-    OperationRoster, RequestId, TypeInfo, add_listener_to_source, IterBufferView, BufferKeyTag,
+    OperationRoster, RequestId, TypeInfo, add_listener_to_source,
     BufferError, BufferView, BufferMut, BufferAccessMut,
 };
 
@@ -697,13 +697,13 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
     /// allows you to view with an immutable world borrow, but
     fn view_untraced<'a>(&self, world: &'a World) -> Result<Self::View<'a>, BufferError>;
 
-    type Access<'a>;
+    type Access<'w, 's, 'a> where 'w: 's, 's: 'a;
     /// Get mutable access to the buffers that this Accessor is associated with.
     fn access<U>(
         &self,
         req: RequestId,
         world: &mut World,
-        f: impl FnOnce(Self::Access<'_>) -> U,
+        f: impl FnOnce(Self::Access<'_, '_, '_>) -> U,
     ) -> Result<U, AccessError>;
 }
 
@@ -733,23 +733,28 @@ pub trait AccessKey: Accessor {
     fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool;
 
     type State;
-    type Param<'a>: 'a;
+    type Param<'w, 's> where 'w: 's;
 
     /// Get the SystemState used to access the buffer
     fn get_state(&self, world: &mut World) -> Self::State;
 
     /// Get the system parameter for accessing the buffer
-    fn get_param<'a>(
-        state: &'a mut Self::State,
-        world: &'a mut World,
-    ) -> Self::Param<'a>;
+    fn get_param<'w, 's>(
+        state: &'s mut Self::State,
+        world: &'w mut World,
+    ) -> Self::Param<'w, 's>
+    where
+        'w: 's;
 
     /// Get the access interface that users interact with
-    fn get_mut<'a>(
+    fn get_mut<'w, 's, 'a>(
         &self,
         req: RequestId,
-        param: &'a mut Self::Param<'a>,
-    ) -> Result<Self::Access<'a>, BufferError>;
+        param: &'a mut Self::Param<'w, 's>,
+    ) -> Result<Self::Access<'w, 's, 'a>, BufferError>
+    where
+        'w: 's,
+        's: 'a;
 
     /// Apply the SystemState to the world. This is called after the access is
     /// finished.
@@ -779,24 +784,31 @@ where
     }
 
     type State = SystemState<BufferAccessMut<'static, 'static, T>>;
-    type Param<'a> = BufferAccessMut<'a, 'a, T>;
+    type Param<'w, 's> = BufferAccessMut<'w, 's, T> where 'w: 's;
 
     fn get_state(&self, world: &mut World) -> Self::State {
         SystemState::<BufferAccessMut<T>>::new(world)
     }
 
-    fn get_param<'a>(
-        state: &'a mut Self::State,
-        world: &'a mut World,
-    ) -> Self::Param<'a> {
+    fn get_param<'w, 's>(
+        state: &'s mut Self::State,
+        world: &'w mut World,
+    ) -> Self::Param<'w, 's>
+    where
+        'w: 's,
+    {
         state.get_mut(world)
     }
 
-    fn get_mut<'a>(
+    fn get_mut<'w, 's, 'a>(
         &self,
         req: RequestId,
-        param: &'a mut Self::Param<'a>,
-    ) -> Result<Self::Access<'a>, BufferError> {
+        param: &'a mut Self::Param<'w, 's>,
+    ) -> Result<Self::Access<'w, 's, 'a>, BufferError>
+    where
+        'w: 's,
+        's: 'a,
+    {
         Ok(param.get_mut(req, self).map_err(|_| BufferError::BufferMissing)?)
     }
 
@@ -840,13 +852,13 @@ where
         world.buffer_view_untraced::<T>(self.tag())
     }
 
-    type Access<'a> = BufferMut<'a, 'a, 'a, T>;
+    type Access<'w, 's, 'a> = BufferMut<'w, 's, 'a, T> where 'w: 's, 's: 'a;
 
     fn access<U>(
         &self,
         req: RequestId,
         world: &mut World,
-        f: impl FnOnce(Self::Access<'_>) -> U,
+        f: impl FnOnce(BufferMut<T>) -> U,
     ) -> Result<U, AccessError> {
         Ok(world.buffer_mut(req, self, f)?)
     }
@@ -929,12 +941,12 @@ where
         Ok(view)
     }
 
-    type Access<'a> = Vec<A::Access<'a>>;
+    type Access<'w, 's, 'a> = Vec<A::Access<'w, 's, 'a>> where 'w: 's, 's: 'a;
     fn access<U>(
         &self,
         req: RequestId,
         world: &mut World,
-        f: impl FnOnce(Self::Access<'_>) -> U,
+        f: impl FnOnce(Vec<A::Access<'_, '_, '_>>) -> U,
     ) -> Result<U, AccessError> {
         self.is_disjoint()?;
 

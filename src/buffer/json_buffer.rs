@@ -550,7 +550,7 @@ pub trait JsonBufferWorldAccess {
         &mut self,
         req: impl Into<RequestId>,
         key: &JsonBufferKey,
-        f: impl for<'a> FnOnce(JsonBufferMut<'a, 'a, 'a>) -> U,
+        f: impl FnOnce(JsonBufferMut) -> U,
     ) -> Result<U, BufferError>;
 }
 
@@ -582,7 +582,7 @@ impl JsonBufferWorldAccess for World {
         &mut self,
         req: impl Into<RequestId>,
         key: &JsonBufferKey,
-        f: impl for<'a> FnOnce(JsonBufferMut<'a, 'a, 'a>) -> U,
+        f: impl FnOnce(JsonBufferMut) -> U,
     ) -> Result<U, BufferError> {
         let interface = key.interface;
         let mut state = interface.create_json_buffer_access_mut_state(self);
@@ -1048,7 +1048,7 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonBufferAccessIn
     }
 }
 
-trait JsonBufferAccessMutState {
+pub trait JsonBufferAccessMutState {
     fn get_json_buffer_access_mut<'s, 'w: 's>(
         &'s mut self,
         world: &'w mut World,
@@ -1073,7 +1073,7 @@ where
     }
 }
 
-trait JsonBufferAccessMut<'w, 's> {
+pub trait JsonBufferAccessMut<'w, 's> {
     fn as_json_buffer_mut<'a>(
         &'a mut self,
         req: RequestId,
@@ -1241,24 +1241,31 @@ impl AccessKey for JsonBufferKey {
     }
 
     type State = Box<dyn JsonBufferAccessMutState>;
-    type Param<'a> = Box<dyn JsonBufferAccessMut<'a, 'a>>;
+    type Param<'w, 's> = Box<dyn JsonBufferAccessMut<'w, 's> + 's> where 'w: 's;
 
     fn get_state(&self, world: &mut World) -> Self::State {
         self.interface.create_json_buffer_access_mut_state(world)
     }
 
-    fn get_param<'a>(
-        state: &'a mut Self::State,
-        world: &'a mut World,
-    ) -> Self::Param<'a> {
+    fn get_param<'w, 's>(
+        state: &'s mut Self::State,
+        world: &'w mut World,
+    ) -> Self::Param<'w, 's>
+    where
+        'w: 's,
+    {
         state.get_json_buffer_access_mut(world)
     }
 
-    fn get_mut<'a>(
+    fn get_mut<'w, 's, 'a>(
         &self,
         req: RequestId,
-        param: &'a mut Self::Param<'a>,
-    ) -> Result<Self::Access<'a>, BufferError> {
+        param: &'a mut Self::Param<'w, 's>,
+    ) -> Result<Self::Access<'w, 's, 'a>, BufferError>
+    where
+        'w: 's,
+        's: 'a,
+    {
         param.as_json_buffer_mut(req, self)
     }
 
@@ -1301,12 +1308,12 @@ impl Accessor for JsonBufferKey {
         world.json_buffer_view_untraced(self)
     }
 
-    type Access<'a> = JsonBufferMut<'a, 'a, 'a>;
+    type Access<'w, 's, 'a> = JsonBufferMut<'w, 's, 'a> where 'w: 's, 's: 'a;
     fn access<U>(
         &self,
         req: RequestId,
         world: &mut World,
-        f: impl FnOnce(Self::Access<'_>) -> U,
+        f: impl FnOnce(JsonBufferMut) -> U,
     ) -> Result<U, AccessError> {
         Ok(world.json_buffer_mut(req, self, f)?)
     }
@@ -1653,7 +1660,7 @@ mod tests {
         world
             .json_buffer_mut(id, &key, |mut access| {
                 let mut values = Vec::new();
-                while let Ok(Some(value)) = access.pull() {
+                while let Some(Ok(value)) = access.pull() {
                     values.push(value);
                 }
                 values

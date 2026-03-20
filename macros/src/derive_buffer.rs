@@ -124,6 +124,40 @@ pub(crate) fn impl_buffer_key_map(input_struct: &ItemStruct) -> Result<TokenStre
     let tokens = quote! {
         impl #impl_generics ::crossflow::Accessor for #struct_ident #ty_generics #where_clause {
             type Buffers = #buffer_struct_ident #ty_generics;
+
+            fn is_disjoint(&self) -> ::std::result::Result<(), ::crossflow::OverlapError> {
+                ::std::result::Result::Err(::crossflow::OverlapError {
+                    duplicates: ::std::default::Default::default(),
+                })
+            }
+
+            fn can_fetch(&self, world: &::crossflow::re_exports::World) -> Result<bool, ::crossflow::AccessError> {
+                ::std::result::Result::Ok(false)
+            }
+
+            type Fetched = ();
+            fn fetch(&self, req: ::crossflow::RequestId, world: &mut ::crossflow::re_exports::World) -> ::std::option::Option<()> {
+                None
+            }
+
+            type View<'a> = ();
+            fn view<'a>(&self, req: ::crossflow::RequestId, world: &'a mut ::crossflow::re_exports::World) -> ::std::result::Result<(), ::crossflow::BufferError> {
+                Ok(())
+            }
+
+            fn view_untraced<'a>(&self, world: &'a ::crossflow::re_exports::World) -> ::std::result::Result<(), ::crossflow::BufferError> {
+                Ok(())
+            }
+
+            type Access<'w, 's, 'a> = () where 'w: 's, 's: 'a;
+            fn access<U>(
+                &self,
+                req: ::crossflow::RequestId,
+                world: &mut ::crossflow::re_exports::World,
+                f: impl FnOnce(()) -> U,
+            ) -> ::std::result::Result<U, ::crossflow::AccessError> {
+                Err(::crossflow::AccessError::Inaccessible(::crossflow::BufferError::BufferMissing))
+            }
         }
 
         #buffer_struct

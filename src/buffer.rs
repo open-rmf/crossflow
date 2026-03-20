@@ -680,7 +680,7 @@ pub trait BufferWorldAccess {
         &mut self,
         req: impl Into<RequestId>,
         key: &BufferKey<T>,
-        f: impl for<'a> FnOnce(BufferMut<'a, 'a, 'a, T>) -> U,
+        f: impl FnOnce(BufferMut<T>) -> U,
     ) -> Result<U, BufferError>
     where
         T: 'static + Send + Sync;
@@ -694,7 +694,7 @@ pub trait BufferWorldAccess {
         &mut self,
         req: RequestId,
         key: &BufferKeyTag,
-        f: impl for<'a> FnOnce(BufferMut<'a, 'a, 'a, T>) -> U,
+        f: impl FnOnce(BufferMut<T>) -> U,
     ) -> Result<U, BufferError>
     where
         T: 'static + Send + Sync;
@@ -779,7 +779,7 @@ impl BufferWorldAccess for World {
         &mut self,
         req: impl Into<RequestId>,
         key: &BufferKey<T>,
-        f: impl for<'a> FnOnce(BufferMut<'a, 'a, 'a, T>) -> U,
+        f: impl FnOnce(BufferMut<T>) -> U,
     ) -> Result<U, BufferError>
     where
         T: 'static + Send + Sync,
@@ -791,14 +791,14 @@ impl BufferWorldAccess for World {
         &mut self,
         req: RequestId,
         key: &BufferKeyTag,
-        f: impl for<'a> FnOnce(BufferMut<'a, 'a, 'a, T>) -> U,
+        f: impl FnOnce(BufferMut<T>) -> U,
     ) -> Result<U, BufferError>
     where
         T: 'static + Send + Sync,
     {
         let mut state = SystemState::<BufferAccessMut<T>>::new(self);
-        let mut buffer_access_mut = state.get_mut(self);
         let r = {
+            let mut buffer_access_mut = state.get_mut(self);
             let buffer_mut = buffer_access_mut
                 .unchecked_get_mut(req, key)
                 .map_err(|_| BufferError::BufferMissing)?;

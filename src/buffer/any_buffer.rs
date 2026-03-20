@@ -334,24 +334,31 @@ impl AccessKey for AnyBufferKey {
     }
 
     type State = Box<dyn AnyBufferAccessMutState>;
-    type Param<'a> = Box<dyn AnyBufferAccessMut<'a, 'a>>;
+    type Param<'w, 's> = Box<dyn AnyBufferAccessMut<'w, 's> + 's> where 'w: 's;
 
     fn get_state(&self, world: &mut World) -> Self::State {
         self.interface.create_any_buffer_access_mut_state(world)
     }
 
-    fn get_param<'a>(
-        state: &'a mut Self::State,
-        world: &'a mut World,
-    ) -> Self::Param<'a> {
+    fn get_param<'w, 's>(
+        state: &'s mut Self::State,
+        world: &'w mut World,
+    ) -> Self::Param<'w, 's>
+    where
+        'w: 's,
+    {
         state.get_any_buffer_access_mut(world)
     }
 
-    fn get_mut<'a>(
+    fn get_mut<'w, 's, 'a>(
         &self,
         req: RequestId,
-        param: &'a mut Self::Param<'a>,
-    ) -> Result<AnyBufferMut<'a, 'a, 'a>, BufferError> {
+        param: &'a mut Self::Param<'w, 's>,
+    ) -> Result<AnyBufferMut<'w, 's, 'a>, BufferError>
+    where
+        'w: 's,
+        's: 'a,
+    {
         param.as_any_buffer_mut(req, self)
     }
 
@@ -392,12 +399,12 @@ impl Accessor for AnyBufferKey {
         world.any_buffer_view_untraced(self)
     }
 
-    type Access<'a> = AnyBufferMut<'a, 'a, 'a>;
+    type Access<'w, 's, 'a> = AnyBufferMut<'w, 's, 'a> where 'w: 's, 's: 'a;
     fn access<U>(
         &self,
         req: RequestId,
         world: &mut World,
-        f: impl for<'a> FnOnce(AnyBufferMut<'a, 'a, 'a>) -> U,
+        f: impl FnOnce(AnyBufferMut) -> U,
     ) -> Result<U, AccessError> {
         Ok(world.any_buffer_mut(req, self, f)?)
     }
@@ -710,7 +717,7 @@ pub trait AnyBufferWorldAccess {
         &mut self,
         req: impl Into<RequestId>,
         key: &AnyBufferKey,
-        f: impl for<'a> FnOnce(AnyBufferMut<'a, 'a, 'a>) -> U,
+        f: impl FnOnce(AnyBufferMut) -> U,
     ) -> Result<U, BufferError>;
 }
 
@@ -742,19 +749,18 @@ impl AnyBufferWorldAccess for World {
         &mut self,
         req: impl Into<RequestId>,
         key: &AnyBufferKey,
-        f: impl for<'a> FnOnce(AnyBufferMut<'a, 'a, 'a>) -> U,
+        f: impl FnOnce(AnyBufferMut) -> U,
     ) -> Result<U, BufferError> {
         let interface = key.interface;
         let mut state = interface.create_any_buffer_access_mut_state(self);
         let r = {
             let mut access = state.get_any_buffer_access_mut(self);
             let buffer_mut = access.as_any_buffer_mut(req.into(), key)?;
-            // f(buffer_mut)
+            f(buffer_mut)
         };
 
         state.any_apply(self);
-        // Ok(r)
-        Err(BufferError::BufferMissing)
+        Ok(r)
     }
 }
 
