@@ -132,7 +132,9 @@ function AddOperation({
 
     if (search.trim()) {
       return sourceConnection
-        ? 'No compatible operations match this filter.'
+        ? sourceConnection.sourceHandleType === 'target'
+          ? 'No compatible input operations match this filter.'
+          : 'No compatible output operations match this filter.'
         : 'No operations match this filter.';
     }
 
