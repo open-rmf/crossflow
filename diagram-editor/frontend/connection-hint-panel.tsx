@@ -5,7 +5,10 @@ import {
   filterCompatibleAddOperations,
   getVisibleAddOperations,
 } from './utils/add-operation-catalog';
-import { validateConnectionQuick } from './utils/connection';
+import {
+  createConnectionFromDraggedHandle,
+  validateConnectionQuick,
+} from './utils/connection';
 import { ROOT_NAMESPACE } from './utils/namespace';
 
 export interface ConnectionHintPanelProps {
@@ -35,20 +38,24 @@ export function ConnectionHintPanel({ nodeManager }: ConnectionHintPanelProps) {
       namespace: ROOT_NAMESPACE,
       parentId: sourceNode.parentId,
     },
+    connection.fromHandle.type,
   );
 
   let message =
-    'Drop on a compatible input, or release on empty space to add a compatible next operation.';
+    connection.fromHandle.type === 'target'
+      ? 'Drop on a compatible output, or release on empty space to add a compatible previous operation.'
+      : 'Drop on a compatible input, or release on empty space to add a compatible next operation.';
   let tone: 'info' | 'success' | 'error' = 'info';
 
   if (connection.toHandle && connection.toNode) {
     const result = validateConnectionQuick(
-      {
-        source: connection.fromHandle.nodeId,
-        sourceHandle: connection.fromHandle.id || null,
-        target: connection.toHandle.nodeId,
-        targetHandle: connection.toHandle.id || null,
-      },
+      createConnectionFromDraggedHandle({
+        fromNodeId: connection.fromHandle.nodeId,
+        fromHandleId: connection.fromHandle.id,
+        fromHandleType: connection.fromHandle.type,
+        otherNodeId: connection.toHandle.nodeId,
+        otherHandleId: connection.toHandle.id,
+      }),
       nodeManager,
     );
 
@@ -82,7 +89,10 @@ export function ConnectionHintPanel({ nodeManager }: ConnectionHintPanelProps) {
           <Typography variant="subtitle2">Connection Helper</Typography>
           <Typography variant="body2">{message}</Typography>
           <Typography variant="caption" color="text.secondary">
-            Compatible next operations available: {compatibleOperations.length}
+            {connection.fromHandle.type === 'target'
+              ? 'Compatible previous operations available: '
+              : 'Compatible next operations available: '}
+            {compatibleOperations.length}
           </Typography>
         </Stack>
       </Paper>

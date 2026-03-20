@@ -15,6 +15,7 @@ import {
   createTerminateNode,
 } from '../nodes';
 import {
+  createConnectionFromDraggedHandle,
   getValidEdgeTypes,
   validateEdgeQuick,
   validateEdgeSimple,
@@ -22,6 +23,40 @@ import {
 import { ROOT_NAMESPACE } from './namespace';
 
 describe('validate edges', () => {
+  test('createConnectionFromDraggedHandle normalizes source drags', () => {
+    expect(
+      createConnectionFromDraggedHandle({
+        fromNodeId: 'a',
+        fromHandleId: 'h1',
+        fromHandleType: 'source',
+        otherNodeId: 'b',
+        otherHandleId: 'h2',
+      }),
+    ).toEqual({
+      source: 'a',
+      sourceHandle: 'h1',
+      target: 'b',
+      targetHandle: 'h2',
+    });
+  });
+
+  test('createConnectionFromDraggedHandle normalizes target drags', () => {
+    expect(
+      createConnectionFromDraggedHandle({
+        fromNodeId: 'b',
+        fromHandleId: 'h2',
+        fromHandleType: 'target',
+        otherNodeId: 'a',
+        otherHandleId: 'h1',
+      }),
+    ).toEqual({
+      source: 'a',
+      sourceHandle: 'h1',
+      target: 'b',
+      targetHandle: 'h2',
+    });
+  });
+
   test('"buffer" can only connect to operations that accepts a buffer', () => {
     const node = createOperationNode(
       ROOT_NAMESPACE,

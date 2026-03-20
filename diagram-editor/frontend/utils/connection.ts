@@ -202,6 +202,28 @@ function createValidationError(error: string): ValidationError {
   return { valid: false, error };
 }
 
+export function createConnectionFromDraggedHandle(args: {
+  fromNodeId: string;
+  fromHandleId: string | null | undefined;
+  fromHandleType: 'source' | 'target';
+  otherNodeId: string;
+  otherHandleId: string | null | undefined;
+}): Connection {
+  return args.fromHandleType === 'source'
+    ? {
+        source: args.fromNodeId,
+        sourceHandle: args.fromHandleId || null,
+        target: args.otherNodeId,
+        targetHandle: args.otherHandleId || null,
+      }
+    : {
+        source: args.otherNodeId,
+        sourceHandle: args.otherHandleId || null,
+        target: args.fromNodeId,
+        targetHandle: args.fromHandleId || null,
+      };
+}
+
 /**
  * Perform a quick check if an edge is valid.
  * This only checks if the edge type is valid, does not check for conflicting edges, data correctness etc.

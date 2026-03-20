@@ -55,4 +55,33 @@ describe('add operation catalog', () => {
       true,
     );
   });
+
+  test('filters add-operation suggestions for upstream sources when dragging from a target handle', () => {
+    const targetNode = createOperationNode(
+      ROOT_NAMESPACE,
+      undefined,
+      { x: 0, y: 0 },
+      { type: 'join', buffers: [], next: { builtin: 'dispose' } },
+      'target_join',
+    );
+    const compatible = filterCompatibleAddOperations(
+      getVisibleAddOperations({
+        isTemplateMode: false,
+        namespace: ROOT_NAMESPACE,
+      }),
+      targetNode,
+      null,
+      {
+        namespace: ROOT_NAMESPACE,
+        parentId: undefined,
+      },
+      'target',
+    );
+
+    expect(compatible.some((operation) => operation.key === 'buffer')).toBe(true);
+    expect(compatible.some((operation) => operation.key === 'fork_result')).toBe(
+      false,
+    );
+    expect(compatible.some((operation) => operation.key === 'node')).toBe(false);
+  });
 });

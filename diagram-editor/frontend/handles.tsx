@@ -5,7 +5,10 @@ import {
   useNodeId,
 } from '@xyflow/react';
 import { useNodeManager } from './node-manager';
-import { validateConnectionQuick } from './utils/connection';
+import {
+  createConnectionFromDraggedHandle,
+  validateConnectionQuick,
+} from './utils/connection';
 import { exhaustiveCheck } from './utils/exhaustive-check';
 
 export enum HandleId {
@@ -78,20 +81,13 @@ export function Handle({ id, variant, className, ...baseProps }: HandleProps) {
     connection.fromHandle.nodeId !== nodeId &&
     connection.fromHandle.type !== handleType
   ) {
-    const conn =
-      connection.fromHandle.type === 'source'
-        ? {
-            source: connection.fromHandle.nodeId,
-            sourceHandle: connection.fromHandle.id || null,
-            target: nodeId,
-            targetHandle: id || null,
-          }
-        : {
-            source: nodeId,
-            sourceHandle: id || null,
-            target: connection.fromHandle.nodeId,
-            targetHandle: connection.fromHandle.id || null,
-          };
+    const conn = createConnectionFromDraggedHandle({
+      fromNodeId: connection.fromHandle.nodeId,
+      fromHandleId: connection.fromHandle.id,
+      fromHandleType: connection.fromHandle.type,
+      otherNodeId: nodeId,
+      otherHandleId: id,
+    });
 
     const result = validateConnectionQuick(
       conn,

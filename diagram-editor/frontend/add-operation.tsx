@@ -1,4 +1,4 @@
-import { Button, ButtonGroup, TextField, Typography, styled } from '@mui/material';
+import { Button, ButtonGroup, Stack, TextField, Typography, styled } from '@mui/material';
 import type { NodeAddChange, XYPosition } from '@xyflow/react';
 import React from 'react';
 import { EditorMode, useEditorMode } from './editor-mode';
@@ -64,6 +64,7 @@ export interface AddOperationProps {
   sourceConnection?: {
     sourceNodeId: string;
     sourceHandle: string | null;
+    sourceHandleType: 'source' | 'target';
   } | null;
   onAdd?: (selection: AddOperationSelection) => void;
 }
@@ -87,7 +88,7 @@ function AddOperation({
   const sourceNode = sourceConnection
     ? nodeManager.tryGetNode(sourceConnection.sourceNodeId)
     : null;
-  const operations = React.useMemo(() => {
+  const compatibleOperations = React.useMemo(() => {
     let visible = getVisibleAddOperations({
       isTemplateMode: editorMode.mode === EditorMode.Template,
       namespace,
@@ -99,65 +100,101 @@ function AddOperation({
         sourceNode,
         sourceConnection?.sourceHandle,
         { namespace, parentId },
+        sourceConnection?.sourceHandleType,
       );
     }
 
+    return visible;
+  }, [
+    editorMode.mode,
+    namespace,
+    sourceNode,
+    sourceConnection?.sourceHandle,
+    sourceConnection?.sourceHandleType,
+    parentId,
+  ]);
+
+  const operations = React.useMemo(() => {
     const trimmedSearch = search.trim().toLowerCase();
     if (!trimmedSearch) {
-      return visible;
+      return compatibleOperations;
     }
 
-    return visible.filter((operation) =>
+    return compatibleOperations.filter((operation) =>
       operation.label.toLowerCase().includes(trimmedSearch),
     );
-  }, [editorMode.mode, namespace, sourceNode, sourceConnection?.sourceHandle, parentId, search]);
+  }, [compatibleOperations, search]);
+
+  const emptyMessage = React.useMemo(() => {
+    if (operations.length > 0) {
+      return null;
+    }
+
+    if (search.trim()) {
+      return sourceConnection
+        ? 'No compatible operations match this filter.'
+        : 'No operations match this filter.';
+    }
+
+    return sourceConnection
+      ? sourceConnection.sourceHandleType === 'target'
+        ? 'No compatible operations are available for this input yet.'
+        : 'No compatible operations are available for this output yet.'
+      : 'No operations are available here yet.';
+  }, [operations.length, search, sourceConnection]);
+
+  const title = sourceConnection
+    ? sourceConnection.sourceHandleType === 'target'
+      ? 'Compatible previous operations'
+      : 'Compatible next operations'
+    : 'Add operation';
 
   return (
-    <>
-      <Typography variant="subtitle2" sx={{ px: 1.5, pt: 1.5, pb: 0.5 }}>
-        {sourceConnection ? 'Compatible next operations' : 'Add operation'}
-      </Typography>
+    <Stack spacing={1} sx={{ px: 1.5, pt: 1.5, pb: 1.5, width: 260 }}>
+      <Typography variant="subtitle2">{title}</Typography>
       <TextField
         size="small"
         placeholder="Filter operations"
         value={search}
         onChange={(event) => setSearch(event.target.value)}
-        sx={{ px: 1.5, pb: 1, width: 260 }}
       />
-      <ButtonGroup
-        orientation="vertical"
-        variant="contained"
-        size="small"
-        aria-label="Add operation button group"
-      >
-        {operations.map((operation) => (
-          <StyledOperationButton
-            key={operation.key}
-            startIcon={OPERATION_ICONS[operation.key]}
-            onClick={() => {
-              const changes = operation.createChanges({
-                namespace,
-                parentId,
-                newNodePosition,
-                nodeManager,
-              });
-              const primaryNodeId = changes[0]?.item.id;
-              if (!primaryNodeId) {
-                return;
-              }
-              onAdd?.({ changes, primaryNodeId });
-            }}
-          >
-            {operation.label}
-          </StyledOperationButton>
-        ))}
-      </ButtonGroup>
-      {operations.length === 0 && (
-        <Typography variant="body2" sx={{ px: 1.5, py: 1.5, width: 260 }}>
-          No compatible operations are available for this output yet.
+      {operations.length > 0 && (
+        <ButtonGroup
+          orientation="vertical"
+          variant="contained"
+          size="small"
+          aria-label="Add operation button group"
+          sx={{ width: '100%' }}
+        >
+          {operations.map((operation) => (
+            <StyledOperationButton
+              key={operation.key}
+              startIcon={OPERATION_ICONS[operation.key]}
+              onClick={() => {
+                const changes = operation.createChanges({
+                  namespace,
+                  parentId,
+                  newNodePosition,
+                  nodeManager,
+                });
+                const primaryNodeId = changes[0]?.item.id;
+                if (!primaryNodeId) {
+                  return;
+                }
+                onAdd?.({ changes, primaryNodeId });
+              }}
+            >
+              {operation.label}
+            </StyledOperationButton>
+          ))}
+        </ButtonGroup>
+      )}
+      {emptyMessage && (
+        <Typography variant="body2">
+          {emptyMessage}
         </Typography>
       )}
-    </>
+    </Stack>
   );
 }
 

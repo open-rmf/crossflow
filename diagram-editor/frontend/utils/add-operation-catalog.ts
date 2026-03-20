@@ -8,6 +8,9 @@ import {
   createSectionInputNode,
   createSectionOutputNode,
   type DiagramEditorNode,
+  isSectionBufferNode,
+  isSectionInputNode,
+  isSectionOutputNode,
 } from '../nodes';
 import type { DiagramOperation, NextOperation } from '../types/api';
 import { getValidEdgeTypes } from './connection';
@@ -121,7 +124,7 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
       const remappedId = addUniqueSuffix(
         'new_input',
         nodeManager.nodes
-          .filter((n) => n.type === 'sectionInput')
+          .filter(isSectionInputNode)
           .map((n) => n.data.remappedId),
       );
       return [
@@ -142,7 +145,7 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
       const outputId = addUniqueSuffix(
         'new_output',
         nodeManager.nodes
-          .filter((n) => n.type === 'sectionOutput')
+          .filter(isSectionOutputNode)
           .map((n) => n.data.outputId),
       );
       return [createSectionOutputChange(outputId, newNodePosition)];
@@ -158,7 +161,7 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
       const remappedId = addUniqueSuffix(
         'new_buffer',
         nodeManager.nodes
-          .filter((n) => n.type === 'sectionBuffer')
+          .filter(isSectionBufferNode)
           .map((n) => n.data.remappedId),
       );
       return [
@@ -423,22 +426,34 @@ export function getVisibleAddOperations(options: {
 
 export function filterCompatibleAddOperations(
   definitions: AddOperationDefinition[],
-  sourceNode: DiagramEditorNode,
-  sourceHandle: string | null | undefined,
+  anchorNode: DiagramEditorNode,
+  anchorHandle: string | null | undefined,
   options: { namespace: string; parentId: string | undefined },
+  anchorHandleType: 'source' | 'target' = 'source',
 ) {
   return definitions.filter((definition) => {
     const previewNode = definition.createPreviewNode(
       options.namespace,
       options.parentId,
     );
-    return (
-      getValidEdgeTypes(
-        sourceNode,
-        sourceHandle,
-        previewNode,
-        null,
-      ).length > 0
-    );
+    if (
+      anchorHandleType === 'target' &&
+      previewNode.type === 'fork_result'
+    ) {
+      return false;
+    }
+    return anchorHandleType === 'source'
+      ? getValidEdgeTypes(
+          anchorNode,
+          anchorHandle,
+          previewNode,
+          null,
+        ).length > 0
+      : getValidEdgeTypes(
+          previewNode,
+          null,
+          anchorNode,
+          anchorHandle,
+        ).length > 0;
   });
 }

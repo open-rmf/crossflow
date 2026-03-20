@@ -63,6 +63,7 @@ import { EdgesProvider } from './use-edges';
 import { autoLayout } from './utils/auto-layout';
 import { isRemoveChange } from './utils/change';
 import {
+  createConnectionFromDraggedHandle,
   getValidEdgeTypes,
   validateConnectionQuick,
   validateEdgeSimple,
@@ -397,6 +398,7 @@ function DiagramEditor() {
     sourceConnection: {
       sourceNodeId: string;
       sourceHandle: string | null;
+      sourceHandleType: 'source' | 'target';
     } | null;
   }>({
     open: false,
@@ -583,10 +585,16 @@ function DiagramEditor() {
     (
       conn: Connection,
       id?: string,
-      targetNodeOverride?: DiagramEditorNode,
+      nodeOverride?: DiagramEditorNode,
     ): DiagramEditorEdge | null => {
-      const sourceNode = nodeManager.tryGetNode(conn.source);
-      const targetNode = targetNodeOverride || nodeManager.tryGetNode(conn.target);
+      const sourceNode =
+        nodeOverride?.id === conn.source
+          ? nodeOverride
+          : nodeManager.tryGetNode(conn.source);
+      const targetNode =
+        nodeOverride?.id === conn.target
+          ? nodeOverride
+          : nodeManager.tryGetNode(conn.target);
       if (!sourceNode || !targetNode) {
         throw new Error('cannot find source or target node');
       }
@@ -630,8 +638,11 @@ function DiagramEditor() {
         }
       }
 
-      const validationNodeManager = targetNodeOverride
-        ? new NodeManager([...nodeManager.nodes, targetNodeOverride])
+      const validationNodeManager = nodeOverride
+        ? new NodeManager([
+            ...nodeManager.nodes.filter((node) => node.id !== nodeOverride.id),
+            nodeOverride,
+          ])
         : nodeManager;
       const validationResult = validateEdgeSimple(
         newEdge,
@@ -722,12 +733,13 @@ function DiagramEditor() {
 
           if (connectionState.isValid === false && connectionState.toHandle) {
             const result = validateConnectionQuick(
-              {
-                source: connectionState.fromHandle.nodeId,
-                sourceHandle: connectionState.fromHandle.id || null,
-                target: connectionState.toHandle.nodeId,
-                targetHandle: connectionState.toHandle.id || null,
-              },
+              createConnectionFromDraggedHandle({
+                fromNodeId: connectionState.fromHandle.nodeId,
+                fromHandleId: connectionState.fromHandle.id,
+                fromHandleType: connectionState.fromHandle.type,
+                otherNodeId: connectionState.toHandle.nodeId,
+                otherHandleId: connectionState.toHandle.id,
+              }),
               nodeManager,
             );
 
@@ -754,6 +766,7 @@ function DiagramEditor() {
             sourceConnection: {
               sourceNodeId: sourceNode.id,
               sourceHandle: connectionState.fromHandle.id || null,
+              sourceHandleType: connectionState.fromHandle.type,
             },
           });
           suppressNextPaneClick.current = true;
@@ -880,12 +893,19 @@ function DiagramEditor() {
                   null;
                 if (targetNode) {
                   const newEdge = tryCreateEdge(
-                    {
-                      source: addOperationPopover.sourceConnection.sourceNodeId,
-                      sourceHandle: addOperationPopover.sourceConnection.sourceHandle,
-                      target: targetNode.id,
-                      targetHandle: null,
-                    },
+                    addOperationPopover.sourceConnection.sourceHandleType === 'source'
+                      ? {
+                          source: addOperationPopover.sourceConnection.sourceNodeId,
+                          sourceHandle: addOperationPopover.sourceConnection.sourceHandle,
+                          target: targetNode.id,
+                          targetHandle: null,
+                        }
+                      : {
+                          source: targetNode.id,
+                          sourceHandle: null,
+                          target: addOperationPopover.sourceConnection.sourceNodeId,
+                          targetHandle: addOperationPopover.sourceConnection.sourceHandle,
+                        },
                     undefined,
                     targetNode,
                   );
