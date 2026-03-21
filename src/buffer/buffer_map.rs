@@ -682,12 +682,12 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
     fn is_disjoint(&self) -> Result<(), OverlapError>;
 
     /// Check if the buffer is in a state that it's ready to be fetched from.
-    fn can_fetch(&self, world: &World) -> Result<bool, AccessError>;
+    fn can_join(&self, world: &World) -> Result<bool, AccessError>;
 
-    type Fetched: 'static + Send + Sync;
+    type Joined: 'static + Send + Sync;
     /// Fetch a value from the buffer. For a normal [`BufferKey`] this will
     /// pull the oldest value out of the buffer.
-    fn fetch(&self, req: RequestId, world: &mut World) -> Option<Self::Fetched>;
+    fn join(&self, req: RequestId, world: &mut World) -> Option<Self::Joined>;
 
     type View<'a>;
     /// Get access to a view of the buffer.
@@ -831,13 +831,13 @@ where
         Ok(())
     }
 
-    fn can_fetch(&self, world: &World) -> Result<bool, AccessError> {
+    fn can_join(&self, world: &World) -> Result<bool, AccessError> {
         let view = world.buffer_view_untraced::<T>(self.tag())?;
         Ok(view.oldest().is_some())
     }
 
-    type Fetched = T;
-    fn fetch(&self, req: RequestId, world: &mut World) -> Option<Self::Fetched> {
+    type Joined = T;
+    fn join(&self, req: RequestId, world: &mut World) -> Option<Self::Joined> {
         world.buffer_mut(req, self, |mut buffer| {
             buffer.pull()
         }).ok().flatten()
@@ -859,6 +859,7 @@ where
         req: RequestId,
         world: &mut World,
         f: impl FnOnce(BufferMut<T>) -> U,
+        // f: impl FnOnce(Self::Access<'_, '_, '_>) -> U,
     ) -> Result<U, AccessError> {
         Ok(world.buffer_mut(req, self, f)?)
     }
@@ -871,30 +872,24 @@ where
     type Buffers = Vec<A::Buffers>;
 
     fn is_disjoint(&self) -> Result<(), OverlapError> {
-        let mut included = HashMap::new();
+        let mut duplicates = HashMap::new();
         let mut is_disjoint = true;
         for key in self {
-            is_disjoint &= key.validate_disjoint(&mut included);
+            is_disjoint &= key.validate_disjoint(&mut duplicates);
         }
 
         if !is_disjoint {
-            let mut duplicates = HashMap::new();
-            for (entry, count) in included {
-                if count > 1 {
-                    duplicates.insert(entry, count);
-                }
-            }
-
+            duplicates.retain(|_, count| *count > 1);
             return Err(OverlapError { duplicates })
         }
 
         return Ok(())
     }
 
-    fn can_fetch(&self, world: &World) -> Result<bool, AccessError> {
+    fn can_join(&self, world: &World) -> Result<bool, AccessError> {
         self.is_disjoint()?;
         for key in self {
-            if !key.can_fetch(world)? {
+            if !key.can_join(world)? {
                 return Ok(false);
             }
         }
@@ -902,11 +897,15 @@ where
         Ok(true)
     }
 
-    type Fetched = Vec<A::Fetched>;
-    fn fetch(&self, req: RequestId, world: &mut World) -> Option<Self::Fetched> {
+    type Joined = Vec<A::Joined>;
+    fn join(&self, req: RequestId, world: &mut World) -> Option<Self::Joined> {
+        if !self.can_join(world).ok()? {
+            return None;
+        }
+
         let mut fetched = Vec::new();
         for key in self {
-            fetched.push(key.fetch(req, world)?);
+            fetched.push(key.join(req, world)?);
         }
 
         Some(fetched)

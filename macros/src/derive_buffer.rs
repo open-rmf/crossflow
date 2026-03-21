@@ -1,8 +1,8 @@
-use proc_macro2::TokenStream;
+use proc_macro2::{TokenStream, Span};
 use quote::{format_ident, quote};
 use syn::{
     Field, Generics, Ident, ImplGenerics, ItemStruct, Type, TypeGenerics, TypePath, Visibility,
-    WhereClause, parse_quote,
+    WhereClause, parse_quote, Lifetime, LifetimeParam, GenericParam, WherePredicate,
 };
 
 use crate::Result;
@@ -75,7 +75,7 @@ pub(crate) fn impl_joined_value(input_struct: &ItemStruct) -> Result<TokenStream
     Ok(tokens.into())
 }
 
-pub(crate) fn impl_buffer_key_map(input_struct: &ItemStruct) -> Result<TokenStream> {
+pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStream> {
     let struct_ident = &input_struct.ident;
     let (impl_generics, ty_generics, where_clause) = input_struct.generics.split_for_impl();
     let StructConfig {
@@ -121,43 +121,140 @@ pub(crate) fn impl_buffer_key_map(input_struct: &ItemStruct) -> Result<TokenStre
         impl_buffer_map_layout(&buffer_struct, &field_ident, &field_config)?;
     let impl_accessed = impl_accessed(&buffer_struct, &input_struct, &field_ident, &field_type)?;
 
+    let joined_ident = format_ident!("__crossflow_{}_Joined", struct_ident);
+
+    let view_ident = format_ident!("__crossflow_{}_View", struct_ident);
+    let mut view_generics = input_struct.generics.clone();
+    let view_lifetime = Lifetime::new("'v", Span::call_site());
+    let view_ltp = LifetimeParam::new(view_lifetime);
+    view_generics.params.push(GenericParam::from(view_ltp));
+    let (impl_generics_view, ty_generics_view, _) = view_generics.split_for_impl();
+
+
+    let access_ident = format_ident!("__crossflow_{}_Access", struct_ident);
+    let mut access_generics = input_struct.generics.clone();
+    access_generics.params.extend([
+        GenericParam::from(LifetimeParam::new(Lifetime::new("'w", Span::call_site()))),
+        GenericParam::from(LifetimeParam::new(Lifetime::new("'s", Span::call_site()))),
+        GenericParam::from(LifetimeParam::new(Lifetime::new("'a", Span::call_site()))),
+    ]);
+
+    let w_s: WherePredicate = parse_quote! { 'w: 's };
+    let s_a: WherePredicate = parse_quote! { 's: 'a };
+    access_generics.make_where_clause().predicates.extend([w_s, s_a]);
+    let (impl_generics_access, ty_generics_access, where_clause_access) = access_generics.split_for_impl();
+
+    let mut fn_access_generics = input_struct.generics.clone();
+    fn_access_generics.params.extend([
+        GenericParam::from(LifetimeParam::new(Lifetime::new("'_", Span::call_site()))),
+        GenericParam::from(LifetimeParam::new(Lifetime::new("'_", Span::call_site()))),
+        GenericParam::from(LifetimeParam::new(Lifetime::new("'_", Span::call_site()))),
+    ]);
+    let (_, ty_generics_fn_access, _) = fn_access_generics.split_for_impl();
+
+    // let is_disjoint: Vec<Ident> = field_ident.iter().map(|ident| Ident::new(&format!("{ident}"), ident.span())).collect();
+
     let tokens = quote! {
         impl #impl_generics ::crossflow::Accessor for #struct_ident #ty_generics #where_clause {
             type Buffers = #buffer_struct_ident #ty_generics;
 
             fn is_disjoint(&self) -> ::std::result::Result<(), ::crossflow::OverlapError> {
-                ::std::result::Result::Err(::crossflow::OverlapError {
-                    duplicates: ::std::default::Default::default(),
-                })
+                let mut duplicates = ::std::collections::HashMap::new();
+                let mut is_disjoint = true;
+
+                #(
+                    is_disjoint &= <#field_type as ::crossflow::AccessKey>::validate_disjoint(&self. #field_ident, &mut duplicates);
+                )*
+
+                if !is_disjoint {
+                    duplicates.retain(|_, count| *count > 1);
+                    return ::std::result::Result::Err(::crossflow::OverlapError { duplicates });
+                }
+
+                return ::std::result::Result::Ok(())
             }
 
-            fn can_fetch(&self, world: &::crossflow::re_exports::World) -> Result<bool, ::crossflow::AccessError> {
-                ::std::result::Result::Ok(false)
+            fn can_join(&self, world: &::crossflow::re_exports::World) -> Result<bool, ::crossflow::AccessError>{
+                ::crossflow::Accessor::is_disjoint(self)?;
+
+                #(
+                    if !<#field_type as ::crossflow::Accessor>::can_join(&self. #field_ident, world)? {
+                        return std::result::Result::Ok(false);
+                    }
+                )*
+
+                ::std::result::Result::Ok(true)
             }
 
-            type Fetched = ();
-            fn fetch(&self, req: ::crossflow::RequestId, world: &mut ::crossflow::re_exports::World) -> ::std::option::Option<()> {
-                None
+            type Joined = #joined_ident #ty_generics;
+            fn join(&self, req: ::crossflow::RequestId, world: &mut ::crossflow::re_exports::World) -> ::std::option::Option<Self::Joined> {
+                if ::crossflow::Accessor::can_join(self, world).ok()? {
+                    return std::option::Option::None;
+                }
+
+                #(
+                    let #field_ident = <#field_type as ::crossflow::Accessor>::join(&self. #field_ident, req, world)?;
+                )*
+
+                ::std::option::Option::Some(
+                    #joined_ident {
+                        #(
+                            #field_ident,
+                        )*
+                    }
+                )
             }
 
-            type View<'a> = ();
-            fn view<'a>(&self, req: ::crossflow::RequestId, world: &'a mut ::crossflow::re_exports::World) -> ::std::result::Result<(), ::crossflow::BufferError> {
-                Ok(())
+            type View<'v> = #view_ident #ty_generics_view;
+            fn view<'v>(&self, req: ::crossflow::RequestId, world: &'v mut ::crossflow::re_exports::World) -> ::std::result::Result<Self::View<'v>, ::crossflow::BufferError> {
+                Err(::crossflow::BufferError::BufferMissing)
             }
 
-            fn view_untraced<'a>(&self, world: &'a ::crossflow::re_exports::World) -> ::std::result::Result<(), ::crossflow::BufferError> {
-                Ok(())
+            fn view_untraced<'v>(&self, world: &'v ::crossflow::re_exports::World) -> ::std::result::Result<Self::View<'v>, ::crossflow::BufferError> {
+                Err(::crossflow::BufferError::BufferMissing)
             }
 
-            type Access<'w, 's, 'a> = () where 'w: 's, 's: 'a;
+            // type Access<'w, 's, 'a> = () where 'w: 's, 's: 'a;
+            type Access<'w, 's, 'a> = #access_ident #ty_generics_access #where_clause_access;
             fn access<U>(
                 &self,
                 req: ::crossflow::RequestId,
                 world: &mut ::crossflow::re_exports::World,
-                f: impl FnOnce(()) -> U,
+                f: impl FnOnce(#access_ident #ty_generics_fn_access) -> U,
             ) -> ::std::result::Result<U, ::crossflow::AccessError> {
                 Err(::crossflow::AccessError::Inaccessible(::crossflow::BufferError::BufferMissing))
             }
+        }
+
+        #[allow(non_camel_case_types, unused)]
+        #buffer_struct_vis struct #joined_ident #impl_generics #where_clause {
+            #(
+                #buffer_struct_vis #field_ident: <#field_type as ::crossflow::Accessor>::Joined,
+            )*
+        }
+
+        #[allow(non_camel_case_types, unused)]
+        #buffer_struct_vis struct #view_ident #impl_generics_view #where_clause {
+            #(
+                #buffer_struct_vis #field_ident: <#field_type as ::crossflow::Accessor>::View<'v>,
+            )*
+        }
+
+        impl #impl_generics_view ::std::clone::Clone for #view_ident #ty_generics_view #where_clause {
+            fn clone(&self) -> Self {
+                Self {
+                    #(
+                        #field_ident: ::std::clone::Clone::clone(&self.#field_ident),
+                    )*
+                }
+            }
+        }
+
+        #[allow(non_camel_case_types, unused)]
+        #buffer_struct_vis struct #access_ident #impl_generics_access #where_clause_access {
+            #(
+                #buffer_struct_vis #field_ident: <#field_type as ::crossflow::Accessor>::Access<'w, 's, 'a>,
+            )*
         }
 
         #buffer_struct
@@ -464,6 +561,12 @@ fn impl_buffer_map_layout(
     }
     .into())
 }
+
+// fn impl_accessor_trait(
+
+// ) -> Result<proc_macro2::TokenStream> {
+
+// }
 
 /// Params:
 ///   joined_struct: The struct to implement `Joining`.

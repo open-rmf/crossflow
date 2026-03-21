@@ -21,7 +21,7 @@ use std::{
     any::{Any, TypeId},
     collections::{HashMap, HashSet, hash_map::Entry},
     ops::RangeBounds,
-    sync::{Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use bevy_ecs::{
@@ -378,13 +378,13 @@ impl Accessor for AnyBufferKey {
         Ok(())
     }
 
-    fn can_fetch(&self, world: &World) -> Result<bool, AccessError> {
+    fn can_join(&self, world: &World) -> Result<bool, AccessError> {
         let view = world.any_buffer_view_untraced(self)?;
         Ok(view.oldest().is_some())
     }
 
-    type Fetched = AnyMessageBox;
-    fn fetch(&self, req: RequestId, world: &mut World) -> Option<Self::Fetched> {
+    type Joined = AnyMessageBox;
+    fn join(&self, req: RequestId, world: &mut World) -> Option<Self::Joined> {
         world.any_buffer_mut(req, self, |mut buffer| {
             buffer.pull()
         }).ok().flatten()
@@ -444,8 +444,9 @@ impl BufferMapLayout for AnyBuffer {
 /// Similar to [`BufferView`], but this can be unlocked with
 /// an [`AnyBufferKey`], so it can work for any buffer whose message types
 /// support serialization and deserialization.
+#[derive(Clone)]
 pub struct AnyBufferView<'a> {
-    viewing: Box<dyn AnyBufferViewing<'a> + 'a>,
+    viewing: Arc<dyn AnyBufferViewing<'a> + 'a>,
     gate: &'a GateState,
     session: Entity,
 }
@@ -1344,7 +1345,7 @@ impl<T: 'static + Send + Sync + Any> AnyBufferAccessInterface for AnyBufferAcces
             .ok_or(BufferError::BufferMissing)?;
 
         Ok(AnyBufferView {
-            viewing: Box::new(BufferView::<T> {
+            viewing: Arc::new(BufferView::<T> {
                 storage,
                 session: key.tag.session,
             }),

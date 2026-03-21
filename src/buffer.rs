@@ -835,6 +835,17 @@ where
     session: Entity,
 }
 
+impl<'a, T: 'static + Send + Sync> Clone for BufferView<'a, T> {
+    fn clone(&self) -> Self {
+        Self {
+            storage: self.storage,
+            session: self.session,
+        }
+    }
+}
+
+impl<'a, T: 'static + Send + Sync> Copy for BufferView<'a, T> {}
+
 impl<'a, T> BufferView<'a, T>
 where
     T: 'static + Send + Sync,

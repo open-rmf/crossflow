@@ -21,7 +21,7 @@ use std::{
     any::TypeId,
     collections::{HashMap, HashSet},
     ops::RangeBounds,
-    sync::{Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use bevy_ecs::{
@@ -277,8 +277,9 @@ impl From<JsonBufferKey> for AnyBufferKey {
 /// world access is needed to get this, because the underlaying buffer may be any
 /// serializable data type, and only the [`JsonBufferKey`] will know the actual
 /// data type.
+#[derive(Clone)]
 pub struct JsonBufferView<'a> {
-    viewing: Box<dyn JsonBufferViewing<'a> + 'a>,
+    viewing: Arc<dyn JsonBufferViewing<'a> + 'a>,
     gate: &'a GateState,
     session: Entity,
 }
@@ -1031,7 +1032,7 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonBufferAccessIn
             .get::<GateState>()
             .ok_or(BufferError::BufferMissing)?;
         Ok(JsonBufferView {
-            viewing: Box::new(BufferView {
+            viewing: Arc::new(BufferView {
                 storage,
                 session: key.tag.session,
             }),
@@ -1285,13 +1286,13 @@ impl Accessor for JsonBufferKey {
         Ok(())
     }
 
-    fn can_fetch(&self, world: &World) -> Result<bool, AccessError> {
+    fn can_join(&self, world: &World) -> Result<bool, AccessError> {
         let view = world.json_buffer_view_untraced(self)?;
         Ok(view.oldest().is_some())
     }
 
-    type Fetched = Result<JsonMessage, serde_json::Error>;
-    fn fetch(&self, req: RequestId, world: &mut World) -> Option<Self::Fetched> {
+    type Joined = Result<JsonMessage, serde_json::Error>;
+    fn join(&self, req: RequestId, world: &mut World) -> Option<Self::Joined> {
         world.json_buffer_mut(req, self, |mut buffer| {
             buffer.pull()
         })
