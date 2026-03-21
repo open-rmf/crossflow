@@ -65,8 +65,9 @@ import { isRemoveChange } from './utils/change';
 import {
   createConnectionFromDraggedHandle,
   getValidEdgeTypes,
-  validateConnectionQuick,
+  validateConnectionSimple,
   validateEdgeSimple,
+  validateSourceOutputCapacity,
 } from './utils/connection';
 import { exhaustiveCheck } from './utils/exhaustive-check';
 import { exportTemplate } from './utils/export-diagram';
@@ -716,7 +717,7 @@ function DiagramEditor() {
           }
         }}
         isValidConnection={(conn) => {
-          return validateConnectionQuick(conn, nodeManager).valid;
+          return validateConnectionSimple(conn, nodeManager, edges).valid;
         }}
         onReconnect={(oldEdge, newConnection) => {
           const newEdge = tryCreateEdge(newConnection, oldEdge.id);
@@ -732,7 +733,7 @@ function DiagramEditor() {
           }
 
           if (connectionState.isValid === false && connectionState.toHandle) {
-            const result = validateConnectionQuick(
+            const result = validateConnectionSimple(
               createConnectionFromDraggedHandle({
                 fromNodeId: connectionState.fromHandle.nodeId,
                 fromHandleId: connectionState.fromHandle.id,
@@ -741,6 +742,7 @@ function DiagramEditor() {
                 otherHandleId: connectionState.toHandle.id,
               }),
               nodeManager,
+              edges,
             );
 
             if (!result.valid) {
@@ -757,6 +759,18 @@ function DiagramEditor() {
           const clientPosition = getClientPosition(event);
           if (!sourceNode || !clientPosition) {
             return;
+          }
+
+          if (connectionState.fromHandle.type === 'source') {
+            const outputCapacity = validateSourceOutputCapacity(
+              sourceNode,
+              connectionState.fromHandle.id,
+              edges,
+            );
+            if (!outputCapacity.valid) {
+              showErrorToast(outputCapacity.error);
+              return;
+            }
           }
 
           setAddOperationPopover({

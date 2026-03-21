@@ -7,9 +7,11 @@ import {
 } from './utils/add-operation-catalog';
 import {
   createConnectionFromDraggedHandle,
-  validateConnectionQuick,
+  validateConnectionSimple,
+  validateSourceOutputCapacity,
 } from './utils/connection';
 import { ROOT_NAMESPACE } from './utils/namespace';
+import { useEdges } from './use-edges';
 
 export interface ConnectionHintPanelProps {
   nodeManager: NodeManager;
@@ -17,6 +19,7 @@ export interface ConnectionHintPanelProps {
 
 export function ConnectionHintPanel({ nodeManager }: ConnectionHintPanelProps) {
   const connection = useConnection();
+  const edges = useEdges();
 
   if (!connection.inProgress || !connection.fromHandle) {
     return null;
@@ -27,28 +30,38 @@ export function ConnectionHintPanel({ nodeManager }: ConnectionHintPanelProps) {
     return null;
   }
 
-  const compatibleOperations = filterCompatibleAddOperations(
-    getVisibleAddOperations({
-      isTemplateMode: false,
-      namespace: ROOT_NAMESPACE,
-    }),
-    sourceNode,
-    connection.fromHandle.id,
-    {
-      namespace: ROOT_NAMESPACE,
-      parentId: sourceNode.parentId,
-    },
-    connection.fromHandle.type,
-  );
+  const sourceOutputCapacity =
+    connection.fromHandle.type === 'source'
+      ? validateSourceOutputCapacity(sourceNode, connection.fromHandle.id, edges)
+      : { valid: true as const };
+  const compatibleOperations = sourceOutputCapacity.valid
+    ? filterCompatibleAddOperations(
+        getVisibleAddOperations({
+          isTemplateMode: false,
+          namespace: ROOT_NAMESPACE,
+        }),
+        sourceNode,
+        connection.fromHandle.id,
+        {
+          namespace: ROOT_NAMESPACE,
+          parentId: sourceNode.parentId,
+        },
+        connection.fromHandle.type,
+      )
+    : [];
 
   let message =
-    connection.fromHandle.type === 'target'
-      ? 'Drop on a compatible output, or release on empty space to add a compatible previous operation.'
-      : 'Drop on a compatible input, or release on empty space to add a compatible next operation.';
-  let tone: 'info' | 'success' | 'error' = 'info';
+    !sourceOutputCapacity.valid
+      ? sourceOutputCapacity.error
+      : connection.fromHandle.type === 'target'
+        ? 'Drop on a compatible output, or release on empty space to add a compatible previous operation.'
+        : 'Drop on a compatible input, or release on empty space to add a compatible next operation.';
+  let tone: 'info' | 'success' | 'error' = sourceOutputCapacity.valid
+    ? 'info'
+    : 'error';
 
   if (connection.toHandle && connection.toNode) {
-    const result = validateConnectionQuick(
+    const result = validateConnectionSimple(
       createConnectionFromDraggedHandle({
         fromNodeId: connection.fromHandle.nodeId,
         fromHandleId: connection.fromHandle.id,
@@ -57,6 +70,7 @@ export function ConnectionHintPanel({ nodeManager }: ConnectionHintPanelProps) {
         otherHandleId: connection.toHandle.id,
       }),
       nodeManager,
+      edges,
     );
 
     if (result.valid) {

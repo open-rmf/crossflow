@@ -7,8 +7,9 @@ import {
 import { useNodeManager } from './node-manager';
 import {
   createConnectionFromDraggedHandle,
-  validateConnectionQuick,
+  validateConnectionSimple,
 } from './utils/connection';
+import { useEdges } from './use-edges';
 import { exhaustiveCheck } from './utils/exhaustive-check';
 
 export enum HandleId {
@@ -62,6 +63,7 @@ function variantClassName(handleType?: HandleType): string | undefined {
 export function Handle({ id, variant, className, ...baseProps }: HandleProps) {
   const nodeId = useNodeId();
   const nodeManager = useNodeManager();
+  const edges = useEdges();
   const connection = useConnection();
   const handleType = baseProps.type || 'source';
 
@@ -89,9 +91,10 @@ export function Handle({ id, variant, className, ...baseProps }: HandleProps) {
       otherHandleId: id,
     });
 
-    const result = validateConnectionQuick(
+    const result = validateConnectionSimple(
       conn,
       nodeManager,
+      edges,
     );
 
     if (result.valid) {

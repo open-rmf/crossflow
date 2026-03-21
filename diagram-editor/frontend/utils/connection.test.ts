@@ -17,8 +17,10 @@ import {
 import {
   createConnectionFromDraggedHandle,
   getValidEdgeTypes,
+  validateConnectionSimple,
   validateEdgeQuick,
   validateEdgeSimple,
+  validateSourceOutputCapacity,
 } from './connection';
 import { ROOT_NAMESPACE } from './namespace';
 
@@ -355,6 +357,29 @@ describe('validate edges', () => {
       );
       const result = validateEdgeSimple(newEdge, nodeManager, edges);
       expect(result.valid).toBe(false);
+    }
+    {
+      const capacity = validateSourceOutputCapacity(nodeNode, null, edges);
+      expect(capacity).toEqual({
+        valid: false,
+        error: 'This output can only be connected to one input',
+      });
+    }
+    {
+      const result = validateConnectionSimple(
+        {
+          source: nodeNode.id,
+          sourceHandle: null,
+          target: forkCloneNode2.id,
+          targetHandle: null,
+        },
+        nodeManager,
+        edges,
+      );
+      expect(result).toEqual({
+        valid: false,
+        error: 'This output can only be connected to one input',
+      });
     }
   });
 
