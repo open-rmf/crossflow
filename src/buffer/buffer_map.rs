@@ -986,10 +986,13 @@ where
         };
 
         for state in &mut states {
-            A::apply_state(state, unsafe {
-                // SAFETY: Same rationale as earlier in this function
-                world_cell.world_mut()
-            });
+            A::apply_state(
+                state,
+                unsafe {
+                    // SAFETY: Same rationale as earlier in this function
+                    world_cell.world_mut()
+                }
+            );
         }
 
         Ok(r)
@@ -1564,4 +1567,173 @@ mod tests {
             any,
         })
     }
+
+    // #[derive(Clone)]
+    // struct TestAccess {
+    //     a: BufferKey<i32>,
+    //     b: BufferKey<String>,
+    // }
+
+    // impl Accessor for TestAccess {
+    //     type Buffers = TestAccessBuffers;
+
+    //     type Access<'w, 's, 'a> = TestAccessAccess<'w, 's, 'a> where 'w: 's, 's: 'a;
+    //     fn access<U>(
+    //         &self,
+    //         req: crate::RequestId,
+    //         world: &mut World,
+    //         f: impl FnOnce(TestAccessAccess<'_, '_, '_>) -> U,
+    //     ) -> Result<U, super::AccessError> {
+    //         self.is_disjoint()?;
+
+    //         let world_cell = world.as_unsafe_world_cell();
+    //         let mut state_a = crate::AccessKey::get_state(
+    //             &self.a,
+    //             unsafe {
+    //                 world_cell.world_mut()
+    //             }
+    //         );
+
+    //         let mut state_b = crate::AccessKey::get_state(
+    //             &self.b,
+    //             unsafe {
+    //                 world_cell.world_mut()
+    //             }
+    //         );
+
+    //         let r = {
+    //             let mut param_a = <BufferKey<i32> as crate::AccessKey>::get_param(
+    //                 &mut state_a,
+    //                 unsafe {
+    //                     world_cell.world_mut()
+    //                 }
+    //             );
+
+    //             let mut param_b = <BufferKey<String> as crate::AccessKey>::get_param(
+    //                 &mut state_b,
+    //                 unsafe {
+    //                     world_cell.world_mut()
+    //                 }
+    //             );
+
+    //             let a = <BufferKey<i32> as crate::AccessKey>::get_mut(
+    //                 &self.a,
+    //                 req,
+    //                 &mut param_a,
+    //             )?;
+
+    //             let b = <BufferKey<String> as crate::AccessKey>::get_mut(
+    //                 &self.b,
+    //                 req,
+    //                 &mut param_b,
+    //             )?;
+
+    //             let access = TestAccessAccess {
+    //                 a,
+    //                 b,
+    //             };
+
+    //             f(access)
+    //         };
+
+    //         <BufferKey<i32> as crate::AccessKey>::apply_state(
+    //             &mut state_a,
+    //             unsafe {
+    //                 world_cell.world_mut()
+    //             }
+    //         );
+
+    //         <BufferKey<String> as crate::AccessKey>::apply_state(
+    //             &mut state_b,
+    //             unsafe {
+    //                 world_cell.world_mut()
+    //             }
+    //         );
+
+    //         Ok(r)
+    //     }
+    // }
+
+    // struct TestAccessAccess<'w, 's, 'a> {
+    //     a: crate::BufferMut<'w, 's, 'a, i32>,
+    //     b: crate::BufferMut<'w, 's, 'a, String>,
+    // }
+
+    // #[derive(Clone)]
+    // struct TestAccessBuffers {
+    //     a: Buffer<i32>,
+    //     b: Buffer<String>,
+    // }
+
+    // impl BufferMapLayout for TestAccessBuffers {
+    //     fn try_from_buffer_map(buffers: &BufferMap) -> Result<Self, IncompatibleLayout> {
+    //         let mut compatibility = IncompatibleLayout::default();
+    //         let a = compatibility.require_buffer_for_identifier::<Buffer<i32>>("a", buffers);
+    //         let b = compatibility.require_buffer_for_identifier::<Buffer<String>>("b", buffers);
+
+    //         let Ok(a) = a else {
+    //             return Err(compatibility);
+    //         };
+    //         let Ok(b) = b else {
+    //             return Err(compatibility);
+    //         };
+
+    //         Ok(Self {
+    //             a,
+    //             b,
+    //         })
+    //     }
+
+    //     fn get_buffer_message_type_hints(
+    //             identifiers: std::collections::HashSet<crate::IdentifierRef<'static>>,
+    //         ) -> Result<super::MessageTypeHintMap, IncompatibleLayout> {
+    //         let mut evaluation = crate::MessageTypeHintEvaluation::new(identifiers);
+    //         evaluation.set_hint("a", Buffer::<i32>::message_type_hint());
+    //         evaluation.set_hint("b", Buffer::<String>::message_type_hint());
+
+    //         evaluation.evaluate()
+    //     }
+
+    //     fn get_layout_hints() -> super::BufferMapLayoutHints {
+    //         let mut hints = crate::MessageTypeHintMap::new();
+    //         hints.insert("a".into(), Buffer::<i32>::message_type_hint());
+    //         hints.insert("b".into(), Buffer::<String>::message_type_hint());
+    //         crate::BufferMapLayoutHints::Static(hints)
+    //     }
+    // }
+
+    // impl crate::Accessing for TestAccessBuffers {
+    //     type Key = TestAccess;
+
+    //     fn add_accessor(&self, accessor: Entity, world: &mut World) -> crate::OperationResult {
+    //         crate::Accessing::add_accessor(&self.a, accessor, world)?;
+    //         crate::Accessing::add_accessor(&self.b, accessor, world)?;
+    //         Ok(())
+    //     }
+
+    //     fn create_key(&self, builder: &crate::BufferKeyBuilder) -> Self::Key {
+    //         Self::Key {
+    //             a: Buffer::<i32>::create_key(&self.a, builder),
+    //             b: Buffer::<String>::create_key(&self.b, builder),
+    //         }
+    //     }
+
+    //     fn deep_clone_key(key: &Self::Key) -> Self::Key {
+    //         Self::Key {
+    //             a: crate::BufferKeyLifecycle::deep_clone(&self.a),
+    //             b: crate::BufferKeyLifecycle::deep_clone(&self.b),
+    //         }
+    //     }
+
+    //     fn is_key_in_use(key: &Self::Key) -> bool {
+    //         crate::BufferKeyLifecycle::is_in_use(&key.a)
+    //         || crate::BufferKeyLifecycle::is_in_use(&key.b)
+    //     }
+    // }
+
+    // impl crate::BufferMapStruct for TestAccessBuffers {
+    //     fn buffer_list(&self) -> smallvec::SmallVec<[AnyBuffer; 8]> {
+    //         smallvec::smallvec![self.a.into(), self.b.into()]
+    //     }
+    // }
 }

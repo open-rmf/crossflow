@@ -54,7 +54,7 @@ pub(crate) fn impl_joined_value(input_struct: &ItemStruct) -> Result<TokenStream
 
     let impl_buffer_map_layout =
         impl_buffer_map_layout(&buffer_struct, &field_ident, &field_config)?;
-    let impl_joined = impl_joined(&buffer_struct, &input_struct, &field_ident)?;
+    let impl_joined = impl_joining(&buffer_struct, &input_struct, &field_ident)?;
 
     let tokens = quote! {
         impl #impl_generics ::crossflow::Joined for #struct_ident #ty_generics #where_clause {
@@ -119,7 +119,7 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
 
     let impl_buffer_map_layout =
         impl_buffer_map_layout(&buffer_struct, &field_ident, &field_config)?;
-    let impl_accessed = impl_accessed(&buffer_struct, &input_struct, &field_ident, &field_type)?;
+    let impl_accessed = impl_accessing(&buffer_struct, &input_struct, &field_ident, &field_type)?;
 
     let joined_ident = format_ident!("__crossflow_{}_Joined", struct_ident);
 
@@ -152,7 +152,8 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
     ]);
     let (_, ty_generics_fn_access, _) = fn_access_generics.split_for_impl();
 
-    // let is_disjoint: Vec<Ident> = field_ident.iter().map(|ident| Ident::new(&format!("{ident}"), ident.span())).collect();
+    let buffer_state: Vec<_> = field_ident.iter().map(|id| format_ident!("state_{id}")).collect();
+    let buffer_param: Vec<_> = field_ident.iter().map(|id| format_ident!("access_{id}")).collect();
 
     let tokens = quote! {
         impl #impl_generics ::crossflow::Accessor for #struct_ident #ty_generics #where_clause {
@@ -206,12 +207,45 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
             }
 
             type View<'v> = #view_ident #ty_generics_view;
-            fn view<'v>(&self, req: ::crossflow::RequestId, world: &'v mut ::crossflow::re_exports::World) -> ::std::result::Result<Self::View<'v>, ::crossflow::BufferError> {
-                Err(::crossflow::BufferError::BufferMissing)
+            fn view<'v>(
+                &self,
+                req: ::crossflow::RequestId,
+                world: &'v mut ::crossflow::re_exports::World,
+            ) -> ::std::result::Result<Self::View<'v>, ::crossflow::BufferError> {
+                let world_cell = world.as_unsafe_world_cell();
+                #(
+                    let #field_ident = ::crossflow::Accessor::view(
+                        &self. #field_ident,
+                        req,
+                        unsafe {
+                            // SAFETY: We require &mut World as input to this
+                            // function, so we know that nothing else is
+                            // interacting with the world right now. We only
+                            // need mutability for the tracing to be performed,
+                            // which doesn't affect any borrows that we're
+                            // capturing. After that all access is read-only.
+                            world_cell.world_mut()
+                        }
+                    )?;
+                )*
+
+                Ok(#view_ident {
+                    #(
+                        #field_ident,
+                    )*
+                })
             }
 
             fn view_untraced<'v>(&self, world: &'v ::crossflow::re_exports::World) -> ::std::result::Result<Self::View<'v>, ::crossflow::BufferError> {
-                Err(::crossflow::BufferError::BufferMissing)
+                #(
+                    let #field_ident = ::crossflow::Accessor::view_untraced(&self. #field_ident, world)?;
+                )*
+
+                Ok(#view_ident {
+                    #(
+                        #field_ident,
+                    )*
+                })
             }
 
             // type Access<'w, 's, 'a> = () where 'w: 's, 's: 'a;
@@ -222,7 +256,62 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
                 world: &mut ::crossflow::re_exports::World,
                 f: impl FnOnce(#access_ident #ty_generics_fn_access) -> U,
             ) -> ::std::result::Result<U, ::crossflow::AccessError> {
-                Err(::crossflow::AccessError::Inaccessible(::crossflow::BufferError::BufferMissing))
+                self.is_disjoint()?;
+
+                let world_cell = world.as_unsafe_world_cell();
+                #(
+                    let mut #buffer_state = ::crossflow::AccessKey::get_state(
+                        &self. #field_ident,
+                        unsafe {
+                            // SAFETY: We make sure the accessor is disjoint at
+                            // the start of the function. After that there is no
+                            // overlap in the mutable world access needed by the
+                            // system states. Their commands will be flushed
+                            // serially at the end of this function.
+                            world_cell.world_mut()
+                        }
+                    );
+                )*
+
+                let r = {
+                    #(
+                        let mut #buffer_param = <#field_type as ::crossflow::AccessKey>::get_param(
+                            &mut #buffer_state,
+                            unsafe {
+                                // SAFETY: Same rationale as earlier in this function
+                                world_cell.world_mut()
+                            }
+                        );
+                    )*
+
+                    #(
+                        let #field_ident = <#field_type as ::crossflow::AccessKey>::get_mut(
+                            &self. #field_ident,
+                            req,
+                            &mut #buffer_param,
+                        )?;
+                    )*
+
+                    let access = #access_ident {
+                        #(
+                            #field_ident,
+                        )*
+                    };
+
+                    f(access)
+                };
+
+                #(
+                    <#field_type as ::crossflow::AccessKey>::apply_state(
+                        &mut #buffer_state,
+                        unsafe {
+                            // SAFETY: Same rationale as earlier in this function
+                            world_cell.world_mut()
+                        }
+                    );
+                )*
+
+                ::std::result::Result::Ok(r)
             }
         }
 
@@ -562,16 +651,10 @@ fn impl_buffer_map_layout(
     .into())
 }
 
-// fn impl_accessor_trait(
-
-// ) -> Result<proc_macro2::TokenStream> {
-
-// }
-
 /// Params:
 ///   joined_struct: The struct to implement `Joining`.
 ///   item_struct: The associated `Item` type to use for the `Joining` implementation.
-fn impl_joined(
+fn impl_joining(
     joined_struct: &ItemStruct,
     item_struct: &ItemStruct,
     field_ident: &Vec<&Ident>,
@@ -603,7 +686,7 @@ fn impl_joined(
     .into())
 }
 
-fn impl_accessed(
+fn impl_accessing(
     accessed_struct: &ItemStruct,
     key_struct: &ItemStruct,
     field_ident: &Vec<&Ident>,
