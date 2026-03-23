@@ -164,6 +164,10 @@ pub(crate) struct BufferManager<'w, 's, 'a, T: 'static + Send + Sync> {
     storage: Mut<'a, BufferStorage<T>>,
     input: Mut<'a, InputStorage<T>>,
     pub(crate) req: RequestId,
+    // TODO(@mxgrey): We use a raw pointer here to escape an HRTB bug in the
+    // Rust compiler: https://github.com/rust-lang/rust/issues/100013
+    // When that issue is resolved we should try to revert this to a regular
+    // safe borrow.
     pub(crate) commands: *mut Commands<'w, 's>,
     bmut: BMutBuilder<'w, 's, 'a>,
 }
@@ -173,6 +177,10 @@ pub(crate) struct BufferManager<'w, 's, 'a, T: 'static + Send + Sync> {
 #[derive(Clone)]
 struct BMutBuilder<'w, 's, 'a> {
     key: BufferKeyTag,
+    // TODO(@mxgrey): We use a raw pointer here to escape an HRTB bug in the
+    // Rust compiler: https://github.com/rust-lang/rust/issues/100013
+    // When that issue is resolved we should try to revert this to a regular
+    // safe borrow.
     #[cfg(feature = "trace")]
     tracer: *const BufferTracer<'w, 's>,
     _ignore: std::marker::PhantomData<fn(&'w (), &'s (), &'a ())>,
@@ -776,6 +784,10 @@ where
     T: 'static + Send + Sync,
 {
     drain: Option<Rev<Drain<'b, [BufferEntry<T>; 16]>>>,
+    // TODO(@mxgrey): We use a raw pointer here to escape an HRTB bug in the
+    // Rust compiler: https://github.com/rust-lang/rust/issues/100013
+    // When that issue is resolved we should try to revert this to a regular
+    // safe borrow.
     _commands: *mut Commands<'w, 's>,
     #[cfg(feature = "trace")]
     tracer: MessageTracer<'b>,

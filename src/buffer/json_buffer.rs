@@ -355,6 +355,10 @@ pub struct JsonBufferMut<'w, 's, 'a> {
     buffer: Entity,
     session: Entity,
     accessor: Option<Entity>,
+    // TODO(@mxgrey): We use a raw pointer here to escape an HRTB bug in the
+    // Rust compiler: https://github.com/rust-lang/rust/issues/100013
+    // When that issue is resolved we should try to revert this to a regular
+    // safe borrow.
     commands: *mut Commands<'w, 's>,
     modified: bool,
 }
