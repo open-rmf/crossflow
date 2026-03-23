@@ -726,6 +726,12 @@ pub trait BufferWorldAccess {
         f: impl FnOnce(A::Access<'_, '_, '_>) -> U,
     ) -> Result<U, AccessError>;
 
+    fn join_from_buffers<A: Accessor>(
+        &mut self,
+        req: RequestId,
+        accessor: &A,
+    ) -> Result<Option<A::Joined>, AccessError>;
+
     /// Call this to get mutable access to the gate of a buffer.
     ///
     /// Pass in a callback that will receive [`BufferGateMut`], allowing it to
@@ -853,6 +859,14 @@ impl BufferWorldAccess for World {
         f: impl FnOnce(A::Access<'_, '_, '_>) -> U,
     ) -> Result<U, AccessError> {
         accessor.access(req, self, f)
+    }
+
+    fn join_from_buffers<A: Accessor>(
+        &mut self,
+        req: RequestId,
+        accessor: &A,
+    ) -> Result<Option<A::Joined>, AccessError> {
+        accessor.join(req, self)
     }
 
     fn buffer_gate_mut<U>(

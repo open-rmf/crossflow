@@ -384,10 +384,12 @@ impl Accessor for AnyBufferKey {
     }
 
     type Joined = AnyMessageBox;
-    fn join(&self, req: RequestId, world: &mut World) -> Option<Self::Joined> {
-        world.any_buffer_mut(req, self, |mut buffer| {
-            buffer.pull()
-        }).ok().flatten()
+    fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
+        Ok(
+            world.any_buffer_mut(req, self, |mut buffer| {
+                buffer.pull()
+            })?
+        )
     }
 
     type View<'a> = AnyBufferView<'a>;

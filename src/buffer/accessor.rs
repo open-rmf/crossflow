@@ -15,13 +15,442 @@
  *
 */
 
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    hash::Hash,
+};
+
+use thiserror::Error as ThisError;
+
+use smallvec::SmallVec;
+
+use bevy_ecs::{
+    prelude::{Entity, World},
+    system::SystemState,
+};
+
+use crate::{
+    Accessing, AnyBuffer, AnyBufferKey, AnyMessageBox, AsAnyBuffer, Buffer, BufferKeyBuilder,
+    BufferKeyLifecycle, Bufferable, Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer,
+    Gate, GateState, IdentifierRef, Joining, Node, OperationError, OperationResult, BufferWorldAccess,
+    OperationRoster, RequestId, TypeInfo, add_listener_to_source, BufferKey,
+    BufferError, BufferView, BufferMut, BufferAccessMut, BufferMapLayout, BufferMap, IncompatibleLayout,
+};
+
+#[cfg(feature = "diagram")]
+use crate::MessageRegistry;
+
+pub use crossflow_derive::{Accessor, Joined};
+
+#[cfg(feature = "diagram")]
+use serde::{Deserialize, Serialize};
+
+#[cfg(feature = "diagram")]
+use schemars::JsonSchema;
+
+
+/// Trait to describe a set of buffer keys. This allows [listen][1] and [access][2]
+/// to work for arbitrary structs of buffer keys. Structs with this trait can be
+/// produced by [`try_listen`][3] and [`try_create_buffer_access`][4].
+///
+/// Each field in the struct must be some kind of buffer key.
+///
+/// This does not generally need to be implemented explicitly. Instead you should
+/// define a struct where all fields are buffer keys and then apply
+/// `#[derive(Accessor)]` to it, e.g.:
+///
+/// ```
+/// use crossflow::prelude::*;
+///
+/// #[derive(Clone, Accessor)]
+/// struct SomeKeys {
+///     integer: BufferKey<i64>,
+///     string: BufferKey<String>,
+///     any: AnyBufferKey,
+/// }
+/// ```
+///
+/// The macro will generate a struct of buffers to match the keys. The name of
+/// that struct is anonymous by default since you don't generally need to use it
+/// directly, but if you want to give it a name you can use `#[accessor(buffers_struct_name = ...)]`:
+///
+/// ```
+/// # use crossflow::prelude::*;
+///
+/// #[derive(Clone, Accessor)]
+/// #[accessor(buffers_struct_name = SomeBuffers)]
+/// struct SomeKeys {
+///     integer: BufferKey<i64>,
+///     string: BufferKey<String>,
+///     any: AnyBufferKey,
+/// }
+/// ```
+///
+/// [1]: crate::Builder::listen
+/// [2]: crate::Builder::create_buffer_access
+/// [3]: crate::Builder::try_listen
+/// [4]: crate::Builder::try_create_buffer_access
+pub trait Accessor: 'static + Send + Sync + Sized + Clone {
+    type Buffers: 'static + BufferMapLayout + Accessing<Key = Self> + Send + Sync;
+
+    fn try_listen_from<'w, 's, 'a, 'b>(
+        buffers: &BufferMap,
+        builder: &'b mut Builder<'w, 's, 'a>,
+    ) -> Result<Chain<'w, 's, 'a, 'b, Self>, IncompatibleLayout> {
+        let buffers: Self::Buffers = Self::Buffers::try_from_buffer_map(buffers)?;
+        Ok(buffers.listen(builder))
+    }
+
+    fn try_buffer_access<T: 'static + Send + Sync>(
+        buffers: &BufferMap,
+        builder: &mut Builder,
+    ) -> Result<Node<T, (T, Self)>, IncompatibleLayout> {
+        let buffers: Self::Buffers = Self::Buffers::try_from_buffer_map(buffers)?;
+        Ok(buffers.access(builder))
+    }
+
+    /// Check if this accessor is disjoint, meaning each key it contains accesses
+    /// a unique buffer instance. Being a unique buffer instance means the
+    /// combination of its buffer entity and session entity only appear once within
+    /// this Accessor. The same buffer entity may appear multiple times for different
+    /// sessions.
+    ///
+    /// For mutable access, including fetching, the accessor needs to be disjoint,
+    /// so this needs to return true. Read-only access can be done with non-disjoint
+    /// accessors.
+    fn is_disjoint(&self) -> Result<(), OverlapError>;
+
+    /// Check if the buffer is in a state that it's ready to be fetched from.
+    fn can_join(&self, world: &World) -> Result<bool, AccessError>;
+
+    type Joined: 'static + Send + Sync;
+    /// Fetch a value from the buffer. For a normal [`BufferKey`] this will
+    /// pull the oldest value out of the buffer.
+    fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError>;
+
+    type View<'a>;
+    /// Get access to a view of the buffer.
+    fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError>;
+
+    /// Get access to a view of the buffer without tracing this access. This
+    /// allows you to view with an immutable world borrow, but
+    fn view_untraced<'a>(&self, world: &'a World) -> Result<Self::View<'a>, BufferError>;
+
+    type Access<'w, 's, 'a>;
+    /// Get mutable access to the buffers that this Accessor is associated with.
+    fn access<U>(
+        &self,
+        req: RequestId,
+        world: &mut World,
+        f: impl FnOnce(Self::Access<'_, '_, '_>) -> U,
+    ) -> Result<U, AccessError>;
+}
+
+#[derive(ThisError, Debug, Clone)]
+pub enum AccessError {
+    #[error("This accessor has keys that are not disjoint: {0}")]
+    NotDisjoint(#[from] OverlapError),
+    #[error("One or more keys were for buffers instances that have shut down")]
+    Inaccessible(#[from] BufferError),
+}
+
+#[derive(ThisError, Debug, Clone)]
+#[error("The accessor has duplicate buffer instances")]
+pub struct OverlapError {
+    /// Each buffer instance with more than one key trying to access it will be
+    /// shown here.
+    pub duplicates: HashMap<BufferInstanceId, usize>,
+}
+
+/// This trait represents a single buffer key whereas Accessor can be one key or
+/// a collection of keys.
+///
+/// A single AccessKey is always itself an Accessor.
+pub trait AccessKey: Accessor {
+    /// Each key that this is called on should increment its entry in the map by
+    /// one.
+    fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool;
+
+    type State;
+    type Param<'w, 's> where 'w: 's;
+
+    /// Get the SystemState used to access the buffer
+    fn get_state(&self, world: &mut World) -> Self::State;
+
+    /// Get the system parameter for accessing the buffer
+    fn get_param<'w, 's>(
+        state: &'s mut Self::State,
+        world: &'w mut World,
+    ) -> Self::Param<'w, 's>
+    where
+        'w: 's;
+
+    /// Get the access interface that users interact with
+    fn get_mut<'w, 's, 'a>(
+        &self,
+        req: RequestId,
+        param: &'a mut Self::Param<'w, 's>,
+    ) -> Result<Self::Access<'w, 's, 'a>, BufferError>
+    where
+        'w: 's,
+        's: 'a;
+
+    /// Apply the SystemState to the world. This is called after the access is
+    /// finished.
+    fn apply_state(
+        state: &mut Self::State,
+        world: &mut World,
+    );
+}
+
+/// Used by the Accessor trait to make sure an accessor with multiple keys
+/// doesn't attempt to get mutable access to the same buffer instance multiple
+/// times.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BufferInstanceId {
+    pub buffer: Entity,
+    pub session: Entity,
+}
+
+impl<T> AccessKey for BufferKey<T>
+where
+    T: Send + Sync + 'static,
+{
+    fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool {
+        let entry = included.entry(self.tag().instance()).or_default();
+        *entry += 1;
+        *entry == 1
+    }
+
+    type State = SystemState<BufferAccessMut<'static, 'static, T>>;
+    type Param<'w, 's> = BufferAccessMut<'w, 's, T> where 'w: 's;
+
+    fn get_state(&self, world: &mut World) -> Self::State {
+        SystemState::<BufferAccessMut<T>>::new(world)
+    }
+
+    fn get_param<'w, 's>(
+        state: &'s mut Self::State,
+        world: &'w mut World,
+    ) -> Self::Param<'w, 's>
+    where
+        'w: 's,
+    {
+        state.get_mut(world)
+    }
+
+    fn get_mut<'w, 's, 'a>(
+        &self,
+        req: RequestId,
+        param: &'a mut Self::Param<'w, 's>,
+    ) -> Result<Self::Access<'w, 's, 'a>, BufferError>
+    where
+        'w: 's,
+        's: 'a,
+    {
+        Ok(param.get_mut(req, self)?)
+    }
+
+    fn apply_state(
+        state: &mut Self::State,
+        world: &mut World,
+    ) {
+        state.apply(world);
+    }
+}
+
+impl<T> Accessor for BufferKey<T>
+where
+    T: Send + Sync + 'static,
+{
+    type Buffers = Buffer<T>;
+
+    fn is_disjoint(&self) -> Result<(), OverlapError> {
+        // A single buffer key is always disjoint
+        Ok(())
+    }
+
+    fn can_join(&self, world: &World) -> Result<bool, AccessError> {
+        let view = world.buffer_view_untraced::<T>(self.tag())?;
+        Ok(view.oldest().is_some())
+    }
+
+    type Joined = T;
+    fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
+        Ok(
+            world.buffer_mut(req, self, |mut buffer| {
+                buffer.pull()
+            })?
+        )
+    }
+
+    type View<'a> = BufferView<'a, T>;
+    fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError> {
+        world.buffer_view(req, self)
+    }
+
+    fn view_untraced<'a>(&self, world: &'a World) -> Result<Self::View<'a>, BufferError> {
+        world.buffer_view_untraced::<T>(self.tag())
+    }
+
+    type Access<'w, 's, 'a> = BufferMut<'w, 's, 'a, T>;
+
+    fn access<U>(
+        &self,
+        req: RequestId,
+        world: &mut World,
+        f: impl FnOnce(BufferMut<T>) -> U,
+    ) -> Result<U, AccessError> {
+        Ok(world.buffer_mut(req, &self, f)?)
+    }
+}
+
+impl<A: AccessKey> Accessor for Vec<A>
+where
+    Vec<A::Buffers>: 'static + BufferMapLayout + Accessing<Key = Vec<A>> + Send + Sync,
+{
+    type Buffers = Vec<A::Buffers>;
+
+    fn is_disjoint(&self) -> Result<(), OverlapError> {
+        let mut duplicates = HashMap::new();
+        let mut is_disjoint = true;
+        for key in self {
+            is_disjoint &= key.validate_disjoint(&mut duplicates);
+        }
+
+        if !is_disjoint {
+            duplicates.retain(|_, count| *count > 1);
+            return Err(OverlapError { duplicates })
+        }
+
+        return Ok(())
+    }
+
+    fn can_join(&self, world: &World) -> Result<bool, AccessError> {
+        self.is_disjoint()?;
+        for key in self {
+            if !key.can_join(world)? {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+
+    type Joined = Vec<A::Joined>;
+    fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
+        if !self.can_join(world)? {
+            return Ok(None);
+        }
+
+        let mut fetched = Vec::new();
+        for key in self {
+            let Some(value) = key.join(req, world)? else {
+                return Ok(None);
+            };
+            fetched.push(value);
+        }
+
+        Ok(Some(fetched))
+    }
+
+    type View<'a> = Vec<A::View<'a>>;
+    fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError> {
+        let mut view = Vec::new();
+        let world_cell = world.as_unsafe_world_cell();
+        for key in self {
+            view.push(key.view(
+                req,
+                unsafe {
+                    // SAFETY: We require a &mut World as input to this function,
+                    // so we know that nothing else is interacting with the world
+                    // right now. We only need mutability for the tracing to be
+                    // performed. After that all access is read-only.
+                    world_cell.world_mut()
+                }
+            )?);
+        }
+
+        Ok(view)
+    }
+
+    fn view_untraced<'a>(&self, world: &'a World) -> Result<Self::View<'a>, BufferError> {
+        let mut view = Vec::new();
+        for key in self {
+            view.push(key.view_untraced(world)?);
+        }
+
+        Ok(view)
+    }
+
+    type Access<'w, 's, 'a> = Vec<A::Access<'w, 's, 'a>>;
+    fn access<U>(
+        &self,
+        req: RequestId,
+        world: &mut World,
+        f: impl FnOnce(Vec<A::Access<'_, '_, '_>>) -> U,
+    ) -> Result<U, AccessError> {
+        self.is_disjoint()?;
+
+        let mut states = Vec::new();
+        let world_cell = world.as_unsafe_world_cell();
+        for key in self {
+            let state = key.get_state(unsafe {
+                // SAFETY: We make sure the accessor is disjoint at the start
+                // of the function. After that there is no overlap in the mutable
+                // world access needed by the system states. Their commands will
+                // be flushed serially at the end of this function.
+                world_cell.world_mut()
+            });
+            states.push(state);
+        }
+
+        let r = {
+            let mut params = Vec::new();
+            for state in &mut states {
+                let accessor = A::get_param(
+                    state,
+                    unsafe {
+                        // SAFETY: Same rationale as earlier in this function.
+                        world_cell.world_mut()
+                    },
+                );
+
+                params.push(accessor);
+            }
+
+            let mut accesses = Vec::new();
+            for (key, param) in self.iter().zip(params.iter_mut()) {
+                let access = A::get_mut(key, req, param)?;
+                accesses.push(access);
+            }
+
+            f(accesses)
+        };
+
+        for state in &mut states {
+            A::apply_state(
+                state,
+                unsafe {
+                    // SAFETY: Same rationale as earlier in this function
+                    world_cell.world_mut()
+                }
+            );
+        }
+
+        Ok(r)
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use crate::{prelude::*, testing::*};
 
 
     #[derive(Clone, Accessor)]
-    #[accessor(buffers_struct_name = TestKeysBuffers)]
+    #[accessor(buffers_struct_name = SameTypeBuffers)]
     struct SameTypeKeys<T: 'static + Send + Sync + Clone> {
         a: BufferKey<T>,
         b: BufferKey<T>,
@@ -155,5 +584,80 @@ mod tests {
             }
         })
         .unwrap();
+    }
+
+    #[test]
+    fn test_accessor_vec_join() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffers = vec![
+                builder.create_buffer::<i64>(Default::default()),
+                builder.create_buffer::<i64>(Default::default()),
+                builder.create_buffer::<i64>(Default::default()),
+                builder.create_buffer::<i64>(Default::default()),
+                builder.create_buffer::<i64>(Default::default()),
+            ];
+
+            builder
+                .chain(scope.start)
+                .with_access(buffers.clone())
+                .then(clone_to_buffers.into_callback())
+                .with_access(buffers)
+                .then(join_from_buffers.into_callback())
+                .connect(scope.terminate);
+        });
+
+        let values = context.resolve_request(5, workflow);
+        assert_eq!(values, vec![5, 5, 5, 5, 5]);
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffers = vec![
+                builder.create_buffer::<i64>(BufferSettings::keep_all()),
+                builder.create_buffer::<i64>(Default::default()),
+                builder.create_buffer::<i64>(Default::default()),
+                builder.create_buffer::<i64>(Default::default()),
+                builder.create_buffer::<i64>(Default::default()),
+            ];
+
+            let shift_vec = shift_vec.into_callback();
+            builder
+                .chain(scope.start)
+                .with_access(buffers[0])
+                .then(spread_into_buffer.into_callback()) // filled to [0]
+                .with_access(buffers.clone())
+                .then(shift_vec.clone()) // filled to [1]
+                .with_access(buffers.clone())
+                .then(shift_vec.clone()) // filled to [2]
+                .with_access(buffers.clone())
+                .then(shift_vec.clone()) // filled to [3]
+                .with_access(buffers.clone())
+                .then(shift_vec.clone()) // filled to [4]
+                .with_access(buffers)
+                .then(join_from_buffers.into_callback())
+                .connect(scope.terminate);
+        });
+
+        let values = context.resolve_request(vec![0, 1, 2, 3, 4, 5, 6, 7], workflow);
+        assert_eq!(values, vec![4, 3, 2, 1, 0]);
+    }
+
+    fn clone_to_buffers<T: 'static + Send + Sync + Clone>(
+        Blocking { request: (value, keys), id, .. }: Blocking<(T, Vec<BufferKey<T>>)>,
+        world: &mut World,
+    ) {
+        world.buffers_mut(id, &keys, |access| {
+            for mut buffer in access {
+                buffer.push(value.clone());
+            }
+        })
+        .unwrap();
+    }
+
+    fn join_from_buffers<A: Accessor>(
+        Blocking { request: ((), keys), id, .. }: Blocking<((), A)>,
+        world: &mut World,
+    ) -> A::Joined {
+        world.join_from_buffers(id, &keys).unwrap().unwrap()
     }
 }

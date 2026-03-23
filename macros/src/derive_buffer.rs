@@ -185,21 +185,29 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
             }
 
             type Joined = #joined_ident #ty_generics;
-            fn join(&self, req: ::crossflow::RequestId, world: &mut ::crossflow::re_exports::World) -> ::std::option::Option<Self::Joined> {
-                if ::crossflow::Accessor::can_join(self, world).ok()? {
-                    return std::option::Option::None;
+            fn join(
+                &self,
+                req: ::crossflow::RequestId,
+                world: &mut ::crossflow::re_exports::World,
+            ) -> ::std::result::Result<::std::option::Option<Self::Joined>, ::crossflow::AccessError> {
+                if !::crossflow::Accessor::can_join(self, world)? {
+                    return ::std::result::Result::Ok(::std::option::Option::None);
                 }
 
                 #(
-                    let #field_ident = <#field_type as ::crossflow::Accessor>::join(&self. #field_ident, req, world)?;
+                    let ::std::option::Option::Some(#field_ident) = <#field_type as ::crossflow::Accessor>::join(&self. #field_ident, req, world)? else {
+                        return ::std::result::Result::Ok(::std::option::Option::None);
+                    };
                 )*
 
-                ::std::option::Option::Some(
-                    #joined_ident {
-                        #(
-                            #field_ident,
-                        )*
-                    }
+                ::std::result::Result::Ok(
+                    ::std::option::Option::Some(
+                        #joined_ident {
+                            #(
+                                #field_ident,
+                            )*
+                        }
+                    )
                 )
             }
 

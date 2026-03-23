@@ -1293,12 +1293,12 @@ impl Accessor for JsonBufferKey {
     }
 
     type Joined = Result<JsonMessage, serde_json::Error>;
-    fn join(&self, req: RequestId, world: &mut World) -> Option<Self::Joined> {
-        world.json_buffer_mut(req, self, |mut buffer| {
-            buffer.pull()
-        })
-        .ok()
-        .flatten()
+    fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
+        Ok(
+            world.json_buffer_mut(req, self, |mut buffer| {
+                buffer.pull()
+            })?
+        )
     }
 
     type View<'a> = JsonBufferView<'a>;
