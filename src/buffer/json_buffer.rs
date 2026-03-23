@@ -429,8 +429,8 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
 
     /// Pull the oldest message from the buffer and attempt to deserialize it
     /// into the target type.
-    pub fn pull_as<T: DeserializeOwned>(&mut self) -> Option<Result<T, serde_json::Error>> {
-        Some(self.pull()?.and_then(|m| serde_json::from_value(m)))
+    pub fn pull_as<T: DeserializeOwned>(&mut self) -> Option<Result<T, Arc<serde_json::Error>>> {
+        Some(self.pull()?.and_then(|m| serde_json::from_value(m).map_err(Arc::new)))
     }
 
     /// Pull the newest message from the buffer as a JSON value. Unlike
@@ -442,8 +442,8 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
 
     /// Pull the newest message from the buffer and attempt to deserialize it
     /// into the target type.
-    pub fn pull_newest_as<T: DeserializeOwned>(&mut self) -> Option<Result<T, serde_json::Error>> {
-        Some(self.pull_newest()?.and_then(|m| serde_json::from_value(m)))
+    pub fn pull_newest_as<T: DeserializeOwned>(&mut self) -> Option<Result<T, Arc<serde_json::Error>>> {
+        Some(self.pull_newest()?.and_then(|m| serde_json::from_value(m).map_err(Arc::new)))
     }
 
     /// Attempt to push a new value into the buffer.
@@ -643,8 +643,8 @@ impl<'a> JsonMut<'a> {
     ///
     /// The returned value will duplicate the data of the message inside the
     /// buffer, effectively meaning this function clones the data.
-    pub fn deserialize_into<T: DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
-        serde_json::from_value::<T>(self.serialize()?)
+    pub fn deserialize_into<T: DeserializeOwned>(&self) -> Result<T, Arc<serde_json::Error>> {
+        serde_json::from_value::<T>(self.serialize()?).map_err(Arc::new)
     }
 
     /// Replace the underlying message with new data, and receive its original
@@ -658,16 +658,16 @@ impl<'a> JsonMut<'a> {
     /// Insert new data into the underyling message. This is the same as replace
     /// except it is more efficient if you don't care about the original data,2
     /// because it will discard the original data instead of serializing it.
-    pub fn insert(&mut self, message: JsonMessage) -> Result<(), serde_json::Error> {
+    pub fn insert(&mut self, message: JsonMessage) -> Result<(), Arc<serde_json::Error>> {
         *self.modified = true;
-        self.entry.insert(message, &self.tracer)
+        self.entry.insert(message, &self.tracer).map_err(Arc::new)
     }
 
     /// Modify the data of the underlying message. This is equivalent to calling
     /// [`Self::serialize`], modifying the value, and then calling [`Self::insert`].
     /// The benefit of this function is that you do not need to remember to
     /// insert after you have finished your modifications.
-    pub fn modify(&mut self, f: impl FnOnce(&mut JsonMessage)) -> Result<(), serde_json::Error> {
+    pub fn modify(&mut self, f: impl FnOnce(&mut JsonMessage)) -> Result<(), Arc<serde_json::Error>> {
         let mut message = self.serialize()?;
         f(&mut message);
         self.insert(message)
@@ -677,7 +677,7 @@ impl<'a> JsonMut<'a> {
 /// The return type for functions that fetch a JSON message from a buffer.
 /// If an error occurs while attempting to serialize the message, this will return
 /// [`Err`].
-pub type JsonFetchResult = Result<JsonMessage, serde_json::Error>;
+pub type JsonFetchResult = Result<JsonMessage, Arc<serde_json::Error>>;
 
 /// The return type for functions that push a new message into a buffer. If an
 /// error occurs while deserializing the message into the buffer's message type
@@ -764,11 +764,11 @@ where
     }
 
     fn json_pull(&mut self) -> Option<JsonFetchResult> {
-        Some(serde_json::to_value(self.pull()?))
+        Some(serde_json::to_value(self.pull()?).map_err(Arc::new))
     }
 
     fn json_pull_newest(&mut self) -> Option<JsonFetchResult> {
-        Some(serde_json::to_value(self.pull_newest()?))
+        Some(serde_json::to_value(self.pull_newest()?).map_err(Arc::new))
     }
 
     fn json_oldest_mut<'a>(&'a mut self, modified: &'a mut bool) -> Option<JsonMut<'a>> {
@@ -810,7 +810,7 @@ trait JsonView {
 
 impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonView for T {
     fn serialize(&self) -> JsonFetchResult {
-        serde_json::to_value(self)
+        serde_json::to_value(self).map_err(Arc::new)
     }
 }
 
@@ -831,8 +831,8 @@ trait JsonEntry {
 }
 
 impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonEntry for BufferEntry<T> {
-    fn serialize(&self) -> Result<JsonMessage, serde_json::Error> {
-        serde_json::to_value(&self.message)
+    fn serialize(&self) -> JsonFetchResult {
+        serde_json::to_value(&self.message).map_err(Arc::new)
     }
 
     fn replace(&mut self, message: JsonMessage, tracer: &BMutTracer) -> JsonFetchResult {
@@ -1292,13 +1292,22 @@ impl Accessor for JsonBufferKey {
         Ok(view.oldest().is_some())
     }
 
-    type Joined = Result<JsonMessage, serde_json::Error>;
+    type Joined = JsonFetchResult;
     fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
         Ok(
             world.json_buffer_mut(req, self, |mut buffer| {
                 buffer.pull()
             })?
         )
+    }
+
+    fn distribute(&self, value: Self::Joined, req: RequestId, world: &mut World) -> Result<(), AccessError> {
+        world.json_buffer_mut(req, self, move |mut buffer| {
+            if let Ok(value) = value {
+                let _ = buffer.push(value);
+            }
+        })?;
+        Ok(())
     }
 
     type View<'a> = JsonBufferView<'a>;

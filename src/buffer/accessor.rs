@@ -16,14 +16,11 @@
 */
 
 use std::{
-    borrow::Cow,
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     hash::Hash,
 };
 
 use thiserror::Error as ThisError;
-
-use smallvec::SmallVec;
 
 use bevy_ecs::{
     prelude::{Entity, World},
@@ -31,24 +28,11 @@ use bevy_ecs::{
 };
 
 use crate::{
-    Accessing, AnyBuffer, AnyBufferKey, AnyMessageBox, AsAnyBuffer, Buffer, BufferKeyBuilder,
-    BufferKeyLifecycle, Bufferable, Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer,
-    Gate, GateState, IdentifierRef, Joining, Node, OperationError, OperationResult, BufferWorldAccess,
-    OperationRoster, RequestId, TypeInfo, add_listener_to_source, BufferKey,
+    Accessing, Buffer, Builder, Chain, Node, BufferWorldAccess, RequestId, BufferKey,
     BufferError, BufferView, BufferMut, BufferAccessMut, BufferMapLayout, BufferMap, IncompatibleLayout,
 };
 
-#[cfg(feature = "diagram")]
-use crate::MessageRegistry;
-
 pub use crossflow_derive::{Accessor, Joined};
-
-#[cfg(feature = "diagram")]
-use serde::{Deserialize, Serialize};
-
-#[cfg(feature = "diagram")]
-use schemars::JsonSchema;
-
 
 /// Trait to describe a set of buffer keys. This allows [listen][1] and [access][2]
 /// to work for arbitrary structs of buffer keys. Structs with this trait can be
@@ -129,6 +113,11 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
     /// pull the oldest value out of the buffer.
     fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError>;
 
+    /// Distribute a set of values to a set of buffers. This is the opposite of
+    /// join: each value in the Joined struct will be pushed to the buffer in
+    /// the accessor that corresponds to it.
+    fn distribute(&self, value: Self::Joined, req: RequestId, world: &mut World) -> Result<(), AccessError>;
+
     type View<'a>;
     /// Get access to a view of the buffer.
     fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError>;
@@ -151,7 +140,7 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
 pub enum AccessError {
     #[error("This accessor has keys that are not disjoint: {0}")]
     NotDisjoint(#[from] OverlapError),
-    #[error("One or more keys were for buffers instances that have shut down")]
+    #[error("Failed to access one of the buffers: {0}")]
     Inaccessible(#[from] BufferError),
 }
 
@@ -285,6 +274,13 @@ where
         )
     }
 
+    fn distribute(&self, value: Self::Joined, req: RequestId, world: &mut World) -> Result<(), AccessError> {
+        world.buffer_mut(req, self, move |mut buffer| {
+            buffer.push(value);
+        })?;
+        Ok(())
+    }
+
     type View<'a> = BufferView<'a, T>;
     fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError> {
         world.buffer_view(req, self)
@@ -353,6 +349,30 @@ where
         }
 
         Ok(Some(fetched))
+    }
+
+    /// The values to be distributed will be zipped with the buffers in the Vec,
+    /// and as many values will be distributed to as many buffers as possible.
+    /// Fewer buffers than values means some values will not be pushed. Fewer
+    /// values than buffers means some buffers will not receive anything.
+    ///
+    /// If any one of the buffers cannot be accessed, the value corresponding to
+    /// it will be skipped and the rest of the buffers will still receive their
+    /// values. The error that gets returned will reflect the last access error
+    /// that was encountered.
+    ///
+    /// If this behavior is not appropriate for your use case, make sure to
+    /// check that the number of values is equal to the number of buffers before
+    /// calling this.
+    fn distribute(&self, value: Self::Joined, req: RequestId, world: &mut World) -> Result<(), AccessError> {
+        let mut r = Ok(());
+        for (value, buffer) in value.into_iter().zip(self) {
+            if let Err(err) = buffer.distribute(value, req, world) {
+                r = Err(err);
+            }
+        }
+
+        r
     }
 
     type View<'a> = Vec<A::View<'a>>;
@@ -447,10 +467,11 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{prelude::*, testing::*};
-
+    use std::collections::HashMap;
 
     #[derive(Clone, Accessor)]
-    #[accessor(buffers_struct_name = SameTypeBuffers)]
+    // #[accessor(buffers_struct_name = SameTypeBuffers)]
+    #[accessor(joined_struct_name = SameTypeJoined)]
     struct SameTypeKeys<T: 'static + Send + Sync + Clone> {
         a: BufferKey<T>,
         b: BufferKey<T>,
@@ -640,6 +661,27 @@ mod tests {
 
         let values = context.resolve_request(vec![0, 1, 2, 3, 4, 5, 6, 7], workflow);
         assert_eq!(values, vec![4, 3, 2, 1, 0]);
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffers = vec![
+                builder.create_buffer::<i64>(Default::default()),
+                builder.create_buffer::<i64>(Default::default()),
+                builder.create_buffer::<i64>(Default::default()),
+                builder.create_buffer::<i64>(Default::default()),
+                builder.create_buffer::<i64>(Default::default()),
+            ];
+
+            builder
+                .chain(scope.start)
+                .with_access(buffers.clone())
+                .then(distribute_to_buffers.into_callback())
+                .with_access(buffers)
+                .then(join_from_buffers.into_callback())
+                .connect(scope.terminate);
+        });
+
+        let values = context.resolve_request(vec![0, 1, 2, 3, 4], workflow);
+        assert_eq!(values, vec![0, 1, 2, 3, 4]);
     }
 
     fn clone_to_buffers<T: 'static + Send + Sync + Clone>(
@@ -659,5 +701,74 @@ mod tests {
         world: &mut World,
     ) -> A::Joined {
         world.join_from_buffers(id, &keys).unwrap().unwrap()
+    }
+
+    fn distribute_to_buffers<A: Accessor>(
+        Blocking { request: (value, keys), id, .. }: Blocking<(A::Joined, A)>,
+        world: &mut World,
+    ) {
+        world.distribute_to_buffers(value, id, &keys).unwrap();
+    }
+
+    #[derive(Clone, Accessor)]
+    #[accessor(
+        buffers_struct_name = TestKeysBuffers,
+        use_as_joined = TestKeysJoined,
+    )]
+    struct TestKeys<T: 'static + Send + Sync + Clone> {
+        integer: BufferKey<i64>,
+        float: BufferKey<f64>,
+        string: BufferKey<String>,
+        generic: BufferKey<T>,
+        json: JsonBufferKey,
+    }
+
+    #[derive(Clone)]
+    struct TestKeysJoined<T> {
+        integer: i64,
+        float: f64,
+        string: String,
+        generic: T,
+        json: crate::JsonFetchResult,
+    }
+
+    #[test]
+    fn test_accessor_struct_join() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffers = TestKeys::select_buffers(
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+                builder.create_buffer::<HashMap<String, String>>(Default::default()),
+            );
+
+            builder
+                .chain(scope.start)
+                .with_access(buffers.clone())
+                .then(distribute_to_buffers.into_callback())
+                .with_access(buffers)
+                .then(join_from_buffers.into_callback())
+                .connect(scope.terminate);
+        });
+
+        let values = TestKeysJoined {
+            integer: 7,
+            float: 3.14159,
+            string: String::from("hello"),
+            generic: (2.171828, 4),
+            json: Ok(serde_json::json!({
+                "hello": "json",
+            })),
+        };
+
+        let resolved_values = context.resolve_request(values.clone(), workflow);
+        assert_eq!(resolved_values.integer, values.integer);
+        assert_eq!(resolved_values.float, values.float);
+        assert_eq!(resolved_values.string, values.string);
+        assert_eq!(resolved_values.generic, values.generic);
+        assert_eq!(resolved_values.json.unwrap(), values.json.unwrap());
     }
 }

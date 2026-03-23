@@ -726,11 +726,21 @@ pub trait BufferWorldAccess {
         f: impl FnOnce(A::Access<'_, '_, '_>) -> U,
     ) -> Result<U, AccessError>;
 
+    /// Join the values from a set of buffers into a single value.
     fn join_from_buffers<A: Accessor>(
         &mut self,
         req: RequestId,
         accessor: &A,
     ) -> Result<Option<A::Joined>, AccessError>;
+
+    /// Distribute a set of values to a set of buffers. This is the inverse of
+    /// [`Self::join_from_buffers`].
+    fn distribute_to_buffers<A: Accessor>(
+        &mut self,
+        value: A::Joined,
+        req: RequestId,
+        accessor: &A,
+    ) -> Result<(), AccessError>;
 
     /// Call this to get mutable access to the gate of a buffer.
     ///
@@ -867,6 +877,15 @@ impl BufferWorldAccess for World {
         accessor: &A,
     ) -> Result<Option<A::Joined>, AccessError> {
         accessor.join(req, self)
+    }
+
+    fn distribute_to_buffers<A: Accessor>(
+        &mut self,
+        value: A::Joined,
+        req: RequestId,
+        accessor: &A,
+    ) -> Result<(), AccessError> {
+        accessor.distribute(value, req, self)
     }
 
     fn buffer_gate_mut<U>(

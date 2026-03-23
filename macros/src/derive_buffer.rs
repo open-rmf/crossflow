@@ -2,7 +2,7 @@ use proc_macro2::{TokenStream, Span};
 use quote::{format_ident, quote};
 use syn::{
     Field, Generics, Ident, ImplGenerics, ItemStruct, Type, TypeGenerics, TypePath, Visibility,
-    WhereClause, parse_quote, Lifetime, LifetimeParam, GenericParam,
+    WhereClause, parse_quote, Lifetime, LifetimeParam, GenericParam, spanned::Spanned,
 };
 
 use crate::Result;
@@ -13,9 +13,10 @@ const ACCESSOR_ATTR_TAG: &'static str = "accessor";
 pub(crate) fn impl_joined_value(input_struct: &ItemStruct) -> Result<TokenStream> {
     let struct_ident = &input_struct.ident;
     let (impl_generics, ty_generics, where_clause) = input_struct.generics.split_for_impl();
-    let StructConfig {
-        buffer_struct_name: buffer_struct_ident,
-    } = StructConfig::from_data_struct(&input_struct, &JOINED_ATTR_TAG);
+    let CustomStructConfig {
+        buffer_struct_ident,
+        ..
+    } = CustomStructConfig::for_joined(&input_struct);
     let buffer_struct_vis = &input_struct.vis;
 
     let (field_ident, _, field_config) =
@@ -78,9 +79,11 @@ pub(crate) fn impl_joined_value(input_struct: &ItemStruct) -> Result<TokenStream
 pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStream> {
     let struct_ident = &input_struct.ident;
     let (impl_generics, ty_generics, where_clause) = input_struct.generics.split_for_impl();
-    let StructConfig {
-        buffer_struct_name: buffer_struct_ident,
-    } = StructConfig::from_data_struct(&input_struct, &ACCESSOR_ATTR_TAG);
+    let CustomStructConfig {
+        buffer_struct_ident,
+        joined_struct_ident,
+        use_as_joined,
+    } = CustomStructConfig::for_accessor(&input_struct);
     let buffer_struct_vis = &input_struct.vis;
 
     let (field_ident, field_type, field_config) =
@@ -121,15 +124,12 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
         impl_buffer_map_layout(&buffer_struct, &field_ident, &field_config)?;
     let impl_accessed = impl_accessing(&buffer_struct, &input_struct, &field_ident, &field_type)?;
 
-    let joined_ident = format_ident!("__crossflow_{}_Joined", struct_ident);
-
     let view_ident = format_ident!("__crossflow_{}_View", struct_ident);
     let mut view_generics = input_struct.generics.clone();
     let view_lifetime = Lifetime::new("'v", Span::call_site());
     let view_ltp = LifetimeParam::new(view_lifetime);
     view_generics.params.push(GenericParam::from(view_ltp));
     let (impl_generics_view, ty_generics_view, _) = view_generics.split_for_impl();
-
 
     let access_ident = format_ident!("__crossflow_{}_Access", struct_ident);
     let mut access_generics = input_struct.generics.clone();
@@ -151,6 +151,19 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
 
     let buffer_state: Vec<_> = field_ident.iter().map(|id| format_ident!("state_{id}")).collect();
     let buffer_param: Vec<_> = field_ident.iter().map(|id| format_ident!("access_{id}")).collect();
+
+    let joined_struct = if use_as_joined {
+        quote! { }
+    } else {
+        quote! {
+            #[allow(non_camel_case_types, unused)]
+            #buffer_struct_vis struct #joined_struct_ident #impl_generics #where_clause {
+                #(
+                    #buffer_struct_vis #field_ident: <#field_type as ::crossflow::Accessor>::Joined,
+                )*
+            }
+        }
+    };
 
     let tokens = quote! {
         impl #impl_generics ::crossflow::Accessor for #struct_ident #ty_generics #where_clause {
@@ -184,7 +197,7 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
                 ::std::result::Result::Ok(true)
             }
 
-            type Joined = #joined_ident #ty_generics;
+            type Joined = #joined_struct_ident #ty_generics;
             fn join(
                 &self,
                 req: ::crossflow::RequestId,
@@ -202,13 +215,36 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
 
                 ::std::result::Result::Ok(
                     ::std::option::Option::Some(
-                        #joined_ident {
+                        #joined_struct_ident {
                             #(
                                 #field_ident,
                             )*
                         }
                     )
                 )
+            }
+
+            fn distribute(
+                &self,
+                value: Self::Joined,
+                req: ::crossflow::RequestId,
+                world: &mut ::crossflow::re_exports::World,
+            ) -> ::std::result::Result<(), ::crossflow::AccessError> {
+                let mut r = ::std::result::Result::Ok(());
+
+                let Self::Joined {
+                    #(
+                        #field_ident,
+                    )*
+                } = value;
+
+                #(
+                    if let ::std::result::Result::Err(err) = self. #field_ident .distribute(#field_ident, req, world) {
+                        r = ::std::result::Result::Err(err);
+                    }
+                )*
+
+                r
             }
 
             type View<'v> = #view_ident #ty_generics_view;
@@ -319,12 +355,7 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
             }
         }
 
-        #[allow(non_camel_case_types, unused)]
-        #buffer_struct_vis struct #joined_ident #impl_generics #where_clause {
-            #(
-                #buffer_struct_vis #field_ident: <#field_type as ::crossflow::Accessor>::Joined,
-            )*
-        }
+        #joined_struct
 
         #[allow(non_camel_case_types, unused)]
         #buffer_struct_vis struct #view_ident #impl_generics_view #where_clause {
@@ -386,26 +417,61 @@ mod _unused {
     }
 }
 
-struct StructConfig {
-    buffer_struct_name: Ident,
+struct CustomStructConfig {
+    buffer_struct_ident: Ident,
+    joined_struct_ident: Ident,
+    use_as_joined: bool,
 }
 
-impl StructConfig {
-    fn from_data_struct(data_struct: &ItemStruct, attr_tag: &str) -> Self {
-        let mut config = Self {
-            buffer_struct_name: format_ident!("__crossflow_{}_Buffers", data_struct.ident),
+struct CustomStructAttrs {
+    joined_struct_name: bool,
+}
+
+const BUFFERS_STRUCT_NAME: &'static str = "buffers_struct_name";
+const JOINED_STRUCT_NAME: &'static str = "joined_struct_name";
+const USE_AS_JOINED: &'static str = "use_as_joined";
+
+impl std::fmt::Display for CustomStructAttrs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{BUFFERS_STRUCT_NAME}")?;
+        if self.joined_struct_name {
+            write!(f, ", {JOINED_STRUCT_NAME}, {USE_AS_JOINED}")?;
+        }
+        Ok(())
+    }
+}
+
+impl CustomStructConfig {
+    fn from_data_struct(
+        data_struct: &ItemStruct,
+        attr_tag: &str,
+        attrs: CustomStructAttrs,
+    ) -> Self {
+        let mut config = CustomStructConfig {
+            buffer_struct_ident: format_ident!("__crossflow_{}_Buffers", data_struct.ident),
+            joined_struct_ident: format_ident!("__crossflow_{}_Joined", data_struct.ident),
+            use_as_joined: false,
         };
 
-        let attr = data_struct
-            .attrs
-            .iter()
-            .find(|attr| attr.path().is_ident(attr_tag));
-
-        if let Some(attr) = attr {
+        for attr in data_struct.attrs.iter().filter(|attr| attr.path().is_ident(attr_tag)) {
             attr.parse_nested_meta(|meta| {
-                if meta.path.is_ident("buffers_struct_name") {
-                    config.buffer_struct_name = meta.value()?.parse()?;
+                if meta.path.is_ident(BUFFERS_STRUCT_NAME) {
+                    config.buffer_struct_ident = meta.value()?.parse()?;
+                } else if attrs.joined_struct_name && meta.path.is_ident(JOINED_STRUCT_NAME) {
+                    config.joined_struct_ident = meta.value()?.parse()?;
+                } else if attrs.joined_struct_name && meta.path.is_ident(USE_AS_JOINED) {
+                    config.joined_struct_ident = meta.value()?.parse()?;
+                    config.use_as_joined = true;
+                } else {
+                    return Err(syn::Error::new(
+                        meta.path.span(),
+                        format!(
+                            "Unrecognized attribute. This derive only supports: {}",
+                            attrs,
+                        ),
+                    ));
                 }
+
                 Ok(())
             })
             // panic if attribute is malformed, this will result in a compile error which is intended.
@@ -413,6 +479,22 @@ impl StructConfig {
         }
 
         config
+    }
+
+    fn for_joined(data_struct: &ItemStruct) -> Self {
+        Self::from_data_struct(
+            data_struct,
+            &JOINED_ATTR_TAG,
+            CustomStructAttrs { joined_struct_name: false },
+        )
+    }
+
+    fn for_accessor(data_struct: &ItemStruct) -> Self {
+        Self::from_data_struct(
+            data_struct,
+            &ACCESSOR_ATTR_TAG,
+            CustomStructAttrs { joined_struct_name: true },
+        )
     }
 }
 
@@ -739,4 +821,35 @@ fn impl_accessing(
             }
         }
     }.into())
+}
+
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_attrs() {
+        let input_struct: ItemStruct = parse_quote! {
+            #[derive(Clone, Accessor)]
+            #[accessor(
+                buffers_struct_name = TestKeysBuffers,
+                joined_struct_name = TestKeysJoined,
+            )]
+            struct TestKeys<T: 'static + Send + Sync + Clone> {
+                integer: BufferKey<i64>,
+                float: BufferKey<f64>,
+                string: BufferKey<String>,
+                generic: BufferKey<T>,
+                any: AnyBufferKey,
+            }
+        };
+
+        let CustomStructConfig {
+            buffer_struct_ident,
+            joined_struct_ident,
+            use_as_joined,
+        } = CustomStructConfig::for_accessor(&input_struct);
+        assert_eq!(buffer_struct_ident, "TestKeysBuffers");
+        assert_eq!(joined_struct_ident, "TestKeysJoined");
+        assert!(!use_as_joined);
+    }
 }

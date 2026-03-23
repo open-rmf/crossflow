@@ -392,6 +392,14 @@ impl Accessor for AnyBufferKey {
         )
     }
 
+    fn distribute(&self, value: Self::Joined, req: RequestId, world: &mut World) -> Result<(), AccessError> {
+        world.any_buffer_mut(req, self, |mut buffer| {
+            buffer.push(value);
+        })?;
+
+        Ok(())
+    }
+
     type View<'a> = AnyBufferView<'a>;
     fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError> {
         world.any_buffer_view(req, self)
