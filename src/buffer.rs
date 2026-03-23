@@ -702,6 +702,30 @@ pub trait BufferWorldAccess {
     where
         T: 'static + Send + Sync;
 
+    /// A generalization of [`Self::buffer_view`] that allows you to view
+    /// multiple buffers at once using an [`Accessor`].
+    fn buffers_view<'a, A: Accessor>(
+        &'a mut self,
+        req: RequestId,
+        accessor: &A,
+    ) -> Result<A::View<'a>, BufferError>;
+
+    /// A generalization of [`Self::buffer_view_untraced`] that allows you to
+    /// view multiple buffers simultaneously using an [`Accessor`].
+    fn buffers_view_untraced<'a, A: Accessor>(
+        &'a self,
+        accessor: &A,
+    ) -> Result<A::View<'a>, BufferError>;
+
+    /// A generalization of [`Self::buffer_mut`] that allows you to get mutable
+    /// access to multiple buffers simultaneously using an [`Accessor`].
+    fn buffers_mut<A: Accessor, U>(
+        &mut self,
+        req: RequestId,
+        accessor: &A,
+        f: impl FnOnce(A::Access<'_, '_, '_>) -> U,
+    ) -> Result<U, AccessError>;
+
     /// Call this to get mutable access to the gate of a buffer.
     ///
     /// Pass in a callback that will receive [`BufferGateMut`], allowing it to
@@ -805,6 +829,30 @@ impl BufferWorldAccess for World {
 
         state.apply(self);
         Ok(r)
+    }
+
+    fn buffers_view<'a, A: Accessor>(
+        &'a mut self,
+        req: RequestId,
+        accessor: &A,
+    ) -> Result<A::View<'a>, BufferError> {
+        accessor.view(req, self)
+    }
+
+    fn buffers_view_untraced<'a, A: Accessor>(
+        &'a self,
+        accessor: &A,
+    ) -> Result<A::View<'a>, BufferError> {
+        accessor.view_untraced(self)
+    }
+
+    fn buffers_mut<A: Accessor, U>(
+        &mut self,
+        req: RequestId,
+        accessor: &A,
+        f: impl FnOnce(A::Access<'_, '_, '_>) -> U,
+    ) -> Result<U, AccessError> {
+        accessor.access(req, self, f)
     }
 
     fn buffer_gate_mut<U>(

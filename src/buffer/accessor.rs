@@ -29,7 +29,7 @@ mod tests {
     }
 
     #[test]
-    fn test_world_access() {
+    fn test_struct_accessor() {
         let mut context = TestingContext::minimal_plugins();
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
@@ -62,7 +62,6 @@ mod tests {
     ) {
         world.buffer_mut(id, &key, move |mut buffer| {
             for value in values {
-                dbg!(value);
                 buffer.push(value);
             }
         }).unwrap();
@@ -74,7 +73,6 @@ mod tests {
     ) {
         keys.access(id, world, |mut access| {
             for value in access.a.drain(..) {
-                dbg!(value);
                 access.b.push(value);
             }
         })
@@ -87,7 +85,6 @@ mod tests {
     ) {
         keys.access(id, world, |mut access| {
             for value in access.b.drain(..) {
-                dbg!(value);
                 access.c.push(value);
             }
         })
@@ -99,26 +96,64 @@ mod tests {
         world: &mut World,
     ) -> Vec<i64> {
         world.buffer_mut(id, &key, |mut buffer| {
-            buffer.drain(..).map(|x| dbg!(x)).collect()
+            buffer.drain(..).collect()
         })
         .unwrap()
     }
 
-    fn transfer_vec(
+    #[test]
+    fn test_vec_accessor() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffers = vec![
+                builder.create_buffer::<i64>(Default::default()),
+                builder.create_buffer::<i64>(Default::default()),
+                builder.create_buffer::<i64>(Default::default()),
+                builder.create_buffer::<i64>(Default::default()),
+                builder.create_buffer::<i64>(Default::default()),
+                builder.create_buffer::<i64>(Default::default()),
+                builder.create_buffer::<i64>(Default::default()),
+            ];
+
+            // - Insert the input value into buffer at index 1
+            // - shift the buffer values until the input value is in the buffer at index 4
+            // - drain the value from the buffer at index 4 and return it
+            let shift_vec = shift_vec.into_callback();
+            builder
+                .chain(scope.start)
+                .with_access(buffers[1])
+                .then(spread_into_buffer.into_callback())
+                .with_access(buffers.clone())
+                .then(shift_vec.clone())
+                .with_access(buffers.clone())
+                .then(shift_vec.clone())
+                .with_access(buffers.clone())
+                .then(shift_vec)
+                .with_access(buffers[4])
+                .then(drain_buffer.into_callback())
+                .connect(scope.terminate);
+        });
+
+        let values = context.resolve_request(vec![10], workflow);
+        assert_eq!(values, vec![10]);
+    }
+
+    fn shift_vec(
         Blocking { request: (_, keys), id, .. }: Blocking<((), Vec<BufferKey<i64>>)>,
         world: &mut World,
     ) {
-        keys.access(id, world, |_access| {
+        world.buffers_mut(id, &keys, |access| {
+            let mut previous_value = None;
+            for mut buffer in access {
+                let next_value = buffer.pull();
+                if let Some(previous_value) = previous_value.take() {
+                    buffer.push(previous_value);
+                }
 
-        });
-    }
-
-    fn access_buffer(
-        Blocking { request: (_, keys), id, .. }: Blocking<((), BufferKey<i64>)>,
-        world: &mut World,
-    ) {
-        keys.access(id, world, |mut access| {
-
-        });
+                previous_value = next_value;
+            }
+        })
+        .unwrap();
     }
 }

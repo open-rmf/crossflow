@@ -401,7 +401,7 @@ impl Accessor for AnyBufferKey {
 
     type Access<'w, 's, 'a> = AnyBufferMut<'w, 's, 'a>;
     fn access<U>(
-        self,
+        &self,
         req: RequestId,
         world: &mut World,
         f: impl FnOnce(AnyBufferMut) -> U,

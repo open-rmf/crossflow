@@ -1312,7 +1312,7 @@ impl Accessor for JsonBufferKey {
 
     type Access<'w, 's, 'a> = JsonBufferMut<'w, 's, 'a>;
     fn access<U>(
-        self,
+        &self,
         req: RequestId,
         world: &mut World,
         f: impl FnOnce(JsonBufferMut) -> U,

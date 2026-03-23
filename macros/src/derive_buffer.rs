@@ -247,7 +247,7 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
 
             type Access<'w, 's, 'a> = #access_ident #ty_generics_access #where_clause_access;
             fn access<U>(
-                self,
+                &self,
                 req: ::crossflow::RequestId,
                 world: &mut ::crossflow::re_exports::World,
                 f: impl FnOnce(#access_ident #ty_generics_fn_access) -> U,

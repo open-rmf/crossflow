@@ -700,7 +700,7 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
     type Access<'w, 's, 'a>;
     /// Get mutable access to the buffers that this Accessor is associated with.
     fn access<U>(
-        self,
+        &self,
         req: RequestId,
         world: &mut World,
         f: impl FnOnce(Self::Access<'_, '_, '_>) -> U,
@@ -855,7 +855,7 @@ where
     type Access<'w, 's, 'a> = BufferMut<'w, 's, 'a, T>;
 
     fn access<U>(
-        self,
+        &self,
         req: RequestId,
         world: &mut World,
         f: impl FnOnce(BufferMut<T>) -> U,
@@ -941,7 +941,7 @@ where
 
     type Access<'w, 's, 'a> = Vec<A::Access<'w, 's, 'a>>;
     fn access<U>(
-        self,
+        &self,
         req: RequestId,
         world: &mut World,
         f: impl FnOnce(Vec<A::Access<'_, '_, '_>>) -> U,
@@ -950,7 +950,7 @@ where
 
         let mut states = Vec::new();
         let world_cell = world.as_unsafe_world_cell();
-        for key in &self {
+        for key in self {
             let state = key.get_state(unsafe {
                 // SAFETY: We make sure the accessor is disjoint at the start
                 // of the function. After that there is no overlap in the mutable
