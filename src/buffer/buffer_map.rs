@@ -633,13 +633,13 @@ pub trait Joined: 'static + Send + Sync + Sized {
 ///
 /// The macro will generate a struct of buffers to match the keys. The name of
 /// that struct is anonymous by default since you don't generally need to use it
-/// directly, but if you want to give it a name you can use `#[key(buffers_struct_name = ...)]`:
+/// directly, but if you want to give it a name you can use `#[accessor(buffers_struct_name = ...)]`:
 ///
 /// ```
 /// # use crossflow::prelude::*;
 ///
 /// #[derive(Clone, Accessor)]
-/// #[key(buffers_struct_name = SomeBuffers)]
+/// #[accessor(buffers_struct_name = SomeBuffers)]
 /// struct SomeKeys {
 ///     integer: BufferKey<i64>,
 ///     string: BufferKey<String>,
@@ -700,7 +700,7 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
     type Access<'w, 's, 'a> where 'w: 's, 's: 'a;
     /// Get mutable access to the buffers that this Accessor is associated with.
     fn access<U>(
-        &self,
+        self,
         req: RequestId,
         world: &mut World,
         f: impl FnOnce(Self::Access<'_, '_, '_>) -> U,
@@ -855,13 +855,12 @@ where
     type Access<'w, 's, 'a> = BufferMut<'w, 's, 'a, T> where 'w: 's, 's: 'a;
 
     fn access<U>(
-        &self,
+        self,
         req: RequestId,
         world: &mut World,
         f: impl FnOnce(BufferMut<T>) -> U,
-        // f: impl FnOnce(Self::Access<'_, '_, '_>) -> U,
     ) -> Result<U, AccessError> {
-        Ok(world.buffer_mut(req, self, f)?)
+        Ok(world.buffer_mut(req, &self, f)?)
     }
 }
 
@@ -942,7 +941,7 @@ where
 
     type Access<'w, 's, 'a> = Vec<A::Access<'w, 's, 'a>> where 'w: 's, 's: 'a;
     fn access<U>(
-        &self,
+        self,
         req: RequestId,
         world: &mut World,
         f: impl FnOnce(Vec<A::Access<'_, '_, '_>>) -> U,
@@ -951,7 +950,7 @@ where
 
         let mut states = Vec::new();
         let world_cell = world.as_unsafe_world_cell();
-        for key in self {
+        for key in &self {
             let state = key.get_state(unsafe {
                 // SAFETY: We make sure the accessor is disjoint at the start
                 // of the function. After that there is no overlap in the mutable
@@ -1417,7 +1416,7 @@ mod tests {
     }
 
     #[derive(Clone, Accessor)]
-    #[key(buffers_struct_name = TestKeysBuffers)]
+    #[accessor(buffers_struct_name = TestKeysBuffers)]
     struct TestKeys<T: 'static + Send + Sync + Clone> {
         integer: BufferKey<i64>,
         float: BufferKey<f64>,
@@ -1425,6 +1424,7 @@ mod tests {
         generic: BufferKey<T>,
         any: AnyBufferKey,
     }
+
     #[test]
     fn test_listen() {
         let mut context = TestingContext::minimal_plugins();

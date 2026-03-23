@@ -8,7 +8,7 @@ use syn::{
 use crate::Result;
 
 const JOINED_ATTR_TAG: &'static str = "joined";
-const KEY_ATTR_TAG: &'static str = "key";
+const ACCESSOR_ATTR_TAG: &'static str = "accessor";
 
 pub(crate) fn impl_joined_value(input_struct: &ItemStruct) -> Result<TokenStream> {
     let struct_ident = &input_struct.ident;
@@ -80,7 +80,7 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
     let (impl_generics, ty_generics, where_clause) = input_struct.generics.split_for_impl();
     let StructConfig {
         buffer_struct_name: buffer_struct_ident,
-    } = StructConfig::from_data_struct(&input_struct, &KEY_ATTR_TAG);
+    } = StructConfig::from_data_struct(&input_struct, &ACCESSOR_ATTR_TAG);
     let buffer_struct_vis = &input_struct.vis;
 
     let (field_ident, field_type, field_config) =
@@ -251,7 +251,7 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
             // type Access<'w, 's, 'a> = () where 'w: 's, 's: 'a;
             type Access<'w, 's, 'a> = #access_ident #ty_generics_access #where_clause_access;
             fn access<U>(
-                &self,
+                self,
                 req: ::crossflow::RequestId,
                 world: &mut ::crossflow::re_exports::World,
                 f: impl FnOnce(#access_ident #ty_generics_fn_access) -> U,
@@ -428,7 +428,7 @@ impl FieldSettings {
     fn for_key() -> Self {
         Self {
             default_buffer: Self::default_field_for_key,
-            attr_tag: KEY_ATTR_TAG,
+            attr_tag: ACCESSOR_ATTR_TAG,
         }
     }
 

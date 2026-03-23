@@ -1311,12 +1311,12 @@ impl Accessor for JsonBufferKey {
 
     type Access<'w, 's, 'a> = JsonBufferMut<'w, 's, 'a> where 'w: 's, 's: 'a;
     fn access<U>(
-        &self,
+        self,
         req: RequestId,
         world: &mut World,
         f: impl FnOnce(JsonBufferMut) -> U,
     ) -> Result<U, AccessError> {
-        Ok(world.json_buffer_mut(req, self, f)?)
+        Ok(world.json_buffer_mut(req, &self, f)?)
     }
 }
 

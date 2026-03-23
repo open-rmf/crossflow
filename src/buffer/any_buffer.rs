@@ -401,12 +401,12 @@ impl Accessor for AnyBufferKey {
 
     type Access<'w, 's, 'a> = AnyBufferMut<'w, 's, 'a> where 'w: 's, 's: 'a;
     fn access<U>(
-        &self,
+        self,
         req: RequestId,
         world: &mut World,
         f: impl FnOnce(AnyBufferMut) -> U,
     ) -> Result<U, AccessError> {
-        Ok(world.any_buffer_mut(req, self, f)?)
+        Ok(world.any_buffer_mut(req, &self, f)?)
     }
 }
 

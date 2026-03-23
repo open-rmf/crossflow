@@ -35,6 +35,9 @@ use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError, OrBroken, 
 #[cfg(feature = "trace")]
 use crate::{BufferAccessRecord, BufferTracer};
 
+mod accessor;
+pub use accessor::*;
+
 mod any_buffer;
 pub use any_buffer::*;
 

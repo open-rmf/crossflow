@@ -84,7 +84,7 @@ pub fn derive_joined_value(input: TokenStream) -> TokenStream {
     }
 }
 
-#[proc_macro_derive(Accessor, attributes(key))]
+#[proc_macro_derive(Accessor, attributes(accessor))]
 pub fn derive_buffer_accessor(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as ItemStruct);
     match impl_buffer_accessor(&input) {
