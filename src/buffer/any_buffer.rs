@@ -1081,10 +1081,7 @@ impl<'w, 's, T: 'static + Send + Sync + Any> AnyBufferAccessMut<'w, 's>
         key: &AnyBufferKey,
     ) -> Result<AnyBufferMut<'w, 's, 'a>, BufferError> {
         let BufferAccessMut { inner, commands } = self;
-        let manager = inner
-            .get_manager(req, &key.tag)
-            .map_err(|_| BufferError::BufferMissing)?;
-
+        let manager = inner.get_manager(req, &key.tag)?;
         Ok(AnyBufferMut {
             manager: Box::new(manager),
             req,
@@ -1332,17 +1329,14 @@ impl<T: 'static + Send + Sync + Any> AnyBufferAccessInterface for AnyBufferAcces
         key: &AnyBufferKey,
         world: &'a World,
     ) -> Result<AnyBufferView<'a>, BufferError> {
-        let buffer_ref = world
-            .get_entity(key.tag.buffer)
-            .map_err(|_| BufferError::BufferMissing)?;
-
+        let buffer_ref = world.get_entity(key.tag.buffer)?;
         let storage = buffer_ref
             .get::<BufferStorage<T>>()
-            .ok_or(BufferError::BufferMissing)?;
+            .ok_or(BufferError::BufferStorageMissing)?;
 
         let gate = buffer_ref
             .get::<GateState>()
-            .ok_or(BufferError::BufferMissing)?;
+            .ok_or(BufferError::GateStorageMissing)?;
 
         Ok(AnyBufferView {
             viewing: Arc::new(BufferView::<T> {

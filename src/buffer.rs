@@ -749,12 +749,10 @@ impl BufferWorldAccess for World {
     where
         T: 'static + Send + Sync,
     {
-        let buffer_ref = self
-            .get_entity(key.buffer)
-            .map_err(|_| BufferError::BufferMissing)?;
+        let buffer_ref = self.get_entity(key.buffer)?;
         let storage = buffer_ref
             .get::<BufferStorage<T>>()
-            .ok_or(BufferError::BufferMissing)?;
+            .ok_or(BufferError::BufferStorageMissing)?;
         Ok(BufferView {
             storage,
             session: key.session,
@@ -767,11 +765,10 @@ impl BufferWorldAccess for World {
     ) -> Result<BufferGateView<'_>, BufferError> {
         let key: AnyBufferKey = key.into();
         let buffer_ref = self
-            .get_entity(key.tag.buffer)
-            .or(Err(BufferError::BufferMissing))?;
+            .get_entity(key.tag.buffer)?;
         let gate = buffer_ref
             .get::<GateState>()
-            .ok_or(BufferError::BufferMissing)?;
+            .ok_or(BufferError::GateStorageMissing)?;
         Ok(BufferGateView {
             gate,
             session: key.tag.session,
@@ -802,9 +799,7 @@ impl BufferWorldAccess for World {
         let mut state = SystemState::<BufferAccessMut<T>>::new(self);
         let r = {
             let mut buffer_access_mut = state.get_mut(self);
-            let buffer_mut = buffer_access_mut
-                .unchecked_get_mut(req, key)
-                .map_err(|_| BufferError::BufferMissing)?;
+            let buffer_mut = buffer_access_mut.unchecked_get_mut(req, key)?;
             f(buffer_mut)
         };
 
@@ -820,9 +815,7 @@ impl BufferWorldAccess for World {
     ) -> Result<U, BufferError> {
         let mut state = SystemState::<BufferGateAccessMut>::new(self);
         let mut buffer_gate_access_mut = state.get_mut(self);
-        let buffer_mut = buffer_gate_access_mut
-            .get_mut(req, key)
-            .map_err(|_| BufferError::BufferMissing)?;
+        let buffer_mut = buffer_gate_access_mut.get_mut(req, key)?;
         let r = f(buffer_mut);
         state.apply(self);
         Ok(r)
@@ -1081,8 +1074,18 @@ where
 
 #[derive(ThisError, Debug, Clone)]
 pub enum BufferError {
-    #[error("The key was unable to identify a buffer")]
-    BufferMissing,
+    #[error("Querying for the buffer entity failed: {0}")]
+    QueryFailed(#[from] QueryEntityError),
+    #[error("The BufferStorage is missing from the buffer entity")]
+    BufferStorageMissing,
+    #[error("The GateStorage is missing from the buffer entity")]
+    GateStorageMissing,
+}
+
+impl From<bevy_ecs::entity::EntityDoesNotExistError> for BufferError {
+    fn from(value: bevy_ecs::entity::EntityDoesNotExistError) -> Self {
+        Self::QueryFailed(QueryEntityError::EntityDoesNotExist(value))
+    }
 }
 
 #[cfg(test)]

@@ -809,7 +809,7 @@ where
         'w: 's,
         's: 'a,
     {
-        Ok(param.get_mut(req, self).map_err(|_| BufferError::BufferMissing)?)
+        Ok(param.get_mut(req, self)?)
     }
 
     fn apply_state(

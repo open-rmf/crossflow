@@ -1022,15 +1022,13 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonBufferAccessIn
         key: &JsonBufferKey,
         world: &'a World,
     ) -> Result<JsonBufferView<'a>, BufferError> {
-        let buffer_ref = world
-            .get_entity(key.tag.buffer)
-            .map_err(|_| BufferError::BufferMissing)?;
+        let buffer_ref = world.get_entity(key.tag.buffer)?;
         let storage = buffer_ref
             .get::<BufferStorage<T>>()
-            .ok_or(BufferError::BufferMissing)?;
+            .ok_or(BufferError::BufferStorageMissing)?;
         let gate = buffer_ref
             .get::<GateState>()
-            .ok_or(BufferError::BufferMissing)?;
+            .ok_or(BufferError::GateStorageMissing)?;
         Ok(JsonBufferView {
             viewing: Arc::new(BufferView {
                 storage,
@@ -1092,10 +1090,7 @@ where
         key: &JsonBufferKey,
     ) -> Result<JsonBufferMut<'w, 's, 'a>, BufferError> {
         let BufferAccessMut { inner, commands } = self;
-        let manager = inner
-            .get_manager(req, &key.tag)
-            .map_err(|_| BufferError::BufferMissing)?;
-
+        let manager = inner.get_manager(req, &key.tag)?;
         Ok(JsonBufferMut {
             manager: Box::new(manager),
             buffer: key.tag.buffer,
