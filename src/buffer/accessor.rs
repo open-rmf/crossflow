@@ -32,16 +32,28 @@ mod tests {
     fn test_world_access() {
         let mut context = TestingContext::minimal_plugins();
 
-        // let workflow = context.spawn_io_workflow(|scope, builder| {
-        //     let buffers = SameTypeKeys::select_buffers(
-        //         builder.create_buffer::<i64>(Default::default()),
-        //         builder.create_buffer::<i64>(Default::default()),
-        //         builder.create_buffer::<i64>(Default::default()),
-        //     );
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffers = SameTypeKeys::select_buffers(
+                builder.create_buffer::<i64>(BufferSettings::keep_all()),
+                builder.create_buffer::<i64>(BufferSettings::keep_all()),
+                builder.create_buffer::<i64>(BufferSettings::keep_all()),
+            );
 
-        // });
+            builder
+                .chain(scope.start)
+                .with_access(buffers.a)
+                .then(spread_into_buffer.into_callback())
+                .with_access(buffers)
+                .then(transfer_a_to_b.into_callback())
+                .with_access(buffers)
+                .then(transfer_b_to_c.into_callback())
+                .with_access(buffers.c)
+                .then(drain_buffer.into_callback())
+                .connect(scope.terminate);
+        });
 
-
+        let values = context.resolve_request(vec![0, 1, 2, 3, 4, 5], workflow);
+        assert_eq!(values, vec![0, 1, 2, 3, 4, 5]);
     }
 
     fn spread_into_buffer(
@@ -50,30 +62,56 @@ mod tests {
     ) {
         world.buffer_mut(id, &key, move |mut buffer| {
             for value in values {
+                dbg!(value);
                 buffer.push(value);
             }
         }).unwrap();
     }
 
-    // fn transfer_a_to_b(
-    //     Blocking { request: (_, keys), id, .. }: Blocking<((), SameTypeKeys<i64>)>,
-    //     world: &mut World,
-    // ) {
-    //     keys.access(id, world, |mut access| {
-    //         // for value in access.a.drain(..) {
-    //         //     access.b.push(value);
-    //         // }
-    //     });
-    // }
+    fn transfer_a_to_b(
+        Blocking { request: (_, keys), id, .. }: Blocking<((), SameTypeKeys<i64>)>,
+        world: &mut World,
+    ) {
+        keys.access(id, world, |mut access| {
+            for value in access.a.drain(..) {
+                dbg!(value);
+                access.b.push(value);
+            }
+        })
+        .unwrap();
+    }
 
-    // fn transfer_vec(
-    //     Blocking { request: (_, keys), id, .. }: Blocking<((), Vec<BufferKey<i64>>)>,
-    //     world: &mut World,
-    // ) {
-    //     keys.access(id, world, |_access| {
+    fn transfer_b_to_c(
+        Blocking { request: (_, keys), id, .. }: Blocking<((), SameTypeKeys<i64>)>,
+        world: &mut World,
+    ) {
+        keys.access(id, world, |mut access| {
+            for value in access.b.drain(..) {
+                dbg!(value);
+                access.c.push(value);
+            }
+        })
+        .unwrap();
+    }
 
-    //     });
-    // }
+    fn drain_buffer(
+        Blocking { request: (_, key), id, .. }: Blocking<((), BufferKey<i64>)>,
+        world: &mut World,
+    ) -> Vec<i64> {
+        world.buffer_mut(id, &key, |mut buffer| {
+            buffer.drain(..).map(|x| dbg!(x)).collect()
+        })
+        .unwrap()
+    }
+
+    fn transfer_vec(
+        Blocking { request: (_, keys), id, .. }: Blocking<((), Vec<BufferKey<i64>>)>,
+        world: &mut World,
+    ) {
+        keys.access(id, world, |_access| {
+
+        });
+    }
 
     fn access_buffer(
         Blocking { request: (_, keys), id, .. }: Blocking<((), BufferKey<i64>)>,

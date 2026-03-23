@@ -697,7 +697,7 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
     /// allows you to view with an immutable world borrow, but
     fn view_untraced<'a>(&self, world: &'a World) -> Result<Self::View<'a>, BufferError>;
 
-    type Access<'w, 's, 'a> where 'w: 's, 's: 'a;
+    type Access<'w, 's, 'a>;
     /// Get mutable access to the buffers that this Accessor is associated with.
     fn access<U>(
         self,
@@ -852,7 +852,7 @@ where
         world.buffer_view_untraced::<T>(self.tag())
     }
 
-    type Access<'w, 's, 'a> = BufferMut<'w, 's, 'a, T> where 'w: 's, 's: 'a;
+    type Access<'w, 's, 'a> = BufferMut<'w, 's, 'a, T>;
 
     fn access<U>(
         self,
@@ -939,7 +939,7 @@ where
         Ok(view)
     }
 
-    type Access<'w, 's, 'a> = Vec<A::Access<'w, 's, 'a>> where 'w: 's, 's: 'a;
+    type Access<'w, 's, 'a> = Vec<A::Access<'w, 's, 'a>>;
     fn access<U>(
         self,
         req: RequestId,

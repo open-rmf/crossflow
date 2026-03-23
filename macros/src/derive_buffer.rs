@@ -2,7 +2,7 @@ use proc_macro2::{TokenStream, Span};
 use quote::{format_ident, quote};
 use syn::{
     Field, Generics, Ident, ImplGenerics, ItemStruct, Type, TypeGenerics, TypePath, Visibility,
-    WhereClause, parse_quote, Lifetime, LifetimeParam, GenericParam, WherePredicate,
+    WhereClause, parse_quote, Lifetime, LifetimeParam, GenericParam,
 };
 
 use crate::Result;
@@ -139,9 +139,6 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
         GenericParam::from(LifetimeParam::new(Lifetime::new("'a", Span::call_site()))),
     ]);
 
-    let w_s: WherePredicate = parse_quote! { 'w: 's };
-    let s_a: WherePredicate = parse_quote! { 's: 'a };
-    access_generics.make_where_clause().predicates.extend([w_s, s_a]);
     let (impl_generics_access, ty_generics_access, where_clause_access) = access_generics.split_for_impl();
 
     let mut fn_access_generics = input_struct.generics.clone();
@@ -248,7 +245,6 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
                 })
             }
 
-            // type Access<'w, 's, 'a> = () where 'w: 's, 's: 'a;
             type Access<'w, 's, 'a> = #access_ident #ty_generics_access #where_clause_access;
             fn access<U>(
                 self,

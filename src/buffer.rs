@@ -1062,7 +1062,9 @@ where
 {
     fn drop(&mut self) {
         if self.modified {
-            self.manager.commands.queue(NotifyBufferUpdate::new(
+            // SAFETY: The commands pointer in the manager comes from a valid
+            // reference that outlives this BufferMut, so it is safe to dereference.
+            unsafe { &mut *self.manager.commands }.queue(NotifyBufferUpdate::new(
                 self.buffer,
                 self.manager.req,
                 self.manager.key_session(),

@@ -399,7 +399,7 @@ impl Accessor for AnyBufferKey {
         world.any_buffer_view_untraced(self)
     }
 
-    type Access<'w, 's, 'a> = AnyBufferMut<'w, 's, 'a> where 'w: 's, 's: 'a;
+    type Access<'w, 's, 'a> = AnyBufferMut<'w, 's, 'a>;
     fn access<U>(
         self,
         req: RequestId,
@@ -504,7 +504,11 @@ pub struct AnyBufferMut<'w, 's, 'a> {
     req: RequestId,
     session: Entity,
     accessor: Option<Entity>,
-    commands: &'a mut Commands<'w, 's>,
+    // TODO(@mxgrey): We use a raw pointer here to escape an HRTB bug in the
+    // Rust compiler: https://github.com/rust-lang/rust/issues/100013
+    // When that issue is resolved we should try to revert this to a regular
+    // safe borrow.
+    commands: *mut Commands<'w, 's>,
     modified: bool,
 }
 
@@ -672,7 +676,9 @@ impl<'w, 's, 'a> AnyBufferMut<'w, 's, 'a> {
 impl<'w, 's, 'a> Drop for AnyBufferMut<'w, 's, 'a> {
     fn drop(&mut self) {
         if self.modified {
-            self.commands.queue(NotifyBufferUpdate::new(
+            // SAFETY: The commands pointer comes from a valid reference that
+            // outlives this AnyBufferMut, so it is safe to dereference.
+            unsafe { &mut *self.commands }.queue(NotifyBufferUpdate::new(
                 self.buffer,
                 self.req,
                 self.session,
@@ -1088,7 +1094,7 @@ impl<'w, 's, T: 'static + Send + Sync + Any> AnyBufferAccessMut<'w, 's>
             buffer: key.tag.buffer,
             session: key.tag.session,
             accessor: Some(key.tag.accessor),
-            commands,
+            commands: commands as *mut _,
             modified: false,
         })
     }
