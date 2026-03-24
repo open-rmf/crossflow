@@ -1289,23 +1289,31 @@ impl Accessor for JsonBufferKey {
 
     fn can_join(&self, world: &World) -> Result<bool, AccessError> {
         let view = world.json_buffer_view_untraced(self)?;
-        Ok(view.oldest().is_some())
+        // Check that at least one entry can be serialized
+        // TODO(@mxgrey): It would be good if we can cache these serializations
+        // to avoid redundant effort. We would have to add a caching field to
+        // BufferEntry when the diagram feature is enabled.
+        Ok(view.iter().any(|json| json.serialize().is_ok()))
     }
 
-    type Joined = JsonFetchResult;
+    type Joined = JsonMessage;
     fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
         Ok(
             world.json_buffer_mut(req, self, |mut buffer| {
-                buffer.pull()
+                loop {
+                    match buffer.pull() {
+                        Some(Ok(value)) => return Some(value),
+                        Some(Err(_)) => continue,
+                        None => return None,
+                    }
+                }
             })?
         )
     }
 
     fn distribute(&self, value: Self::Joined, req: RequestId, world: &mut World) -> Result<(), AccessError> {
         world.json_buffer_mut(req, self, move |mut buffer| {
-            if let Ok(value) = value {
-                let _ = buffer.push(value);
-            }
+            let _ = buffer.push(value);
         })?;
         Ok(())
     }

@@ -30,6 +30,7 @@ use bevy_ecs::{
 use crate::{
     Accessing, Buffer, Builder, Chain, Node, BufferWorldAccess, RequestId, BufferKey,
     BufferError, BufferView, BufferMut, BufferAccessMut, BufferMapLayout, BufferMap, IncompatibleLayout,
+    format_vertical_list,
 };
 
 pub use crossflow_derive::{Accessor, Joined};
@@ -142,6 +143,27 @@ pub enum AccessError {
     NotDisjoint(#[from] OverlapError),
     #[error("Failed to access one of the buffers: {0}")]
     Inaccessible(#[from] BufferError),
+    #[error("Multiple access errors occurred:{}", format_vertical_list(.0))]
+    Multiple(Vec<AccessError>),
+}
+
+impl AccessError {
+    /// Turn a list of access errors into a Result. If the list is empty, this
+    /// will return Ok(()). If there are multiple errors this will collect them
+    /// into [`AccessError::Multiple`]. If there is only one error, it will be
+    /// extracted and return as the error.
+    pub fn from_list(mut errors: Vec<AccessError>) -> Result<(), AccessError> {
+        if errors.len() > 1 {
+            return Err(AccessError::Multiple(errors));
+        }
+
+        if let Some(error) = errors.pop() {
+            // Only one error
+            return Err(error);
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(ThisError, Debug, Clone)]
@@ -340,14 +362,21 @@ where
             return Ok(None);
         }
 
+        let mut errors = Vec::new();
         let mut fetched = Vec::new();
         for key in self {
-            let Some(value) = key.join(req, world)? else {
-                return Ok(None);
-            };
-            fetched.push(value);
+            match key.join(req, world) {
+                Ok(Some(value)) => fetched.push(value),
+                Ok(None) => {
+                    // Note: This can't happen unless there's a flaw in the
+                    // implementation of can_join
+                    return Ok(None)
+                },
+                Err(err) => errors.push(err),
+            }
         }
 
+        AccessError::from_list(errors)?;
         Ok(Some(fetched))
     }
 
@@ -365,14 +394,14 @@ where
     /// check that the number of values is equal to the number of buffers before
     /// calling this.
     fn distribute(&self, value: Self::Joined, req: RequestId, world: &mut World) -> Result<(), AccessError> {
-        let mut r = Ok(());
+        let mut errors = Vec::new();
         for (value, buffer) in value.into_iter().zip(self) {
             if let Err(err) = buffer.distribute(value, req, world) {
-                r = Err(err);
+                errors.push(err);
             }
         }
 
-        r
+        AccessError::from_list(errors)
     }
 
     type View<'a> = Vec<A::View<'a>>;
@@ -466,7 +495,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::*, testing::*};
+    use crate::{prelude::*, testing::*, AddBufferToMap};
     use std::collections::HashMap;
 
     #[derive(Clone, Accessor)]
@@ -729,7 +758,7 @@ mod tests {
         float: f64,
         string: String,
         generic: T,
-        json: crate::JsonFetchResult,
+        json: JsonMessage,
     }
 
     #[test]
@@ -759,9 +788,9 @@ mod tests {
             float: 3.14159,
             string: String::from("hello"),
             generic: (2.171828, 4),
-            json: Ok(serde_json::json!({
+            json: serde_json::json!({
                 "hello": "json",
-            })),
+            }),
         };
 
         let resolved_values = context.resolve_request(values.clone(), workflow);
@@ -769,6 +798,74 @@ mod tests {
         assert_eq!(resolved_values.float, values.float);
         assert_eq!(resolved_values.string, values.string);
         assert_eq!(resolved_values.generic, values.generic);
-        assert_eq!(resolved_values.json.unwrap(), values.json.unwrap());
+        assert_eq!(resolved_values.json, values.json);
+
+        // This specifically tests that the Accessor macro correctly generates the
+        // Joining trait impl needed for its Buffer struct to make the join operation for
+        // its Joined struct.
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffers = TestKeys::select_buffers(
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+                builder.create_buffer::<HashMap<String, String>>(Default::default()),
+            );
+
+            builder
+                .chain(scope.start)
+                .with_access(buffers.clone())
+                .then(distribute_to_buffers.into_callback())
+                .unused();
+
+            builder
+                .join(buffers)
+                .connect(scope.terminate);
+        });
+
+        let resolved_values = context.resolve_request(values.clone(), workflow);
+        assert_eq!(resolved_values.integer, values.integer);
+        assert_eq!(resolved_values.float, values.float);
+        assert_eq!(resolved_values.string, values.string);
+        assert_eq!(resolved_values.generic, values.generic);
+        assert_eq!(resolved_values.json, values.json);
+
+        // This specifically tests that the Accessor macro correctly generates the
+        // Joined trait impl needed for its Joined struct to make the try_join
+        // operation.
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffers = TestKeys::select_buffers(
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+                builder.create_buffer::<HashMap<String, String>>(Default::default()),
+            );
+
+            let mut buffer_map = BufferMap::default();
+            buffer_map.insert_buffer("integer", buffers.integer);
+            buffer_map.insert_buffer("float", buffers.float);
+            buffer_map.insert_buffer("string", buffers.string);
+            buffer_map.insert_buffer("generic", buffers.generic);
+            buffer_map.insert_buffer("json", buffers.json);
+
+            builder
+                .chain(scope.start)
+                .with_access(buffers.clone())
+                .then(distribute_to_buffers.into_callback())
+                .unused();
+
+            builder
+                .try_join::<TestKeysJoined<(f64, i32)>>(&buffer_map)
+                .unwrap()
+                .connect(scope.terminate);
+        });
+
+        let resolved_values = context.resolve_request(values.clone(), workflow);
+        assert_eq!(resolved_values.integer, values.integer);
+        assert_eq!(resolved_values.float, values.float);
+        assert_eq!(resolved_values.string, values.string);
+        assert_eq!(resolved_values.generic, values.generic);
+        assert_eq!(resolved_values.json, values.json);
     }
 }

@@ -394,7 +394,7 @@ impl Accessor for AnyBufferKey {
 
     fn distribute(&self, value: Self::Joined, req: RequestId, world: &mut World) -> Result<(), AccessError> {
         world.any_buffer_mut(req, self, |mut buffer| {
-            buffer.push(value);
+            let _ = buffer.push(value);
         })?;
 
         Ok(())

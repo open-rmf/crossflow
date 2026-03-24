@@ -55,12 +55,11 @@ pub(crate) fn impl_joined_value(input_struct: &ItemStruct) -> Result<TokenStream
 
     let impl_buffer_map_layout =
         impl_buffer_map_layout(&buffer_struct, &field_ident, &field_config)?;
-    let impl_joined = impl_joining(&buffer_struct, &input_struct, &field_ident)?;
+    let impl_joining = impl_joining(&buffer_struct, &input_struct.ident, &input_struct.generics, &field_ident)?;
+    let impl_joined = impl_joined(&buffer_struct_ident, &input_struct.ident, &input_struct.generics)?;
 
     let tokens = quote! {
-        impl #impl_generics ::crossflow::Joined for #struct_ident #ty_generics #where_clause {
-            type Buffers = #buffer_struct_ident #ty_generics;
-        }
+        #impl_joined
 
         #buffer_struct
 
@@ -70,7 +69,7 @@ pub(crate) fn impl_joined_value(input_struct: &ItemStruct) -> Result<TokenStream
 
         #impl_buffer_map_layout
 
-        #impl_joined
+        #impl_joining
     };
 
     Ok(tokens.into())
@@ -165,6 +164,9 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
         }
     };
 
+    let joining_impl = impl_joining(&buffer_struct, &joined_struct_ident, &input_struct.generics, &field_ident)?;
+    let joined_impl = impl_joined(&buffer_struct.ident, &joined_struct_ident, &input_struct.generics)?;
+
     let tokens = quote! {
         impl #impl_generics ::crossflow::Accessor for #struct_ident #ty_generics #where_clause {
             type Buffers = #buffer_struct_ident #ty_generics;
@@ -207,8 +209,26 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
                     return ::std::result::Result::Ok(::std::option::Option::None);
                 }
 
+                // First fetch each value and collect any possible errors
+                let mut errors = ::std::vec::Vec::new();
                 #(
-                    let ::std::option::Option::Some(#field_ident) = <#field_type as ::crossflow::Accessor>::join(&self. #field_ident, req, world)? else {
+                    let #field_ident = match <#field_type as ::crossflow::Accessor>::join(&self. #field_ident, req, world) {
+                        Ok(value) => value,
+                        Err(err) => {
+                            errors.push(err);
+                            None
+                        }
+                    };
+                )*
+
+                // Check if any access errors occurred.
+                ::crossflow::AccessError::from_list(errors)?;
+
+                // Peel away the Option on the field values
+                #(
+                    let Some(#field_ident) = #field_ident else {
+                        // Note: This can't happen unless there's a flaw in the
+                        // implementation of can_join
                         return ::std::result::Result::Ok(::std::option::Option::None);
                     };
                 )*
@@ -230,21 +250,20 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
                 req: ::crossflow::RequestId,
                 world: &mut ::crossflow::re_exports::World,
             ) -> ::std::result::Result<(), ::crossflow::AccessError> {
-                let mut r = ::std::result::Result::Ok(());
-
                 let Self::Joined {
                     #(
                         #field_ident,
                     )*
                 } = value;
 
+                let mut errors = ::std::vec::Vec::new();
                 #(
                     if let ::std::result::Result::Err(err) = self. #field_ident .distribute(#field_ident, req, world) {
-                        r = ::std::result::Result::Err(err);
+                        errors.push(err);
                     }
                 )*
 
-                r
+                ::crossflow::AccessError::from_list(errors)
             }
 
             type View<'v> = #view_ident #ty_generics_view;
@@ -356,6 +375,10 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
         }
 
         #joined_struct
+
+        #joined_impl
+
+        #joining_impl
 
         #[allow(non_camel_case_types, unused)]
         #buffer_struct_vis struct #view_ident #impl_generics_view #where_clause {
@@ -737,21 +760,34 @@ fn impl_buffer_map_layout(
     .into())
 }
 
-/// Params:
-///   joined_struct: The struct to implement `Joining`.
-///   item_struct: The associated `Item` type to use for the `Joining` implementation.
+fn impl_joined(
+    buffers_struct_ident: &Ident,
+    joined_struct_ident: &Ident,
+    generics: &Generics,
+) -> Result<proc_macro2::TokenStream> {
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    Ok(
+        quote! {
+            impl #impl_generics ::crossflow::Joined for #joined_struct_ident #ty_generics #where_clause {
+                type Buffers = #buffers_struct_ident #ty_generics;
+            }
+        }
+        .into()
+    )
+}
+
 fn impl_joining(
-    joined_struct: &ItemStruct,
-    item_struct: &ItemStruct,
+    buffers_struct: &ItemStruct,
+    joined_struct_ident: &Ident,
+    generics: &Generics,
     field_ident: &Vec<&Ident>,
 ) -> Result<proc_macro2::TokenStream> {
-    let struct_ident = &joined_struct.ident;
-    let item_struct_ident = &item_struct.ident;
-    let (impl_generics, ty_generics, where_clause) = item_struct.generics.split_for_impl();
+    let struct_ident = &buffers_struct.ident;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     Ok(quote! {
         impl #impl_generics ::crossflow::Joining for #struct_ident #ty_generics #where_clause {
-            type Item = #item_struct_ident #ty_generics;
+            type Item = #joined_struct_ident #ty_generics;
 
             fn fetch_for_join(
                 &self,
@@ -823,6 +859,7 @@ fn impl_accessing(
     }.into())
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 
