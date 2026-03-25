@@ -26,11 +26,12 @@ use tokio::sync::{
     oneshot,
 };
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::{
     OperationError, OperationRoster, Outcome, Promise, ProvideOnce, Reply, RequestExt, RequestId,
-    Seq, StreamPack,
+    Seq, StreamPack, Accessor, BufferWorldAccess, AccessError,
+    async_execution::spawn_task,
 };
 
 /// Provides asynchronous access to the [`World`], allowing you to issue queries
@@ -61,6 +62,30 @@ impl Channel {
         let _ = self
             .commands(move |commands| commands.request(request, provider).send_outcome(capture));
         outcome
+    }
+
+    /// Get mutable access to one or more buffers and then receive a reply.
+    ///
+    /// This must run asynchronously because access to the buffers requires
+    /// exclusive world access.
+    pub fn access<A: Accessor, U: 'static + Send>(
+        &self,
+        accessor: A,
+        f: impl FnOnce(A::Access<'_, '_, '_>) -> U + 'static + Send,
+    ) -> Reply<Result<U, AccessError>> {
+        let req = self.inner.request_id;
+        self.world(move |world| {
+            world.buffers_mut(req, &accessor, f)
+        })
+    }
+
+    pub fn access_when<A: Accessor, U: 'static + Send>(
+        &self,
+        accessor: A,
+        when: impl FnMut(A::View<'_>) -> bool + 'static + Send,
+        then: impl FnOnce(A::Access<'_, '_, '_>) -> U + 'static + Send,
+    ) -> Reply<Result<U, AccessError>> {
+        access_when(self.inner.clone(), accessor, when, then)
     }
 
     /// Run a query in the world and receive the promise of the query's output.
@@ -210,6 +235,105 @@ impl Default for ChannelQueue {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn access_when<A: Accessor, U: 'static + Send>(
+    channel: Arc<InnerChannel>,
+    mut accessor: A,
+    mut when: impl FnMut(A::View<'_>) -> bool + 'static + Send,
+    then: impl FnOnce(A::Access<'_, '_, '_>) -> U + 'static + Send,
+) -> Reply<Result<U, AccessError>> {
+    let req = channel.request_id;
+    let (sender, receiver) = oneshot::channel();
+    let channel_clone = Arc::clone(&channel);
+    let _ = channel_clone.sender.send(Box::new(move |world: &mut World, _: &mut OperationRoster| {
+        let view = match world.buffers_view(req, &accessor) {
+            Ok(view) => view,
+            Err(err) => {
+                let _ = sender.send(Err(err.into()));
+                return;
+            }
+        };
+
+        if when(view) {
+            // The buffers are ready right away, so execute
+            let _ = sender.send(world.buffers_mut(req, &accessor, then));
+            return;
+        }
+
+        // The buffers were not ready, so loop around, awaiting the condition
+        let seen = accessor.make_seen(world);
+        accessor.seen(seen);
+
+        // The callbacks now need to be wrapped in Arc<Mutex<Option>> so
+        // they can be shared between the async task and the world callbacks.
+        let shared_when = Arc::new(Mutex::new(when));
+        let shared_then = Arc::new(Mutex::new(Some((then, sender))));
+
+        // We can't spawn the task until we have world access, or else this
+        // method won't work with the single_threaded_async feature. The first
+        // pass above avoids various overhead if the buffers happen to already
+        // be in the right states.
+        spawn_task(
+            async move {
+                loop {
+                    accessor.wait_for_change().await;
+
+                    // One of the buffers has changed, so send a task to test
+                    // if the conditions are met and then execute if they are.
+                    let when = shared_when.clone();
+                    let then = shared_then.clone();
+                    let (seen_sender, seen_receiver) = oneshot::channel();
+                    let a = accessor.clone();
+                    let _ = channel.sender.send(Box::new(
+                        move |world: &mut World, _: &mut OperationRoster| {
+                            let view = match world.buffers_view(req, &a) {
+                                Ok(view) => view,
+                                Err(err) => {
+                                    // SAFETY: There is no risk of the mutex getting poisoned because
+                                    // there are no operations that can panic while the mutex is locked.
+                                    if let Some((_, sender)) = then.lock().unwrap().take() {
+                                        let _ = sender.send(Err(err.into()));
+                                    }
+                                    return;
+                                }
+                            };
+
+                            let mut when = match when.lock() {
+                                Ok(when) => when,
+                                Err(_) => {
+                                    if let Some((_, sender)) = then.lock().unwrap().take() {
+                                        let _ = sender.send(Err(AccessError::PoisonedMutex));
+                                    }
+                                    return;
+                                }
+                            };
+
+                            if (*when)(view) {
+                                if let Some((then, sender)) = then.lock().unwrap().take() {
+                                    let _ = sender.send(world.buffers_mut(req, &a, then));
+                                }
+                            } else {
+                                // It's not time yet, so update the async task about which
+                                // buffer states we saw.
+                                let seen = a.make_seen(world);
+                                let _ = seen_sender.send(seen);
+                            }
+                        }
+                    ));
+
+                    let Ok(seen) = seen_receiver.await else {
+                        // We aren't receiving a new seen update, so that
+                        // means the task is finished.
+                        return;
+                    };
+                    accessor.seen(seen);
+                }
+            },
+            world,
+        ).detach();
+    }));
+    Reply::new(receiver)
 }
 
 #[cfg(test)]

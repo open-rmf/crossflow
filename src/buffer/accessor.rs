@@ -103,7 +103,7 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
 
     /// A data structure used to indicate which versions of the buffers have
     /// been seen by this accessor.
-    type Seen;
+    type Seen: 'static + Send + Sync;
 
     /// Mark the buffer as seen if the sequence value of its notifier is equal
     /// to this value. This can be used to reduce churn when doing async
@@ -168,6 +168,8 @@ pub enum AccessError {
     Inaccessible(#[from] BufferError),
     #[error("Multiple access errors occurred:{}", format_vertical_list(.0))]
     Multiple(Vec<AccessError>),
+    #[error("A panic occurred during an async access")]
+    PoisonedMutex,
 }
 
 impl AccessError {
