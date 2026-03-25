@@ -41,6 +41,7 @@ bevy_tasks = "0.16"
 bevy_time = "0.16"
 bevy_utils = "0.16"
 clap = { version = "4.5.23", features = ["derive"] }
+futures-concurrency = "7.7"
 mime_guess = "2.0.5"
 schemars = "1.2.0"
 serde = "1.0.219"
@@ -82,6 +83,7 @@ itertools = "0.13"
 smallvec = { version = "1.13", features = ["serde"] }
 tokio = { workspace = true, features = ["sync", "macros"] }
 futures = { workspace = true }
+futures-concurrency = { workspace = true }
 backtrace = "0.3"
 thiserror = "1.0"
 

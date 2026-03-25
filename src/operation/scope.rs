@@ -1824,13 +1824,23 @@ where
         let source_ref = world.get_entity(source).or_broken()?;
         let buffers = source_ref
             .get::<CleanupInputBufferStorage<B>>()
-            .or_broken()?;
+            .or_broken()?
+            .0
+            .clone();
         let target = source_ref.get::<SingleTargetStorage>().or_broken()?.0;
         let from_scope = source_ref.get::<CleanupForScope>().or_broken()?.0;
 
-        let key_builder = BufferKeyBuilder::without_tracking(from_scope, scoped_session, source);
+        let mut broadcasters_state = world.query();
+        let mut broadcasters = broadcasters_state.query_mut(world);
+        // We do not track buffer keys when they are used inside of cleanup sessions.
+        let mut key_builder = BufferKeyBuilder::without_tracking(
+            from_scope,
+            scoped_session,
+            source,
+            &mut broadcasters,
+        );
 
-        let keys = buffers.0.create_key(&key_builder);
+        let keys = buffers.create_key(&mut key_builder)?;
 
         // The cleanup workflow that we are about to start will take place in its
         // own unique session that it will create for itself, so it might seem

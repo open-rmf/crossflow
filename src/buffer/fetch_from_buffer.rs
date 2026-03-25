@@ -154,8 +154,7 @@ fn pull_for_join<T: 'static + Send + Sync>(
     let key = BufferKeyTag {
         buffer: buffer.id(),
         session,
-        accessor: buffer.id(),
-        lifecycle: None,
+        accessor: req.source,
     };
     world
         .unchecked_buffer_mut::<T, _>(req, &key, |mut buffer| buffer.pull())
@@ -172,8 +171,7 @@ pub(super) fn clone_for_join<T: 'static + Send + Sync + Clone>(
     let key = BufferKeyTag {
         buffer: buffer.id(),
         session,
-        accessor: buffer.id(),
-        lifecycle: None,
+        accessor: req.source,
     };
     let value = world
         .unchecked_buffer_view::<T>(req, &key)
@@ -252,8 +250,8 @@ impl<T: 'static + Send + Sync> Accessing for FetchFromBuffer<T> {
         Buffer::<T>::add_accessor(&(*self).into(), accessor, world)
     }
 
-    fn create_key(&self, builder: &BufferKeyBuilder) -> Self::Key {
-        Buffer::<T>::create_key(&(*self).into(), builder)
+    fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key> {
+        Ok(Buffer::<T>::create_key(&(*self).into(), builder)?)
     }
 
     fn deep_clone_key(key: &Self::Key) -> Self::Key {

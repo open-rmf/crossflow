@@ -167,9 +167,69 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
     let joining_impl = impl_joining(&buffer_struct, &joined_struct_ident, &input_struct.generics, &field_ident)?;
     let joined_impl = impl_joined(&buffer_struct.ident, &joined_struct_ident, &input_struct.generics)?;
 
+    let wait_for_change_impl = if field_ident.len() == 0 {
+        // Do nothing at all if there are no fields in the struct
+        quote !{ }
+    } else if field_ident.len() <= 12 {
+        // Use the tuple implementation of Race if there are few enough fields
+        quote! {
+            use ::crossflow::re_exports::Race;
+            let futures = (#(
+                <#field_type as ::crossflow::Accessor>::wait_for_change(&mut self. #field_ident),
+            )*);
+
+            Race::race(futures).await;
+        }
+    } else {
+        // Use the vec implementation of Race if there are too many fields
+        quote! {
+            use ::crossflow::re_exports::Race;
+            let mut futures = Vec::new();
+            #(
+                futures.push(<#field_type as ::crossflow::Accessor>::wait_for_change(&mut self. #field_ident));
+            )*
+
+            Race::race(futures).await;
+        }
+    };
+
     let tokens = quote! {
         impl #impl_generics ::crossflow::Accessor for #struct_ident #ty_generics #where_clause {
             type Buffers = #buffer_struct_ident #ty_generics;
+
+            async fn wait_for_change(&mut self) {
+                #wait_for_change_impl
+            }
+
+            type Seen = (
+                #(
+                    <#field_type as ::crossflow::Accessor>::Seen,
+                )*
+            );
+
+            fn seen(&mut self, seen: Self::Seen) {
+                let (
+                    #(
+                        #field_ident,
+                    )*
+                ) = seen;
+
+                #(
+                    <#field_type as ::crossflow::Accessor>::seen(&mut self. #field_ident, #field_ident);
+                )*
+            }
+
+            fn make_seen(&self, world: &mut ::crossflow::re_exports::World) -> Self::Seen {
+                #(
+                    let #field_ident = <#field_type as ::crossflow::Accessor>::make_seen(&self. #field_ident, world);
+                )*
+
+                (
+                    #(
+                        #field_ident,
+                    )*
+                )
+            }
 
             fn is_disjoint(&self) -> ::std::result::Result<(), ::crossflow::OverlapError> {
                 let mut duplicates = ::std::collections::HashMap::new();
@@ -833,14 +893,16 @@ fn impl_accessing(
                 Ok(())
             }
 
-            fn create_key(&self, builder: &::crossflow::BufferKeyBuilder) -> Self::Key {
-                Self::Key {#(
-                    // TODO(@mxgrey): This currently does not have good support for the user
-                    // substituting in a different key type than what the BufferKeyLifecycle expects.
-                    // We could consider adding a .clone().into() to help support that use case, but
-                    // this would be such a niche use case that I think we can ignore it for now.
-                    #field_ident: <#field_type as ::crossflow::BufferKeyLifecycle>::create_key(&self.#field_ident, builder),
-                )*}
+            fn create_key(&self, builder: &mut ::crossflow::BufferKeyBuilder) -> ::crossflow::OperationResult<Self::Key> {
+                ::std::result::Result::Ok(
+                    Self::Key {#(
+                        // TODO(@mxgrey): This currently does not have good support for the user
+                        // substituting in a different key type than what the BufferKeyLifecycle expects.
+                        // We could consider adding a .clone().into() to help support that use case, but
+                        // this would be such a niche use case that I think we can ignore it for now.
+                        #field_ident: <#field_type as ::crossflow::BufferKeyLifecycle>::create_key(&self.#field_ident, builder)?,
+                    )*}
+                )
             }
 
             fn deep_clone_key(key: &Self::Key) -> Self::Key {

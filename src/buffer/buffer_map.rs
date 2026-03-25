@@ -661,16 +661,16 @@ impl Joined for HashMap<IdentifierRef<'static>, AnyMessageBox> {
 impl Accessing for BufferMap {
     type Key = HashMap<IdentifierRef<'static>, AnyBufferKey>;
 
-    fn create_key(&self, builder: &BufferKeyBuilder) -> Self::Key {
+    fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key> {
         let mut keys = HashMap::new();
         for (name, buffer) in self.iter() {
             let key = AnyBufferKey {
-                tag: builder.make_tag(buffer.id()),
+                body: builder.make_body(buffer.id())?,
                 interface: buffer.interface,
             };
             keys.insert(name.clone(), key);
         }
-        keys
+        Ok(keys)
     }
 
     fn add_accessor(&self, accessor: Entity, world: &mut World) -> OperationResult {

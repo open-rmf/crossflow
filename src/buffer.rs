@@ -26,11 +26,14 @@ use std::{
     collections::HashMap,
     ops::RangeBounds,
     sync::{Arc, Mutex, OnceLock},
+    num::Wrapping,
 };
 
 use thiserror::Error as ThisError;
 
-use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError, OrBroken, RequestId};
+use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationResult, OrBroken, RequestId, Seq};
+
+pub type BufferChangeReceiver = tokio::sync::watch::Receiver<Wrapping<Seq>>;
 
 #[cfg(feature = "trace")]
 use crate::{BufferAccessRecord, BufferTracer};
@@ -217,7 +220,7 @@ fn clone_for_any_join<T: 'static + Send + Sync + Clone>(
     request_id: RequestId,
     key: &BufferKeyTag,
     world: &mut World,
-) -> Result<AnyMessageBox, OperationError> {
+) -> OperationResult<AnyMessageBox> {
     // In general we expect pulling to imply pulling the oldest since the most
     // typical pattern when information is being pulled from a source would be
     // FIFO. It's very unlikely that someone pulling information would want the
@@ -331,14 +334,14 @@ impl Default for RetentionPolicy {
 /// [1]: crate::Chain::with_access
 /// [2]: crate::Accessible::listen
 pub struct BufferKey<T> {
-    tag: BufferKeyTag,
+    body: BufferKeyBody,
     _ignore: std::marker::PhantomData<fn(T)>,
 }
 
 impl<T> Clone for BufferKey<T> {
     fn clone(&self) -> Self {
         Self {
-            tag: self.tag.clone(),
+            body: self.body.clone(),
             _ignore: Default::default(),
         }
     }
@@ -347,36 +350,38 @@ impl<T> Clone for BufferKey<T> {
 impl<T> BufferKey<T> {
     /// The buffer ID of this key.
     pub fn buffer(&self) -> Entity {
-        self.tag.buffer
+        self.body.tag.buffer
     }
 
     /// The session that this key belongs to.
     pub fn session(&self) -> Entity {
-        self.tag.session
+        self.body.tag.session
     }
 
     pub fn tag(&self) -> &BufferKeyTag {
-        &self.tag
+        &self.body.tag
     }
 }
 
 impl<T: 'static + Send + Sync> BufferKeyLifecycle for BufferKey<T> {
     type TargetBuffer = Buffer<T>;
 
-    fn create_key(buffer: &Self::TargetBuffer, builder: &BufferKeyBuilder) -> Self {
-        BufferKey {
-            tag: builder.make_tag(buffer.id()),
-            _ignore: Default::default(),
-        }
+    fn create_key(buffer: &Self::TargetBuffer, builder: &mut BufferKeyBuilder) -> OperationResult<Self> {
+        Ok(
+            BufferKey {
+                body: builder.make_body(buffer.id())?,
+                _ignore: Default::default(),
+            }
+        )
     }
 
     fn is_in_use(&self) -> bool {
-        self.tag.is_in_use()
+        self.body.is_in_use()
     }
 
     fn deep_clone(&self) -> Self {
         Self {
-            tag: self.tag.deep_clone(),
+            body: self.body.deep_clone(),
             _ignore: Default::default(),
         }
     }
@@ -386,52 +391,59 @@ impl<T> std::fmt::Debug for BufferKey<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BufferKey")
             .field("message_type_name", &std::any::type_name::<T>())
-            .field("tag", &self.tag)
+            .field("tag", &self.body)
             .finish()
     }
 }
 
-/// The identifying information for a buffer key. This does not indicate
-/// anything about the type of messages that the buffer can contain.
 #[derive(Clone)]
-pub struct BufferKeyTag {
-    pub buffer: Entity,
-    pub session: Entity,
-    /// Which buffer listener operation was this key originally sent to
-    pub accessor: Entity,
-    pub lifecycle: Option<Arc<BufferAccessLifecycle>>,
+pub struct BufferKeyBody {
+    tag: BufferKeyTag,
+    /// The lifecycle is tracked for keys within a regular session, but it does
+    /// not get tracked for keys within a cleanup session, so this field will be
+    /// None for the keys passed to cleanup workflows.
+    lifecycle: Option<Arc<BufferAccessLifecycle>>,
+    /// Provides async notification when the buffer value changes for this session.
+    receiver: BufferChangeReceiver,
 }
 
-impl BufferKeyTag {
+impl BufferKeyBody {
     pub fn is_in_use(&self) -> bool {
         self.lifecycle.as_ref().is_some_and(|l| l.is_in_use())
     }
 
     pub fn deep_clone(&self) -> Self {
         let mut deep = self.clone();
-        deep.lifecycle = self
-            .lifecycle
-            .as_ref()
-            .map(|l| Arc::new(l.as_ref().clone()));
+        deep.lifecycle = self.lifecycle.as_ref().map(|l| Arc::new(l.as_ref().clone()));
         deep
     }
+}
 
+impl std::fmt::Debug for BufferKeyBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BufferKeyTag")
+            .field("tag", &self.tag)
+            .field("in_use", &self.is_in_use())
+            .finish()
+    }
+}
+
+/// The identifying information for a buffer key. This does not indicate
+/// anything about the type of messages that the buffer can contain.
+#[derive(Debug, Clone, Copy)]
+pub struct BufferKeyTag {
+    pub buffer: Entity,
+    pub session: Entity,
+    /// Which buffer listener operation was this key originally sent to
+    pub accessor: Entity,
+}
+
+impl BufferKeyTag {
     pub fn instance(&self) -> BufferInstanceId {
         BufferInstanceId {
             buffer: self.buffer,
             session: self.session,
         }
-    }
-}
-
-impl std::fmt::Debug for BufferKeyTag {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BufferKeyTag")
-            .field("buffer", &self.buffer)
-            .field("session", &self.session)
-            .field("accessor", &self.accessor)
-            .field("in_use", &self.is_in_use())
-            .finish()
     }
 }
 
@@ -805,13 +817,13 @@ impl BufferWorldAccess for World {
     ) -> Result<BufferGateView<'_>, BufferError> {
         let key: AnyBufferKey = key.into();
         let buffer_ref = self
-            .get_entity(key.tag.buffer)?;
+            .get_entity(key.tag().buffer)?;
         let gate = buffer_ref
             .get::<GateState>()
             .ok_or(BufferError::GateStorageMissing)?;
         Ok(BufferGateView {
             gate,
-            session: key.tag.session,
+            session: key.tag().session,
         })
     }
 

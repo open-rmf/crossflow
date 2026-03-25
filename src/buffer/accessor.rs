@@ -30,8 +30,10 @@ use bevy_ecs::{
 use crate::{
     Accessing, Buffer, Builder, Chain, Node, BufferWorldAccess, RequestId, BufferKey,
     BufferError, BufferView, BufferMut, BufferAccessMut, BufferMapLayout, BufferMap, IncompatibleLayout,
-    format_vertical_list,
+    format_vertical_list, Seq, ManageBufferSessions,
 };
+
+use futures_concurrency::future::Race;
 
 pub use crossflow_derive::{Accessor, Joined};
 
@@ -95,6 +97,26 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
         Ok(buffers.access(builder))
     }
 
+    /// Wait for a change to occur in any one of the buffer sessions that this
+    /// accessor refers to.
+    fn wait_for_change(&mut self) -> impl Future<Output = ()>;
+
+    /// A data structure used to indicate which versions of the buffers have
+    /// been seen by this accessor.
+    type Seen;
+
+    /// Mark the buffer as seen if the sequence value of its notifier is equal
+    /// to this value. This can be used to reduce churn when doing async
+    /// interactions with buffers.
+    ///
+    /// This is not something users will typically need to handle. The methods
+    /// provided by [`crate::Channel`] will automatically take care of this.
+    fn seen(&mut self, seen: Self::Seen);
+
+    /// Make a Seen instance based on the current state of the world. This is
+    /// used by the [`crate::Channel`] to update remote async keys.
+    fn make_seen(&self, world: &mut World) -> Self::Seen;
+
     /// Check if this accessor is disjoint, meaning each key it contains accesses
     /// a unique buffer instance. Being a unique buffer instance means the
     /// combination of its buffer entity and session entity only appear once within
@@ -135,6 +157,7 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
         world: &mut World,
         f: impl FnOnce(Self::Access<'_, '_, '_>) -> U,
     ) -> Result<U, AccessError>;
+
 }
 
 #[derive(ThisError, Debug, Clone)]
@@ -277,6 +300,23 @@ where
 {
     type Buffers = Buffer<T>;
 
+    async fn wait_for_change(&mut self) {
+        let _ = self.body.receiver.changed().await;
+    }
+
+    type Seen = Seq;
+    fn seen(&mut self, seen: Seq) {
+        if self.body.receiver.borrow_and_update().0 != seen {
+            // Since the latest value is different from what the user last saw,
+            // we'll mark this key as having not seen the latest value.
+            self.body.receiver.mark_changed();
+        }
+    }
+
+    fn make_seen(&self, world: &mut World) -> Self::Seen {
+        world.get_buffer_seen(self.tag().instance())
+    }
+
     fn is_disjoint(&self) -> Result<(), OverlapError> {
         // A single buffer key is always disjoint
         Ok(())
@@ -329,6 +369,27 @@ where
     Vec<A::Buffers>: 'static + BufferMapLayout + Accessing<Key = Vec<A>> + Send + Sync,
 {
     type Buffers = Vec<A::Buffers>;
+
+    async fn wait_for_change(&mut self) {
+        let futures: Vec<_> = self.iter_mut().map(|a| a.wait_for_change()).collect();
+        futures.race().await;
+    }
+
+    type Seen = Vec<A::Seen>;
+    fn seen(&mut self, seen: Self::Seen) {
+        for (key, seen) in self.iter_mut().zip(seen.into_iter()) {
+            key.seen(seen);
+        }
+    }
+
+    fn make_seen(&self, world: &mut World) -> Self::Seen {
+        let mut seen = Vec::new();
+        for key in self {
+            seen.push(key.make_seen(world));
+        }
+
+        seen
+    }
 
     fn is_disjoint(&self) -> Result<(), OverlapError> {
         let mut duplicates = HashMap::new();

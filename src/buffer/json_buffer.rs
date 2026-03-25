@@ -25,7 +25,7 @@ use std::{
 };
 
 use bevy_ecs::{
-    prelude::{Commands, Entity, EntityRef, EntityWorldMut, World},
+    prelude::{Commands, Entity, EntityRef, World},
     system::SystemState,
 };
 
@@ -45,7 +45,7 @@ use crate::{
     InspectBufferSessions, FetchBehavior, Joined, Joining, ManageBufferSessions, MessageTypeHint,
     MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate, OperationError,
     OperationResult, OrBroken, RequestId, TypeInfo, add_listener_to_source, AccessKey, BufferInstanceId,
-    AccessError, OverlapError,
+    AccessError, OverlapError, BufferKeyBody, Seq,
 };
 
 #[cfg(feature = "trace")]
@@ -194,7 +194,7 @@ impl AsAnyBuffer for JsonBuffer {
 /// [1]: bevy_ecs::prelude::World
 #[derive(Clone)]
 pub struct JsonBufferKey {
-    tag: BufferKeyTag,
+    body: BufferKeyBody,
     interface: &'static (dyn JsonBufferAccessInterface + Send + Sync),
 }
 
@@ -214,25 +214,31 @@ impl JsonBufferKey {
     pub fn as_any_buffer_key(self) -> AnyBufferKey {
         self.into()
     }
+
+    pub fn tag(&self) -> &BufferKeyTag {
+        &self.body.tag
+    }
 }
 
 impl BufferKeyLifecycle for JsonBufferKey {
     type TargetBuffer = JsonBuffer;
 
-    fn create_key(buffer: &Self::TargetBuffer, builder: &BufferKeyBuilder) -> Self {
-        Self {
-            tag: builder.make_tag(buffer.id()),
-            interface: buffer.interface,
-        }
+    fn create_key(buffer: &Self::TargetBuffer, builder: &mut BufferKeyBuilder) -> OperationResult<Self> {
+        Ok(
+            Self {
+                body: builder.make_body(buffer.id())?,
+                interface: buffer.interface,
+            }
+        )
     }
 
     fn is_in_use(&self) -> bool {
-        self.tag.is_in_use()
+        self.body.is_in_use()
     }
 
     fn deep_clone(&self) -> Self {
         Self {
-            tag: self.tag.deep_clone(),
+            body: self.body.deep_clone(),
             interface: self.interface,
         }
     }
@@ -245,7 +251,7 @@ impl std::fmt::Debug for JsonBufferKey {
                 "message_type_name",
                 &self.interface.any_access_interface().message_type_name(),
             )
-            .field("tag", &self.tag)
+            .field("body", &self.body)
             .finish()
     }
 }
@@ -254,7 +260,7 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> From<BufferKey<T>>
     fn from(value: BufferKey<T>) -> Self {
         let interface = JsonBufferAccessImpl::<T>::get_interface();
         JsonBufferKey {
-            tag: value.tag,
+            body: value.body,
             interface,
         }
     }
@@ -263,7 +269,7 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> From<BufferKey<T>>
 impl From<JsonBufferKey> for AnyBufferKey {
     fn from(value: JsonBufferKey) -> Self {
         AnyBufferKey {
-            tag: value.tag,
+            body: value.body,
             interface: value.interface.any_access_interface(),
         }
     }
@@ -571,7 +577,7 @@ impl JsonBufferWorldAccess for World {
         {
             let mut tracer_state: SystemState<BufferTracer> = SystemState::new(self);
             let mut tracer = tracer_state.get_mut(self);
-            tracer.trace(_req.into(), &key.tag, BufferAccessRecord::Viewed);
+            tracer.trace(_req.into(), &key.tag(), BufferAccessRecord::Viewed);
             tracer_state.apply(self);
         }
 
@@ -864,7 +870,7 @@ trait JsonBufferAccessInterface {
         session: Entity,
     ) -> Result<usize, OperationError>;
 
-    fn ensure_session(&self, buffer_mut: &mut EntityWorldMut, session: Entity) -> OperationResult;
+    fn ensure_session(&self, id: BufferInstanceId, world: &mut World) -> OperationResult;
 
     fn pull(
         &self,
@@ -938,9 +944,9 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonBufferAccessIm
 
             any_interface.register_key_downcast(
                 TypeId::of::<JsonBufferKey>(),
-                Box::new(|tag| {
+                Box::new(|body| {
                     Box::new(JsonBufferKey {
-                        tag,
+                        body,
                         interface: Self::get_interface(),
                     })
                 }),
@@ -991,8 +997,8 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonBufferAccessIn
         buffer_ref.buffered_count::<T>(session)
     }
 
-    fn ensure_session(&self, buffer_mut: &mut EntityWorldMut, session: Entity) -> OperationResult {
-        buffer_mut.ensure_session::<T>(session)
+    fn ensure_session(&self, id: BufferInstanceId, world: &mut World) -> OperationResult {
+        world.ensure_buffer_session::<T>(id)
     }
 
     fn pull(
@@ -1028,7 +1034,7 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonBufferAccessIn
         key: &JsonBufferKey,
         world: &'a World,
     ) -> Result<JsonBufferView<'a>, BufferError> {
-        let buffer_ref = world.get_entity(key.tag.buffer)?;
+        let buffer_ref = world.get_entity(key.tag().buffer)?;
         let storage = buffer_ref
             .get::<BufferStorage<T>>()
             .ok_or(BufferError::BufferStorageMissing)?;
@@ -1038,10 +1044,10 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonBufferAccessIn
         Ok(JsonBufferView {
             viewing: Arc::new(BufferView {
                 storage,
-                session: key.tag.session,
+                session: key.tag().session,
             }),
             gate,
-            session: key.tag.session,
+            session: key.tag().session,
         })
     }
 
@@ -1096,12 +1102,12 @@ where
         key: &JsonBufferKey,
     ) -> Result<JsonBufferMut<'w, 's, 'a>, BufferError> {
         let BufferAccessMut { inner, commands } = self;
-        let manager = inner.get_manager(req, &key.tag)?;
+        let manager = inner.get_manager(req, key.tag())?;
         Ok(JsonBufferMut {
             manager: Box::new(manager),
-            buffer: key.tag.buffer,
-            session: key.tag.session,
-            accessor: Some(key.tag.accessor),
+            buffer: key.tag().buffer,
+            session: key.tag().session,
+            accessor: Some(key.tag().accessor),
             commands: commands as *mut _,
             modified: false,
         })
@@ -1183,8 +1189,7 @@ impl Buffering for JsonBuffer {
     }
 
     fn ensure_active_session(&self, session: Entity, world: &mut World) -> OperationResult {
-        let mut buffer_mut = world.get_entity_mut(self.id()).or_broken()?;
-        self.interface.ensure_session(&mut buffer_mut, session)
+        self.interface.ensure_session(BufferInstanceId { buffer: self.id(), session }, world)
     }
 }
 
@@ -1199,8 +1204,7 @@ impl Joining for JsonBuffer {
         let key = BufferKeyTag {
             buffer: self.id(),
             session,
-            accessor: self.id(),
-            lifecycle: None,
+            accessor: req.source,
         };
         match self.join_behavior {
             FetchBehavior::Pull => self.interface.pull(req, &key, world),
@@ -1219,11 +1223,13 @@ impl Accessing for JsonBuffer {
         Ok(())
     }
 
-    fn create_key(&self, builder: &BufferKeyBuilder) -> Self::Key {
-        JsonBufferKey {
-            tag: builder.make_tag(self.id()),
-            interface: self.interface,
-        }
+    fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key> {
+        Ok(
+            JsonBufferKey {
+                body: builder.make_body(self.id())?,
+                interface: self.interface,
+            }
+        )
     }
 
     fn deep_clone_key(key: &Self::Key) -> Self::Key {
@@ -1237,7 +1243,7 @@ impl Accessing for JsonBuffer {
 
 impl AccessKey for JsonBufferKey {
     fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool {
-        let entry = included.entry(self.tag.instance()).or_default();
+        let entry = included.entry(self.tag().instance()).or_default();
         *entry += 1;
         *entry == 1
     }
@@ -1281,6 +1287,21 @@ impl AccessKey for JsonBufferKey {
 
 impl Accessor for JsonBufferKey {
     type Buffers = JsonBuffer;
+
+    async fn wait_for_change(&mut self) {
+        let _ = self.body.receiver.changed().await;
+    }
+
+    type Seen = Seq;
+    fn seen(&mut self, seen: Self::Seen) {
+        if self.body.receiver.borrow_and_update().0 != seen {
+            self.body.receiver.mark_changed();
+        }
+    }
+
+    fn make_seen(&self, world: &mut World) -> Self::Seen {
+        world.get_buffer_seen(self.tag().instance())
+    }
 
     fn is_disjoint(&self) -> Result<(), OverlapError> {
         // A single buffer key is always disjoint

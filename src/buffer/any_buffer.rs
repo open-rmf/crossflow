@@ -25,7 +25,7 @@ use std::{
 };
 
 use bevy_ecs::{
-    prelude::{Commands, Entity, EntityRef, EntityWorldMut, World},
+    prelude::{Commands, Entity, EntityRef, World},
     system::SystemState,
 };
 
@@ -42,6 +42,7 @@ use crate::{
     Joining, ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
     NotifyBufferUpdate, OperationError, OperationResult, OperationRoster, OrBroken, RequestId,
     TypeInfo, add_listener_to_source, IterBufferView, AccessKey, BufferInstanceId, AccessError,
+    BufferKeyBody, Seq,
 };
 
 #[cfg(feature = "trace")]
@@ -246,7 +247,7 @@ impl<T: 'static + Send + Sync + Clone> AsAnyBuffer for CloneFromBuffer<T> {
 /// [1]: bevy_ecs::prelude::World
 #[derive(Clone)]
 pub struct AnyBufferKey {
-    pub(crate) tag: BufferKeyTag,
+    pub(crate) body: BufferKeyBody,
     pub(crate) interface: &'static (dyn AnyBufferAccessInterface + Send + Sync),
 }
 
@@ -257,7 +258,7 @@ impl AnyBufferKey {
     pub fn downcast_for_message<Message: 'static>(self) -> Option<BufferKey<Message>> {
         if TypeId::of::<Message>() == self.interface.message_type_id() {
             Some(BufferKey {
-                tag: self.tag,
+                body: self.body,
                 _ignore: Default::default(),
             })
         } else {
@@ -268,7 +269,7 @@ impl AnyBufferKey {
     /// Downcast this into a different special buffer key representation, such
     /// as a `JsonBufferKey`.
     pub fn downcast_buffer_key<KeyType: 'static>(self) -> Option<KeyType> {
-        self.interface.key_downcast(TypeId::of::<KeyType>())?(self.tag)
+        self.interface.key_downcast(TypeId::of::<KeyType>())?(self.body)
             .downcast::<KeyType>()
             .ok()
             .map(|x| *x)
@@ -276,32 +277,39 @@ impl AnyBufferKey {
 
     /// The buffer ID of this key.
     pub fn id(&self) -> Entity {
-        self.tag.buffer
+        self.body.tag.buffer
     }
 
     /// The session that this key belongs to.
     pub fn session(&self) -> Entity {
-        self.tag.session
+        self.body.tag.session
+    }
+
+    pub fn tag(&self) -> &BufferKeyTag {
+        &self.body.tag
     }
 }
 
 impl BufferKeyLifecycle for AnyBufferKey {
     type TargetBuffer = AnyBuffer;
 
-    fn create_key(buffer: &AnyBuffer, builder: &BufferKeyBuilder) -> Self {
-        AnyBufferKey {
-            tag: builder.make_tag(buffer.id()),
-            interface: buffer.interface,
-        }
+    fn create_key(buffer: &AnyBuffer, builder: &mut BufferKeyBuilder) -> OperationResult<Self> {
+        Ok(
+            AnyBufferKey {
+                body: builder.make_body(buffer.id())?,
+                interface: buffer.interface,
+            }
+        )
+
     }
 
     fn is_in_use(&self) -> bool {
-        self.tag.is_in_use()
+        self.body.is_in_use()
     }
 
     fn deep_clone(&self) -> Self {
         Self {
-            tag: self.tag.deep_clone(),
+            body: self.body.deep_clone(),
             interface: self.interface,
         }
     }
@@ -311,7 +319,7 @@ impl std::fmt::Debug for AnyBufferKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AnyBufferKey")
             .field("message_type_name", &self.interface.message_type_name())
-            .field("tag", &self.tag)
+            .field("body", &self.body)
             .finish()
     }
 }
@@ -320,7 +328,7 @@ impl<T: 'static + Send + Sync + Any> From<BufferKey<T>> for AnyBufferKey {
     fn from(value: BufferKey<T>) -> Self {
         let interface = AnyBuffer::interface_for::<T>();
         AnyBufferKey {
-            tag: value.tag,
+            body: value.body,
             interface,
         }
     }
@@ -328,7 +336,7 @@ impl<T: 'static + Send + Sync + Any> From<BufferKey<T>> for AnyBufferKey {
 
 impl AccessKey for AnyBufferKey {
     fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool {
-        let entry = included.entry(self.tag.instance()).or_default();
+        let entry = included.entry(self.tag().instance()).or_default();
         *entry += 1;
         *entry == 1
     }
@@ -372,6 +380,23 @@ impl AccessKey for AnyBufferKey {
 
 impl Accessor for AnyBufferKey {
     type Buffers = AnyBuffer;
+
+    async fn wait_for_change(&mut self) {
+        let _ = self.body.receiver.changed().await;
+    }
+
+    type Seen = Seq;
+    fn seen(&mut self, seen: Self::Seen) {
+        if self.body.receiver.borrow_and_update().0 != seen {
+            // Since the latest value is different from what the user last saw,
+            // we'll mark this key as having not seen the latest value.
+            self.body.receiver.mark_changed();
+        }
+    }
+
+    fn make_seen(&self, world: &mut World) -> Self::Seen {
+        world.get_buffer_seen(self.tag().instance())
+    }
 
     fn is_disjoint(&self) -> Result<(), super::OverlapError> {
         // A single buffer key is always disjoint
@@ -748,7 +773,7 @@ impl AnyBufferWorldAccess for World {
         {
             let mut tracer_state: SystemState<BufferTracer> = SystemState::new(self);
             let mut tracer = tracer_state.get_mut(self);
-            tracer.trace(_req.into(), &key.tag, BufferAccessRecord::Viewed);
+            tracer.trace(_req.into(), key.tag(), BufferAccessRecord::Viewed);
             tracer_state.apply(self);
         }
 
@@ -1097,13 +1122,14 @@ impl<'w, 's, T: 'static + Send + Sync + Any> AnyBufferAccessMut<'w, 's>
         key: &AnyBufferKey,
     ) -> Result<AnyBufferMut<'w, 's, 'a>, BufferError> {
         let BufferAccessMut { inner, commands } = self;
-        let manager = inner.get_manager(req, &key.tag)?;
+        let tag = key.tag();
+        let manager = inner.get_manager(req, tag)?;
         Ok(AnyBufferMut {
             manager: Box::new(manager),
             req,
-            buffer: key.tag.buffer,
-            session: key.tag.session,
-            accessor: Some(key.tag.accessor),
+            buffer: tag.buffer,
+            session: tag.session,
+            accessor: Some(tag.accessor),
             commands: commands as *mut _,
             modified: false,
         })
@@ -1117,7 +1143,7 @@ pub trait AnyBufferAccessInterface {
 
     fn buffered_count(&self, entity: &EntityRef, session: Entity) -> Result<usize, OperationError>;
 
-    fn ensure_session(&self, entity_mut: &mut EntityWorldMut, session: Entity) -> OperationResult;
+    fn ensure_session(&self, id: BufferInstanceId, world: &mut World) -> OperationResult;
 
     fn register_buffer_downcast(&self, buffer_type: TypeId, f: BufferDowncastBox);
 
@@ -1166,8 +1192,8 @@ pub type AnyMessageResult = Result<AnyMessageBox, OperationError>;
 // TODO(@mxgrey): Consider changing this trait box into a function pointer
 pub type BufferDowncastBox = Box<dyn Fn(AnyBuffer) -> AnyMessageResult + Send + Sync>;
 pub type BufferDowncastRef = &'static (dyn Fn(AnyBuffer) -> AnyMessageResult + Send + Sync);
-pub type KeyDowncastBox = Box<dyn Fn(BufferKeyTag) -> AnyMessageBox + Send + Sync>;
-pub type KeyDowncastRef = &'static (dyn Fn(BufferKeyTag) -> AnyMessageBox + Send + Sync);
+pub type KeyDowncastBox = Box<dyn Fn(BufferKeyBody) -> AnyMessageBox + Send + Sync>;
+pub type KeyDowncastRef = &'static (dyn Fn(BufferKeyBody) -> AnyMessageBox + Send + Sync);
 pub type CloneForAnyFn = fn(RequestId, &BufferKeyTag, &mut World) -> AnyMessageResult;
 
 struct AnyBufferAccessImpl<T> {
@@ -1228,9 +1254,9 @@ impl<T: 'static + Send + Sync> AnyBufferAccessImpl<T> {
         // Automatically register a downcast to AnyBufferKey
         key_downcasts.insert(
             TypeId::of::<AnyBufferKey>(),
-            Box::leak(Box::new(|tag| -> AnyMessageBox {
+            Box::leak(Box::new(|body| -> AnyMessageBox {
                 Box::new(AnyBufferKey {
-                    tag,
+                    body,
                     interface: AnyBuffer::interface_for::<T>(),
                 })
             })),
@@ -1258,8 +1284,8 @@ impl<T: 'static + Send + Sync + Any> AnyBufferAccessInterface for AnyBufferAcces
         entity.buffered_count::<T>(session)
     }
 
-    fn ensure_session(&self, entity_mut: &mut EntityWorldMut, session: Entity) -> OperationResult {
-        entity_mut.ensure_session::<T>(session)
+    fn ensure_session(&self, id: BufferInstanceId, world: &mut World) -> OperationResult {
+        world.ensure_buffer_session::<T>(id)
     }
 
     fn register_buffer_downcast(&self, buffer_type: TypeId, f: BufferDowncastBox) {
@@ -1345,7 +1371,7 @@ impl<T: 'static + Send + Sync + Any> AnyBufferAccessInterface for AnyBufferAcces
         key: &AnyBufferKey,
         world: &'a World,
     ) -> Result<AnyBufferView<'a>, BufferError> {
-        let buffer_ref = world.get_entity(key.tag.buffer)?;
+        let buffer_ref = world.get_entity(key.tag().buffer)?;
         let storage = buffer_ref
             .get::<BufferStorage<T>>()
             .ok_or(BufferError::BufferStorageMissing)?;
@@ -1357,10 +1383,10 @@ impl<T: 'static + Send + Sync + Any> AnyBufferAccessInterface for AnyBufferAcces
         Ok(AnyBufferView {
             viewing: Arc::new(BufferView::<T> {
                 storage,
-                session: key.tag.session,
+                session: key.tag().session,
             }),
             gate,
-            session: key.tag.session,
+            session: key.tag().session,
         })
     }
 
@@ -1469,8 +1495,7 @@ impl Buffering for AnyBuffer {
     }
 
     fn ensure_active_session(&self, session: Entity, world: &mut World) -> OperationResult {
-        let mut entity_mut = world.get_entity_mut(self.id()).or_broken()?;
-        self.interface.ensure_session(&mut entity_mut, session)
+        self.interface.ensure_session(BufferInstanceId { buffer: self.id(), session }, world)
     }
 }
 
@@ -1485,8 +1510,7 @@ impl Joining for AnyBuffer {
         let key = BufferKeyTag {
             buffer: self.id(),
             session,
-            accessor: self.id(),
-            lifecycle: None,
+            accessor: req.source,
         };
         match self.join_behavior {
             FetchBehavior::Pull => self.interface.pull(req, &key, world),
@@ -1505,11 +1529,14 @@ impl Accessing for AnyBuffer {
         Ok(())
     }
 
-    fn create_key(&self, builder: &super::BufferKeyBuilder) -> Self::Key {
-        AnyBufferKey {
-            tag: builder.make_tag(self.id()),
-            interface: self.interface,
-        }
+    fn create_key(&self, builder: &mut super::BufferKeyBuilder) -> OperationResult<Self::Key> {
+        Ok(
+            AnyBufferKey {
+                body: builder.make_body(self.id())?,
+                interface: self.interface,
+            }
+        )
+
     }
 
     fn deep_clone_key(key: &Self::Key) -> Self::Key {

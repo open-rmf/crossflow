@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use crate::{
     BufferKeyBuilder, ChannelItem, Disposal, ManageDisposal, OperationRoster, RouteSource, Seq,
-    output_port,
+    output_port, OperationResult,
 };
 
 /// This is used as a field inside of [`crate::BufferKey`] which keeps track of
@@ -109,7 +109,9 @@ pub trait BufferKeyLifecycle {
     type TargetBuffer;
 
     /// Create a new key of this type.
-    fn create_key(buffer: &Self::TargetBuffer, builder: &BufferKeyBuilder) -> Self;
+    fn create_key(buffer: &Self::TargetBuffer, builder: &mut BufferKeyBuilder) -> OperationResult<Self>
+    where
+        Self: Sized;
 
     /// Check if the key is currently in use.
     fn is_in_use(&self) -> bool;
