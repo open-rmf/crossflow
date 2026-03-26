@@ -26,7 +26,7 @@ use tokio::sync::{
     oneshot,
 };
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::Ordering};
 
 use crate::{
     OperationError, OperationRoster, Outcome, Promise, ProvideOnce, Reply, RequestExt, RequestId,
@@ -79,13 +79,47 @@ impl Channel {
         })
     }
 
-    pub fn access_when<A: Accessor, U: 'static + Send>(
+    /// This is a two-stage approach to accessing buffers:
+    /// * `when` - The first stage tests whether some conditions for the buffers
+    ///   and/or the world are being met. You get to view the buffers of this
+    ///   accessor and also get to view the entire world. If the conditions that
+    ///   you are waiting for are met, return Some(_). Otherwise return None to
+    ///   keep waiting.
+    /// * `then` - The first time that the first stage passes (returns Some(_)),
+    ///   the value produced by the first stage will be passed to this stage,
+    ///   along with mutable access to the buffers.
+    ///
+    /// `when` will be run each time there is a change in any of the relevant
+    /// buffers, until its condition passes. It will not be run for any other
+    /// world updates. Since it needs to be run multiple times, it needs `FnMut`.
+    ///
+    /// `then` will be run at most once, so it supports `FnOnce`.
+    ///
+    /// If you detach the [`Reply`] given by this function, then the callbacks
+    /// will keep running until they finish. Otherwise the callbacks will stop
+    /// trying after the [`Reply`] and its underlying receiver are dropped.
+    #[must_use = "If the reply is dropped without being detached, the access callback might not be executed"]
+    pub fn access_when<A: Accessor, V: 'static, U: 'static + Send>(
         &self,
         accessor: A,
-        when: impl FnMut(A::View<'_>) -> bool + 'static + Send,
-        then: impl FnOnce(A::Access<'_, '_, '_>) -> U + 'static + Send,
+        when: impl FnMut(A::View<'_>, &World) -> Option<V> + 'static + Send,
+        then: impl FnOnce(A::Access<'_, '_, '_>, V) -> U + 'static + Send,
     ) -> Reply<Result<U, AccessError>> {
         access_when(self.inner.clone(), accessor, when, then)
+    }
+
+    /// Try to join values from the buffers of this accessor. If one or more of
+    /// the buffers are not ready to join, then this will return `Ok(None)`.
+    pub fn try_join<A: Accessor>(&self, accessor: A) -> Reply<Result<Option<A::Joined>, AccessError>> {
+        let req = self.inner.request_id;
+        self.world(move |world| {
+            accessor.join(req, world)
+        })
+    }
+
+    /// Keep trying to join until all the buffers are ready.
+    pub fn wait_for_join<A: Accessor>(&self, accessor: A) -> Reply<Result<A::Joined, AccessError>> {
+        wait_for_join(self.inner.clone(), accessor)
     }
 
     /// Run a query in the world and receive the promise of the query's output.
@@ -237,17 +271,120 @@ impl Default for ChannelQueue {
     }
 }
 
-fn access_when<A: Accessor, U: 'static + Send>(
+fn wait_for_join<A: Accessor>(
     channel: Arc<InnerChannel>,
     mut accessor: A,
-    mut when: impl FnMut(A::View<'_>) -> bool + 'static + Send,
-    then: impl FnOnce(A::Access<'_, '_, '_>) -> U + 'static + Send,
+) -> Reply<Result<A::Joined, AccessError>> {
+    let req = channel.request_id;
+    let (sender, receiver) = oneshot::channel();
+    let reply = Reply::new(receiver);
+    let detached = reply.detached();
+    let channel_clone = Arc::clone(&channel);
+    let _ = channel_clone.sender.send(Box::new(move |world: &mut World, _: &mut OperationRoster| {
+        match accessor.join(req, world) {
+            Ok(joined) => {
+                if let Some(joined) = joined {
+                    // Joining succeeded, return the result
+                    let _ = sender.send(Ok(joined));
+                    return;
+                }
+            }
+            Err(err) => {
+                // Access failed, return the error
+                let _ = sender.send(Err(err));
+                return;
+            }
+        }
+
+        let seen = accessor.make_seen(world);
+        accessor.seen(seen);
+
+        let shared_sender = Arc::new(Mutex::new(Some(sender)));
+
+        // The buffers were not ready to join, so begin an async task to join them
+        spawn_task(
+            async move {
+                loop {
+                    if detached.load(Ordering::Acquire) {
+                        // The Reply is detached, so we can ignore responding to
+                        // whether or not it's dropped.
+                        let _ = accessor.wait_for_change();
+                    } else {
+                        let mut locked_sender = shared_sender.lock();
+                        if let Ok(Some(sender)) = locked_sender.as_mut().map(|l| l.as_mut()) {
+                            tokio::select! {
+                                _ = accessor.wait_for_change() => { },
+                                _ = sender.closed() => {
+                                    if !detached.load(Ordering::Acquire) {
+                                        // The receiver was dropped without being
+                                        // detached, so just return at this point.
+                                        return;
+                                    }
+                                }
+                            }
+                        } else {
+                            // For some reason the sender is no longer available.
+                            // This suggests that the join was already performed
+                            // somehow, even though that shouldn't be the case.
+                            return;
+                        }
+                    }
+
+                    let sender = shared_sender.clone();
+                    let a = accessor.clone();
+                    let (seen_sender, seen_receiver) = oneshot::channel();
+                    let _ = channel.sender.send(Box::new(
+                        move |world: &mut World, _: &mut OperationRoster| {
+                            match a.join(req, world) {
+                                Ok(Some(joined)) => {
+                                    if let Ok(Some(sender)) = sender.lock().map(|mut l| l.take()) {
+                                        let _ = sender.send(Ok(joined));
+                                    }
+                                }
+                                Err(err) => {
+                                    if let Ok(Some(sender)) = sender.lock().map(|mut l| l.take()) {
+                                        let _ = sender.send(Err(err));
+                                    }
+                                }
+                                Ok(None) => {
+                                    // Not ready yet, need to try again
+                                }
+                            }
+
+                            let seen = a.make_seen(world);
+                            let _ = seen_sender.send(seen);
+                        }
+                    ));
+
+                    let Ok(seen) = seen_receiver.await else {
+                        // We aren't receiveing a new seen update, so that means
+                        // the task is finished.
+                        return;
+                    };
+                    accessor.seen(seen);
+                }
+            },
+            world
+        )
+        .detach();
+    }));
+
+    reply
+}
+
+fn access_when<A: Accessor, V: 'static, U: 'static + Send>(
+    channel: Arc<InnerChannel>,
+    mut accessor: A,
+    mut when: impl FnMut(A::View<'_>, &World) -> Option<V> + 'static + Send,
+    then: impl FnOnce(A::Access<'_, '_, '_>, V) -> U + 'static + Send,
 ) -> Reply<Result<U, AccessError>> {
     let req = channel.request_id;
     let (sender, receiver) = oneshot::channel();
+    let reply = Reply::new(receiver);
+    let detached = reply.detached();
     let channel_clone = Arc::clone(&channel);
     let _ = channel_clone.sender.send(Box::new(move |world: &mut World, _: &mut OperationRoster| {
-        let view = match world.buffers_view(req, &accessor) {
+        let view = match world.buffers_view_untraced(&accessor) {
             Ok(view) => view,
             Err(err) => {
                 let _ = sender.send(Err(err.into()));
@@ -255,8 +392,11 @@ fn access_when<A: Accessor, U: 'static + Send>(
             }
         };
 
-        if when(view) {
+        if let Some(value) = when(view, world) {
             // The buffers are ready right away, so execute
+            let then = move |access: A::Access<'_, '_, '_>| {
+                then(access, value)
+            };
             let _ = sender.send(world.buffers_mut(req, &accessor, then));
             return;
         }
@@ -277,7 +417,30 @@ fn access_when<A: Accessor, U: 'static + Send>(
         spawn_task(
             async move {
                 loop {
-                    accessor.wait_for_change().await;
+                    if detached.load(Ordering::Acquire) {
+                        // The Reply is detached, so we can ignore responding to
+                        // whether or not it's dropped.
+                        let _ = accessor.wait_for_change();
+                    } else {
+                        let mut locked_then = shared_then.lock();
+                        if let Ok(Some((_, sender))) = locked_then.as_mut().map(|l| l.as_mut()) {
+                            tokio::select! {
+                                _ = accessor.wait_for_change() => { },
+                                _ = sender.closed() => {
+                                    if !detached.load(Ordering::Acquire) {
+                                        // The receiver was dropped without being
+                                        // detached, so just return at this point.
+                                        return;
+                                    }
+                                }
+                            }
+                        } else {
+                            // For some reason the sender is no longer available.
+                            // This shouldn't happen, but anyhow there's no way
+                            // to execute the access anymore.
+                            return;
+                        }
+                    }
 
                     // One of the buffers has changed, so send a task to test
                     // if the conditions are met and then execute if they are.
@@ -285,14 +448,15 @@ fn access_when<A: Accessor, U: 'static + Send>(
                     let then = shared_then.clone();
                     let (seen_sender, seen_receiver) = oneshot::channel();
                     let a = accessor.clone();
+                    let detached = detached.clone();
                     let _ = channel.sender.send(Box::new(
                         move |world: &mut World, _: &mut OperationRoster| {
-                            let view = match world.buffers_view(req, &a) {
+                            let view = match world.buffers_view_untraced(&a) {
                                 Ok(view) => view,
                                 Err(err) => {
                                     // SAFETY: There is no risk of the mutex getting poisoned because
                                     // there are no operations that can panic while the mutex is locked.
-                                    if let Some((_, sender)) = then.lock().unwrap().take() {
+                                    if let Ok(Some((_, sender))) = then.lock().map(|mut l| l.take()) {
                                         let _ = sender.send(Err(err.into()));
                                     }
                                     return;
@@ -302,15 +466,29 @@ fn access_when<A: Accessor, U: 'static + Send>(
                             let mut when = match when.lock() {
                                 Ok(when) => when,
                                 Err(_) => {
-                                    if let Some((_, sender)) = then.lock().unwrap().take() {
+                                    if let Ok(Some((_, sender))) = then.lock().map(|mut l| l.take()) {
                                         let _ = sender.send(Err(AccessError::PoisonedMutex));
                                     }
                                     return;
                                 }
                             };
 
-                            if (*when)(view) {
-                                if let Some((then, sender)) = then.lock().unwrap().take() {
+                            if let Some(value) = (*when)(view, world) {
+                                if let Ok(Some((then, sender))) = then.lock().map(|mut l| l.take()) {
+                                    if !detached.load(std::sync::atomic::Ordering::Acquire) {
+                                        // The task is not detached, so check if the receiver
+                                        // is still awaiting this. If not, we shouldn't apply
+                                        // the access function.
+                                        if sender.is_closed() {
+                                            // The receiver has dropped and the task is not
+                                            // detached, so do not run the callback.
+                                            return;
+                                        }
+                                    }
+
+                                    let then = move |access: A::Access<'_, '_, '_>| {
+                                        then(access, value)
+                                    };
                                     let _ = sender.send(world.buffers_mut(req, &a, then));
                                 }
                             } else {
@@ -333,7 +511,8 @@ fn access_when<A: Accessor, U: 'static + Send>(
             world,
         ).detach();
     }));
-    Reply::new(receiver)
+
+    reply
 }
 
 #[cfg(test)]

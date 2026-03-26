@@ -19,6 +19,7 @@ use std::{
     future::Future,
     pin::Pin,
     task::{Context, Poll},
+    sync::{Arc, atomic::AtomicBool},
 };
 
 use tracing::error;
@@ -42,6 +43,7 @@ use tokio::sync::oneshot;
 /// [`RecvError`]: tokio::sync::oneshot::error::RecvError
 pub struct Reply<T> {
     inner: oneshot::Receiver<T>,
+    detached: Arc<AtomicBool>,
 }
 
 impl<T> Future for Reply<T> {
@@ -109,11 +111,20 @@ impl<T> Reply<T> {
         self.inner.is_empty() && !self.is_terminated()
     }
 
+    /// Allow the task to keep running even if this Reply struct is dropped.
+    pub fn detach(&self) {
+        self.detached.store(true, std::sync::atomic::Ordering::Release);
+    }
+
     /// Make a new Reply. This is only supposed to be used by a [`Channel`],
     /// because a [`Channel`] can guarantee that the Future will be fulfilled.
     ///
     /// [`Channel`]: crate::Channel
     pub(crate) fn new(receiver: oneshot::Receiver<T>) -> Self {
-        Self { inner: receiver }
+        Self { inner: receiver, detached: Arc::new(AtomicBool::new(false)) }
+    }
+
+    pub(crate) fn detached(&self) -> Arc<AtomicBool> {
+        self.detached.clone()
     }
 }
