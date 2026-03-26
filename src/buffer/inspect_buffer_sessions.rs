@@ -23,8 +23,8 @@ use bevy_ecs::{
 use smallvec::SmallVec;
 
 use crate::{
-    BufferStorage, OperationError, OperationResult, OrBroken, BufferChangeBroadcasters, Seq,
-    UnhandledErrors, Broken, BufferInstanceId,
+    Broken, BufferChangeBroadcasters, BufferInstanceId, BufferStorage, OperationError,
+    OperationResult, OrBroken, Seq, UnhandledErrors,
 };
 
 pub trait InspectBufferSessions {
@@ -60,8 +60,14 @@ impl<'w> InspectBufferSessions for EntityRef<'w> {
 }
 
 pub trait ManageBufferSessions {
-    fn remove_buffer_session<T: 'static + Send + Sync>(&mut self, id: BufferInstanceId) -> OperationResult;
-    fn ensure_buffer_session<T: 'static + Send + Sync>(&mut self, id: BufferInstanceId) -> OperationResult;
+    fn remove_buffer_session<T: 'static + Send + Sync>(
+        &mut self,
+        id: BufferInstanceId,
+    ) -> OperationResult;
+    fn ensure_buffer_session<T: 'static + Send + Sync>(
+        &mut self,
+        id: BufferInstanceId,
+    ) -> OperationResult;
     fn get_buffer_seen(&mut self, id: BufferInstanceId) -> Seq;
 }
 
@@ -89,10 +95,7 @@ impl ManageBufferSessions for World {
         Ok(())
     }
 
-    fn get_buffer_seen(
-        &mut self,
-        BufferInstanceId { buffer, session }: BufferInstanceId,
-    ) -> Seq {
+    fn get_buffer_seen(&mut self, BufferInstanceId { buffer, session }: BufferInstanceId) -> Seq {
         match get_buffer_seen(buffer, session, self) {
             Ok(seq) => seq,
             Err(err) => {
@@ -121,9 +124,8 @@ fn get_buffer_seen(
     session: Entity,
     buffer_mut: &mut World,
 ) -> OperationResult<Seq> {
-    Ok(
-        buffer_mut.get_mut::<BufferChangeBroadcasters>(buffer)
-            .or_broken()?
-            .get_seen(session)
-    )
+    Ok(buffer_mut
+        .get_mut::<BufferChangeBroadcasters>(buffer)
+        .or_broken()?
+        .get_seen(session))
 }

@@ -16,7 +16,7 @@
 */
 
 use bevy_ecs::{
-    prelude::{Component, Entity, World, Query},
+    prelude::{Component, Entity, Query, World},
     system::SystemState,
 };
 
@@ -28,10 +28,10 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::{
-    Accessing, BufferKeyBuilder, ChannelQueue, InScope, Input, InputBundle, ManageInput,
-    MessageRoute, Operation, OperationCleanup, OperationError, OperationReachability,
-    OperationRequest, OperationResult, OperationSetup, OrBroken, ReachabilityResult, Seq,
-    SingleInputStorage, SingleTargetStorage, output_port, BufferChangeBroadcasters,
+    Accessing, BufferChangeBroadcasters, BufferKeyBuilder, ChannelQueue, InScope, Input,
+    InputBundle, ManageInput, MessageRoute, Operation, OperationCleanup, OperationError,
+    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
+    ReachabilityResult, Seq, SingleInputStorage, SingleTargetStorage, output_port,
 };
 
 pub(crate) struct OperateBufferAccess<T, B>
@@ -166,8 +166,15 @@ where
         Entry::Occupied(occupied) => B::deep_clone_key(occupied.get()),
         Entry::Vacant(vacant) => {
             made_key = true;
-            let mut builder =
-                BufferKeyBuilder::with_tracking(scope, session, source, seq, sender, Arc::new(()), &mut broadcasters);
+            let mut builder = BufferKeyBuilder::with_tracking(
+                scope,
+                session,
+                source,
+                seq,
+                sender,
+                Arc::new(()),
+                &mut broadcasters,
+            );
             let new_key = vacant.insert(s.buffers.create_key(&mut builder)?);
             B::deep_clone_key(new_key)
         }

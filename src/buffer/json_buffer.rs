@@ -36,16 +36,16 @@ pub use serde_json::Value as JsonMessage;
 use smallvec::SmallVec;
 
 use crate::{
-    Accessing, Accessor, AnyBuffer, AnyBufferAccessInterface, AnyBufferKey, AnyRange, AsAnyBuffer,
-    BMut, BMutTracer, Buffer, BufferAccessMut, BufferAccessors, BufferEntry, BufferError,
-    BufferKey, BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferManager,
-    BufferMap, BufferMapLayout, BufferMapLayoutHints, BufferMapStruct, BufferStorage, BufferView,
-    BufferWorldAccess, Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer,
-    DynamicBufferMapLayoutHints, Gate, GateState, IdentifierRef, IncompatibleLayout,
-    InspectBufferSessions, FetchBehavior, Joined, Joining, ManageBufferSessions, MessageTypeHint,
-    MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate, OperationError,
-    OperationResult, OrBroken, RequestId, TypeInfo, add_listener_to_source, AccessKey, BufferInstanceId,
-    AccessError, OverlapError, BufferKeyBody, Seq,
+    AccessError, AccessKey, Accessing, Accessor, AnyBuffer, AnyBufferAccessInterface, AnyBufferKey,
+    AnyRange, AsAnyBuffer, BMut, BMutTracer, Buffer, BufferAccessMut, BufferAccessors, BufferEntry,
+    BufferError, BufferInstanceId, BufferKey, BufferKeyBody, BufferKeyBuilder, BufferKeyLifecycle,
+    BufferKeyTag, BufferLocation, BufferManager, BufferMap, BufferMapLayout, BufferMapLayoutHints,
+    BufferMapStruct, BufferStorage, BufferView, BufferWorldAccess, Bufferable, Buffering, Builder,
+    CloneFromBuffer, DrainBuffer, DynamicBufferMapLayoutHints, FetchBehavior, Gate, GateState,
+    IdentifierRef, IncompatibleLayout, InspectBufferSessions, Joined, Joining,
+    ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
+    NotifyBufferUpdate, OperationError, OperationResult, OrBroken, OverlapError, RequestId, Seq,
+    TypeInfo, add_listener_to_source,
 };
 
 #[cfg(feature = "trace")]
@@ -223,13 +223,14 @@ impl JsonBufferKey {
 impl BufferKeyLifecycle for JsonBufferKey {
     type TargetBuffer = JsonBuffer;
 
-    fn create_key(buffer: &Self::TargetBuffer, builder: &mut BufferKeyBuilder) -> OperationResult<Self> {
-        Ok(
-            Self {
-                body: builder.make_body(buffer.id())?,
-                interface: buffer.interface,
-            }
-        )
+    fn create_key(
+        buffer: &Self::TargetBuffer,
+        builder: &mut BufferKeyBuilder,
+    ) -> OperationResult<Self> {
+        Ok(Self {
+            body: builder.make_body(buffer.id())?,
+            interface: buffer.interface,
+        })
     }
 
     fn is_in_use(&self) -> bool {
@@ -436,7 +437,10 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
     /// Pull the oldest message from the buffer and attempt to deserialize it
     /// into the target type.
     pub fn pull_as<T: DeserializeOwned>(&mut self) -> Option<Result<T, Arc<serde_json::Error>>> {
-        Some(self.pull()?.and_then(|m| serde_json::from_value(m).map_err(Arc::new)))
+        Some(
+            self.pull()?
+                .and_then(|m| serde_json::from_value(m).map_err(Arc::new)),
+        )
     }
 
     /// Pull the newest message from the buffer as a JSON value. Unlike
@@ -448,8 +452,13 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
 
     /// Pull the newest message from the buffer and attempt to deserialize it
     /// into the target type.
-    pub fn pull_newest_as<T: DeserializeOwned>(&mut self) -> Option<Result<T, Arc<serde_json::Error>>> {
-        Some(self.pull_newest()?.and_then(|m| serde_json::from_value(m).map_err(Arc::new)))
+    pub fn pull_newest_as<T: DeserializeOwned>(
+        &mut self,
+    ) -> Option<Result<T, Arc<serde_json::Error>>> {
+        Some(
+            self.pull_newest()?
+                .and_then(|m| serde_json::from_value(m).map_err(Arc::new)),
+        )
     }
 
     /// Attempt to push a new value into the buffer.
@@ -673,7 +682,10 @@ impl<'a> JsonMut<'a> {
     /// [`Self::serialize`], modifying the value, and then calling [`Self::insert`].
     /// The benefit of this function is that you do not need to remember to
     /// insert after you have finished your modifications.
-    pub fn modify(&mut self, f: impl FnOnce(&mut JsonMessage)) -> Result<(), Arc<serde_json::Error>> {
+    pub fn modify(
+        &mut self,
+        f: impl FnOnce(&mut JsonMessage),
+    ) -> Result<(), Arc<serde_json::Error>> {
         let mut message = self.serialize()?;
         f(&mut message);
         self.insert(message)
@@ -1189,7 +1201,13 @@ impl Buffering for JsonBuffer {
     }
 
     fn ensure_active_session(&self, session: Entity, world: &mut World) -> OperationResult {
-        self.interface.ensure_session(BufferInstanceId { buffer: self.id(), session }, world)
+        self.interface.ensure_session(
+            BufferInstanceId {
+                buffer: self.id(),
+                session,
+            },
+            world,
+        )
     }
 }
 
@@ -1224,12 +1242,10 @@ impl Accessing for JsonBuffer {
     }
 
     fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key> {
-        Ok(
-            JsonBufferKey {
-                body: builder.make_body(self.id())?,
-                interface: self.interface,
-            }
-        )
+        Ok(JsonBufferKey {
+            body: builder.make_body(self.id())?,
+            interface: self.interface,
+        })
     }
 
     fn deep_clone_key(key: &Self::Key) -> Self::Key {
@@ -1249,16 +1265,16 @@ impl AccessKey for JsonBufferKey {
     }
 
     type State = Box<dyn JsonBufferAccessMutState>;
-    type Param<'w, 's> = Box<dyn JsonBufferAccessMut<'w, 's> + 's> where 'w: 's;
+    type Param<'w, 's>
+        = Box<dyn JsonBufferAccessMut<'w, 's> + 's>
+    where
+        'w: 's;
 
     fn get_state(&self, world: &mut World) -> Self::State {
         self.interface.create_json_buffer_access_mut_state(world)
     }
 
-    fn get_param<'w, 's>(
-        state: &'s mut Self::State,
-        world: &'w mut World,
-    ) -> Self::Param<'w, 's>
+    fn get_param<'w, 's>(state: &'s mut Self::State, world: &'w mut World) -> Self::Param<'w, 's>
     where
         'w: 's,
     {
@@ -1277,10 +1293,7 @@ impl AccessKey for JsonBufferKey {
         param.as_json_buffer_mut(req, self)
     }
 
-    fn apply_state(
-        state: &mut Self::State,
-        world: &mut World,
-    ) {
+    fn apply_state(state: &mut Self::State, world: &mut World) {
         state.json_apply(world);
     }
 }
@@ -1319,20 +1332,23 @@ impl Accessor for JsonBufferKey {
 
     type Joined = JsonMessage;
     fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
-        Ok(
-            world.json_buffer_mut(req, self, |mut buffer| {
-                loop {
-                    match buffer.pull() {
-                        Some(Ok(value)) => return Some(value),
-                        Some(Err(_)) => continue,
-                        None => return None,
-                    }
+        Ok(world.json_buffer_mut(req, self, |mut buffer| {
+            loop {
+                match buffer.pull() {
+                    Some(Ok(value)) => return Some(value),
+                    Some(Err(_)) => continue,
+                    None => return None,
                 }
-            })?
-        )
+            }
+        })?)
     }
 
-    fn distribute(&self, value: Self::Joined, req: RequestId, world: &mut World) -> Result<(), AccessError> {
+    fn distribute(
+        &self,
+        value: Self::Joined,
+        req: RequestId,
+        world: &mut World,
+    ) -> Result<(), AccessError> {
         world.json_buffer_mut(req, self, move |mut buffer| {
             let _ = buffer.push(value);
         })?;
@@ -1340,7 +1356,11 @@ impl Accessor for JsonBufferKey {
     }
 
     type View<'a> = JsonBufferView<'a>;
-    fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError> {
+    fn view<'a>(
+        &self,
+        req: RequestId,
+        world: &'a mut World,
+    ) -> Result<Self::View<'a>, BufferError> {
         world.json_buffer_view(req, self)
     }
 

@@ -24,9 +24,9 @@ use bevy_ecs::{
 use std::{
     any::TypeId,
     collections::HashMap,
+    num::Wrapping,
     ops::RangeBounds,
     sync::{Arc, Mutex, OnceLock},
-    num::Wrapping,
 };
 
 use thiserror::Error as ThisError;
@@ -47,9 +47,6 @@ pub use any_buffer::*;
 mod buffer_access_lifecycle;
 pub use buffer_access_lifecycle::BufferKeyLifecycle;
 pub(crate) use buffer_access_lifecycle::*;
-
-mod buffer_command;
-pub use buffer_command::*;
 
 mod buffer_key_builder;
 pub use buffer_key_builder::*;
@@ -366,13 +363,14 @@ impl<T> BufferKey<T> {
 impl<T: 'static + Send + Sync> BufferKeyLifecycle for BufferKey<T> {
     type TargetBuffer = Buffer<T>;
 
-    fn create_key(buffer: &Self::TargetBuffer, builder: &mut BufferKeyBuilder) -> OperationResult<Self> {
-        Ok(
-            BufferKey {
-                body: builder.make_body(buffer.id())?,
-                _ignore: Default::default(),
-            }
-        )
+    fn create_key(
+        buffer: &Self::TargetBuffer,
+        builder: &mut BufferKeyBuilder,
+    ) -> OperationResult<Self> {
+        Ok(BufferKey {
+            body: builder.make_body(buffer.id())?,
+            _ignore: Default::default(),
+        })
     }
 
     fn is_in_use(&self) -> bool {
@@ -414,7 +412,10 @@ impl BufferKeyBody {
 
     pub fn deep_clone(&self) -> Self {
         let mut deep = self.clone();
-        deep.lifecycle = self.lifecycle.as_ref().map(|l| Arc::new(l.as_ref().clone()));
+        deep.lifecycle = self
+            .lifecycle
+            .as_ref()
+            .map(|l| Arc::new(l.as_ref().clone()));
         deep
     }
 }
@@ -816,8 +817,7 @@ impl BufferWorldAccess for World {
         key: impl Into<AnyBufferKey>,
     ) -> Result<BufferGateView<'_>, BufferError> {
         let key: AnyBufferKey = key.into();
-        let buffer_ref = self
-            .get_entity(key.tag().buffer)?;
+        let buffer_ref = self.get_entity(key.tag().buffer)?;
         let gate = buffer_ref
             .get::<GateState>()
             .ok_or(BufferError::GateStorageMissing)?;

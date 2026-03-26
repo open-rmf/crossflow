@@ -15,25 +15,22 @@
  *
 */
 
-use bevy_ecs::prelude::{Bundle, Command, Component, Entity, World};
 use bevy_derive::{Deref, DerefMut};
+use bevy_ecs::prelude::{Bundle, Command, Component, Entity, World};
 
-use std::{
-    collections::HashMap,
-    num::Wrapping,
-};
+use std::{collections::HashMap, num::Wrapping};
 
 use smallvec::{SmallVec, smallvec};
 
 type BufferChangeBroadcaster = tokio::sync::watch::Sender<Wrapping<Seq>>;
 
 use crate::{
-    Broken, BufferAccessors, BufferKeyTag, BufferSettings, BufferStorage, BufferWorldAccess,
-    DeferredRoster, ForkTargetStorage, Gate, GateActionStorage, Input, InputBundle,
-    InspectBufferSessions, ManageBufferSessions, ManageInput, Operation, OperationCleanup,
-    OperationError, OperationReachability, OperationRequest, OperationResult, OperationRoster,
-    OperationSetup, OrBroken, ReachabilityResult, RequestId, RouteTarget, Routing,
-    SingleInputStorage, UnhandledErrors, output_port, BufferChangeReceiver, Seq, BufferInstanceId,
+    Broken, BufferAccessors, BufferChangeReceiver, BufferInstanceId, BufferKeyTag, BufferSettings,
+    BufferStorage, BufferWorldAccess, DeferredRoster, ForkTargetStorage, Gate, GateActionStorage,
+    Input, InputBundle, InspectBufferSessions, ManageBufferSessions, ManageInput, Operation,
+    OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
+    OperationRoster, OperationSetup, OrBroken, ReachabilityResult, RequestId, RouteTarget, Routing,
+    Seq, SingleInputStorage, UnhandledErrors, output_port,
 };
 
 #[derive(Bundle)]
@@ -235,7 +232,10 @@ fn clear_buffer<T: 'static + Send + Sync>(
     session: Entity,
     world: &mut World,
 ) -> OperationResult {
-    world.remove_buffer_session::<T>(BufferInstanceId { buffer: source, session })
+    world.remove_buffer_session::<T>(BufferInstanceId {
+        buffer: source,
+        session,
+    })
 }
 
 #[derive(Component)]

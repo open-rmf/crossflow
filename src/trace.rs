@@ -23,7 +23,7 @@ use crate::{
 
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{
-    prelude::{ChildOf, Commands, Command, Component, Entity, Event, Query, Res, Resource, World},
+    prelude::{ChildOf, Command, Commands, Component, Entity, Event, Query, Res, Resource, World},
     system::SystemParam,
 };
 use schemars::JsonSchema;

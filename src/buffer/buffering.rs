@@ -24,12 +24,12 @@ use variadics_please::all_tuples;
 use smallvec::SmallVec;
 
 use crate::{
-    AddOperation, BeginCleanupWorkflow, Buffer, BufferAccessors, BufferKey, BufferKeyBuilder,
-    BufferKeyLifecycle, BufferKeyTag, BufferStorage, BufferWorldAccess, Builder, Chain,
-    CleanupWorkflowConditions, CloneFromBuffer, ForkTargetStorage, Gate, GateState, InputSlot,
-    InspectBufferSessions, Join, Listen, ManageBufferSessions, Node, OperateBufferAccess,
-    OperationError, OperationResult, OperationRoster, OrBroken, Output, RequestId, Scope,
-    ScopeSettings, SingleInputStorage, UnusedTarget, BufferInstanceId,
+    AddOperation, BeginCleanupWorkflow, Buffer, BufferAccessors, BufferInstanceId, BufferKey,
+    BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferStorage, BufferWorldAccess, Builder,
+    Chain, CleanupWorkflowConditions, CloneFromBuffer, ForkTargetStorage, Gate, GateState,
+    InputSlot, InspectBufferSessions, Join, Listen, ManageBufferSessions, Node,
+    OperateBufferAccess, OperationError, OperationResult, OperationRoster, OrBroken, Output,
+    RequestId, Scope, ScopeSettings, SingleInputStorage, UnusedTarget,
 };
 
 pub trait Buffering: 'static + Send + Sync + Clone {
@@ -362,7 +362,10 @@ impl<T: 'static + Send + Sync + Clone> Buffering for CloneFromBuffer<T> {
     }
 
     fn ensure_active_session(&self, session: Entity, world: &mut World) -> OperationResult {
-        world.ensure_buffer_session::<T>(BufferInstanceId { buffer: self.id(), session })
+        world.ensure_buffer_session::<T>(BufferInstanceId {
+            buffer: self.id(),
+            session,
+        })
     }
 }
 

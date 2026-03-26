@@ -15,10 +15,7 @@
  *
 */
 
-use std::{
-    collections::HashMap,
-    hash::Hash,
-};
+use std::{collections::HashMap, hash::Hash};
 
 use thiserror::Error as ThisError;
 
@@ -28,9 +25,9 @@ use bevy_ecs::{
 };
 
 use crate::{
-    Accessing, Buffer, Builder, Chain, Node, BufferWorldAccess, RequestId, BufferKey,
-    BufferError, BufferView, BufferMut, BufferAccessMut, BufferMapLayout, BufferMap, IncompatibleLayout,
-    format_vertical_list, Seq, ManageBufferSessions,
+    Accessing, Buffer, BufferAccessMut, BufferError, BufferKey, BufferMap, BufferMapLayout,
+    BufferMut, BufferView, BufferWorldAccess, Builder, Chain, IncompatibleLayout,
+    ManageBufferSessions, Node, RequestId, Seq, format_vertical_list,
 };
 
 use futures_concurrency::future::Race;
@@ -139,11 +136,17 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
     /// Distribute a set of values to a set of buffers. This is the opposite of
     /// join: each value in the Joined struct will be pushed to the buffer in
     /// the accessor that corresponds to it.
-    fn distribute(&self, value: Self::Joined, req: RequestId, world: &mut World) -> Result<(), AccessError>;
+    fn distribute(
+        &self,
+        value: Self::Joined,
+        req: RequestId,
+        world: &mut World,
+    ) -> Result<(), AccessError>;
 
     type View<'a>;
     /// Get access to a view of the buffer.
-    fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError>;
+    fn view<'a>(&self, req: RequestId, world: &'a mut World)
+    -> Result<Self::View<'a>, BufferError>;
 
     /// Get access to a view of the buffer without tracing this access. This
     /// allows you to view with an immutable world borrow, but
@@ -157,7 +160,6 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
         world: &mut World,
         f: impl FnOnce(Self::Access<'_, '_, '_>) -> U,
     ) -> Result<U, AccessError>;
-
 }
 
 #[derive(ThisError, Debug, Clone)]
@@ -209,16 +211,15 @@ pub trait AccessKey: Accessor {
     fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool;
 
     type State;
-    type Param<'w, 's> where 'w: 's;
+    type Param<'w, 's>
+    where
+        'w: 's;
 
     /// Get the SystemState used to access the buffer
     fn get_state(&self, world: &mut World) -> Self::State;
 
     /// Get the system parameter for accessing the buffer
-    fn get_param<'w, 's>(
-        state: &'s mut Self::State,
-        world: &'w mut World,
-    ) -> Self::Param<'w, 's>
+    fn get_param<'w, 's>(state: &'s mut Self::State, world: &'w mut World) -> Self::Param<'w, 's>
     where
         'w: 's;
 
@@ -234,10 +235,7 @@ pub trait AccessKey: Accessor {
 
     /// Apply the SystemState to the world. This is called after the access is
     /// finished.
-    fn apply_state(
-        state: &mut Self::State,
-        world: &mut World,
-    );
+    fn apply_state(state: &mut Self::State, world: &mut World);
 }
 
 /// Used by the Accessor trait to make sure an accessor with multiple keys
@@ -260,16 +258,16 @@ where
     }
 
     type State = SystemState<BufferAccessMut<'static, 'static, T>>;
-    type Param<'w, 's> = BufferAccessMut<'w, 's, T> where 'w: 's;
+    type Param<'w, 's>
+        = BufferAccessMut<'w, 's, T>
+    where
+        'w: 's;
 
     fn get_state(&self, world: &mut World) -> Self::State {
         SystemState::<BufferAccessMut<T>>::new(world)
     }
 
-    fn get_param<'w, 's>(
-        state: &'s mut Self::State,
-        world: &'w mut World,
-    ) -> Self::Param<'w, 's>
+    fn get_param<'w, 's>(state: &'s mut Self::State, world: &'w mut World) -> Self::Param<'w, 's>
     where
         'w: 's,
     {
@@ -288,10 +286,7 @@ where
         Ok(param.get_mut(req, self)?)
     }
 
-    fn apply_state(
-        state: &mut Self::State,
-        world: &mut World,
-    ) {
+    fn apply_state(state: &mut Self::State, world: &mut World) {
         state.apply(world);
     }
 }
@@ -331,14 +326,15 @@ where
 
     type Joined = T;
     fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
-        Ok(
-            world.buffer_mut(req, self, |mut buffer| {
-                buffer.pull()
-            })?
-        )
+        Ok(world.buffer_mut(req, self, |mut buffer| buffer.pull())?)
     }
 
-    fn distribute(&self, value: Self::Joined, req: RequestId, world: &mut World) -> Result<(), AccessError> {
+    fn distribute(
+        &self,
+        value: Self::Joined,
+        req: RequestId,
+        world: &mut World,
+    ) -> Result<(), AccessError> {
         world.buffer_mut(req, self, move |mut buffer| {
             buffer.push(value);
         })?;
@@ -346,7 +342,11 @@ where
     }
 
     type View<'a> = BufferView<'a, T>;
-    fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError> {
+    fn view<'a>(
+        &self,
+        req: RequestId,
+        world: &'a mut World,
+    ) -> Result<Self::View<'a>, BufferError> {
         world.buffer_view(req, self)
     }
 
@@ -402,10 +402,10 @@ where
 
         if !is_disjoint {
             duplicates.retain(|_, count| *count > 1);
-            return Err(OverlapError { duplicates })
+            return Err(OverlapError { duplicates });
         }
 
-        return Ok(())
+        return Ok(());
     }
 
     fn can_join(&self, world: &World) -> Result<bool, AccessError> {
@@ -433,8 +433,8 @@ where
                 Ok(None) => {
                     // Note: This can't happen unless there's a flaw in the
                     // implementation of can_join
-                    return Ok(None)
-                },
+                    return Ok(None);
+                }
                 Err(err) => errors.push(err),
             }
         }
@@ -456,7 +456,12 @@ where
     /// If this behavior is not appropriate for your use case, make sure to
     /// check that the number of values is equal to the number of buffers before
     /// calling this.
-    fn distribute(&self, value: Self::Joined, req: RequestId, world: &mut World) -> Result<(), AccessError> {
+    fn distribute(
+        &self,
+        value: Self::Joined,
+        req: RequestId,
+        world: &mut World,
+    ) -> Result<(), AccessError> {
         let mut errors = Vec::new();
         for (value, buffer) in value.into_iter().zip(self) {
             if let Err(err) = buffer.distribute(value, req, world) {
@@ -468,20 +473,21 @@ where
     }
 
     type View<'a> = Vec<A::View<'a>>;
-    fn view<'a>(&self, req: RequestId, world: &'a mut World) -> Result<Self::View<'a>, BufferError> {
+    fn view<'a>(
+        &self,
+        req: RequestId,
+        world: &'a mut World,
+    ) -> Result<Self::View<'a>, BufferError> {
         let mut view = Vec::new();
         let world_cell = world.as_unsafe_world_cell();
         for key in self {
-            view.push(key.view(
-                req,
-                unsafe {
-                    // SAFETY: We require a &mut World as input to this function,
-                    // so we know that nothing else is interacting with the world
-                    // right now. We only need mutability for the tracing to be
-                    // performed. After that all access is read-only.
-                    world_cell.world_mut()
-                }
-            )?);
+            view.push(key.view(req, unsafe {
+                // SAFETY: We require a &mut World as input to this function,
+                // so we know that nothing else is interacting with the world
+                // right now. We only need mutability for the tracing to be
+                // performed. After that all access is read-only.
+                world_cell.world_mut()
+            })?);
         }
 
         Ok(view)
@@ -521,13 +527,10 @@ where
         let r = {
             let mut params = Vec::new();
             for state in &mut states {
-                let accessor = A::get_param(
-                    state,
-                    unsafe {
-                        // SAFETY: Same rationale as earlier in this function.
-                        world_cell.world_mut()
-                    },
-                );
+                let accessor = A::get_param(state, unsafe {
+                    // SAFETY: Same rationale as earlier in this function.
+                    world_cell.world_mut()
+                });
 
                 params.push(accessor);
             }
@@ -542,23 +545,19 @@ where
         };
 
         for state in &mut states {
-            A::apply_state(
-                state,
-                unsafe {
-                    // SAFETY: Same rationale as earlier in this function
-                    world_cell.world_mut()
-                }
-            );
+            A::apply_state(state, unsafe {
+                // SAFETY: Same rationale as earlier in this function
+                world_cell.world_mut()
+            });
         }
 
         Ok(r)
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::*, testing::*, AddBufferToMap};
+    use crate::{AddBufferToMap, prelude::*, testing::*};
     use std::collections::HashMap;
 
     #[derive(Clone, Accessor)]
@@ -599,18 +598,28 @@ mod tests {
     }
 
     fn spread_into_buffer(
-        Blocking { request: (values, key), id, .. }: Blocking<(Vec<i64>, BufferKey<i64>)>,
+        Blocking {
+            request: (values, key),
+            id,
+            ..
+        }: Blocking<(Vec<i64>, BufferKey<i64>)>,
         world: &mut World,
     ) {
-        world.buffer_mut(id, &key, move |mut buffer| {
-            for value in values {
-                buffer.push(value);
-            }
-        }).unwrap();
+        world
+            .buffer_mut(id, &key, move |mut buffer| {
+                for value in values {
+                    buffer.push(value);
+                }
+            })
+            .unwrap();
     }
 
     fn transfer_a_to_b(
-        Blocking { request: (_, keys), id, .. }: Blocking<((), SameTypeKeys<i64>)>,
+        Blocking {
+            request: (_, keys),
+            id,
+            ..
+        }: Blocking<((), SameTypeKeys<i64>)>,
         world: &mut World,
     ) {
         keys.access(id, world, |mut access| {
@@ -622,7 +631,11 @@ mod tests {
     }
 
     fn transfer_b_to_c(
-        Blocking { request: (_, keys), id, .. }: Blocking<((), SameTypeKeys<i64>)>,
+        Blocking {
+            request: (_, keys),
+            id,
+            ..
+        }: Blocking<((), SameTypeKeys<i64>)>,
         world: &mut World,
     ) {
         keys.access(id, world, |mut access| {
@@ -634,13 +647,16 @@ mod tests {
     }
 
     fn drain_buffer(
-        Blocking { request: (_, key), id, .. }: Blocking<((), BufferKey<i64>)>,
+        Blocking {
+            request: (_, key),
+            id,
+            ..
+        }: Blocking<((), BufferKey<i64>)>,
         world: &mut World,
     ) -> Vec<i64> {
-        world.buffer_mut(id, &key, |mut buffer| {
-            buffer.drain(..).collect()
-        })
-        .unwrap()
+        world
+            .buffer_mut(id, &key, |mut buffer| buffer.drain(..).collect())
+            .unwrap()
     }
 
     #[test]
@@ -682,21 +698,26 @@ mod tests {
     }
 
     fn shift_vec(
-        Blocking { request: (_, keys), id, .. }: Blocking<((), Vec<BufferKey<i64>>)>,
+        Blocking {
+            request: (_, keys),
+            id,
+            ..
+        }: Blocking<((), Vec<BufferKey<i64>>)>,
         world: &mut World,
     ) {
-        world.buffers_mut(id, &keys, |access| {
-            let mut previous_value = None;
-            for mut buffer in access {
-                let next_value = buffer.pull();
-                if let Some(previous_value) = previous_value.take() {
-                    buffer.push(previous_value);
-                }
+        world
+            .buffers_mut(id, &keys, |access| {
+                let mut previous_value = None;
+                for mut buffer in access {
+                    let next_value = buffer.pull();
+                    if let Some(previous_value) = previous_value.take() {
+                        buffer.push(previous_value);
+                    }
 
-                previous_value = next_value;
-            }
-        })
-        .unwrap();
+                    previous_value = next_value;
+                }
+            })
+            .unwrap();
     }
 
     #[test]
@@ -777,26 +798,39 @@ mod tests {
     }
 
     fn clone_to_buffers<T: 'static + Send + Sync + Clone>(
-        Blocking { request: (value, keys), id, .. }: Blocking<(T, Vec<BufferKey<T>>)>,
+        Blocking {
+            request: (value, keys),
+            id,
+            ..
+        }: Blocking<(T, Vec<BufferKey<T>>)>,
         world: &mut World,
     ) {
-        world.buffers_mut(id, &keys, |access| {
-            for mut buffer in access {
-                buffer.push(value.clone());
-            }
-        })
-        .unwrap();
+        world
+            .buffers_mut(id, &keys, |access| {
+                for mut buffer in access {
+                    buffer.push(value.clone());
+                }
+            })
+            .unwrap();
     }
 
     fn join_from_buffers<A: Accessor>(
-        Blocking { request: ((), keys), id, .. }: Blocking<((), A)>,
+        Blocking {
+            request: ((), keys),
+            id,
+            ..
+        }: Blocking<((), A)>,
         world: &mut World,
     ) -> A::Joined {
         world.join_from_buffers(id, &keys).unwrap().unwrap()
     }
 
     fn distribute_to_buffers<A: Accessor>(
-        Blocking { request: (value, keys), id, .. }: Blocking<(A::Joined, A)>,
+        Blocking {
+            request: (value, keys),
+            id,
+            ..
+        }: Blocking<(A::Joined, A)>,
         world: &mut World,
     ) {
         world.distribute_to_buffers(value, id, &keys).unwrap();
@@ -881,9 +915,7 @@ mod tests {
                 .then(distribute_to_buffers.into_callback())
                 .unused();
 
-            builder
-                .join(buffers)
-                .connect(scope.terminate);
+            builder.join(buffers).connect(scope.terminate);
         });
 
         let resolved_values = context.resolve_request(values.clone(), workflow);

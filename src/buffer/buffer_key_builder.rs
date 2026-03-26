@@ -20,8 +20,8 @@ use bevy_ecs::prelude::{Entity, Query};
 use std::sync::Arc;
 
 use crate::{
-    BufferAccessLifecycle, BufferKeyBody, BufferKeyTag,
-    ChannelSender, Seq, BufferChangeBroadcasters, OperationResult, OrBroken,
+    BufferAccessLifecycle, BufferChangeBroadcasters, BufferKeyBody, BufferKeyTag, ChannelSender,
+    OperationResult, OrBroken, Seq,
 };
 
 pub struct BufferKeyBuilder<'w, 's, 'a> {
@@ -35,7 +35,11 @@ pub struct BufferKeyBuilder<'w, 's, 'a> {
 impl<'w, 's, 'a> BufferKeyBuilder<'w, 's, 'a> {
     /// Make a [`BufferKeyTag`] that can be given to a [`crate::BufferKey`]-like struct.
     pub fn make_body(&mut self, buffer: Entity) -> OperationResult<BufferKeyBody> {
-        let receiver = self.broadcasters.get_mut(buffer).or_broken()?.get_receiver(self.session);
+        let receiver = self
+            .broadcasters
+            .get_mut(buffer)
+            .or_broken()?
+            .get_receiver(self.session);
         let body = BufferKeyBody {
             tag: BufferKeyTag {
                 buffer,

@@ -22,8 +22,8 @@ use tokio::sync::mpsc::UnboundedSender as TokioSender;
 use std::sync::Arc;
 
 use crate::{
-    BufferKeyBuilder, ChannelItem, Disposal, ManageDisposal, OperationRoster, RouteSource, Seq,
-    output_port, OperationResult,
+    BufferKeyBuilder, ChannelItem, Disposal, ManageDisposal, OperationResult, OperationRoster,
+    RouteSource, Seq, output_port,
 };
 
 /// This is used as a field inside of [`crate::BufferKey`] which keeps track of
@@ -109,7 +109,10 @@ pub trait BufferKeyLifecycle {
     type TargetBuffer;
 
     /// Create a new key of this type.
-    fn create_key(buffer: &Self::TargetBuffer, builder: &mut BufferKeyBuilder) -> OperationResult<Self>
+    fn create_key(
+        buffer: &Self::TargetBuffer,
+        builder: &mut BufferKeyBuilder,
+    ) -> OperationResult<Self>
     where
         Self: Sized;
 

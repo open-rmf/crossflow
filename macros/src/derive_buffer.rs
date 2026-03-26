@@ -1,8 +1,8 @@
-use proc_macro2::{TokenStream, Span};
+use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{
-    Field, Generics, Ident, ImplGenerics, ItemStruct, Type, TypeGenerics, TypePath, Visibility,
-    WhereClause, parse_quote, Lifetime, LifetimeParam, GenericParam, spanned::Spanned,
+    Field, GenericParam, Generics, Ident, ImplGenerics, ItemStruct, Lifetime, LifetimeParam, Type,
+    TypeGenerics, TypePath, Visibility, WhereClause, parse_quote, spanned::Spanned,
 };
 
 use crate::Result;
@@ -55,8 +55,17 @@ pub(crate) fn impl_joined_value(input_struct: &ItemStruct) -> Result<TokenStream
 
     let impl_buffer_map_layout =
         impl_buffer_map_layout(&buffer_struct, &field_ident, &field_config)?;
-    let impl_joining = impl_joining(&buffer_struct, &input_struct.ident, &input_struct.generics, &field_ident)?;
-    let impl_joined = impl_joined(&buffer_struct_ident, &input_struct.ident, &input_struct.generics)?;
+    let impl_joining = impl_joining(
+        &buffer_struct,
+        &input_struct.ident,
+        &input_struct.generics,
+        &field_ident,
+    )?;
+    let impl_joined = impl_joined(
+        &buffer_struct_ident,
+        &input_struct.ident,
+        &input_struct.generics,
+    )?;
 
     let tokens = quote! {
         #impl_joined
@@ -138,7 +147,8 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
         GenericParam::from(LifetimeParam::new(Lifetime::new("'a", Span::call_site()))),
     ]);
 
-    let (impl_generics_access, ty_generics_access, where_clause_access) = access_generics.split_for_impl();
+    let (impl_generics_access, ty_generics_access, where_clause_access) =
+        access_generics.split_for_impl();
 
     let mut fn_access_generics = input_struct.generics.clone();
     fn_access_generics.params.extend([
@@ -148,11 +158,17 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
     ]);
     let (_, ty_generics_fn_access, _) = fn_access_generics.split_for_impl();
 
-    let buffer_state: Vec<_> = field_ident.iter().map(|id| format_ident!("state_{id}")).collect();
-    let buffer_param: Vec<_> = field_ident.iter().map(|id| format_ident!("access_{id}")).collect();
+    let buffer_state: Vec<_> = field_ident
+        .iter()
+        .map(|id| format_ident!("state_{id}"))
+        .collect();
+    let buffer_param: Vec<_> = field_ident
+        .iter()
+        .map(|id| format_ident!("access_{id}"))
+        .collect();
 
     let joined_struct = if use_as_joined {
-        quote! { }
+        quote! {}
     } else {
         quote! {
             #[allow(non_camel_case_types, unused)]
@@ -164,12 +180,21 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
         }
     };
 
-    let joining_impl = impl_joining(&buffer_struct, &joined_struct_ident, &input_struct.generics, &field_ident)?;
-    let joined_impl = impl_joined(&buffer_struct.ident, &joined_struct_ident, &input_struct.generics)?;
+    let joining_impl = impl_joining(
+        &buffer_struct,
+        &joined_struct_ident,
+        &input_struct.generics,
+        &field_ident,
+    )?;
+    let joined_impl = impl_joined(
+        &buffer_struct.ident,
+        &joined_struct_ident,
+        &input_struct.generics,
+    )?;
 
     let wait_for_change_impl = if field_ident.len() == 0 {
         // Do nothing at all if there are no fields in the struct
-        quote !{ }
+        quote! {}
     } else if field_ident.len() <= 12 {
         // Use the tuple implementation of Race if there are few enough fields
         quote! {
@@ -536,7 +561,11 @@ impl CustomStructConfig {
             use_as_joined: false,
         };
 
-        for attr in data_struct.attrs.iter().filter(|attr| attr.path().is_ident(attr_tag)) {
+        for attr in data_struct
+            .attrs
+            .iter()
+            .filter(|attr| attr.path().is_ident(attr_tag))
+        {
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident(BUFFERS_STRUCT_NAME) {
                     config.buffer_struct_ident = meta.value()?.parse()?;
@@ -568,7 +597,9 @@ impl CustomStructConfig {
         Self::from_data_struct(
             data_struct,
             &JOINED_ATTR_TAG,
-            CustomStructAttrs { joined_struct_name: false },
+            CustomStructAttrs {
+                joined_struct_name: false,
+            },
         )
     }
 
@@ -576,7 +607,9 @@ impl CustomStructConfig {
         Self::from_data_struct(
             data_struct,
             &ACCESSOR_ATTR_TAG,
-            CustomStructAttrs { joined_struct_name: true },
+            CustomStructAttrs {
+                joined_struct_name: true,
+            },
         )
     }
 }

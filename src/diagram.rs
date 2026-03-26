@@ -77,7 +77,7 @@ pub use crate::type_info::TypeInfo;
 use crate::{
     Builder, IdentifierRef, IncompatibleLayout, IncrementalScopeError, JsonMessage,
     MessageTypeHint, Scope, Service, SpawnWorkflowExt, SplitConnectionError, StreamPack,
-    is_default, format_list,
+    format_list, is_default,
 };
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};

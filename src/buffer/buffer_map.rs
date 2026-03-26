@@ -30,8 +30,8 @@ use bevy_ecs::prelude::{Entity, World};
 use crate::{
     Accessing, AnyBuffer, AnyBufferKey, AnyMessageBox, AsAnyBuffer, Buffer, BufferKeyBuilder,
     BufferKeyLifecycle, Bufferable, Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer,
-    Gate, GateState, IdentifierRef, Joining, OperationError, OperationResult,
-    OperationRoster, RequestId, TypeInfo, add_listener_to_source,
+    Gate, GateState, IdentifierRef, Joining, OperationError, OperationResult, OperationRoster,
+    RequestId, TypeInfo, add_listener_to_source,
 };
 
 #[cfg(feature = "diagram")]
