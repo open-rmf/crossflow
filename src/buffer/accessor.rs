@@ -27,7 +27,7 @@ use bevy_ecs::{
 use crate::{
     Accessing, Buffer, BufferAccessMut, BufferError, BufferKey, BufferMap, BufferMapLayout,
     BufferMut, BufferView, BufferWorldAccess, Builder, Chain, IncompatibleLayout,
-    ManageBufferSessions, Node, RequestId, Seq, format_vertical_list, Sendish,
+    ManageBufferSessions, Node, RequestId, Sendish, Seq, format_vertical_list,
 };
 
 use futures_concurrency::future::Race;
@@ -835,9 +835,9 @@ mod tests {
 
     #[cfg(feature = "diagram")]
     mod json_tests {
+        use super::*;
         use crate::AddBufferToMap;
         use std::collections::HashMap;
-        use super::*;
 
         #[derive(Clone, Accessor)]
         #[accessor(

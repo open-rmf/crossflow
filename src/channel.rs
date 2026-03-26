@@ -29,9 +29,9 @@ use tokio::sync::{
 use std::sync::{Arc, Mutex, atomic::Ordering};
 
 use crate::{
-    AccessError, Accessor, BufferWorldAccess, OperationError, OperationRoster, Outcome, Promise,
-    ProvideOnce, Reply, RequestExt, RequestId, Seq, StreamPack, async_execution::spawn_task,
-    UnhandledErrors, MiscellaneousFailure,
+    AccessError, Accessor, BufferWorldAccess, MiscellaneousFailure, OperationError,
+    OperationRoster, Outcome, Promise, ProvideOnce, Reply, RequestExt, RequestId, Seq, StreamPack,
+    UnhandledErrors, async_execution::spawn_task,
 };
 
 use anyhow::anyhow;
@@ -117,12 +117,11 @@ impl Channel {
 
                 if let Some(v) = when(view, world) {
                     if let Some(then) = then.take() {
-                        let f = move |access: A::Access<'_, '_, '_>| {
-                            then(access, v)
-                        };
+                        let f = move |access: A::Access<'_, '_, '_>| then(access, v);
                         return Some(world.buffers_mut(req, &accessor, f));
                     } else {
-                        world.get_resource_or_init::<UnhandledErrors>()
+                        world
+                            .get_resource_or_init::<UnhandledErrors>()
                             .miscellaneous
                             .push(MiscellaneousFailure {
                                 error: Arc::new(anyhow!("Access callback gone before it was used")),
@@ -168,11 +167,13 @@ impl Channel {
     }
 
     /// Distribute values to a set of buffers
-    pub fn distribute<A: Accessor>(&self, accessor: A, values: A::Joined) -> Reply<Result<(), AccessError>> {
+    pub fn distribute<A: Accessor>(
+        &self,
+        accessor: A,
+        values: A::Joined,
+    ) -> Reply<Result<(), AccessError>> {
         let req = self.inner.request_id;
-        self.world(move |world| {
-            accessor.distribute(values, req, world)
-        })
+        self.world(move |world| accessor.distribute(values, req, world))
     }
 
     /// Run a query in the world and receive the promise of the query's output.
@@ -365,7 +366,8 @@ fn wait_for<A: Accessor, U: 'static + Send>(
                             // whether or not it's dropped.
                             let _ = accessor.wait_for_change();
                         } else {
-                            let Ok(Some(mut sender)) = shared_sender.lock().map(|mut l| l.take()) else {
+                            let Ok(Some(mut sender)) = shared_sender.lock().map(|mut l| l.take())
+                            else {
                                 // For some reason the sender is no longer available.
                                 // This suggests that the join was already performed
                                 // somehow, even though that shouldn't be the case.
@@ -417,7 +419,7 @@ fn wait_for<A: Accessor, U: 'static + Send>(
                                 // task with the new seen value.
                                 let seen = a.make_seen(world);
                                 let _ = seen_sender.send(seen);
-                            }
+                            },
                         ));
 
                         let Ok(seen) = seen_receiver.await else {
@@ -431,7 +433,7 @@ fn wait_for<A: Accessor, U: 'static + Send>(
                 world,
             )
             .detach();
-        }
+        },
     ));
 
     reply
@@ -583,29 +585,38 @@ mod tests {
             builder
                 .chain(string)
                 .with_access(buffers)
-                .map(|Async { request: (string, keys), channel, .. }: Async<_>| {
-                    async move {
-                        channel.wait_for_access(
-                            keys,
-                            |view: TestView<'_>, _| {
-                                if let (Some(i), Some(f)) = (view.integer.newest(), view.float.newest()) {
-                                    if *i > 2 && *f > 2.0 {
-                                        let product = *i * *f as i64;
-                                        return Some(product);
-                                    }
-                                }
+                .map(
+                    |Async {
+                         request: (string, keys),
+                         channel,
+                         ..
+                     }: Async<_>| {
+                        async move {
+                            channel
+                                .wait_for_access(
+                                    keys,
+                                    |view: TestView<'_>, _| {
+                                        if let (Some(i), Some(f)) =
+                                            (view.integer.newest(), view.float.newest())
+                                        {
+                                            if *i > 2 && *f > 2.0 {
+                                                let product = *i * *f as i64;
+                                                return Some(product);
+                                            }
+                                        }
 
-                                None
-                            },
-                            move |mut access: TestAccess<'_, '_, '_>, product| {
-                                access.string.push(string);
-                                product
-                            }
-                        )
-                        .await
-                        .unwrap()
-                    }
-                })
+                                        None
+                                    },
+                                    move |mut access: TestAccess<'_, '_, '_>, product| {
+                                        access.string.push(string);
+                                        product
+                                    },
+                                )
+                                .await
+                                .unwrap()
+                        }
+                    },
+                )
                 .connect(scope.terminate);
         });
 
@@ -618,28 +629,36 @@ mod tests {
     }
 
     async fn async_distribute_values(
-        Async { request, channel, .. } : Async<(TestJoined, TestKeys)>,
+        Async {
+            request, channel, ..
+        }: Async<(TestJoined, TestKeys)>,
     ) {
         let (values, keys) = request;
         channel.distribute(keys, values).await.unwrap();
     }
 
     async fn async_join_values(
-        Async { request, channel, .. }: Async<((), TestKeys)>,
+        Async {
+            request, channel, ..
+        }: Async<((), TestKeys)>,
     ) -> TestJoined {
         let (_, keys) = request;
         channel.try_join(keys).await.unwrap().unwrap()
     }
 
     async fn async_wait_for_join_values(
-        Async { request, channel, .. }: Async<((), TestKeys)>,
+        Async {
+            request, channel, ..
+        }: Async<((), TestKeys)>,
     ) -> TestJoined {
         let (_, keys) = request;
         channel.wait_for_join(keys).await.unwrap()
     }
 
     async fn slowly_stream_values<T: 'static + Send + Sync>(
-        Async { request, streams, .. }: Async<Vec<T>, StreamOf<T>>,
+        Async {
+            request, streams, ..
+        }: Async<Vec<T>, StreamOf<T>>,
     ) {
         for value in request {
             let start = Instant::now();
