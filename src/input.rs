@@ -590,7 +590,6 @@ impl ManageInput for World {
                         buffer: source,
                         accessor: source,
                         session,
-                        lifecycle: None,
                     };
 
                     if let Err(_) = self.unchecked_buffer_mut::<T, _>(req, &key, |mut buffer| {

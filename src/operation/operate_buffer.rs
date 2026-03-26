@@ -15,30 +15,49 @@
  *
 */
 
+use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::{Bundle, Command, Component, Entity, World};
 
-use std::collections::HashMap;
+use std::{collections::HashMap, num::Wrapping};
 
 use smallvec::{SmallVec, smallvec};
 
+type BufferChangeBroadcaster = tokio::sync::watch::Sender<Wrapping<Seq>>;
+
 use crate::{
-    Broken, BufferAccessors, BufferKeyTag, BufferSettings, BufferStorage, BufferWorldAccess,
-    DeferredRoster, ForkTargetStorage, Gate, GateActionStorage, Input, InputBundle,
-    InspectBufferSessions, ManageBufferSessions, ManageInput, Operation, OperationCleanup,
-    OperationError, OperationReachability, OperationRequest, OperationResult, OperationRoster,
-    OperationSetup, OrBroken, ReachabilityResult, RequestId, RouteTarget, Routing,
-    SingleInputStorage, UnhandledErrors, output_port,
+    Broken, BufferAccessors, BufferChangeReceiver, BufferInstanceId, BufferKeyTag, BufferSettings,
+    BufferStorage, BufferWorldAccess, DeferredRoster, ForkTargetStorage, Gate, GateActionStorage,
+    Input, InputBundle, InspectBufferSessions, ManageBufferSessions, ManageInput, Operation,
+    OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
+    OperationRoster, OperationSetup, OrBroken, ReachabilityResult, RequestId, RouteTarget, Routing,
+    Seq, SingleInputStorage, UnhandledErrors, output_port,
 };
 
 #[derive(Bundle)]
 pub(crate) struct OperateBuffer<T: 'static + Send + Sync> {
     storage: BufferStorage<T>,
+    /// Map from session to broadcaster
+    broadcasters: BufferChangeBroadcasters,
+}
+
+#[derive(Component, Default, Deref, DerefMut)]
+pub(crate) struct BufferChangeBroadcasters(HashMap<Entity, BufferChangeBroadcaster>);
+
+impl BufferChangeBroadcasters {
+    pub(crate) fn get_receiver(&mut self, session: Entity) -> BufferChangeReceiver {
+        self.entry(session).or_default().subscribe()
+    }
+
+    pub(crate) fn get_seen(&mut self, session: Entity) -> Seq {
+        self.entry(session).or_default().borrow().0
+    }
 }
 
 impl<T: 'static + Send + Sync> OperateBuffer<T> {
     pub(crate) fn new(settings: BufferSettings) -> Self {
         Self {
             storage: BufferStorage::new(settings),
+            broadcasters: Default::default(),
         }
     }
 }
@@ -77,11 +96,8 @@ where
                     buffer: source,
                     session,
                     accessor: source,
-                    lifecycle: None,
                 },
                 |mut buffer| {
-                    // TODO(@mxgrey): Consider whether the implementation of
-                    // force_push should really be given to push
                     buffer.force_push(data);
                 },
             )
@@ -144,16 +160,7 @@ impl GateState {
         if state.is_open() {
             // The gate has opened up, so we should immediately wake up all
             // listeners.
-            let targets = world
-                .get::<ForkTargetStorage>(buffer)
-                .or_broken()?
-                .0
-                .clone();
-
-            for target in targets {
-                let port = output_port::update();
-                world.give_input(req.to_message_route(&port, target), (), roster)?;
-            }
+            notify_listeners(buffer, req, session, None, world, roster)?;
         }
 
         Ok(())
@@ -225,10 +232,10 @@ fn clear_buffer<T: 'static + Send + Sync>(
     session: Entity,
     world: &mut World,
 ) -> OperationResult {
-    world
-        .get_entity_mut(source)
-        .or_broken()?
-        .remove_buffer::<T>(session)
+    world.remove_buffer_session::<T>(BufferInstanceId {
+        buffer: source,
+        session,
+    })
 }
 
 #[derive(Component)]
@@ -317,29 +324,8 @@ impl Command for NotifyBufferUpdate {
                         session,
                         accessor,
                     } = self;
-                    // We filter out the target that produced the key that was used to
-                    // make the modification. This prevents unintentional infinite loops
-                    // from forming in the workflow.
-                    let targets: SmallVec<[_; 16]> = world
-                        .get::<ForkTargetStorage>(buffer)
-                        .or_broken()?
-                        .0
-                        .iter()
-                        .filter(|t| !accessor.is_some_and(|a| a == **t))
-                        .cloned()
-                        .collect();
 
-                    let port = output_port::buffer_update();
-                    let output = req.to_route_source(&port);
-                    for target in targets {
-                        let route = Routing {
-                            outputs: smallvec![output],
-                            input: RouteTarget { session, target },
-                        };
-                        world.give_input(route, (), &mut *deferred)?;
-                    }
-
-                    Ok(())
+                    notify_listeners(buffer, req, session, accessor, world, &mut deferred)
                 })
             }
             None => None.or_broken(),
@@ -355,4 +341,45 @@ impl Command for NotifyBufferUpdate {
                 });
         }
     }
+}
+
+fn notify_listeners(
+    buffer: Entity,
+    req: RequestId,
+    session: Entity,
+    accessor: Option<Entity>,
+    world: &mut World,
+    roster: &mut OperationRoster,
+) -> OperationResult {
+    // We filter out the target that produced the key that was used to
+    // make the modification. This prevents unintentional infinite loops
+    // from forming in the workflow.
+    let targets: SmallVec<[_; 16]> = world
+        .get::<ForkTargetStorage>(buffer)
+        .or_broken()?
+        .0
+        .iter()
+        .filter(|t| !accessor.is_some_and(|a| a == **t))
+        .cloned()
+        .collect();
+
+    let port = output_port::buffer_update();
+    let output = req.to_route_source(&port);
+    for target in targets {
+        let route = Routing {
+            outputs: smallvec![output],
+            input: RouteTarget { session, target },
+        };
+        world.give_input(route, (), roster)?;
+    }
+
+    if let Some(broadcasters) = world.get::<BufferChangeBroadcasters>(buffer) {
+        if let Some(broadcaster) = broadcasters.get(&session) {
+            let _ = broadcaster.send_modify(|seq| {
+                *seq += 1;
+            });
+        }
+    }
+
+    Ok(())
 }

@@ -84,3 +84,23 @@ pub(crate) fn clamp(val: f32, limit: f32) -> f32 {
 
     val
 }
+
+#[allow(unused)]
+pub(crate) fn format_list<T: std::fmt::Display>(list: &[T]) -> String {
+    let mut output = String::new();
+    for item in list {
+        output += &format!("[{item}]");
+    }
+
+    output
+}
+
+#[allow(unused)]
+pub(crate) fn format_vertical_list<T: std::fmt::Display>(list: &[T]) -> String {
+    let mut output = String::new();
+    for item in list {
+        output += &format!("\n -- {item}");
+    }
+
+    output
+}

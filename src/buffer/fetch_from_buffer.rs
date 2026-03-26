@@ -22,7 +22,7 @@ use smallvec::SmallVec;
 use crate::{
     Accessing, AnyBuffer, AsAnyBuffer, Buffer, BufferKey, BufferKeyBuilder, BufferKeyLifecycle,
     BufferKeyTag, BufferLocation, BufferWorldAccess, Bufferable, Buffering, Builder,
-    CloneFromBuffer, Gate, InputSlot, JoinBehavior, Joining, MessageTypeHint, OperationError,
+    CloneFromBuffer, FetchBehavior, Gate, InputSlot, Joining, MessageTypeHint, OperationError,
     OperationResult, OperationRoster, OrBroken, RequestId,
 };
 
@@ -36,7 +36,7 @@ use crate::{
 pub struct FetchFromBuffer<T> {
     location: BufferLocation,
     fetch_for_join: FetchFromBufferFn<T>,
-    join_behavior: JoinBehavior,
+    join_behavior: FetchBehavior,
 }
 
 pub(super) type FetchFromBufferFn<T> =
@@ -77,7 +77,7 @@ impl<T: 'static + Send + Sync> From<Buffer<T>> for FetchFromBuffer<T> {
         FetchFromBuffer {
             location: value.location,
             fetch_for_join: pull_for_join::<T>,
-            join_behavior: JoinBehavior::Pull,
+            join_behavior: FetchBehavior::Pull,
         }
     }
 }
@@ -96,7 +96,7 @@ impl<T: 'static + Send + Sync + Clone> From<CloneFromBuffer<T>> for FetchFromBuf
         FetchFromBuffer {
             location: value.location,
             fetch_for_join: clone_for_join::<T>,
-            join_behavior: JoinBehavior::Clone,
+            join_behavior: FetchBehavior::Clone,
         }
     }
 }
@@ -128,8 +128,8 @@ impl<T: 'static + Send + Sync> TryFrom<AnyBuffer> for FetchFromBuffer<T> {
     type Error = OperationError;
     fn try_from(value: AnyBuffer) -> Result<Self, Self::Error> {
         let fetch_for_join = match value.join_behavior {
-            JoinBehavior::Pull => pull_for_join::<T>,
-            JoinBehavior::Clone => *value
+            FetchBehavior::Pull => pull_for_join::<T>,
+            FetchBehavior::Clone => *value
                 .interface
                 .clone_for_join_fn()
                 .or_broken()?
@@ -154,8 +154,7 @@ fn pull_for_join<T: 'static + Send + Sync>(
     let key = BufferKeyTag {
         buffer: buffer.id(),
         session,
-        accessor: buffer.id(),
-        lifecycle: None,
+        accessor: req.source,
     };
     world
         .unchecked_buffer_mut::<T, _>(req, &key, |mut buffer| buffer.pull())
@@ -172,8 +171,7 @@ pub(super) fn clone_for_join<T: 'static + Send + Sync + Clone>(
     let key = BufferKeyTag {
         buffer: buffer.id(),
         session,
-        accessor: buffer.id(),
-        lifecycle: None,
+        accessor: req.source,
     };
     let value = world
         .unchecked_buffer_view::<T>(req, &key)
@@ -252,8 +250,8 @@ impl<T: 'static + Send + Sync> Accessing for FetchFromBuffer<T> {
         Buffer::<T>::add_accessor(&(*self).into(), accessor, world)
     }
 
-    fn create_key(&self, builder: &BufferKeyBuilder) -> Self::Key {
-        Buffer::<T>::create_key(&(*self).into(), builder)
+    fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key> {
+        Ok(Buffer::<T>::create_key(&(*self).into(), builder)?)
     }
 
     fn deep_clone_key(key: &Self::Key) -> Self::Key {

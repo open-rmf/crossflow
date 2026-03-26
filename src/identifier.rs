@@ -345,10 +345,6 @@ pub mod output_port {
         name_str("listen")
     }
 
-    pub const fn update() -> [IdentifierRef<'static>; 1] {
-        name_str("update")
-    }
-
     pub const fn start() -> [IdentifierRef<'static>; 1] {
         name_str("start")
     }

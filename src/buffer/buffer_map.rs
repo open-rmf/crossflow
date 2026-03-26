@@ -30,22 +30,18 @@ use bevy_ecs::prelude::{Entity, World};
 use crate::{
     Accessing, AnyBuffer, AnyBufferKey, AnyMessageBox, AsAnyBuffer, Buffer, BufferKeyBuilder,
     BufferKeyLifecycle, Bufferable, Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer,
-    Gate, GateState, IdentifierRef, Joining, Node, OperationError, OperationResult,
-    OperationRoster, RequestId, TypeInfo, add_listener_to_source,
+    Gate, GateState, IdentifierRef, Joining, OperationError, OperationResult, OperationRoster,
+    RequestId, TypeInfo, add_listener_to_source,
 };
 
 #[cfg(feature = "diagram")]
 use crate::MessageRegistry;
-
-pub use crossflow_derive::{Accessor, Joined};
 
 #[cfg(feature = "diagram")]
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "diagram")]
 use schemars::JsonSchema;
-
-use super::BufferKey;
 
 pub type BufferMap = HashMap<IdentifierRef<'static>, AnyBuffer>;
 
@@ -606,81 +602,6 @@ pub trait Joined: 'static + Send + Sync + Sized {
     }
 }
 
-/// Trait to describe a set of buffer keys. This allows [listen][1] and [access][2]
-/// to work for arbitrary structs of buffer keys. Structs with this trait can be
-/// produced by [`try_listen`][3] and [`try_create_buffer_access`][4].
-///
-/// Each field in the struct must be some kind of buffer key.
-///
-/// This does not generally need to be implemented explicitly. Instead you should
-/// define a struct where all fields are buffer keys and then apply
-/// `#[derive(Accessor)]` to it, e.g.:
-///
-/// ```
-/// use crossflow::prelude::*;
-///
-/// #[derive(Clone, Accessor)]
-/// struct SomeKeys {
-///     integer: BufferKey<i64>,
-///     string: BufferKey<String>,
-///     any: AnyBufferKey,
-/// }
-/// ```
-///
-/// The macro will generate a struct of buffers to match the keys. The name of
-/// that struct is anonymous by default since you don't generally need to use it
-/// directly, but if you want to give it a name you can use `#[key(buffers_struct_name = ...)]`:
-///
-/// ```
-/// # use crossflow::prelude::*;
-///
-/// #[derive(Clone, Accessor)]
-/// #[key(buffers_struct_name = SomeBuffers)]
-/// struct SomeKeys {
-///     integer: BufferKey<i64>,
-///     string: BufferKey<String>,
-///     any: AnyBufferKey,
-/// }
-/// ```
-///
-/// [1]: crate::Builder::listen
-/// [2]: crate::Builder::create_buffer_access
-/// [3]: crate::Builder::try_listen
-/// [4]: crate::Builder::try_create_buffer_access
-pub trait Accessor: 'static + Send + Sync + Sized + Clone {
-    type Buffers: 'static + BufferMapLayout + Accessing<Key = Self> + Send + Sync;
-
-    fn try_listen_from<'w, 's, 'a, 'b>(
-        buffers: &BufferMap,
-        builder: &'b mut Builder<'w, 's, 'a>,
-    ) -> Result<Chain<'w, 's, 'a, 'b, Self>, IncompatibleLayout> {
-        let buffers: Self::Buffers = Self::Buffers::try_from_buffer_map(buffers)?;
-        Ok(buffers.listen(builder))
-    }
-
-    fn try_buffer_access<T: 'static + Send + Sync>(
-        buffers: &BufferMap,
-        builder: &mut Builder,
-    ) -> Result<Node<T, (T, Self)>, IncompatibleLayout> {
-        let buffers: Self::Buffers = Self::Buffers::try_from_buffer_map(buffers)?;
-        Ok(buffers.access(builder))
-    }
-}
-
-impl<T> Accessor for BufferKey<T>
-where
-    T: Send + Sync + 'static,
-{
-    type Buffers = Buffer<T>;
-}
-
-impl<T> Accessor for Vec<BufferKey<T>>
-where
-    T: Send + Sync + 'static,
-{
-    type Buffers = Vec<Buffer<T>>;
-}
-
 impl BufferMapLayout for BufferMap {
     fn try_from_buffer_map(buffers: &BufferMap) -> Result<Self, IncompatibleLayout> {
         Ok(buffers.clone())
@@ -740,16 +661,16 @@ impl Joined for HashMap<IdentifierRef<'static>, AnyMessageBox> {
 impl Accessing for BufferMap {
     type Key = HashMap<IdentifierRef<'static>, AnyBufferKey>;
 
-    fn create_key(&self, builder: &BufferKeyBuilder) -> Self::Key {
+    fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key> {
         let mut keys = HashMap::new();
         for (name, buffer) in self.iter() {
             let key = AnyBufferKey {
-                tag: builder.make_tag(buffer.id()),
+                body: builder.make_body(buffer.id())?,
                 interface: buffer.interface,
             };
             keys.insert(name.clone(), key);
         }
-        keys
+        Ok(keys)
     }
 
     fn add_accessor(&self, accessor: Entity, world: &mut World) -> OperationResult {
@@ -1099,7 +1020,7 @@ mod tests {
     }
 
     #[derive(Clone, Accessor)]
-    #[key(buffers_struct_name = TestKeysBuffers)]
+    #[accessor(buffers_struct_name = TestKeysBuffers)]
     struct TestKeys<T: 'static + Send + Sync + Clone> {
         integer: BufferKey<i64>,
         float: BufferKey<f64>,
@@ -1107,6 +1028,7 @@ mod tests {
         generic: BufferKey<T>,
         any: AnyBufferKey,
     }
+
     #[test]
     fn test_listen() {
         let mut context = TestingContext::minimal_plugins();
