@@ -27,7 +27,7 @@ use bevy_ecs::{
 use crate::{
     Accessing, Buffer, BufferAccessMut, BufferError, BufferKey, BufferMap, BufferMapLayout,
     BufferMut, BufferView, BufferWorldAccess, Builder, Chain, IncompatibleLayout,
-    ManageBufferSessions, Node, RequestId, Seq, format_vertical_list,
+    ManageBufferSessions, Node, RequestId, Seq, format_vertical_list, Sendish,
 };
 
 use futures_concurrency::future::Race;
@@ -96,7 +96,7 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
 
     /// Wait for a change to occur in any one of the buffer sessions that this
     /// accessor refers to.
-    fn wait_for_change(&mut self) -> impl Future<Output = ()>;
+    fn wait_for_change(&mut self) -> impl Future<Output = ()> + Sendish;
 
     /// A data structure used to indicate which versions of the buffers have
     /// been seen by this accessor.
@@ -170,8 +170,6 @@ pub enum AccessError {
     Inaccessible(#[from] BufferError),
     #[error("Multiple access errors occurred:{}", format_vertical_list(.0))]
     Multiple(Vec<AccessError>),
-    #[error("A panic occurred during an async access")]
-    PoisonedMutex,
 }
 
 impl AccessError {
@@ -557,8 +555,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{AddBufferToMap, prelude::*, testing::*};
-    use std::collections::HashMap;
+    use crate::{prelude::*, testing::*};
 
     #[derive(Clone, Accessor)]
     // #[accessor(buffers_struct_name = SameTypeBuffers)]
@@ -836,131 +833,138 @@ mod tests {
         world.distribute_to_buffers(value, id, &keys).unwrap();
     }
 
-    #[derive(Clone, Accessor)]
-    #[accessor(
-        buffers_struct_name = TestKeysBuffers,
-        use_as_joined = TestKeysJoined,
-    )]
-    struct TestKeys<T: 'static + Send + Sync + Clone> {
-        integer: BufferKey<i64>,
-        float: BufferKey<f64>,
-        string: BufferKey<String>,
-        generic: BufferKey<T>,
-        json: JsonBufferKey,
-    }
+    #[cfg(feature = "diagram")]
+    mod json_tests {
+        use crate::AddBufferToMap;
+        use std::collections::HashMap;
+        use super::*;
 
-    #[derive(Clone)]
-    struct TestKeysJoined<T> {
-        integer: i64,
-        float: f64,
-        string: String,
-        generic: T,
-        json: JsonMessage,
-    }
+        #[derive(Clone, Accessor)]
+        #[accessor(
+            buffers_struct_name = TestBuffers,
+            use_as_joined = TestJoined,
+        )]
+        struct TestKeys<T: 'static + Send + Sync + Clone> {
+            integer: BufferKey<i64>,
+            float: BufferKey<f64>,
+            string: BufferKey<String>,
+            generic: BufferKey<T>,
+            json: JsonBufferKey,
+        }
 
-    #[test]
-    fn test_accessor_struct_join() {
-        let mut context = TestingContext::minimal_plugins();
+        #[derive(Clone)]
+        struct TestJoined<T> {
+            integer: i64,
+            float: f64,
+            string: String,
+            generic: T,
+            json: JsonMessage,
+        }
 
-        let workflow = context.spawn_io_workflow(|scope, builder| {
-            let buffers = TestKeys::select_buffers(
-                builder.create_buffer(Default::default()),
-                builder.create_buffer(Default::default()),
-                builder.create_buffer(Default::default()),
-                builder.create_buffer(Default::default()),
-                builder.create_buffer::<HashMap<String, String>>(Default::default()),
-            );
+        #[test]
+        fn test_accessor_struct_join() {
+            let mut context = TestingContext::minimal_plugins();
 
-            builder
-                .chain(scope.start)
-                .with_access(buffers.clone())
-                .then(distribute_to_buffers.into_callback())
-                .with_access(buffers)
-                .then(join_from_buffers.into_callback())
-                .connect(scope.terminate);
-        });
+            let workflow = context.spawn_io_workflow(|scope, builder| {
+                let buffers = TestKeys::select_buffers(
+                    builder.create_buffer(Default::default()),
+                    builder.create_buffer(Default::default()),
+                    builder.create_buffer(Default::default()),
+                    builder.create_buffer(Default::default()),
+                    builder.create_buffer::<HashMap<String, String>>(Default::default()),
+                );
 
-        let values = TestKeysJoined {
-            integer: 7,
-            float: 3.14159,
-            string: String::from("hello"),
-            generic: (2.171828, 4),
-            json: serde_json::json!({
-                "hello": "json",
-            }),
-        };
+                builder
+                    .chain(scope.start)
+                    .with_access(buffers.clone())
+                    .then(distribute_to_buffers.into_callback())
+                    .with_access(buffers)
+                    .then(join_from_buffers.into_callback())
+                    .connect(scope.terminate);
+            });
 
-        let resolved_values = context.resolve_request(values.clone(), workflow);
-        assert_eq!(resolved_values.integer, values.integer);
-        assert_eq!(resolved_values.float, values.float);
-        assert_eq!(resolved_values.string, values.string);
-        assert_eq!(resolved_values.generic, values.generic);
-        assert_eq!(resolved_values.json, values.json);
+            let values = TestJoined {
+                integer: 7,
+                float: 3.14159,
+                string: String::from("hello"),
+                generic: (2.171828, 4),
+                json: serde_json::json!({
+                    "hello": "json",
+                }),
+            };
 
-        // This specifically tests that the Accessor macro correctly generates the
-        // Joining trait impl needed for its Buffer struct to make the join operation for
-        // its Joined struct.
-        let workflow = context.spawn_io_workflow(|scope, builder| {
-            let buffers = TestKeys::select_buffers(
-                builder.create_buffer(Default::default()),
-                builder.create_buffer(Default::default()),
-                builder.create_buffer(Default::default()),
-                builder.create_buffer(Default::default()),
-                builder.create_buffer::<HashMap<String, String>>(Default::default()),
-            );
+            let resolved_values = context.resolve_request(values.clone(), workflow);
+            assert_eq!(resolved_values.integer, values.integer);
+            assert_eq!(resolved_values.float, values.float);
+            assert_eq!(resolved_values.string, values.string);
+            assert_eq!(resolved_values.generic, values.generic);
+            assert_eq!(resolved_values.json, values.json);
 
-            builder
-                .chain(scope.start)
-                .with_access(buffers.clone())
-                .then(distribute_to_buffers.into_callback())
-                .unused();
+            // This specifically tests that the Accessor macro correctly generates the
+            // Joining trait impl needed for its Buffer struct to make the join operation for
+            // its Joined struct.
+            let workflow = context.spawn_io_workflow(|scope, builder| {
+                let buffers = TestKeys::select_buffers(
+                    builder.create_buffer(Default::default()),
+                    builder.create_buffer(Default::default()),
+                    builder.create_buffer(Default::default()),
+                    builder.create_buffer(Default::default()),
+                    builder.create_buffer::<HashMap<String, String>>(Default::default()),
+                );
 
-            builder.join(buffers).connect(scope.terminate);
-        });
+                builder
+                    .chain(scope.start)
+                    .with_access(buffers.clone())
+                    .then(distribute_to_buffers.into_callback())
+                    .unused();
 
-        let resolved_values = context.resolve_request(values.clone(), workflow);
-        assert_eq!(resolved_values.integer, values.integer);
-        assert_eq!(resolved_values.float, values.float);
-        assert_eq!(resolved_values.string, values.string);
-        assert_eq!(resolved_values.generic, values.generic);
-        assert_eq!(resolved_values.json, values.json);
+                builder.join(buffers).connect(scope.terminate);
+            });
 
-        // This specifically tests that the Accessor macro correctly generates the
-        // Joined trait impl needed for its Joined struct to make the try_join
-        // operation.
-        let workflow = context.spawn_io_workflow(|scope, builder| {
-            let buffers = TestKeys::select_buffers(
-                builder.create_buffer(Default::default()),
-                builder.create_buffer(Default::default()),
-                builder.create_buffer(Default::default()),
-                builder.create_buffer(Default::default()),
-                builder.create_buffer::<HashMap<String, String>>(Default::default()),
-            );
+            let resolved_values = context.resolve_request(values.clone(), workflow);
+            assert_eq!(resolved_values.integer, values.integer);
+            assert_eq!(resolved_values.float, values.float);
+            assert_eq!(resolved_values.string, values.string);
+            assert_eq!(resolved_values.generic, values.generic);
+            assert_eq!(resolved_values.json, values.json);
 
-            let mut buffer_map = BufferMap::default();
-            buffer_map.insert_buffer("integer", buffers.integer);
-            buffer_map.insert_buffer("float", buffers.float);
-            buffer_map.insert_buffer("string", buffers.string);
-            buffer_map.insert_buffer("generic", buffers.generic);
-            buffer_map.insert_buffer("json", buffers.json);
+            // This specifically tests that the Accessor macro correctly generates the
+            // Joined trait impl needed for its Joined struct to make the try_join
+            // operation.
+            let workflow = context.spawn_io_workflow(|scope, builder| {
+                let buffers = TestKeys::select_buffers(
+                    builder.create_buffer(Default::default()),
+                    builder.create_buffer(Default::default()),
+                    builder.create_buffer(Default::default()),
+                    builder.create_buffer(Default::default()),
+                    builder.create_buffer::<HashMap<String, String>>(Default::default()),
+                );
 
-            builder
-                .chain(scope.start)
-                .with_access(buffers.clone())
-                .then(distribute_to_buffers.into_callback())
-                .unused();
+                let mut buffer_map = BufferMap::default();
+                buffer_map.insert_buffer("integer", buffers.integer);
+                buffer_map.insert_buffer("float", buffers.float);
+                buffer_map.insert_buffer("string", buffers.string);
+                buffer_map.insert_buffer("generic", buffers.generic);
+                buffer_map.insert_buffer("json", buffers.json);
 
-            builder
-                .try_join::<TestKeysJoined<(f64, i32)>>(&buffer_map)
-                .unwrap()
-                .connect(scope.terminate);
-        });
+                builder
+                    .chain(scope.start)
+                    .with_access(buffers.clone())
+                    .then(distribute_to_buffers.into_callback())
+                    .unused();
 
-        let resolved_values = context.resolve_request(values.clone(), workflow);
-        assert_eq!(resolved_values.integer, values.integer);
-        assert_eq!(resolved_values.float, values.float);
-        assert_eq!(resolved_values.string, values.string);
-        assert_eq!(resolved_values.generic, values.generic);
-        assert_eq!(resolved_values.json, values.json);
+                builder
+                    .try_join::<TestJoined<(f64, i32)>>(&buffer_map)
+                    .unwrap()
+                    .connect(scope.terminate);
+            });
+
+            let resolved_values = context.resolve_request(values.clone(), workflow);
+            assert_eq!(resolved_values.integer, values.integer);
+            assert_eq!(resolved_values.float, values.float);
+            assert_eq!(resolved_values.string, values.string);
+            assert_eq!(resolved_values.generic, values.generic);
+            assert_eq!(resolved_values.json, values.json);
+        }
     }
 }

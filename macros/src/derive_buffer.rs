@@ -91,6 +91,8 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
         buffer_struct_ident,
         joined_struct_ident,
         use_as_joined,
+        view_struct_name,
+        access_struct_name,
     } = CustomStructConfig::for_accessor(&input_struct);
     let buffer_struct_vis = &input_struct.vis;
 
@@ -132,14 +134,12 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
         impl_buffer_map_layout(&buffer_struct, &field_ident, &field_config)?;
     let impl_accessed = impl_accessing(&buffer_struct, &input_struct, &field_ident, &field_type)?;
 
-    let view_ident = format_ident!("__crossflow_{}_View", struct_ident);
     let mut view_generics = input_struct.generics.clone();
     let view_lifetime = Lifetime::new("'v", Span::call_site());
     let view_ltp = LifetimeParam::new(view_lifetime);
     view_generics.params.push(GenericParam::from(view_ltp));
     let (impl_generics_view, ty_generics_view, _) = view_generics.split_for_impl();
 
-    let access_ident = format_ident!("__crossflow_{}_Access", struct_ident);
     let mut access_generics = input_struct.generics.clone();
     access_generics.params.extend([
         GenericParam::from(LifetimeParam::new(Lifetime::new("'w", Span::call_site()))),
@@ -351,7 +351,7 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
                 ::crossflow::AccessError::from_list(errors)
             }
 
-            type View<'v> = #view_ident #ty_generics_view;
+            type View<'v> = #view_struct_name #ty_generics_view;
             fn view<'v>(
                 &self,
                 req: ::crossflow::RequestId,
@@ -374,7 +374,7 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
                     )?;
                 )*
 
-                Ok(#view_ident {
+                Ok(#view_struct_name {
                     #(
                         #field_ident,
                     )*
@@ -386,19 +386,19 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
                     let #field_ident = ::crossflow::Accessor::view_untraced(&self. #field_ident, world)?;
                 )*
 
-                Ok(#view_ident {
+                Ok(#view_struct_name {
                     #(
                         #field_ident,
                     )*
                 })
             }
 
-            type Access<'w, 's, 'a> = #access_ident #ty_generics_access #where_clause_access;
+            type Access<'w, 's, 'a> = #access_struct_name #ty_generics_access #where_clause_access;
             fn access<U>(
                 &self,
                 req: ::crossflow::RequestId,
                 world: &mut ::crossflow::re_exports::World,
-                f: impl FnOnce(#access_ident #ty_generics_fn_access) -> U,
+                f: impl FnOnce(#access_struct_name #ty_generics_fn_access) -> U,
             ) -> ::std::result::Result<U, ::crossflow::AccessError> {
                 self.is_disjoint()?;
 
@@ -436,7 +436,7 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
                         )?;
                     )*
 
-                    let access = #access_ident {
+                    let access = #access_struct_name {
                         #(
                             #field_ident,
                         )*
@@ -466,13 +466,13 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
         #joining_impl
 
         #[allow(non_camel_case_types, unused)]
-        #buffer_struct_vis struct #view_ident #impl_generics_view #where_clause {
+        #buffer_struct_vis struct #view_struct_name #impl_generics_view #where_clause {
             #(
                 #buffer_struct_vis #field_ident: <#field_type as ::crossflow::Accessor>::View<'v>,
             )*
         }
 
-        impl #impl_generics_view ::std::clone::Clone for #view_ident #ty_generics_view #where_clause {
+        impl #impl_generics_view ::std::clone::Clone for #view_struct_name #ty_generics_view #where_clause {
             fn clone(&self) -> Self {
                 Self {
                     #(
@@ -483,7 +483,7 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
         }
 
         #[allow(non_camel_case_types, unused)]
-        #buffer_struct_vis struct #access_ident #impl_generics_access #where_clause_access {
+        #buffer_struct_vis struct #access_struct_name #impl_generics_access #where_clause_access {
             #(
                 #buffer_struct_vis #field_ident: <#field_type as ::crossflow::Accessor>::Access<'w, 's, 'a>,
             )*
@@ -529,14 +529,20 @@ struct CustomStructConfig {
     buffer_struct_ident: Ident,
     joined_struct_ident: Ident,
     use_as_joined: bool,
+    view_struct_name: Ident,
+    access_struct_name: Ident,
 }
 
 struct CustomStructAttrs {
     joined_struct_name: bool,
+    view_struct_name: bool,
+    access_struct_name: bool,
 }
 
 const BUFFERS_STRUCT_NAME: &'static str = "buffers_struct_name";
 const JOINED_STRUCT_NAME: &'static str = "joined_struct_name";
+const VIEW_STRUCT_NAME: &'static str = "view_struct_name";
+const ACCESS_STRUCT_NAME: &'static str = "access_struct_name";
 const USE_AS_JOINED: &'static str = "use_as_joined";
 
 impl std::fmt::Display for CustomStructAttrs {
@@ -559,6 +565,8 @@ impl CustomStructConfig {
             buffer_struct_ident: format_ident!("__crossflow_{}_Buffers", data_struct.ident),
             joined_struct_ident: format_ident!("__crossflow_{}_Joined", data_struct.ident),
             use_as_joined: false,
+            view_struct_name: format_ident!("__crossflow_{}_View", data_struct.ident),
+            access_struct_name: format_ident!("__crossflow_{}_Access", data_struct.ident),
         };
 
         for attr in data_struct
@@ -574,6 +582,10 @@ impl CustomStructConfig {
                 } else if attrs.joined_struct_name && meta.path.is_ident(USE_AS_JOINED) {
                     config.joined_struct_ident = meta.value()?.parse()?;
                     config.use_as_joined = true;
+                } else if attrs.view_struct_name && meta.path.is_ident(VIEW_STRUCT_NAME) {
+                    config.view_struct_name = meta.value()?.parse()?;
+                } else if attrs.access_struct_name && meta.path.is_ident(ACCESS_STRUCT_NAME) {
+                    config.access_struct_name = meta.value()?.parse()?;
                 } else {
                     return Err(syn::Error::new(
                         meta.path.span(),
@@ -599,6 +611,8 @@ impl CustomStructConfig {
             &JOINED_ATTR_TAG,
             CustomStructAttrs {
                 joined_struct_name: false,
+                view_struct_name: false,
+                access_struct_name: false,
             },
         )
     }
@@ -609,6 +623,8 @@ impl CustomStructConfig {
             &ACCESSOR_ATTR_TAG,
             CustomStructAttrs {
                 joined_struct_name: true,
+                view_struct_name: true,
+                access_struct_name: true,
             },
         )
     }
@@ -979,9 +995,13 @@ mod tests {
             buffer_struct_ident,
             joined_struct_ident,
             use_as_joined,
+            view_struct_name,
+            access_struct_name,
         } = CustomStructConfig::for_accessor(&input_struct);
         assert_eq!(buffer_struct_ident, "TestKeysBuffers");
         assert_eq!(joined_struct_ident, "TestKeysJoined");
         assert!(!use_as_joined);
+        assert_eq!(view_struct_name, "__crossflow_TestKeys_View");
+        assert_eq!(view_struct_name, "__crossflow_TestKeys_Access");
     }
 }
