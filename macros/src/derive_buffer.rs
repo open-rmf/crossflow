@@ -1002,6 +1002,6 @@ mod tests {
         assert_eq!(joined_struct_ident, "TestKeysJoined");
         assert!(!use_as_joined);
         assert_eq!(view_struct_name, "__crossflow_TestKeys_View");
-        assert_eq!(view_struct_name, "__crossflow_TestKeys_Access");
+        assert_eq!(access_struct_name, "__crossflow_TestKeys_Access");
     }
 }
