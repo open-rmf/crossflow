@@ -199,7 +199,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         .with_common_response();
 
     // =========================================================================
-    let detect_traffic_signal_description = "Detects traffic signal updates via Query";
+    let detect_traffic_signal_description = "Detects traffic signal updates via events";
     fn detect_traffic_signal(
         srv: ContinuousService<(), (), TrafficStateStreams>,
         mut orders: ContinuousQuery<(), (), TrafficStateStreams>,
@@ -277,7 +277,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         .with_common_response();
 
     // =========================================================================
-    let detect_obstacles_description = "Detects obstacles in range via event reader";
+    let detect_obstacles_description = "Detects obstacles in range via query";
     fn detect_obstacles(
         srv: ContinuousService<(), (), TrafficStateStreams>,
         mut orders: ContinuousQuery<(), (), TrafficStateStreams>,
@@ -318,6 +318,10 @@ pub fn register(setup: &mut BasicExecutorSetup) {
                 })
                 .collect(),
         );
+        if obstacles.0.is_empty() {
+            return;
+        }
+
         orders.for_each(|order| order.streams().obstacles.send(obstacles.clone()));
     }
     let detect_obstacles_service = app.spawn_continuous_service(PostUpdate, detect_obstacles);
@@ -415,9 +419,9 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         let limits = &world_limits.obstacle_limits;
 
         let Some(obstacles) = access
-            .get_mut(id, &key)
+            .get(id, &key)
             .ok()
-            .map(|mut res| res.pull_newest())
+            .map(|mut res| res.newest().cloned())
             .flatten()
         else {
             return next_move;
@@ -460,13 +464,6 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     ) -> Result<MoveVehicle, TripRequestError> {
         // Since this is a Join operation, we have input from both TrafficSignal
         // and Obstacles. We can determine what is the next best move from both.
-
-        // TODO(@xiyuoh) Enable toggling to hide all pedestrians, to showcase how
-        // without Obstacles (aka pedestrians) the car won't be able to proecss
-        // anything because Join wouldn't be able to complete.
-        // TODO(@xiyuoh) hmm this is not working, vehicle still moves and just
-        // follows the traffic signal, figure out why.
-
         let next_move_for_signal = determine_next_move_from_traffic_signal(&input.traffic_signal);
 
         let Ok(next_move_for_obstacles) =
@@ -510,7 +507,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         world_limits: Res<WorldLimits>,
     ) -> Result<MoveVehicle, TripRequestError> {
         let signal_next_move = traffic_signal_access
-            .get_mut(id, &keys.traffic_signal)
+            .get(id, &keys.traffic_signal)
             .ok()
             .map(|res| res.newest().cloned())
             .flatten()
@@ -526,13 +523,13 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         }
 
         let obstacles_next_move = obstacles_access
-            .get_mut(id, &keys.obstacles)
+            .get(id, &keys.obstacles)
             .ok()
-            .map(|mut res| res.pull_newest())
+            .map(|res| res.newest().cloned())
             .flatten()
-            .ok_or(TripRequestError::BufferEmptyError)
-            .and_then(|obstacles| determine_next_move_from_obstacles(&obstacles, &world_limits))
-            .ok();
+            .and_then(|obstacles| {
+                determine_next_move_from_obstacles(&obstacles, &world_limits).ok()
+            });
 
         if signal_next_move.is_none() && obstacles_next_move.is_none() {
             return Err(TripRequestError::NextMoveError);
@@ -565,6 +562,17 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         .with_listen()
         .with_result()
         .with_common_response();
+
+    // =========================================================================
+    let move_forward_description = "Generates a MoveVehicle::Forward output";
+    fn move_forward(Blocking { .. }: Blocking<()>) -> MoveVehicle {
+        MoveVehicle::Forward(Velocity::default_forward())
+    }
+    registry.register_node_builder(
+        NodeBuilderOptions::new("move_forward".to_owned())
+            .with_description(move_forward_description),
+        |builder, _config: ()| builder.create_node(move_forward.into_callback()),
+    );
 
     // =========================================================================
     let move_vehicle_description = "Move vehicle";
