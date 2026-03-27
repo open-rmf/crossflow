@@ -179,6 +179,20 @@ impl<'a> IdentifierRef<'a> {
         matches!(self, Self::Index(_))
     }
 
+    pub fn index(&self) -> Option<usize> {
+        match self {
+            Self::Index(index) => Some(*index),
+            _ => None,
+        }
+    }
+
+    pub fn name(&self) -> Option<&'_ str> {
+        match self {
+            Self::Name(name) => Some(name.as_ref()),
+            _ => None,
+        }
+    }
+
     pub fn to_owned(&self) -> IdentifierRef<'static> {
         match self {
             Self::Index(index) => IdentifierRef::Index(*index),
@@ -211,7 +225,7 @@ impl IdentifierRef<'static> {
     }
 
     /// Use an index as an identifier.
-    pub fn index(index: usize) -> Self {
+    pub fn from_index(index: usize) -> Self {
         IdentifierRef::Index(index)
     }
 }
@@ -274,6 +288,73 @@ impl<'a> PartialEq<Identifier> for IdentifierRef<'a> {
 }
 
 pub type OutputPort<'a> = &'a [IdentifierRef<'a>];
+
+pub trait Identifiable {
+    fn try_from_id(id: &IdentifierRef<'static>) -> Option<Self>
+    where
+        Self: Sized;
+    fn indexable() -> bool;
+    fn nameable() -> bool;
+}
+
+impl<'a> Identifiable for IdentifierRef<'a> {
+    fn try_from_id(id: &IdentifierRef<'static>) -> Option<Self> {
+        Some(id.clone())
+    }
+
+    fn indexable() -> bool {
+        true
+    }
+
+    fn nameable() -> bool {
+        true
+    }
+}
+
+impl Identifiable for Identifier {
+    fn try_from_id(id: &IdentifierRef<'static>) -> Option<Self> {
+        Some(id.clone().into())
+    }
+
+    fn indexable() -> bool {
+        true
+    }
+
+    fn nameable() -> bool {
+        true
+    }
+}
+
+impl Identifiable for usize {
+    fn try_from_id(id: &IdentifierRef<'static>) -> Option<Self> {
+        id.index()
+    }
+
+    fn indexable() -> bool {
+        true
+    }
+
+    fn nameable() -> bool {
+        false
+    }
+}
+
+impl Identifiable for String {
+    fn try_from_id(id: &IdentifierRef<'static>) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        id.name().map(ToString::to_string)
+    }
+
+    fn indexable() -> bool {
+        false
+    }
+
+    fn nameable() -> bool {
+        true
+    }
+}
 
 /// The output_port module provides utility functions for easily creating
 /// [`OutputPort`] instances that avoid any memory allocations.

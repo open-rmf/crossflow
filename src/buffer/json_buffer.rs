@@ -40,12 +40,11 @@ use crate::{
     AnyRange, AsAnyBuffer, BMut, BMutTracer, Buffer, BufferAccessMut, BufferAccessors, BufferEntry,
     BufferError, BufferInstanceId, BufferKey, BufferKeyBody, BufferKeyBuilder, BufferKeyLifecycle,
     BufferKeyTag, BufferLocation, BufferManager, BufferMap, BufferMapLayout, BufferMapLayoutHints,
-    BufferMapStruct, BufferStorage, BufferView, BufferWorldAccess, Bufferable, Buffering, Builder,
-    CloneFromBuffer, DrainBuffer, DynamicBufferMapLayoutHints, FetchBehavior, Gate, GateState,
-    IdentifierRef, IncompatibleLayout, InspectBufferSessions, Joined, Joining,
-    ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
-    NotifyBufferUpdate, OperationError, OperationResult, OrBroken, OverlapError, RequestId, Seq,
-    TypeInfo, add_listener_to_source,
+    BufferStorage, BufferView, BufferWorldAccess, Bufferable, Buffering, Builder, CloneFromBuffer,
+    DrainBuffer, FetchBehavior, Gate, GateState, IdentifierRef, IncompatibleLayout,
+    InspectBufferSessions, Joined, Joining, ManageBufferSessions, MessageTypeHint,
+    MessageTypeHintEvaluation, NotifyBufferUpdate, OperationError, OperationResult, OrBroken,
+    OverlapError, RequestId, Seq, TypeInfo, add_listener_to_source,
 };
 
 #[cfg(feature = "trace")]
@@ -1413,174 +1412,51 @@ impl BufferMapLayout for JsonBuffer {
 
 impl Joined for serde_json::Map<String, JsonMessage> {
     type Buffers = HashMap<String, JsonBuffer>;
-}
-
-impl BufferMapLayout for HashMap<String, JsonBuffer> {
-    fn try_from_buffer_map(buffers: &BufferMap) -> Result<Self, IncompatibleLayout> {
-        let mut downcast_buffers = HashMap::new();
-        let mut compatibility = IncompatibleLayout::default();
-        for identifier in buffers.keys() {
-            match identifier {
-                IdentifierRef::Name(name) => {
-                    if let Ok(downcast) =
-                        compatibility.require_buffer_for_borrowed_name::<JsonBuffer>(&name, buffers)
-                    {
-                        downcast_buffers.insert(name.clone().into_owned(), downcast);
-                    }
-                }
-                IdentifierRef::Index(index) => {
-                    compatibility
-                        .forbidden_buffers
-                        .push(IdentifierRef::Index(*index));
-                }
-            }
-        }
-
-        compatibility.as_result()?;
-        Ok(downcast_buffers)
-    }
-
-    fn get_buffer_message_type_hints(
-        identifiers: HashSet<IdentifierRef<'static>>,
-    ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
-        let mut evaluation = MessageTypeHintEvaluation::new(identifiers);
-        while let Some(identifier) = evaluation.next_name_required() {
-            evaluation.fallback::<JsonMessage>(identifier);
-        }
-        evaluation.evaluate()
-    }
-
-    fn get_layout_hints() -> BufferMapLayoutHints {
-        BufferMapLayoutHints::Dynamic(DynamicBufferMapLayoutHints {
-            indices: false,
-            names: true,
-            hint: Some(MessageTypeHint::Fallback(TypeInfo::of::<JsonMessage>())),
-        })
-    }
-}
-
-impl BufferMapStruct for HashMap<String, JsonBuffer> {
-    fn buffer_list(&self) -> SmallVec<[AnyBuffer; 8]> {
-        self.values().map(|b| b.as_any_buffer()).collect()
-    }
-}
-
-impl Joining for HashMap<String, JsonBuffer> {
-    type Item = serde_json::Map<String, JsonMessage>;
-    fn fetch_for_join(
-        &self,
-        req: RequestId,
-        session: Entity,
-        world: &mut World,
-    ) -> Result<Self::Item, OperationError> {
-        self.iter()
-            .map(|(key, value)| {
-                value
-                    .fetch_for_join(req, session, world)
-                    .map(|v| (key.clone(), v))
-            })
-            .collect()
+    fn from_item(mut item: <Self::Buffers as Joining>::Item) -> Self {
+        serde_json::Map::from_iter(item.drain())
     }
 }
 
 impl Joined for JsonMessage {
     type Buffers = HashMap<IdentifierRef<'static>, JsonBuffer>;
-}
-
-impl BufferMapLayout for HashMap<IdentifierRef<'static>, JsonBuffer> {
-    fn try_from_buffer_map(buffers: &BufferMap) -> Result<Self, IncompatibleLayout> {
-        let mut downcast_buffers = HashMap::new();
-        let mut compatibility = IncompatibleLayout::default();
-        for identifier in buffers.keys() {
-            if let Ok(downcast) = compatibility
-                .require_buffer_for_identifier::<JsonBuffer>(identifier.clone(), buffers)
-            {
-                downcast_buffers.insert(identifier.clone(), downcast);
-            }
-        }
-
-        compatibility.as_result()?;
-        Ok(downcast_buffers)
-    }
-
-    fn get_buffer_message_type_hints(
-        identifiers: HashSet<IdentifierRef<'static>>,
-    ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
-        let mut evaluation = MessageTypeHintEvaluation::new(identifiers);
-        while let Some(identifier) = evaluation.next_unevaluated() {
-            evaluation.fallback::<JsonMessage>(identifier);
-        }
-        evaluation.evaluate()
-    }
-
-    fn get_layout_hints() -> BufferMapLayoutHints {
-        BufferMapLayoutHints::Dynamic(DynamicBufferMapLayoutHints {
-            indices: true,
-            names: true,
-            hint: Some(MessageTypeHint::Fallback(TypeInfo::of::<JsonMessage>())),
-        })
-    }
-}
-
-impl BufferMapStruct for HashMap<IdentifierRef<'static>, JsonBuffer> {
-    fn buffer_list(&self) -> SmallVec<[AnyBuffer; 8]> {
-        self.values().map(|b| b.as_any_buffer()).collect()
-    }
-}
-
-impl Joining for HashMap<IdentifierRef<'static>, JsonBuffer> {
-    type Item = JsonMessage;
-    fn fetch_for_join(
-        &self,
-        req: RequestId,
-        session: Entity,
-        world: &mut World,
-    ) -> Result<Self::Item, OperationError> {
+    fn from_item(item: <Self::Buffers as Joining>::Item) -> Self {
         let mut object = serde_json::Map::<String, JsonMessage>::new();
         let mut array = Vec::<JsonMessage>::new();
-
-        for (identifier, buffer) in self.iter() {
+        for (identifier, element) in item {
             match identifier {
                 IdentifierRef::Index(index) => {
-                    if *index >= array.len() {
+                    if index >= array.len() {
                         // Ensure we have enough items in the array to reach the
                         // specified index.
-                        array.resize(*index + 1, JsonMessage::Null);
+                        array.resize(index + 1, JsonMessage::Null);
                     }
 
-                    array[*index] = buffer.fetch_for_join(req, session, world)?;
+                    array[index] = element;
                 }
                 IdentifierRef::Name(name) => {
-                    object.insert(
-                        name.as_ref().to_owned(),
-                        buffer.fetch_for_join(req, session, world)?,
-                    );
+                    object.insert(name.as_ref().to_owned(), element);
                 }
             }
         }
 
-        let value = if !object.is_empty() && !array.is_empty() {
-            // There are keyed buffers as well as arrayed buffers, so we need to
+        if !object.is_empty() && !array.is_empty() {
+            // There are named items as well as indexed items, so we need to
             // organize them into two different fields in a json object.
             JsonMessage::Object(serde_json::Map::from_iter([
                 ("array".to_owned(), JsonMessage::Array(array)),
                 ("object".to_owned(), JsonMessage::Object(object)),
             ]))
         } else if !object.is_empty() {
-            // There are only object entries, so we will join them into a
-            // top-level object.
+            // There are only named items, so we will join them into an object
             JsonMessage::Object(object)
         } else if !array.is_empty() {
-            // There are only array entries, so we will join them into a
-            // top-level array.
+            // There are only indexed items, so we will join them into an array
             JsonMessage::Array(array)
         } else {
-            // There are no entries at all. This shouldn't happen, but we will
+            // There are no items at all. This shouldn't happen, but we will
             // handle it by returning a null value.
             JsonMessage::Null
-        };
-
-        Ok(value)
+        }
     }
 }
 
