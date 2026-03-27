@@ -28,10 +28,10 @@ use smallvec::SmallVec;
 use bevy_ecs::prelude::{Entity, World};
 
 use crate::{
-    Accessing, AnyBuffer, AnyBufferKey, AnyMessageBox, AsAnyBuffer, Buffer, BufferKeyBuilder,
-    BufferKeyLifecycle, Bufferable, Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer,
-    Gate, GateState, IdentifierRef, Joining, OperationError, OperationResult, OperationRoster,
-    RequestId, TypeInfo, add_listener_to_source,
+    Accessing, AddOperation, AnyBuffer, AsAnyBuffer, Buffer, BufferKeyBuilder, Bufferable,
+    Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer, Gate, GateState, Identifiable,
+    IdentifierRef, Join, Joining, OperationError, OperationResult, OperationRoster, Output,
+    RequestId, TypeInfo, UnusedTarget, add_listener_to_source,
 };
 
 use variadics_please::all_tuples;
@@ -592,7 +592,10 @@ pub trait Joined: 'static + Send + Sync + Sized {
     /// This associated type must represent a buffer map layout that implements
     /// the [`Joining`] trait. The message type yielded by [`Joining`] for this
     /// associated type must match the [`Joined`] type.
-    type Buffers: 'static + BufferMapLayout + Joining<Item = Self> + Send + Sync;
+    type Buffers: 'static + BufferMapLayout + Joining + Send + Sync;
+
+    /// This converts from the buffer Joining::Item type into the Joined type
+    fn from_item(item: <Self::Buffers as Joining>::Item) -> Self;
 
     /// Used by [`Builder::try_join`]
     fn try_join_from<'w, 's, 'a, 'b>(
@@ -600,46 +603,26 @@ pub trait Joined: 'static + Send + Sync + Sized {
         builder: &'b mut Builder<'w, 's, 'a>,
     ) -> Result<Chain<'w, 's, 'a, 'b, Self>, IncompatibleLayout> {
         let buffers: Self::Buffers = Self::Buffers::try_from_buffer_map(buffers)?;
-        Ok(buffers.join(builder))
+        let scope = builder.scope();
+        buffers.verify_scope(scope);
+
+        let join = builder.commands.spawn(()).id();
+        let target = builder.commands.spawn(UnusedTarget).id();
+        builder.commands.queue(AddOperation::new(
+            Some(scope),
+            join,
+            Join::<_, Self>::for_joined(buffers, target),
+        ));
+
+        Ok(Output::new(scope, target).chain(builder))
     }
 }
 
-impl BufferMapLayout for BufferMap {
-    fn try_from_buffer_map(buffers: &BufferMap) -> Result<Self, IncompatibleLayout> {
-        Ok(buffers.clone())
-    }
-
-    fn get_buffer_message_type_hints(
-        identifiers: HashSet<IdentifierRef<'static>>,
-    ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
-        // We have no information available at compile time about what the right
-        // identifiers are or what the messages types should be. BufferMap can
-        // support anything.
-        let mut evaluation = MessageTypeHintEvaluation::new(identifiers);
-        while let Some(identifier) = evaluation.next_unevaluated() {
-            evaluation.fallback::<AnyMessageBox>(identifier);
-        }
-
-        evaluation.evaluate()
-    }
-
-    fn get_layout_hints() -> BufferMapLayoutHints {
-        BufferMapLayoutHints::Dynamic(DynamicBufferMapLayoutHints {
-            indices: true,
-            names: true,
-            hint: None,
-        })
-    }
-}
-
-impl BufferMapStruct for BufferMap {
-    fn buffer_list(&self) -> SmallVec<[AnyBuffer; 8]> {
-        self.values().cloned().collect()
-    }
-}
-
-impl Joining for BufferMap {
-    type Item = HashMap<IdentifierRef<'static>, AnyMessageBox>;
+impl<K, B: Joining + AsAnyBuffer> Joining for HashMap<K, B>
+where
+    K: 'static + Send + Sync + Clone + Eq + Hash,
+{
+    type Item = HashMap<K, B::Item>;
 
     fn fetch_for_join(
         &self,
@@ -648,29 +631,35 @@ impl Joining for BufferMap {
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
         let mut value = HashMap::new();
-        for (name, buffer) in self.iter() {
-            value.insert(name.clone(), buffer.fetch_for_join(req, session, world)?);
+        for (key, buffer) in self.iter() {
+            value.insert(key.clone(), buffer.fetch_for_join(req, session, world)?);
         }
 
         Ok(value)
     }
 }
 
-impl Joined for HashMap<IdentifierRef<'static>, AnyMessageBox> {
-    type Buffers = BufferMap;
+impl<K, T> Joined for HashMap<K, T>
+where
+    K: 'static + Send + Sync + Clone + Eq + Hash + Identifiable,
+    T: 'static + Send + Sync,
+{
+    type Buffers = HashMap<K, Buffer<T>>;
+    fn from_item(item: <Self::Buffers as Joining>::Item) -> Self {
+        item
+    }
 }
 
-impl Accessing for BufferMap {
-    type Key = HashMap<IdentifierRef<'static>, AnyBufferKey>;
+impl<K, B: Accessing + AsAnyBuffer> Accessing for HashMap<K, B>
+where
+    K: 'static + Send + Sync + Clone + Eq + Hash,
+{
+    type Key = HashMap<K, B::Key>;
 
     fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key> {
         let mut keys = HashMap::new();
-        for (name, buffer) in self.iter() {
-            let key = AnyBufferKey {
-                body: builder.make_body(buffer.id())?,
-                interface: buffer.interface,
-            };
-            keys.insert(name.clone(), key);
+        for (key, buffer) in self {
+            keys.insert(key.clone(), buffer.create_key(builder)?);
         }
         Ok(keys)
     }
@@ -685,14 +674,14 @@ impl Accessing for BufferMap {
     fn deep_clone_key(key: &Self::Key) -> Self::Key {
         let mut cloned_key = HashMap::new();
         for (name, key) in key.iter() {
-            cloned_key.insert(name.clone(), key.deep_clone());
+            cloned_key.insert(name.clone(), B::deep_clone_key(key));
         }
         cloned_key
     }
 
     fn is_key_in_use(key: &Self::Key) -> bool {
         for k in key.values() {
-            if k.is_in_use() {
+            if B::is_key_in_use(k) {
                 return true;
             }
         }
@@ -701,8 +690,21 @@ impl Accessing for BufferMap {
     }
 }
 
+impl<K, B: AsAnyBuffer> BufferMapStruct for HashMap<K, B>
+where
+    K: 'static + Send + Sync + Clone,
+    B: 'static + Send + Sync + Clone,
+{
+    fn buffer_list(&self) -> SmallVec<[AnyBuffer; 8]> {
+        self.values().map(B::as_any_buffer).collect()
+    }
+}
+
 impl<T: 'static + Send + Sync> Joined for Vec<T> {
     type Buffers = Vec<Buffer<T>>;
+    fn from_item(item: <Self::Buffers as Joining>::Item) -> Self {
+        item
+    }
 }
 
 impl<T: 'static + Send + Sync> BufferMapLayout for Buffer<T> {
@@ -818,8 +820,63 @@ impl<B: 'static + Send + Sync + AsAnyBuffer + Clone> BufferMapLayout for Vec<B> 
     }
 }
 
+impl<K, B> BufferMapLayout for HashMap<K, B>
+where
+    K: 'static + Send + Sync + PartialEq + Eq + Hash + Identifiable + Clone,
+    B: 'static + Send + Sync + AsAnyBuffer + Clone,
+{
+    fn try_from_buffer_map(buffers: &BufferMap) -> Result<Self, IncompatibleLayout> {
+        let mut downcast_buffers = HashMap::new();
+        let mut compatibility = IncompatibleLayout::default();
+        for identifier in buffers.keys() {
+            let Some(key) = K::try_from_id(identifier) else {
+                compatibility.forbidden_buffers.push(identifier.clone());
+                continue;
+            };
+
+            if let Ok(downcast) =
+                compatibility.require_buffer_for_identifier::<B>(identifier.clone(), buffers)
+            {
+                downcast_buffers.insert(key, downcast);
+            }
+        }
+
+        compatibility.as_result()?;
+        Ok(downcast_buffers)
+    }
+
+    fn get_buffer_message_type_hints(
+        identifiers: HashSet<IdentifierRef<'static>>,
+    ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
+        let mut compatibility = IncompatibleLayout::default();
+        let mut hints = HashMap::new();
+        for identifier in identifiers.iter() {
+            let Some(_) = K::try_from_id(identifier) else {
+                compatibility.forbidden_buffers.push(identifier.clone());
+                continue;
+            };
+
+            hints.insert(identifier.clone(), B::message_type_hint());
+        }
+
+        compatibility.as_result()?;
+        Ok(hints)
+    }
+
+    fn get_layout_hints() -> BufferMapLayoutHints {
+        BufferMapLayoutHints::Dynamic(DynamicBufferMapLayoutHints {
+            indices: K::indexable(),
+            names: K::nameable(),
+            hint: Some(B::message_type_hint()),
+        })
+    }
+}
+
 impl<T: 'static + Send + Sync, const N: usize> Joined for SmallVec<[T; N]> {
     type Buffers = SmallVec<[Buffer<T>; N]>;
+    fn from_item(item: <Self::Buffers as Joining>::Item) -> Self {
+        item
+    }
 }
 
 impl<B: 'static + Send + Sync + AsAnyBuffer + Clone, const N: usize> BufferMapLayout

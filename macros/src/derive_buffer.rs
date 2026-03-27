@@ -879,6 +879,9 @@ fn impl_joined(
         quote! {
             impl #impl_generics ::crossflow::Joined for #joined_struct_ident #ty_generics #where_clause {
                 type Buffers = #buffers_struct_ident #ty_generics;
+                fn from_item(item: <Self::Buffers as ::crossflow::Joining>::Item) -> Self {
+                    item
+                }
             }
         }
         .into()

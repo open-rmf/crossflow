@@ -189,7 +189,7 @@ pub trait IterBufferable {
         builder.commands.queue(AddOperation::new(
             Some(builder.scope()),
             join,
-            Join::new(buffers, target),
+            Join::<_, SmallVec<[<Self::BufferElement as Joining>::Item; N]>>::new(buffers, target),
         ));
 
         Output::new(builder.scope(), target).chain(builder)

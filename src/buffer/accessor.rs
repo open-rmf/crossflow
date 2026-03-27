@@ -1046,11 +1046,7 @@ mod tests {
                 .connect(scope.terminate);
         });
 
-        let values = (
-            2.0,
-            vec![0, 1, 2, 3, 4],
-            String::from("hello"),
-        );
+        let values = (2.0, vec![0, 1, 2, 3, 4], String::from("hello"));
 
         let resolved_values = context.resolve_request(values.clone(), workflow);
         assert_eq!(resolved_values.0, values.0);
