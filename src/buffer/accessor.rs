@@ -405,7 +405,7 @@ where
             return Err(OverlapError { duplicates });
         }
 
-        return Ok(());
+        Ok(())
     }
 
     fn can_join(&self, world: &World) -> Result<bool, AccessError> {
@@ -527,12 +527,12 @@ where
         let r = {
             let mut params = Vec::new();
             for state in &mut states {
-                let accessor = A::get_param(state, unsafe {
+                let param = A::get_param(state, unsafe {
                     // SAFETY: Same rationale as earlier in this function.
                     world_cell.world_mut()
                 });
 
-                params.push(accessor);
+                params.push(param);
             }
 
             let mut accesses = Vec::new();
@@ -549,6 +549,212 @@ where
         };
 
         for state in &mut states {
+            A::apply_state(state, unsafe {
+                // SAFETY: Same rationale as earlier in this function
+                world_cell.world_mut()
+            });
+        }
+
+        Ok(r)
+    }
+}
+
+impl<K, A: AccessKey> Accessor for HashMap<K, A>
+where
+    K: 'static + Send + Sync + Clone + Eq + Hash,
+    HashMap<K, A::Buffers>: 'static + BufferMapLayout + Accessing<Key = HashMap<K, A>> + Send + Sync,
+{
+    type Buffers = HashMap<K, A::Buffers>;
+
+    async fn wait_for_change(&mut self) {
+        let futures: Vec<_> = self.values_mut().map(|a| a.wait_for_change()).collect();
+        futures.race().await;
+    }
+
+    type Seen = HashMap<K, A::Seen>;
+    fn seen(&mut self, seen: Self::Seen) {
+        for (k, seen) in seen {
+            if let Some(key) = self.get_mut(&k) {
+                key.seen(seen);
+            }
+        }
+    }
+
+    fn make_seen(&self, world: &mut World) -> Self::Seen {
+        let mut seen = HashMap::new();
+        for (k, key) in self {
+            seen.insert(k.clone(), key.make_seen(world));
+        }
+
+        seen
+    }
+
+    fn is_disjoint(&self) -> Result<(), OverlapError> {
+        let mut duplicates = HashMap::new();
+        let mut is_disjoint = true;
+        for key in self.values() {
+            is_disjoint &= key.validate_disjoint(&mut duplicates);
+        }
+
+        if !is_disjoint {
+            duplicates.retain(|_, count| *count > 1);
+            return Err(OverlapError { duplicates });
+        }
+
+        Ok(())
+    }
+
+    fn can_join(&self, world: &World) -> Result<bool, AccessError> {
+        self.is_disjoint()?;
+        for key in self.values() {
+            if !key.can_join(world)? {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+
+    type Joined = HashMap<K, A::Joined>;
+    fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
+        if !self.can_join(world)? {
+            return Ok(None);
+        }
+
+        let mut errors = Vec::new();
+        let mut fetched = HashMap::new();
+        for (k, key) in self {
+            match key.join(req, world) {
+                Ok(Some(value)) => {
+                    fetched.insert(k.clone(), value);
+                },
+                Ok(None) => {
+                    // Note: THis can't happen unless there's a flaw in the
+                    // implementation of can_join
+                    return Ok(None);
+                }
+                Err(err) => {
+                    errors.push(err);
+                },
+            }
+        }
+
+        AccessError::from_list(errors)?;
+        Ok(Some(fetched))
+    }
+
+    /// The values to be distributed will be matched up to a corresponding
+    /// buffer in the Accessor hash map. If there is no buffer in the hash map
+    /// that corresponds to the key of a value that's being distributed, that
+    /// value be will dropped. Or if there is no value whose key corresponding
+    /// to one of the buffers in the hash map, that buffer will receive no value.
+    ///
+    /// Also if the hash map of the Accessor is not disjoint (meaning the same
+    /// buffer appears multiple times) then that buffer may receive multiple values.
+    fn distribute(
+        &self,
+        values: Self::Joined,
+        req: RequestId,
+        world: &mut World,
+    ) -> Result<(), AccessError> {
+        let mut errors = Vec::new();
+        for (k, value) in values {
+            if let Some(buffer) = self.get(&k) {
+                if let Err(err) = buffer.distribute(value, req, world) {
+                    errors.push(err);
+                }
+            }
+        }
+
+        AccessError::from_list(errors)
+    }
+
+    type View<'a> = HashMap<K, A::View<'a>>;
+    fn view<'a>(
+        &self,
+        req: RequestId,
+        world: &'a mut World,
+    ) -> Result<Self::View<'a>, BufferError> {
+        let mut views = HashMap::new();
+        let world_cell = world.as_unsafe_world_cell();
+        for (k, key) in self {
+            views.insert(
+                k.clone(),
+                key.view(req, unsafe {
+                    // SAFETY: We require a &mut World as input to this function,
+                    // so we know that nothing else is interacting with the world
+                    // right now. We only need mutability for the tracing to be
+                    // performed. After that all access is read-only.
+                    world_cell.world_mut()
+                })?
+            );
+        }
+
+        Ok(views)
+    }
+
+    fn view_untraced<'a>(&self, world: &'a World) -> Result<Self::View<'a>, BufferError> {
+        let mut views = HashMap::new();
+        for (k, key) in self {
+            views.insert(k.clone(), key.view_untraced(world)?);
+        }
+
+        Ok(views)
+    }
+
+    type Access<'w, 's, 'a> = HashMap<K, A::Access<'w, 's, 'a>>;
+    fn access<U>(
+        &self,
+        req: RequestId,
+        world: &mut World,
+        f: impl FnOnce(HashMap<K, A::Access<'_, '_, '_>>) -> U,
+    ) -> Result<U, AccessError> {
+        self.is_disjoint()?;
+
+        let mut states = HashMap::new();
+        let world_cell = world.as_unsafe_world_cell();
+        for (k, key) in self {
+            let state = key.get_state(unsafe {
+                // SAFETY: We make sure the accessor is disjoint at the start
+                // of the function. After that there is no overlap in the mutable
+                // world access needed by the system states. Their commands will
+                // be flushed serially at the end of this function.
+                world_cell.world_mut()
+            });
+            states.insert(k.clone(), state);
+        }
+
+        let r = {
+            let mut params = HashMap::new();
+            for (k, state) in &mut states {
+                let param = A::get_param(state, unsafe {
+                    // SAFETY: Same rationale as earlier in this function.
+                    world_cell.world_mut()
+                });
+
+                params.insert(k.clone(), param);
+            }
+
+            let mut accesses = HashMap::new();
+            let mut errors = Vec::new();
+            for (k, param) in &mut params {
+                if let Some(key) = self.get(k) {
+                    match A::get_mut(key, req, param) {
+                        Ok(access) => {
+                            accesses.insert(k.clone(), access);
+                        }
+                        Err(err) => {
+                            errors.push(err.into());
+                        }
+                    }
+                }
+            }
+
+            AccessError::from_list(errors)?;
+            f(accesses)
+        };
+
+        for state in states.values_mut() {
             A::apply_state(state, unsafe {
                 // SAFETY: Same rationale as earlier in this function
                 world_cell.world_mut()
@@ -749,6 +955,7 @@ all_tuples!(impl_accessor_for_tuple, 1, 12, A, a, b, c, d);
 #[cfg(test)]
 mod tests {
     use crate::{prelude::*, testing::*};
+    use std::collections::HashMap;
 
     #[derive(Clone, Accessor)]
     // #[accessor(buffers_struct_name = SameTypeBuffers)]
@@ -1052,6 +1259,52 @@ mod tests {
         assert_eq!(resolved_values.0, values.0);
         assert_eq!(resolved_values.1, values.1);
         assert_eq!(resolved_values.2, values.2);
+    }
+
+    #[test]
+    fn test_access_hashmap_join() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let mut buffers = HashMap::new();
+            buffers.insert(
+                String::from("alice"),
+                builder.create_buffer(Default::default()),
+            );
+            buffers.insert(
+                String::from("bob"),
+                builder.create_buffer(Default::default()),
+            );
+            buffers.insert(
+                String::from("chris"),
+                builder.create_buffer(Default::default()),
+            );
+
+            builder
+                .chain(scope.start)
+                .with_access(buffers.clone())
+                .then(distribute_to_buffers.into_callback())
+                .with_access(buffers.clone())
+                .then(join_from_buffers.into_callback())
+                .connect(scope.terminate);
+        });
+
+        let mut values = HashMap::new();
+        values.insert(
+            String::from("alice"),
+            42,
+        );
+        values.insert(
+            String::from("bob"),
+            67,
+        );
+        values.insert(
+            String::from("chris"),
+            88,
+        );
+
+        let resolved = context.resolve_request(values.clone(), workflow);
+        assert_eq!(resolved, values);
     }
 
     #[cfg(feature = "diagram")]
