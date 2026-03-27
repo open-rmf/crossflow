@@ -34,6 +34,8 @@ use crate::{
     RequestId, TypeInfo, add_listener_to_source,
 };
 
+use variadics_please::all_tuples;
+
 #[cfg(feature = "diagram")]
 use crate::MessageRegistry;
 
@@ -846,6 +848,61 @@ impl<B: 'static + Send + Sync + AsAnyBuffer + Clone, const N: usize> BufferMapLa
         Vec::<B>::get_layout_hints()
     }
 }
+
+macro_rules! impl_buffer_map_layout_for_tuple {
+    ($(($B:ident, $b:ident)),*) => {
+        #[allow(non_snake_case)]
+        impl<$($B: 'static + Send + Sync + AsAnyBuffer + Clone),*> BufferMapLayout for ($($B,)*) {
+            fn try_from_buffer_map(buffers: &BufferMap) -> Result<Self, IncompatibleLayout> {
+                let mut compatibility = IncompatibleLayout::default();
+                let mut _index = 0;
+                let downcast_buffers = ($(
+                    {
+                        let buffer = match compatibility.require_buffer_for_identifier::<$B>(_index, buffers) {
+                            Ok(downcast) => Some(downcast),
+                            Err(_) => None,
+                        };
+                        _index += 1;
+                        buffer
+                    },
+                )*);
+
+                let ($(Some($b),)*) = downcast_buffers else {
+                    return Err(compatibility);
+                };
+
+                Ok(($($b,)*))
+            }
+
+            fn get_buffer_message_type_hints(
+                identifiers: HashSet<IdentifierRef<'static>>,
+            ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
+                let mut evaluation = MessageTypeHintEvaluation::new(identifiers);
+                $(
+                    if let Some(identifier) = evaluation.next_index_required() {
+                        evaluation.set_hint(identifier, $B::message_type_hint());
+                    }
+                )*
+
+                evaluation.evaluate()
+            }
+
+            fn get_layout_hints() -> BufferMapLayoutHints {
+                let mut hints = MessageTypeHintMap::new();
+                let mut _index = 0;
+                $(
+                    hints.insert(_index.into(), $B::message_type_hint());
+                    _index += 1;
+                )*
+
+                BufferMapLayoutHints::Static(hints)
+            }
+        }
+    }
+}
+
+// Implements the BufferMapLayout trait for all tuples of buffers between size 1 and 12 (inclusive).
+all_tuples!(impl_buffer_map_layout_for_tuple, 1, 12, B, b);
 
 #[cfg(test)]
 mod tests {

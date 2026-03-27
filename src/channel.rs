@@ -561,7 +561,7 @@ mod tests {
     }
 
     #[test]
-    fn test_wait_for_access() {
+    fn test_struct_wait_for_access() {
         let mut context = TestingContext::minimal_plugins();
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
@@ -628,29 +628,102 @@ mod tests {
         assert!(result > 4);
     }
 
-    async fn async_distribute_values(
+    #[test]
+    fn test_tuple_wait_for_access() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffers: (Buffer<i32>, Buffer<Vec<i32>>, Buffer<String>) = (
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+            );
+            type Keys = (
+                BufferKey<i32>,
+                BufferKey<Vec<i32>>,
+                BufferKey<String>,
+            );
+
+            let (values, trigger) = builder
+                .chain(scope.start)
+                .map_block(|value| (value, ()))
+                .unzip();
+
+            builder
+                .chain(trigger)
+                .with_access(buffers)
+                .map(|Async { request: (_, keys), channel, id, .. }: Async<((), Keys)>| {
+                    async move {
+                        channel.wait_for(
+                            keys.clone(),
+                            move |world| {
+                                world.buffers_mut(id, &keys, |mut buffers| {
+                                    let value = buffers.0.pull()?;
+                                    // Note: Using the ? above means that this function will
+                                    // return None until it manages to pull a value from the
+                                    // first buffer.
+
+                                    let mut values = buffers.1.oldest_mut().unwrap();
+                                    values.push(value);
+
+                                    // Put a value back into the first buffer so we
+                                    // can join all the buffers again later.
+                                    buffers.0.push(*values.first().unwrap());
+
+                                    // Return Some to end this wait_for
+                                    Some(())
+                                }).unwrap()
+                            },
+                        )
+                        .await;
+                    }
+                })
+                .with_access(buffers)
+                .then(async_join_values.into_callback())
+                .connect(scope.terminate);
+
+            builder
+                .chain(values)
+                .with_access(buffers)
+                .then(async_distribute_values.into_callback())
+                .unused();
+        });
+
+        let values = (
+            5,
+            vec![0, 1, 2, 3, 4],
+            String::from("hello"),
+        );
+
+        let result = context.resolve_request(values.clone(), workflow);
+        assert_eq!(result.0, 0);
+        assert_eq!(result.1, vec![0, 1, 2, 3, 4, 5]);
+        assert_eq!(result.2, values.2);
+    }
+
+    async fn async_distribute_values<A: Accessor>(
         Async {
             request, channel, ..
-        }: Async<(TestJoined, TestKeys)>,
+        }: Async<(A::Joined, A)>,
     ) {
         let (values, keys) = request;
         channel.distribute(keys, values).await.unwrap();
     }
 
-    async fn async_join_values(
+    async fn async_join_values<A: Accessor>(
         Async {
             request, channel, ..
-        }: Async<((), TestKeys)>,
-    ) -> TestJoined {
+        }: Async<((), A)>,
+    ) -> A::Joined {
         let (_, keys) = request;
         channel.try_join(keys).await.unwrap().unwrap()
     }
 
-    async fn async_wait_for_join_values(
+    async fn async_wait_for_join_values<A: Accessor>(
         Async {
             request, channel, ..
-        }: Async<((), TestKeys)>,
-    ) -> TestJoined {
+        }: Async<((), A)>,
+    ) -> A::Joined {
         let (_, keys) = request;
         channel.wait_for_join(keys).await.unwrap()
     }
