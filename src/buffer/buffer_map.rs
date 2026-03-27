@@ -569,8 +569,8 @@ impl<T: BufferMapStruct> Buffering for T {
 /// By default each field of the generated buffers struct will have a type of
 /// [`Buffer<T>`], but you can override this using `#[joined(buffer = ...)]`
 /// to specify a special buffer type. For example if your `Joined` struct
-/// contains an [`AnyMessageBox`] then by default the macro will use `Buffer<AnyMessageBox>`,
-/// but you probably really want it to have an [`AnyBuffer`]:
+/// contains an [`AnyMessageBox`][3] then by default the macro will use
+/// `Buffer<AnyMessageBox>`, but you probably really want it to have an [`AnyBuffer`]:
 ///
 /// ```
 /// # use crossflow::prelude::*;
@@ -588,6 +588,7 @@ impl<T: BufferMapStruct> Buffering for T {
 ///
 /// [1]: crate::Builder::join
 /// [2]: crate::Builder::try_join
+/// [3]: crate::AnyMessageBox
 pub trait Joined: 'static + Send + Sync + Sized {
     /// This associated type must represent a buffer map layout that implements
     /// the [`Joining`] trait. The message type yielded by [`Joining`] for this
