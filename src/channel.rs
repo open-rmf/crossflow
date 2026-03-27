@@ -443,10 +443,7 @@ fn wait_for<A: Accessor, U: 'static + Send>(
 mod tests {
     use crate::{prelude::*, testing::*};
     use bevy_ecs::system::EntityCommands;
-    use std::{
-        collections::HashMap,
-        time::Duration
-    };
+    use std::{collections::HashMap, time::Duration};
 
     #[test]
     fn test_channel_request() {
@@ -730,13 +727,20 @@ mod tests {
             builder
                 .chain(trigger)
                 .with_access(buffers.clone())
-                .map(|Async { request: (_, keys), channel, id, .. }: Async<((), HashMap<String, BufferKey<i32>>)>| {
+                .map(
+                    |Async {
+                         request: (_, keys),
+                         channel,
+                         id,
+                         ..
+                     }: Async<((), HashMap<String, BufferKey<i32>>)>| {
                         async move {
                             channel
                                 .wait_for(keys.clone(), move |world| {
                                     world
                                         .buffers_mut(id, &keys, |mut buffers| {
-                                            let [alice, bob, chris] = buffers.get_disjoint_mut(["alice", "bob", "chris"]);
+                                            let [alice, bob, chris] =
+                                                buffers.get_disjoint_mut(["alice", "bob", "chris"]);
                                             let mut alice = alice?.oldest_mut()?;
                                             let mut bob = bob?.oldest_mut()?;
                                             let chris = chris?.oldest_mut()?;
@@ -763,18 +767,9 @@ mod tests {
         });
 
         let mut values = HashMap::new();
-        values.insert(
-            String::from("alice"),
-            42,
-        );
-        values.insert(
-            String::from("bob"),
-            67,
-        );
-        values.insert(
-            String::from("chris"),
-            88,
-        );
+        values.insert(String::from("alice"), 42);
+        values.insert(String::from("bob"), 67);
+        values.insert(String::from("chris"), 88);
 
         let resolved = context.resolve_request(values.clone(), workflow);
 

@@ -562,7 +562,8 @@ where
 impl<K, A: AccessKey> Accessor for HashMap<K, A>
 where
     K: 'static + Send + Sync + Clone + Eq + Hash,
-    HashMap<K, A::Buffers>: 'static + BufferMapLayout + Accessing<Key = HashMap<K, A>> + Send + Sync,
+    HashMap<K, A::Buffers>:
+        'static + BufferMapLayout + Accessing<Key = HashMap<K, A>> + Send + Sync,
 {
     type Buffers = HashMap<K, A::Buffers>;
 
@@ -627,7 +628,7 @@ where
             match key.join(req, world) {
                 Ok(Some(value)) => {
                     fetched.insert(k.clone(), value);
-                },
+                }
                 Ok(None) => {
                     // Note: THis can't happen unless there's a flaw in the
                     // implementation of can_join
@@ -635,7 +636,7 @@ where
                 }
                 Err(err) => {
                     errors.push(err);
-                },
+                }
             }
         }
 
@@ -686,7 +687,7 @@ where
                     // right now. We only need mutability for the tracing to be
                     // performed. After that all access is read-only.
                     world_cell.world_mut()
-                })?
+                })?,
             );
         }
 
@@ -1290,18 +1291,9 @@ mod tests {
         });
 
         let mut values = HashMap::new();
-        values.insert(
-            String::from("alice"),
-            42,
-        );
-        values.insert(
-            String::from("bob"),
-            67,
-        );
-        values.insert(
-            String::from("chris"),
-            88,
-        );
+        values.insert(String::from("alice"), 42);
+        values.insert(String::from("bob"), 67);
+        values.insert(String::from("chris"), 88);
 
         let resolved = context.resolve_request(values.clone(), workflow);
         assert_eq!(resolved, values);
