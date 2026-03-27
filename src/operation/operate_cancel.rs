@@ -15,6 +15,8 @@
  *
 */
 
+use bevy_ecs::prelude::Component;
+
 use crate::{
     Cancellation, InScope, Input, InputBundle, ManageCancellation, ManageInput, Operation,
     OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationSetup,
@@ -29,6 +31,7 @@ use crate::{
 /// To trigger a cancellation for types that do not support [`ToString`], convert
 /// the message to a trigger and send it to [`OperateQuietCancel`].
 pub struct OperateCancel<T: 'static + Send + Sync + ToString> {
+    implicit: bool,
     _ignore: std::marker::PhantomData<fn(T)>,
 }
 
@@ -36,19 +39,34 @@ impl<T> OperateCancel<T>
 where
     T: 'static + Send + Sync + ToString,
 {
-    pub fn new() -> Self {
+    /// Make an explicit cancelling operation. When an explicit cancel is
+    /// reachable, the scope will be kept alive.
+    pub fn explicit() -> Self {
         Self {
+            implicit: false,
+            _ignore: Default::default(),
+        }
+    }
+
+    /// Make an implicit cancelling operation. An implicit cancel has no effect
+    /// on reachability.
+    pub fn implicit() -> Self {
+        Self {
+            implicit: true,
             _ignore: Default::default(),
         }
     }
 }
+
+#[derive(Component)]
+struct IsImplicit(bool);
 
 impl<T> Operation for OperateCancel<T>
 where
     T: 'static + Send + Sync + ToString,
 {
     fn setup(self, setup: OperationSetup) -> OperationResult {
-        setup_cancel_operation::<T>(setup)
+        setup_cancel_operation::<T>(setup, self.implicit)
     }
 
     fn execute(
@@ -76,23 +94,43 @@ where
         clean.notify_cleaned()
     }
 
-    fn is_reachable(mut reachability: OperationReachability) -> ReachabilityResult {
-        if reachability.has_input::<T>()? {
+    fn is_reachable(mut r: OperationReachability) -> ReachabilityResult {
+        if r.has_input::<T>()? {
             return Ok(true);
         }
 
-        SingleInputStorage::is_reachable(&mut reachability)
+        let is_implicit = r.world.get::<IsImplicit>(r.source).or_broken()?.0;
+        if is_implicit {
+            // If this is an implicit cancellation then stop the reachability
+            // check here. If it does not already have an input then we consider
+            // it to be unreachable.
+            return Ok(false);
+        }
+
+        SingleInputStorage::is_reachable(&mut r)
     }
 }
 
 /// Create an operation that will cancel a scope. This operation only accepts
 /// trigger `()` inputs. There will be no information included in the
 /// cancellation message except that the cancellation was triggered at this node.
-pub struct OperateQuietCancel;
+pub struct OperateQuietCancel {
+    implicit: bool,
+}
+
+impl OperateQuietCancel {
+    pub fn explicit() -> Self {
+        Self { implicit: false }
+    }
+
+    pub fn implicit() -> Self {
+        Self { implicit: true }
+    }
+}
 
 impl Operation for OperateQuietCancel {
     fn setup(self, setup: OperationSetup) -> OperationResult {
-        setup_cancel_operation::<()>(setup)
+        setup_cancel_operation::<()>(setup, self.implicit)
     }
 
     fn execute(
@@ -120,17 +158,26 @@ impl Operation for OperateQuietCancel {
         clean.notify_cleaned()
     }
 
-    fn is_reachable(mut reachability: OperationReachability) -> ReachabilityResult {
-        if reachability.has_input::<()>()? {
+    fn is_reachable(mut r: OperationReachability) -> ReachabilityResult {
+        if r.has_input::<()>()? {
             return Ok(true);
         }
 
-        SingleInputStorage::is_reachable(&mut reachability)
+        let is_implicit = r.world.get::<IsImplicit>(r.source).or_broken()?.0;
+        if is_implicit {
+            // If this is an implicit cancellation then stop the reachability
+            // check here. If it does not already have an input then we consider
+            // it to be unreachable.
+            return Ok(false);
+        }
+
+        SingleInputStorage::is_reachable(&mut r)
     }
 }
 
 fn setup_cancel_operation<T: 'static + Send + Sync>(
     OperationSetup { source, world }: OperationSetup,
+    is_implicit: bool,
 ) -> OperationResult {
     let scope = **world.get::<InScope>(source).or_broken()?;
 
@@ -143,6 +190,7 @@ fn setup_cancel_operation<T: 'static + Send + Sync>(
     world.entity_mut(source).insert((
         InputBundle::<T>::new(),
         SingleTargetStorage::new(cancel_target),
+        IsImplicit(is_implicit),
     ));
     Ok(())
 }

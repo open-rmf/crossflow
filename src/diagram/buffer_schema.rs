@@ -1243,8 +1243,8 @@ mod tests {
             return Err(());
         }
 
-        if let Ok(Some(json)) = world.json_buffer_view(id, &keys.json).unwrap().newest() {
-            assert_eq!(&json, expected);
+        if let Some(json) = world.json_buffer_view(id, &keys.json).unwrap().newest() {
+            assert_eq!(&json.serialize().unwrap(), expected);
         } else {
             return Err(());
         }
@@ -1278,7 +1278,7 @@ mod tests {
                             let id = input.id;
                             let mut buffer =
                                 integer_access.get_mut(input.id, &keys.integer).unwrap();
-                            if let Some(integer) = buffer.newest_mut() {
+                            if let Some(mut integer) = buffer.newest_mut() {
                                 if *integer >= config {
                                     let string = string_access
                                         .get(id, &keys.string)

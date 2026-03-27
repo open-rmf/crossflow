@@ -38,7 +38,7 @@ use crate::{SessionEvent, TracedEvent};
 
 /// Information about the cancellation that occurred.
 #[derive(ThisError, Debug, Clone)]
-#[error("A workflow or a request was cancelled")]
+#[error("A workflow or a request was cancelled:\n{cause}")]
 pub struct Cancellation {
     /// The cause of a cancellation
     pub cause: Arc<CancellationCause>,

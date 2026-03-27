@@ -15,26 +15,37 @@
  *
 */
 
-use bevy_ecs::prelude::Entity;
+use bevy_ecs::prelude::{Entity, Query};
 
 use std::sync::Arc;
 
-use crate::{BufferAccessLifecycle, BufferKeyTag, ChannelSender, Seq};
+use crate::{
+    BufferAccessLifecycle, BufferChangeBroadcasters, BufferKeyBody, BufferKeyTag, ChannelSender,
+    OperationResult, OrBroken, Seq,
+};
 
-pub struct BufferKeyBuilder {
+pub struct BufferKeyBuilder<'w, 's, 'a> {
     scope: Entity,
     session: Entity,
     accessor: Entity,
     lifecycle: Option<(Seq, ChannelSender, Arc<()>)>,
+    broadcasters: &'a mut Query<'w, 's, &'static mut BufferChangeBroadcasters>,
 }
 
-impl BufferKeyBuilder {
+impl<'w, 's, 'a> BufferKeyBuilder<'w, 's, 'a> {
     /// Make a [`BufferKeyTag`] that can be given to a [`crate::BufferKey`]-like struct.
-    pub fn make_tag(&self, buffer: Entity) -> BufferKeyTag {
-        BufferKeyTag {
-            buffer,
-            session: self.session,
-            accessor: self.accessor,
+    pub fn make_body(&mut self, buffer: Entity) -> OperationResult<BufferKeyBody> {
+        let receiver = self
+            .broadcasters
+            .get_mut(buffer)
+            .or_broken()?
+            .get_receiver(self.session);
+        let body = BufferKeyBody {
+            tag: BufferKeyTag {
+                buffer,
+                session: self.session,
+                accessor: self.accessor,
+            },
             lifecycle: self.lifecycle.as_ref().map(|(seq, sender, tracker)| {
                 Arc::new(BufferAccessLifecycle::new(
                     self.scope,
@@ -46,7 +57,10 @@ impl BufferKeyBuilder {
                     tracker.clone(),
                 ))
             }),
-        }
+            receiver,
+        };
+
+        Ok(body)
     }
 
     pub(crate) fn with_tracking(
@@ -56,21 +70,29 @@ impl BufferKeyBuilder {
         seq: Seq,
         sender: ChannelSender,
         tracker: Arc<()>,
+        broadcasters: &'a mut Query<'w, 's, &'static mut BufferChangeBroadcasters>,
     ) -> Self {
         Self {
             scope,
             session,
             accessor,
             lifecycle: Some((seq, sender, tracker)),
+            broadcasters,
         }
     }
 
-    pub(crate) fn without_tracking(scope: Entity, session: Entity, accessor: Entity) -> Self {
+    pub(crate) fn without_tracking(
+        scope: Entity,
+        session: Entity,
+        accessor: Entity,
+        broadcasters: &'a mut Query<'w, 's, &'static mut BufferChangeBroadcasters>,
+    ) -> Self {
         Self {
             scope,
             session,
             accessor,
             lifecycle: None,
+            broadcasters,
         }
     }
 }

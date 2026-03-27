@@ -364,7 +364,20 @@ impl<'w, 's, 'a, 'b, T: 'static + Send + Sync> Chain<'w, 's, 'a, 'b, T> {
         self.builder.commands.queue(AddOperation::new(
             Some(self.scope()),
             self.target,
-            OperateCancel::<T>::new(),
+            OperateCancel::<T>::explicit(),
+        ));
+    }
+
+    /// Same as [`Self::then_cancel`] except this will not keep the scope alive,
+    /// even if it is reachable.
+    pub fn then_implicit_cancel(self)
+    where
+        T: ToString,
+    {
+        self.builder.commands.queue(AddOperation::new(
+            Some(self.scope()),
+            self.target,
+            OperateCancel::<T>::implicit(),
         ));
     }
 
@@ -1163,7 +1176,17 @@ impl<'w, 's, 'a, 'b> Chain<'w, 's, 'a, 'b, ()> {
         self.builder.commands.queue(AddOperation::new(
             Some(self.scope()),
             self.target,
-            OperateQuietCancel,
+            OperateQuietCancel::explicit(),
+        ));
+    }
+
+    /// The same as [`Self::then_quiet_cancel`] except this will not keep the
+    /// scope alive, even if it is reachable.
+    pub fn then_implicit_quiet_cancel(self) {
+        self.builder.commands.queue(AddOperation::new(
+            Some(self.scope()),
+            self.target,
+            OperateQuietCancel::implicit(),
         ));
     }
 }

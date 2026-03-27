@@ -28,8 +28,8 @@ use smallvec::SmallVec;
 
 use crate::{
     AddExecution, ChannelQueue, Detached, DisposalListener, DisposalUpdate, Finished, FlushWarning,
-    ManageCancellation, OperationError, OperationRequest, OperationRoster, ReachableRequest,
-    SeriesLifecycleChange, SeriesLifecycleChannel, ServiceHook, ServiceLifecycle,
+    ManageCancellation, ManageSession, OperationError, OperationRequest, OperationRoster,
+    ReachableRequest, SeriesLifecycleChange, SeriesLifecycleChannel, ServiceHook, ServiceLifecycle,
     ServiceLifecycleChannel, UnhandledErrors, UnusedTarget, WakeQueue, awaken_task,
     dispose_for_despawned_service, drop_series_target, execute_operation,
     validate_scope_reachability,
@@ -39,7 +39,7 @@ use crate::{
 use crate::async_execution::SingleThreadedExecution;
 
 #[cfg(feature = "trace")]
-use crate::{Debug, DebugRoster};
+use crate::{Debug, DebugRoster, TraceLog};
 
 #[derive(Resource, Default, Clone, Copy)]
 pub struct FlushParameters {
@@ -115,10 +115,8 @@ fn flush_execution_impl(
 
     let mut loop_count = 0;
     while !roster.is_empty() {
-        for e in roster.deferred_despawn.drain(..) {
-            if let Ok(e_mut) = world.get_entity_mut(e) {
-                e_mut.despawn();
-            }
+        for session in roster.deferred_session_despawn.drain(..) {
+            world.despawn_session(session);
         }
 
         let parameters = *world.get_resource_or_insert_with(FlushParameters::default);
@@ -160,6 +158,7 @@ fn flush_execution_impl(
                 roster: &mut roster,
             });
             garbage_cleanup(world, &mut roster);
+
             loop_count += 1;
             if let Some(limit) = flush_loop_limit {
                 if limit <= loop_count {
@@ -184,7 +183,16 @@ fn flush_execution_impl(
             garbage_cleanup(world, &mut roster);
         }
 
-        collect_from_channels(&parameters, new_service_query, world, &mut roster);
+        let channel_empty =
+            collect_from_channels(&parameters, new_service_query, world, &mut roster);
+        garbage_cleanup(world, &mut roster);
+
+        if channel_empty {
+            // We only process disposals and validate reachability after the
+            // channel has been emptied, otherwise there may be messages in
+            // flight which haven't arrived at their input slots
+            process_disposals(world, &mut roster);
+        }
     }
 }
 
@@ -193,6 +201,23 @@ fn garbage_cleanup(world: &mut World, roster: &mut OperationRoster) {
         cleanup.trigger(world, roster);
     }
 
+    #[cfg(feature = "trace")]
+    {
+        // We must only trigger traces during the flush because we can't predict
+        // what the user's custom observer might do that would disrupt the
+        // execution of workflows. It's possible that the observer could choose
+        // to cancel sessions or make changes to buffers. Those activities are
+        // only safe to do during the execution flush. Basic assumptions made by
+        // operation implementations could be violated if an arbitrary system has
+        // full world access while an operation is in the middle of its synced
+        // execution.
+        while let Some(trace) = world.get_resource_or_init::<TraceLog>().pop_front() {
+            world.trigger(trace);
+        }
+    }
+}
+
+fn process_disposals(world: &mut World, roster: &mut OperationRoster) {
     while let Some(info) = roster.disposals.pop_front() {
         let listener = info.listener;
         if let Some(listen) = world.get::<DisposalListener>(info.listener).map(|l| l.0) {
@@ -228,9 +253,10 @@ fn collect_from_channels(
     new_service_query: &mut QueryState<(Entity, &mut ServiceHook), Added<ServiceHook>>,
     world: &mut World,
     roster: &mut OperationRoster,
-) {
+) -> bool {
     // Get the receiver for async task commands
     let mut received_count = 0;
+    let mut received_all = true;
     while let Ok(item) = world
         .get_resource_or_insert_with(ChannelQueue::new)
         .receiver
@@ -246,6 +272,8 @@ fn collect_from_channels(
                         limit,
                         reached: received_count,
                     });
+
+                received_all = false;
                 break;
             }
         }
@@ -333,6 +361,8 @@ fn collect_from_channels(
 
     #[cfg(feature = "single_threaded_async")]
     SingleThreadedExecution::world_poll(world, parameters.single_threaded_poll_limit);
+
+    received_all
 }
 
 /// This resource is used to queue up operations in the roster in situations
