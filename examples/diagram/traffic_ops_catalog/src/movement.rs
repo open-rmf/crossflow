@@ -16,7 +16,7 @@
 */
 
 use crate::{
-    spawn_world::WorldLimits,
+    spawn_world::{LaneDash, WorldLimits},
     vehicle::{Acceleration, Lane, MainVehicle, VehicleState, Velocity},
 };
 use bevy::prelude::*;
@@ -75,6 +75,7 @@ fn move_vehicles(
             transform.translation.y += velocity.y * dt;
         } else {
             // Update main vehicle state
+            vehicle_state.update_speed(velocity.y.round() as i32);
             if let Some(to_lane) = vehicle_state.changing_lane() {
                 let vehicle_x = transform.translation.x;
                 let done_changing = match to_lane {
@@ -113,7 +114,7 @@ fn update_global_speed(
 }
 
 fn scroll_world_system(
-    mut scrolling_world: Query<&mut Transform, With<ScrollingWorld>>,
+    mut scrolling_world: Query<(&mut Transform, Option<&LaneDash>), With<ScrollingWorld>>,
     time: Res<Time>,
     global_speed: Res<GlobalSpeed>,
     world_limits: Res<WorldLimits>,
@@ -122,12 +123,17 @@ fn scroll_world_system(
     let dt = time.delta_secs();
     let scroll_distance = global_speed.0 * dt;
 
-    for mut transform in scrolling_world.iter_mut() {
+    for (mut transform, lane) in scrolling_world.iter_mut() {
         // Move the world backward to make the vehicle look like it's moving forward
         transform.translation.y -= scroll_distance;
         // If the world element has gone out of frame, teleport it back up
+        // Let full runway be 4x window height
         if transform.translation.y < -window_height {
-            transform.translation.y += 2.0 * window_height;
+            if lane.is_some() {
+                transform.translation.y += 2.0 * window_height;
+            } else {
+                transform.translation.y += world_limits.full_runway;
+            }
         }
     }
 }

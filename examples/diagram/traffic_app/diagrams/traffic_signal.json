@@ -86,7 +86,7 @@
       "ok": "move_vehicle"
     }
   },
-  "description": "",
+  "description": "A workflow that moves the vehicle forward until it travelled the requested distance, while respecting the traffic light signals: go on Green, stop on Red, and slow down on Yellow.",
   "input_examples": [],
   "extensions": {
     "crossflow-diagram-editor-v1": {

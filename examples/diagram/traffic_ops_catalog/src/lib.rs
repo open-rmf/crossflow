@@ -33,6 +33,9 @@ pub use pedestrian::*;
 pub mod spawn_world;
 pub use spawn_world::*;
 
+pub mod speed_limit;
+pub use speed_limit::*;
+
 pub mod traffic;
 pub use traffic::*;
 
@@ -421,7 +424,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         let Some(obstacles) = access
             .get(id, &key)
             .ok()
-            .map(|mut res| res.newest().cloned())
+            .map(|res| res.newest().cloned())
             .flatten()
         else {
             return next_move;
@@ -452,8 +455,59 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         .with_buffer_access()
         .with_common_response();
 
-    // TODO(@xiyuoh) Adjust speed, input MoveVehicle, output MoveVehicle with
-    // new/clamped speed
+    // =========================================================================
+    let follow_speed_limit_description = "Check the current speed limit and clamp
+        vehicle speed if it exceeds limit";
+    fn follow_speed_limit(
+        Blocking {
+            request: next_move, ..
+        }: Blocking<MoveVehicle>,
+        current_speed_limit: Res<CurrentSpeedLimit>,
+        vehicle_state: Res<VehicleState>,
+    ) -> MoveVehicle {
+        match next_move {
+            MoveVehicle::Forward(ref velocity) => {
+                if velocity.y >= current_speed_limit.0.0 as f32 {
+                    // If the requested velocity is above speed limit, check the
+                    // vehicle's current speed. Slow down if above limit.
+                    if vehicle_state.speed() >= current_speed_limit.0.0 {
+                        return MoveVehicle::ChangeSpeed(Acceleration::default_slow_down());
+                    }
+                }
+            }
+            MoveVehicle::ChangeSpeed(ref acceleration) => {
+                if acceleration.y >= 0.0 {
+                    // If vehicle is speeding up, check vehicle state and whether
+                    // the current speed is already above limit. If so, slow down.
+                    if vehicle_state.speed() as f32 >= current_speed_limit.0.0 as f32 {
+                        return MoveVehicle::ChangeSpeed(Acceleration::default_slow_down());
+                    }
+                }
+            }
+            MoveVehicle::ChangeLane(ref velocity) => {
+                // If ChangeLane velocity is higher than speed limit, slow down instead
+                if velocity.y > current_speed_limit.0.0 as f32 {
+                    return MoveVehicle::ChangeSpeed(Acceleration::default_slow_down());
+                }
+            }
+            MoveVehicle::Stop => {
+                // Do nothing if the vehicle is already stopping
+            }
+        }
+
+        next_move
+    }
+    let follow_speed_limit_service = app.spawn_service(follow_speed_limit);
+    registry
+        .opt_out()
+        .no_serializing()
+        .no_deserializing()
+        .register_node_builder(
+            NodeBuilderOptions::new("follow_speed_limit".to_string())
+                .with_description(follow_speed_limit_description),
+            move |builder, _config: ()| builder.create_node(follow_speed_limit_service),
+        )
+        .with_common_response();
 
     // =========================================================================
     let join_traffic_signal_and_obstacles_description = "Join the latest traffic signal \
@@ -666,6 +720,7 @@ fn determine_next_move_from_traffic_signal(signal: &TrafficSignal) -> MoveVehicl
         TrafficSignal::Green => MoveVehicle::Forward(Velocity::default_forward()),
         TrafficSignal::Yellow => MoveVehicle::ChangeSpeed(Acceleration::default_slow_down()), // slow down for yellow light
         TrafficSignal::Red => MoveVehicle::Stop,
+        TrafficSignal::Empty => MoveVehicle::Stop,
     };
 }
 

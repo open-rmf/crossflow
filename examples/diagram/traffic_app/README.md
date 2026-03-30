@@ -14,7 +14,7 @@ Basic/utility nodes to get started:
 | `start_engine` | Takes in a float representing the requested trip distance, and toggles the engine on and sets the distance to destination in `VehicleState`. | `f32` | `Result<(), TripRequestError>` |
 | `trigger_check` | This is an async node that sleeps for 500ms to allow other parts of the traffic simulator to run. This is useful in workflows that contain all `Blocking` nodes, and prevents the app from being stuck executing the workflow. | - | - |
 | `move_forward` | Outputs the default forward movement. Useful for testing the base workflow. | - | `MoveVehicle` |
-| `move_vehicle` | Given the input MoveVehicle command, attempt to move the simulated vehicle accordingly. | `MoveVehicle` | - |
+| `move_vehicle` | Given the input `MoveVehicle` command, attempt to move the simulated vehicle accordingly. | `MoveVehicle` | - |
 | `destination_reached` | Checks the current `VehicleState` and whether the vehicle has completed travelling the requested distance. | - | `Result<(), ()>` |
 | `stop_engine` | Stops the vehicle, turns its engine off, and reset state parameters. | - | - |
 | `trip_error` | A logger node that prints out trip errors. | `TripRequestError` | - |
@@ -46,9 +46,9 @@ The example application comes with some additional nodes to experiment with:
 | `join_traffic_signal_and_obstacles` | This node checks the input `TrafficSignalWithObstacles` constructed by a preceding [Join](https://open-rmf.github.io/crossflow-handbook/join.html) operation to determine the best vehicle move. It accounts for both `TrafficSignal` and `Obstacles` data, and chooses the best move based on both factors. | `TrafficSignalWithObstacles` | `Result<MoveVehicle, TripRequestError>` |
 | `listen_traffic_signal_and_obstacles` | This node checks the latest `TrafficSignal` and/or `Obstacles` buffers via a preceding [Listen](https://open-rmf.github.io/crossflow-handbook/listen.html) operation to determine the best vehicle move. Since Listen operations are activated when any of the connected buffers are modified, if either buffer is empty, it will calculate the best move based on the other buffer. If both buffers contain messages, it will choose the best move based on both factors. It requires keys to both `TrafficSignal` and `Obstacles` buffers. | `TrafficSignalWithObstaclesAccessor` | `Result<MoveVehicle, TripRequestError>` |
 
-### Example
+### Examples
 
-You may consider starting with the ready-made JSON workflows and observe how the vehicle behaves differently between them. Try experimenting with the various settings, such as buffer sizes and fetch types (clone vs. pull) to see how they affect the workflows.
+You may consider starting with the ready-made JSON workflows in `traffic_app/diagrams/` and observe how the vehicle behaves differently between them. Try experimenting with the various settings, such as buffer sizes and fetch types (clone vs. pull) to see how they affect the workflows.
 
 
 ## Try it out!

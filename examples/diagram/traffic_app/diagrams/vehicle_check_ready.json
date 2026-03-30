@@ -171,7 +171,7 @@
       "next": "validate_check_fork_result"
     }
   },
-  "description": "",
+  "description": "A workflow that conducts vehicle checks (e.g. mirrors, fuel level) before moving the vehicle forward until it travelled the requested distance.",
   "input_examples": [],
   "extensions": {
     "crossflow-diagram-editor-v1": {

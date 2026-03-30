@@ -86,7 +86,7 @@
       "next": "process_obstacles_fork_result"
     }
   },
-  "description": "",
+  "description": "A workflow that moves the vehicle forward until it travelled the requested distance, while avoiding obstacles, e.g. pedestrians.",
   "input_examples": [],
   "extensions": {
     "crossflow-diagram-editor-v1": {

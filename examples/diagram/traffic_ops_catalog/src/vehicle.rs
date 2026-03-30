@@ -69,6 +69,7 @@ pub struct VehicleState {
     distance_to_destination: f32,
     checklist: HashMap<String, ReadyState>,
     changing_to_lane: Option<Lane>,
+    speed: i32,
 }
 
 impl Default for VehicleState {
@@ -83,6 +84,7 @@ impl Default for VehicleState {
             distance_to_destination: 0.0,
             checklist,
             changing_to_lane: None,
+            speed: Velocity::default_forward().y.round() as i32,
         }
     }
 }
@@ -112,7 +114,17 @@ impl VehicleState {
     pub fn try_move(&mut self, mut e_cmds: EntityCommands, move_vehicle: MoveVehicle) -> &mut Self {
         match move_vehicle {
             MoveVehicle::Forward(velocity) => {
-                e_cmds.insert(velocity);
+                if velocity.y > self.speed as f32 {
+                    // If the vehicle is starting to move from a stationary state,
+                    // speed up quickly. Else, use the default acceleration.
+                    if self.speed < 20 {
+                        e_cmds.insert(Acceleration::quick_speed_up());
+                    } else {
+                        e_cmds.insert(Acceleration::default_speed_up());
+                    }
+                } else {
+                    e_cmds.insert(Acceleration::default_slow_down());
+                }
             }
             MoveVehicle::ChangeSpeed(acceleration) => {
                 e_cmds.insert(acceleration);
@@ -172,6 +184,15 @@ impl VehicleState {
         self.changing_to_lane = None;
         self
     }
+
+    pub fn speed(&self) -> i32 {
+        self.speed
+    }
+
+    pub fn update_speed(&mut self, speed: i32) -> &mut Self {
+        self.speed = speed;
+        self
+    }
 }
 
 #[derive(Clone, Debug, Default, Component)]
@@ -199,7 +220,7 @@ impl Velocity {
     }
 
     pub fn default_forward() -> Self {
-        Self { x: 0.0, y: 50.0 }
+        Self { x: 0.0, y: 60.0 }
     }
 
     pub fn default_change_lane(to_lane: Lane) -> Self {
@@ -235,7 +256,15 @@ impl Acceleration {
     }
 
     pub fn default_slow_down() -> Self {
-        Self { x: 0.0, y: -2.0 }
+        Self { x: 0.0, y: -5.0 }
+    }
+
+    pub fn default_speed_up() -> Self {
+        Self { x: 0.0, y: 5.0 }
+    }
+
+    pub fn quick_speed_up() -> Self {
+        Self { x: 0.0, y: 30.0 }
     }
 }
 

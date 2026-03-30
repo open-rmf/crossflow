@@ -15,10 +15,7 @@
  *
 */
 
-use crate::{
-    Lane, MainVehicle, ScrollingWorld, TrafficLight, TrafficLightColors, TrafficSignal,
-    VehicleBundle, VehicleState,
-};
+use crate::{Lane, MainVehicle, ScrollingWorld, TrafficLightColors, VehicleBundle, VehicleState};
 use bevy::{
     prelude::*,
     render::{
@@ -34,6 +31,7 @@ use rand::Rng;
 // Use Z-values in Transform to handle layering/depth
 pub const LANE_LAYER_Z: f32 = 0.0;
 pub const ENV_LAYER_Z: f32 = 1.0;
+pub const PEDESTRIAN_LAYER_Z: f32 = 8.0;
 pub const TRAFFIC_LIGHT_LAYER_Z: f32 = 9.0;
 pub const VEHICLE_LAYER_Z: f32 = 10.0;
 
@@ -86,6 +84,7 @@ impl ObstacleLimits {
 #[derive(Clone, Debug, Resource)]
 pub struct WorldLimits {
     pub window_height: f32,
+    pub full_runway: f32,
     pub road_center: (f32, f32),
     pub user_panel_width: f32,
     pub lane_limits: (f32, f32),
@@ -99,6 +98,7 @@ impl FromWorld for WorldLimits {
     fn from_world(world: &mut World) -> Self {
         let mut q_window = world.query_filtered::<&Window, With<PrimaryWindow>>();
         let window_height = q_window.single(world).map(|w| w.height()).unwrap_or(720.0);
+        let full_runway = window_height * 4.0;
         let user_panel_width = 320.0;
         let road_center = (-0.5 * user_panel_width, 0.0);
         let (lane_limits, pavement_limits) = {
@@ -134,6 +134,7 @@ impl FromWorld for WorldLimits {
 
         Self {
             window_height,
+            full_runway,
             road_center,
             user_panel_width,
             lane_limits,
@@ -202,6 +203,9 @@ impl FromWorld for WorldMeshes {
 #[derive(Clone, Debug, Event)]
 pub struct AbandonTrip;
 
+#[derive(Clone, Debug, Component)]
+pub struct LaneDash;
+
 #[derive(Default)]
 pub struct SpawnWorldPlugin {}
 
@@ -223,14 +227,7 @@ impl Plugin for SpawnWorldPlugin {
             .init_resource::<VehicleState>()
             .init_resource::<TrafficLightColors>()
             .add_event::<AbandonTrip>()
-            .add_systems(
-                Startup,
-                (
-                    spawn_vehicle_and_camera,
-                    spawn_environment,
-                    spawn_traffic_lights,
-                ),
-            )
+            .add_systems(Startup, (spawn_vehicle_and_camera, spawn_environment))
             .add_observer(on_abandon_trip);
     }
 }
@@ -294,6 +291,7 @@ fn spawn_environment(
                 MeshMaterial2d(world_meshes.lane_dash.1.clone()),
                 Transform::from_xyz(x.clone(), y.clone(), LANE_LAYER_Z),
                 ScrollingWorld,
+                LaneDash,
             ));
         }
     }
@@ -319,7 +317,7 @@ fn spawn_environment(
         } else {
             rng.random_range(right_range.0..right_range.1)
         };
-        let y = rng.random_range(-window_height..window_height);
+        let y = rng.random_range(0.0..world_limits.full_runway);
 
         commands.spawn((
             ((
@@ -327,35 +325,6 @@ fn spawn_environment(
                 MeshMaterial2d(world_meshes.random_box.1.clone()),
                 Transform::from_xyz(x, y, ENV_LAYER_Z),
             )),
-            ScrollingWorld,
-        ));
-    }
-}
-
-fn spawn_traffic_lights(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    time: Res<Time>,
-    traffic_light_colors: Res<TrafficLightColors>,
-    world_limits: Res<WorldLimits>,
-) {
-    let mut rng = rand::rng();
-    let n_lights = rng.random_range(1..4);
-    let window_height = world_limits.window_height;
-    let y_interval = (2.0 * window_height) / n_lights as f32;
-
-    // For each traffic light, spawn an entity
-    let now = time.elapsed_secs();
-    for id in 0..n_lights {
-        commands.spawn((
-            TrafficLight::new(id, now.clone(), TrafficSignal::Green),
-            Mesh2d(meshes.add(Circle::new(30.0))),
-            MeshMaterial2d(traffic_light_colors.green.clone()),
-            Transform::from_xyz(
-                250.0,
-                -window_height + (id as f32 * y_interval),
-                TRAFFIC_LIGHT_LAYER_Z,
-            ),
             ScrollingWorld,
         ));
     }

@@ -20,7 +20,8 @@ use crossflow_diagram_editor::basic_executor::{
     self, BasicExecutorSetup, DiagramElementRegistry, Error,
 };
 use traffic_ops_catalog::{
-    MovementPlugin, PedestrianPlugin, SpawnWorldPlugin, TrafficSignalPlugin, UserInputPlugin,
+    MovementPlugin, PedestrianPlugin, SpawnWorldPlugin, SpeedLimitPlugin, TrafficSignalPlugin,
+    UserInputPlugin,
 };
 
 pub fn run() -> Result<(), Box<dyn Error>> {
@@ -32,6 +33,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             MovementPlugin::default(),
             PedestrianPlugin::default(),
             TrafficSignalPlugin::default(),
+            SpeedLimitPlugin::default(),
         ));
 
         let registry = DiagramElementRegistry::new();

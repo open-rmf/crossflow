@@ -21,27 +21,31 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub enum TrafficSignal {
-    Red,
+    Red = 0,
+    Yellow = 1,
+    Green = 2,
     #[default]
-    Green,
-    Yellow,
+    Empty = 3,
 }
 
-#[derive(Clone, Debug, Default, Component, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, Default, Component)]
 pub struct TrafficLight {
     pub id: i32,
     pub last_update: f32,
     pub signal: TrafficSignal,
+    pub meshes: Vec<Entity>,
 }
 
 impl TrafficLight {
-    pub fn new(id: i32, last_update: f32, signal: TrafficSignal) -> Self {
+    pub fn new(id: i32, last_update: f32, signal: TrafficSignal, meshes: Vec<Entity>) -> Self {
         Self {
             id,
             last_update,
             signal,
+            meshes,
         }
     }
 }
@@ -61,12 +65,12 @@ impl ObstacleInRange {
 #[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema)]
 pub struct Obstacles(pub HashSet<ObstacleInRange>);
 
-#[derive(Clone, Debug, Component, Serialize, Deserialize, JsonSchema)]
-pub struct SpeedLimit(pub f32);
+#[derive(Clone, Debug, Component, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct SpeedLimit(pub i32);
 
 impl Default for SpeedLimit {
     fn default() -> Self {
-        Self(Velocity::default_forward().y)
+        Self(50)
     }
 }
 

@@ -98,7 +98,7 @@
       "next": "check_change_lane"
     }
   },
-  "description": "",
+  "description": "A workflow that moves the vehicle forward until it travelled the requested distance while avoiding obstacles, and allows the vehicle to switch lanes if the adjacent lane is clear.",
   "input_examples": [],
   "extensions": {
     "crossflow-diagram-editor-v1": {

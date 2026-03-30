@@ -17,7 +17,7 @@
 
 use crate::{
     movement::ScrollingWorld,
-    spawn_world::WorldLimits,
+    spawn_world::{PEDESTRIAN_LAYER_Z, WorldLimits},
     traffic::{Obstacle, Pedestrian},
     user_panel::UserPanel,
     vehicle::{MainVehicle, Vehicle, Velocity},
@@ -25,8 +25,6 @@ use crate::{
 use bevy::prelude::*;
 use bevy_color::palettes::css as Colors;
 use rand::Rng;
-
-pub const PEDESTRIAN_LAYER_Z: f32 = 8.0;
 
 #[derive(Clone, Debug, Resource)]
 pub struct PedestrianMeshes {
@@ -83,8 +81,7 @@ fn spawn_pedestrian_crossing(
     // Spawn a bunch of sprites representing pedestrians jay-walking
     let mut rng = rand::rng();
     let n_pedestrians = rng.random_range(10..=20);
-    let window_height = world_limits.window_height;
-    let y_range = (-0.5 * window_height, 1.5 * window_height);
+    let y_range = (0.0, world_limits.full_runway);
     for i in 0..n_pedestrians {
         let x = if i % 2 == 0 {
             rng.random_range(world_limits.pavement_limits.0..world_limits.lane_limits.0)

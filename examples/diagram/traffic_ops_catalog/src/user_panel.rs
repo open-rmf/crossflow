@@ -18,6 +18,7 @@
 use crate::{
     pedestrian::TogglePedestrians,
     spawn_world::{AbandonTrip, WorldLimits},
+    speed_limit::CurrentSpeedLimit,
     traffic::{TrafficLight, TrafficSignal},
     traffic_signal::{NextTrafficLight, TrafficSignalChange},
     vehicle::VehicleState,
@@ -100,6 +101,7 @@ impl FromWorld for UserPanel {
 #[derive(SystemParam)]
 pub struct UserInteraction<'w, 's> {
     commands: Commands<'w, 's>,
+    current_speed_limit: Res<'w, CurrentSpeedLimit>,
     next_traffic_light: Res<'w, NextTrafficLight>,
     traffic_lights: Query<'w, 's, (Entity, &'static TrafficLight)>,
     user_panel: ResMut<'w, UserPanel>,
@@ -139,6 +141,7 @@ impl<'w, 's> UserInteraction<'w, 's> {
                 ui.label(format!("{:?}", state));
                 ui.end_row();
             }
+
             let next_lane = if let Some(lane) = self.vehicle_state.changing_lane() {
                 format!("{:?}", lane)
             } else {
@@ -146,6 +149,10 @@ impl<'w, 's> UserInteraction<'w, 's> {
             };
             ui.label("Changing to lane: ");
             ui.label(next_lane);
+            ui.end_row();
+
+            ui.label("Speed: ");
+            ui.label(format!("{}", self.vehicle_state.speed()));
         });
         ui.add_space(20.0);
 
@@ -172,6 +179,15 @@ impl<'w, 's> UserInteraction<'w, 's> {
         ui.separator();
         ui.add_space(10.0);
 
+        ui.label(
+            RichText::new(format!(
+                "Current speed limit: {}",
+                self.current_speed_limit.0.0
+            ))
+            .size(14.0),
+        );
+        ui.add_space(10.0);
+
         ui.horizontal(|ui| {
             ui.add_space(20.0);
             if let Some((target, traffic_light)) = self
@@ -183,6 +199,14 @@ impl<'w, 's> UserInteraction<'w, 's> {
                     TrafficSignal::Green => (TrafficSignal::Yellow, Color32::from_rgb(0, 255, 0)),
                     TrafficSignal::Red => (TrafficSignal::Green, Color32::from_rgb(255, 0, 0)),
                     TrafficSignal::Yellow => (TrafficSignal::Red, Color32::from_rgb(255, 255, 0)),
+                    TrafficSignal::Empty => {
+                        error!("Upcoming traffic signal is Empty, initializing it to green!");
+                        self.commands.trigger(TrafficSignalChange {
+                            target,
+                            next: TrafficSignal::Green,
+                        });
+                        return;
+                    }
                 };
                 if draw_traffic_light_button(ui, color, true)
                     .on_hover_text("Click to toggle the traffic signal")
