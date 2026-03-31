@@ -21,10 +21,10 @@ pub use crossflow_derive::{Accessor, Joined};
 
 use crate::{ListSplitKey, MapSplitKey};
 
-#[cfg(feature = "diagram")]
+#[cfg(feature = "json")]
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "diagram")]
+#[cfg(feature = "json")]
 use schemars::JsonSchema;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]

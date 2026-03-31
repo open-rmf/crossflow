@@ -69,9 +69,9 @@ pub use bufferable::*;
 mod inspect_buffer_sessions;
 pub use inspect_buffer_sessions::*;
 
-#[cfg(feature = "diagram")]
+#[cfg(feature = "json")]
 mod json_buffer;
-#[cfg(feature = "diagram")]
+#[cfg(feature = "json")]
 pub use json_buffer::*;
 
 mod fetch_from_buffer;

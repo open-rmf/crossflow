@@ -145,6 +145,11 @@ pub use promise::*;
 pub mod provider;
 pub use provider::*;
 
+#[cfg(feature = "python")]
+pub mod python;
+#[cfg(feature = "python")]
+pub use python::*;
+
 pub mod reply;
 pub use reply::*;
 
@@ -508,16 +513,16 @@ pub mod prelude {
 
     pub use bevy_ecs::prelude::World;
 
+    #[cfg(feature = "json")]
+    pub use crate::buffer::{
+        JsonBuffer, JsonBufferKey, JsonBufferMut, JsonBufferView, JsonBufferWorldAccess,
+        JsonMessage,
+    };
+
     #[cfg(feature = "diagram")]
-    pub use crate::{
-        buffer::{
-            JsonBuffer, JsonBufferKey, JsonBufferMut, JsonBufferView, JsonBufferWorldAccess,
-            JsonMessage,
-        },
-        diagram::{
-            Diagram, DiagramElementRegistry, DiagramError, NodeBuilderOptions, Section,
-            SectionInterfaceItem,
-        },
+    pub use crate::diagram::{
+        Diagram, DiagramElementRegistry, DiagramError, NodeBuilderOptions, Section,
+        SectionInterfaceItem,
     };
 
     #[cfg(feature = "trace")]

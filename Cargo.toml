@@ -50,6 +50,7 @@ serde_with = "3.16.1"
 tokio = { version = "1.47.1", default-features = false }
 tonic = "0.14"
 prost = "0.14"
+pyo3 = "0.28.2"
 tonic-prost = "0.14"
 tonic-prost-build = "0.14"
 prost-build = "0.14"
@@ -62,6 +63,11 @@ uuid = { version = "1.13.1", default-features = false }
 wasm-bindgen = "0.2.100"
 zenoh = "1.5.1"
 zenoh-ext = "1.5.1"
+
+[lib]
+name = "crossflow"
+crate-type = ["lib", "cdylib"]
+
 
 [dependencies]
 anyhow = { workspace = true }
@@ -87,18 +93,33 @@ futures-concurrency = { workspace = true }
 backtrace = "0.3"
 thiserror = "1.0"
 
-# These dependencies are only used by the testing module.
+tracing = { workspace = true }
+strum = { version = "0.26.3", optional = true, features = ["derive"] }
+semver = { version = "1.0.24", optional = true }
+
+variadics_please = "1.1"
+
+# This dependency is only used by the testing module.
 # We may want to consider feature-gating them, but we use
 # the testing module for doctests, and doctests can only
 # make use of default features, so we're a bit stuck with
 # these for now.
 bevy_time = { workspace = true }
 
-schemars = { workspace = true, optional = true }
+# --- Dependencies for json feature
 serde = { workspace = true, optional = true, features = ["derive", "rc"] }
 serde_json = { workspace = true, optional = true }
+
+
+# --- Dependencies for diagram feature
+schemars = { workspace = true, optional = true }
 serde_with = { workspace = true, optional = true }
 cel-interpreter = { version = "0.9.0", features = ["json"], optional = true }
+
+
+# --- Dependencies for python feature
+pyo3 = { workspace = true, optional = true, features = ["auto-initialize"] }
+
 
 # --- Dependencies for grpc feature
 tonic = { workspace = true, optional = true }
@@ -108,35 +129,35 @@ prost-reflect = { workspace = true, features = ["serde"], optional = true }
 http = { version = "1.3", optional = true }
 futures-lite = { version = "2.6", features = ["std", "race"], optional = true }
 async-std = { version = "1.12", optional = true}
-# --- end grpc
+
 
 # --- Dependencies for zenoh feature
 zenoh = { workspace = true, features = ["unstable"], optional = true }
 zenoh-ext = { workspace = true, features = ["unstable"], optional = true }
-# --- end zenoh
 
-tracing = { workspace = true }
-strum = { version = "0.26.3", optional = true, features = ["derive"] }
-semver = { version = "1.0.24", optional = true }
-
-variadics_please = "1.1"
 
 [target.wasm32-unknown-unknown.dependencies]
 uuid = { workspace = true, default-features = false, features = ["js"] }
 getrandom = { version = "0.3.3", features = ["wasm_js"] }
 
 [features]
+json = [
+  "dep:serde",
+  "dep:serde_json",
+]
 single_threaded_async = ["dep:async-task"]
 diagram = [
+  "json",
   "dep:cel-interpreter",
   "dep:schemars",
   "dep:semver",
-  "dep:serde",
-  "dep:serde_json",
   "dep:serde_with",
   "dep:strum",
 ]
 trace = ["diagram"]
+python = [
+  "dep:pyo3",
+]
 
 grpc = [
   "dep:tonic",
@@ -164,6 +185,7 @@ zenoh = [
 maximal = [
   "diagram",
   "trace",
+  "python",
   "grpc",
   "zenoh",
 ]

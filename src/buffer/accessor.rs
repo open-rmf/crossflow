@@ -1299,7 +1299,7 @@ mod tests {
         assert_eq!(resolved, values);
     }
 
-    #[cfg(feature = "diagram")]
+    #[cfg(feature = "json")]
     mod json_tests {
         use super::*;
         use crate::AddBufferToMap;
