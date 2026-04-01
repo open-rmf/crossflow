@@ -29,3 +29,5 @@ pub use std::{clone::Clone, marker::Copy};
 pub fn type_name_of_val<T>(_: &T) -> &'static str {
     std::any::type_name::<T>()
 }
+
+pub use futures_concurrency::future::Race;

@@ -21,11 +21,11 @@ use std::{
     any::TypeId,
     collections::{HashMap, HashSet},
     ops::RangeBounds,
-    sync::{Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use bevy_ecs::{
-    prelude::{Commands, Entity, EntityRef, EntityWorldMut, World},
+    prelude::{Commands, Entity, EntityRef, World},
     system::SystemState,
 };
 
@@ -36,15 +36,15 @@ pub use serde_json::Value as JsonMessage;
 use smallvec::SmallVec;
 
 use crate::{
-    Accessing, Accessor, AnyBuffer, AnyBufferAccessInterface, AnyBufferKey, AnyRange, AsAnyBuffer,
-    BMut, BMutTracer, Buffer, BufferAccessMut, BufferAccessors, BufferEntry, BufferError,
-    BufferKey, BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferManager,
-    BufferMap, BufferMapLayout, BufferMapLayoutHints, BufferMapStruct, BufferStorage, BufferView,
-    BufferWorldAccess, Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer,
-    DynamicBufferMapLayoutHints, Gate, GateState, IdentifierRef, IncompatibleLayout,
-    InspectBufferSessions, JoinBehavior, Joined, Joining, ManageBufferSessions, MessageTypeHint,
-    MessageTypeHintEvaluation, MessageTypeHintMap, NotifyBufferUpdate, OperationError,
-    OperationResult, OrBroken, RequestId, TypeInfo, add_listener_to_source,
+    AccessError, AccessKey, Accessing, Accessor, AnyBuffer, AnyBufferAccessInterface, AnyBufferKey,
+    AnyRange, AsAnyBuffer, BMut, BMutTracer, Buffer, BufferAccessMut, BufferAccessors, BufferEntry,
+    BufferError, BufferInstanceId, BufferKey, BufferKeyBody, BufferKeyBuilder, BufferKeyLifecycle,
+    BufferKeyTag, BufferLocation, BufferManager, BufferMap, BufferMapLayout, BufferMapLayoutHints,
+    BufferStorage, BufferView, BufferWorldAccess, Bufferable, Buffering, Builder, CloneFromBuffer,
+    DrainBuffer, FetchBehavior, Gate, GateState, IdentifierRef, IncompatibleLayout,
+    InspectBufferSessions, Joined, Joining, ManageBufferSessions, MessageTypeHint,
+    MessageTypeHintEvaluation, NotifyBufferUpdate, OperationError, OperationResult, OrBroken,
+    OverlapError, RequestId, Seq, TypeInfo, add_listener_to_source,
 };
 
 #[cfg(feature = "trace")]
@@ -56,7 +56,7 @@ use crate::{BufferAccessRecord, BufferTracer};
 #[derive(Clone, Copy, Debug)]
 pub struct JsonBuffer {
     location: BufferLocation,
-    join_behavior: JoinBehavior,
+    join_behavior: FetchBehavior,
     interface: &'static (dyn JsonBufferAccessInterface + Send + Sync),
 }
 
@@ -86,7 +86,7 @@ impl JsonBuffer {
     #[must_use]
     pub fn join_by_cloning(self) -> Self {
         Self {
-            join_behavior: JoinBehavior::Clone,
+            join_behavior: FetchBehavior::Clone,
             ..self
         }
     }
@@ -98,14 +98,14 @@ impl JsonBuffer {
     #[must_use]
     pub fn join_by_pulling(self) -> Self {
         Self {
-            join_behavior: JoinBehavior::Pull,
+            join_behavior: FetchBehavior::Pull,
             ..self
         }
     }
 
     /// What is the intended join behavior for this buffer reference?
     #[must_use]
-    pub fn join_behavior(&self) -> JoinBehavior {
+    pub fn join_behavior(&self) -> FetchBehavior {
         self.join_behavior
     }
 
@@ -145,7 +145,7 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> From<Buffer<T>> fo
     fn from(value: Buffer<T>) -> Self {
         Self {
             location: value.location,
-            join_behavior: JoinBehavior::Pull,
+            join_behavior: FetchBehavior::Pull,
             interface: JsonBufferAccessImpl::<T>::get_interface(),
         }
     }
@@ -157,7 +157,7 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned + Clone> From<Clone
     fn from(value: CloneFromBuffer<T>) -> Self {
         Self {
             location: value.location,
-            join_behavior: JoinBehavior::Clone,
+            join_behavior: FetchBehavior::Clone,
             interface: JsonBufferAccessImpl::<T>::get_interface(),
         }
     }
@@ -193,7 +193,7 @@ impl AsAnyBuffer for JsonBuffer {
 /// [1]: bevy_ecs::prelude::World
 #[derive(Clone)]
 pub struct JsonBufferKey {
-    tag: BufferKeyTag,
+    body: BufferKeyBody,
     interface: &'static (dyn JsonBufferAccessInterface + Send + Sync),
 }
 
@@ -213,25 +213,32 @@ impl JsonBufferKey {
     pub fn as_any_buffer_key(self) -> AnyBufferKey {
         self.into()
     }
+
+    pub fn tag(&self) -> &BufferKeyTag {
+        &self.body.tag
+    }
 }
 
 impl BufferKeyLifecycle for JsonBufferKey {
     type TargetBuffer = JsonBuffer;
 
-    fn create_key(buffer: &Self::TargetBuffer, builder: &BufferKeyBuilder) -> Self {
-        Self {
-            tag: builder.make_tag(buffer.id()),
+    fn create_key(
+        buffer: &Self::TargetBuffer,
+        builder: &mut BufferKeyBuilder,
+    ) -> OperationResult<Self> {
+        Ok(Self {
+            body: builder.make_body(buffer.id())?,
             interface: buffer.interface,
-        }
+        })
     }
 
     fn is_in_use(&self) -> bool {
-        self.tag.is_in_use()
+        self.body.is_in_use()
     }
 
     fn deep_clone(&self) -> Self {
         Self {
-            tag: self.tag.deep_clone(),
+            body: self.body.deep_clone(),
             interface: self.interface,
         }
     }
@@ -244,7 +251,7 @@ impl std::fmt::Debug for JsonBufferKey {
                 "message_type_name",
                 &self.interface.any_access_interface().message_type_name(),
             )
-            .field("tag", &self.tag)
+            .field("body", &self.body)
             .finish()
     }
 }
@@ -253,7 +260,7 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> From<BufferKey<T>>
     fn from(value: BufferKey<T>) -> Self {
         let interface = JsonBufferAccessImpl::<T>::get_interface();
         JsonBufferKey {
-            tag: value.tag,
+            body: value.body,
             interface,
         }
     }
@@ -262,7 +269,7 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> From<BufferKey<T>>
 impl From<JsonBufferKey> for AnyBufferKey {
     fn from(value: JsonBufferKey) -> Self {
         AnyBufferKey {
-            tag: value.tag,
+            body: value.body,
             interface: value.interface.any_access_interface(),
         }
     }
@@ -276,25 +283,26 @@ impl From<JsonBufferKey> for AnyBufferKey {
 /// world access is needed to get this, because the underlaying buffer may be any
 /// serializable data type, and only the [`JsonBufferKey`] will know the actual
 /// data type.
+#[derive(Clone)]
 pub struct JsonBufferView<'a> {
-    viewing: Box<dyn JsonBufferViewing + 'a>,
+    viewing: Arc<dyn JsonBufferViewing<'a> + 'a>,
     gate: &'a GateState,
     session: Entity,
 }
 
 impl<'a> JsonBufferView<'a> {
     /// Get a serialized copy of the oldest message in the buffer.
-    pub fn oldest(&self) -> JsonMessageViewResult {
+    pub fn oldest(&self) -> Option<JsonRef<'a>> {
         self.viewing.json_oldest()
     }
 
     /// Get a serialized copy of the newest message in the buffer.
-    pub fn newest(&self) -> JsonMessageViewResult {
+    pub fn newest(&self) -> Option<JsonRef<'a>> {
         self.viewing.json_newest()
     }
 
     /// Get a serialized copy of a message in the buffer.
-    pub fn get(&self, index: usize) -> JsonMessageViewResult {
+    pub fn get(&self, index: usize) -> Option<JsonRef<'a>> {
         self.viewing.json_get(index)
     }
 
@@ -309,8 +317,8 @@ impl<'a> JsonBufferView<'a> {
     }
 
     /// Iterate through the current elements of the buffer.
-    pub fn iter(&self) -> IterJsonBufferView<'a, '_> {
-        IterJsonBufferView {
+    pub fn iter(&self) -> IterJsonBuffer<'a, '_> {
+        IterJsonBuffer {
             index: 0,
             view: self,
         }
@@ -326,17 +334,17 @@ impl<'a> JsonBufferView<'a> {
     }
 }
 
-pub struct IterJsonBufferView<'a, 'b> {
+pub struct IterJsonBuffer<'a, 'b> {
     index: usize,
     view: &'b JsonBufferView<'a>,
 }
 
-impl<'a, 'b> Iterator for IterJsonBufferView<'a, 'b> {
-    type Item = Result<JsonMessage, serde_json::Error>;
+impl<'a, 'b> Iterator for IterJsonBuffer<'a, 'b> {
+    type Item = JsonRef<'a>;
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.index;
         self.index += 1;
-        self.view.get(next).transpose()
+        self.view.get(next)
     }
 }
 
@@ -353,7 +361,11 @@ pub struct JsonBufferMut<'w, 's, 'a> {
     buffer: Entity,
     session: Entity,
     accessor: Option<Entity>,
-    commands: &'a mut Commands<'w, 's>,
+    // TODO(@mxgrey): We use a raw pointer here to escape an HRTB bug in the
+    // Rust compiler: https://github.com/rust-lang/rust/issues/100013
+    // When that issue is resolved we should try to revert this to a regular
+    // safe borrow.
+    commands: *mut Commands<'w, 's>,
     modified: bool,
 }
 
@@ -367,17 +379,17 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
     }
 
     /// Get a serialized copy of the oldest message in the buffer.
-    pub fn oldest(&self) -> JsonMessageViewResult {
+    pub fn oldest(&self) -> Option<JsonRef<'_>> {
         self.manager.json_oldest()
     }
 
     /// Get a serialized copy of the newest message in the buffer.
-    pub fn newest(&self) -> JsonMessageViewResult {
+    pub fn newest(&self) -> Option<JsonRef<'_>> {
         self.manager.json_newest()
     }
 
     /// Get a serialized copy of a message in the buffer.
-    pub fn get(&self, index: usize) -> JsonMessageViewResult {
+    pub fn get(&self, index: usize) -> Option<JsonRef<'_>> {
         self.manager.json_get(index)
     }
 
@@ -416,30 +428,36 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
 
     /// Pull the oldest message from the buffer as a JSON value. Unlike
     /// [`Self::oldest`] this will remove the message from the buffer.
-    pub fn pull(&mut self) -> JsonMessageViewResult {
+    pub fn pull(&mut self) -> Option<JsonFetchResult> {
         self.modified = true;
         self.manager.json_pull()
     }
 
     /// Pull the oldest message from the buffer and attempt to deserialize it
     /// into the target type.
-    pub fn pull_as<T: DeserializeOwned>(&mut self) -> Result<Option<T>, serde_json::Error> {
-        self.pull()?.map(|m| serde_json::from_value(m)).transpose()
+    pub fn pull_as<T: DeserializeOwned>(&mut self) -> Option<Result<T, Arc<serde_json::Error>>> {
+        Some(
+            self.pull()?
+                .and_then(|m| serde_json::from_value(m).map_err(Arc::new)),
+        )
     }
 
     /// Pull the newest message from the buffer as a JSON value. Unlike
     /// [`Self::newest`] this will remove the message from the buffer.
-    pub fn pull_newest(&mut self) -> JsonMessageViewResult {
+    pub fn pull_newest(&mut self) -> Option<JsonFetchResult> {
         self.modified = true;
         self.manager.json_pull_newest()
     }
 
     /// Pull the newest message from the buffer and attempt to deserialize it
     /// into the target type.
-    pub fn pull_newest_as<T: DeserializeOwned>(&mut self) -> Result<Option<T>, serde_json::Error> {
-        self.pull_newest()?
-            .map(|m| serde_json::from_value(m))
-            .transpose()
+    pub fn pull_newest_as<T: DeserializeOwned>(
+        &mut self,
+    ) -> Option<Result<T, Arc<serde_json::Error>>> {
+        Some(
+            self.pull_newest()?
+                .and_then(|m| serde_json::from_value(m).map_err(Arc::new)),
+        )
     }
 
     /// Attempt to push a new value into the buffer.
@@ -504,7 +522,9 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
 impl<'w, 's, 'a> Drop for JsonBufferMut<'w, 's, 'a> {
     fn drop(&mut self) {
         if self.modified {
-            self.commands.queue(NotifyBufferUpdate::new(
+            // SAFETY: The commands pointer comes from a valid reference that
+            // outlives this JsonBufferMut, so it is safe to dereference.
+            unsafe { &mut *self.commands }.queue(NotifyBufferUpdate::new(
                 self.buffer,
                 self.manager.json_req(),
                 self.session,
@@ -565,7 +585,7 @@ impl JsonBufferWorldAccess for World {
         {
             let mut tracer_state: SystemState<BufferTracer> = SystemState::new(self);
             let mut tracer = tracer_state.get_mut(self);
-            tracer.trace(_req.into(), &key.tag, BufferAccessRecord::Viewed);
+            tracer.trace(_req.into(), &key.tag(), BufferAccessRecord::Viewed);
             tracer_state.apply(self);
         }
 
@@ -587,15 +607,34 @@ impl JsonBufferWorldAccess for World {
     ) -> Result<U, BufferError> {
         let interface = key.interface;
         let mut state = interface.create_json_buffer_access_mut_state(self);
-        let mut access = state.get_json_buffer_access_mut(self);
-        let buffer_mut = access.as_json_buffer_mut(req.into(), key)?;
-        Ok(f(buffer_mut))
+        let r = {
+            let mut access = state.get_json_buffer_access_mut(self);
+            let buffer_mut = access.as_json_buffer_mut(req.into(), key)?;
+            f(buffer_mut)
+        };
+
+        state.json_apply(self);
+        Ok(r)
+    }
+}
+
+pub struct JsonRef<'a> {
+    entry: &'a dyn JsonView,
+}
+
+impl<'a> JsonRef<'a> {
+    pub fn serialize(&self) -> JsonFetchResult {
+        self.entry.serialize()
+    }
+
+    fn new<T: 'static + Send + Sync + Serialize + DeserializeOwned>(entry: &'a T) -> Self {
+        Self { entry }
     }
 }
 
 /// View or modify a buffer message in terms of JSON values.
 pub struct JsonMut<'a> {
-    entry: &'a mut dyn JsonMutEntry,
+    entry: &'a mut dyn JsonEntry,
     modified: &'a mut bool,
     tracer: BMutTracer<'a>,
 }
@@ -605,7 +644,7 @@ impl<'a> JsonMut<'a> {
     ///
     /// This new [`JsonMessage`] will be a duplicate of the data of the message
     /// inside the buffer, effectively meaning this function clones the data.
-    pub fn serialize(&self) -> Result<JsonMessage, serde_json::Error> {
+    pub fn serialize(&self) -> JsonFetchResult {
         self.entry.serialize()
     }
 
@@ -618,14 +657,14 @@ impl<'a> JsonMut<'a> {
     ///
     /// The returned value will duplicate the data of the message inside the
     /// buffer, effectively meaning this function clones the data.
-    pub fn deserialize_into<T: DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
-        serde_json::from_value::<T>(self.serialize()?)
+    pub fn deserialize_into<T: DeserializeOwned>(&self) -> Result<T, Arc<serde_json::Error>> {
+        serde_json::from_value::<T>(self.serialize()?).map_err(Arc::new)
     }
 
     /// Replace the underlying message with new data, and receive its original
     /// data as JSON.
     #[must_use = "if you are going to discard the returned message, use insert instead"]
-    pub fn replace(&mut self, message: JsonMessage) -> JsonMessageReplaceResult {
+    pub fn replace(&mut self, message: JsonMessage) -> JsonFetchResult {
         *self.modified = true;
         self.entry.replace(message, &self.tracer)
     }
@@ -633,30 +672,29 @@ impl<'a> JsonMut<'a> {
     /// Insert new data into the underyling message. This is the same as replace
     /// except it is more efficient if you don't care about the original data,2
     /// because it will discard the original data instead of serializing it.
-    pub fn insert(&mut self, message: JsonMessage) -> Result<(), serde_json::Error> {
+    pub fn insert(&mut self, message: JsonMessage) -> Result<(), Arc<serde_json::Error>> {
         *self.modified = true;
-        self.entry.insert(message, &self.tracer)
+        self.entry.insert(message, &self.tracer).map_err(Arc::new)
     }
 
     /// Modify the data of the underlying message. This is equivalent to calling
     /// [`Self::serialize`], modifying the value, and then calling [`Self::insert`].
     /// The benefit of this function is that you do not need to remember to
     /// insert after you have finished your modifications.
-    pub fn modify(&mut self, f: impl FnOnce(&mut JsonMessage)) -> Result<(), serde_json::Error> {
+    pub fn modify(
+        &mut self,
+        f: impl FnOnce(&mut JsonMessage),
+    ) -> Result<(), Arc<serde_json::Error>> {
         let mut message = self.serialize()?;
         f(&mut message);
         self.insert(message)
     }
 }
 
-/// The return type for functions that give a JSON view of a message in a buffer.
+/// The return type for functions that fetch a JSON message from a buffer.
 /// If an error occurs while attempting to serialize the message, this will return
 /// [`Err`].
-///
-/// If this returns [`Ok`] then [`None`] means there was no message available at
-/// the requested location while [`Some`] will contain a serialized copy of the
-/// message.
-pub type JsonMessageViewResult = Result<Option<JsonMessage>, serde_json::Error>;
+pub type JsonFetchResult = Result<JsonMessage, Arc<serde_json::Error>>;
 
 /// The return type for functions that push a new message into a buffer. If an
 /// error occurs while deserializing the message into the buffer's message type
@@ -667,26 +705,23 @@ pub type JsonMessageViewResult = Result<Option<JsonMessage>, serde_json::Error>;
 /// old message which has now been removed from the buffer.
 pub type JsonMessagePushResult = Result<Option<JsonMessage>, serde_json::Error>;
 
-/// The return type for functions that replace (swap out) one message with
-/// another. If an error occurs while serializing or deserializing either
-/// message to/from the buffer's message type then this will return [`Err`].
-///
-/// If this returns [`Ok`] then the message was successfully replaced, and the
-/// value inside [`Ok`] is the message that was previously in the buffer.
-pub type JsonMessageReplaceResult = Result<JsonMessage, serde_json::Error>;
-
-trait JsonBufferViewing {
+trait JsonBufferViewing<'a> {
     fn json_count(&self) -> usize;
-    fn json_oldest<'a>(&'a self) -> JsonMessageViewResult;
-    fn json_newest<'a>(&'a self) -> JsonMessageViewResult;
-    fn json_get<'a>(&'a self, index: usize) -> JsonMessageViewResult;
+    fn json_oldest(&self) -> Option<JsonRef<'a>>;
+    fn json_newest(&self) -> Option<JsonRef<'a>>;
+    fn json_get(&self, index: usize) -> Option<JsonRef<'a>>;
 }
 
-trait JsonBufferManagement: JsonBufferViewing {
+trait JsonBufferManagement {
+    fn json_count(&self) -> usize;
+    fn json_oldest(&self) -> Option<JsonRef<'_>>;
+    fn json_newest(&self) -> Option<JsonRef<'_>>;
+    fn json_get(&self, index: usize) -> Option<JsonRef<'_>>;
+
     fn json_push(&mut self, value: JsonMessage) -> JsonMessagePushResult;
     fn json_push_as_oldest(&mut self, value: JsonMessage) -> JsonMessagePushResult;
-    fn json_pull(&mut self) -> JsonMessageViewResult;
-    fn json_pull_newest(&mut self) -> JsonMessageViewResult;
+    fn json_pull(&mut self) -> Option<JsonFetchResult>;
+    fn json_pull_newest(&mut self) -> Option<JsonFetchResult>;
     fn json_oldest_mut<'a>(&'a mut self, modified: &'a mut bool) -> Option<JsonMut<'a>>;
     fn json_newest_mut<'a>(&'a mut self, modified: &'a mut bool) -> Option<JsonMut<'a>>;
     fn json_get_mut<'a>(&'a mut self, index: usize, modified: &'a mut bool) -> Option<JsonMut<'a>>;
@@ -694,7 +729,7 @@ trait JsonBufferManagement: JsonBufferViewing {
     fn json_req(&self) -> RequestId;
 }
 
-impl<T> JsonBufferViewing for BufferView<'_, T>
+impl<'a, T> JsonBufferViewing<'a> for BufferView<'a, T>
 where
     T: 'static + Send + Sync + Serialize + DeserializeOwned,
 {
@@ -702,37 +737,16 @@ where
         self.len()
     }
 
-    fn json_oldest<'a>(&'a self) -> JsonMessageViewResult {
-        self.oldest().map(serde_json::to_value).transpose()
+    fn json_oldest(&self) -> Option<JsonRef<'a>> {
+        self.oldest().map(JsonRef::new)
     }
 
-    fn json_newest<'a>(&'a self) -> JsonMessageViewResult {
-        self.newest().map(serde_json::to_value).transpose()
+    fn json_newest(&self) -> Option<JsonRef<'a>> {
+        self.newest().map(JsonRef::new)
     }
 
-    fn json_get<'a>(&'a self, index: usize) -> JsonMessageViewResult {
-        self.get(index).map(serde_json::to_value).transpose()
-    }
-}
-
-impl<T> JsonBufferViewing for BufferManager<'_, '_, '_, T>
-where
-    T: 'static + Send + Sync + Serialize + DeserializeOwned,
-{
-    fn json_count(&self) -> usize {
-        self.len()
-    }
-
-    fn json_oldest<'a>(&'a self) -> JsonMessageViewResult {
-        self.oldest().map(serde_json::to_value).transpose()
-    }
-
-    fn json_newest<'a>(&'a self) -> JsonMessageViewResult {
-        self.newest().map(serde_json::to_value).transpose()
-    }
-
-    fn json_get<'a>(&'a self, index: usize) -> JsonMessageViewResult {
-        self.get(index).map(serde_json::to_value).transpose()
+    fn json_get(&self, index: usize) -> Option<JsonRef<'a>> {
+        self.get(index).map(JsonRef::new)
     }
 }
 
@@ -740,6 +754,22 @@ impl<T> JsonBufferManagement for BufferManager<'_, '_, '_, T>
 where
     T: 'static + Send + Sync + Serialize + DeserializeOwned,
 {
+    fn json_count(&self) -> usize {
+        self.len()
+    }
+
+    fn json_oldest(&self) -> Option<JsonRef<'_>> {
+        self.oldest().map(JsonRef::new)
+    }
+
+    fn json_newest(&self) -> Option<JsonRef<'_>> {
+        self.newest().map(JsonRef::new)
+    }
+
+    fn json_get(&self, index: usize) -> Option<JsonRef<'_>> {
+        self.get(index).map(JsonRef::new)
+    }
+
     fn json_push(&mut self, value: JsonMessage) -> JsonMessagePushResult {
         let value: T = serde_json::from_value(value)?;
         self.push(value).map(serde_json::to_value).transpose()
@@ -750,12 +780,12 @@ where
         self.push(value).map(serde_json::to_value).transpose()
     }
 
-    fn json_pull(&mut self) -> JsonMessageViewResult {
-        self.pull().map(serde_json::to_value).transpose()
+    fn json_pull(&mut self) -> Option<JsonFetchResult> {
+        Some(serde_json::to_value(self.pull()?).map_err(Arc::new))
     }
 
-    fn json_pull_newest(&mut self) -> JsonMessageViewResult {
-        self.pull_newest().map(serde_json::to_value).transpose()
+    fn json_pull_newest(&mut self) -> Option<JsonFetchResult> {
+        Some(serde_json::to_value(self.pull_newest()?).map_err(Arc::new))
     }
 
     fn json_oldest_mut<'a>(&'a mut self, modified: &'a mut bool) -> Option<JsonMut<'a>> {
@@ -791,12 +821,22 @@ where
     }
 }
 
-trait JsonMutEntry {
+trait JsonView {
+    fn serialize(&self) -> JsonFetchResult;
+}
+
+impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonView for T {
+    fn serialize(&self) -> JsonFetchResult {
+        serde_json::to_value(self).map_err(Arc::new)
+    }
+}
+
+trait JsonEntry {
     /// Serialize the underlying message into JSON
-    fn serialize(&self) -> Result<JsonMessage, serde_json::Error>;
+    fn serialize(&self) -> JsonFetchResult;
     /// Replace the underlying message with new data, and receive its original
     /// data as JSON
-    fn replace(&mut self, message: JsonMessage, tracer: &BMutTracer) -> JsonMessageReplaceResult;
+    fn replace(&mut self, message: JsonMessage, tracer: &BMutTracer) -> JsonFetchResult;
     /// Insert new data into the underyling message. This is the same as replace
     /// except it is more efficient if you don't care about the original data,
     /// because it will discard the original data instead of serializing it.
@@ -807,12 +847,12 @@ trait JsonMutEntry {
     ) -> Result<(), serde_json::Error>;
 }
 
-impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonMutEntry for BufferEntry<T> {
-    fn serialize(&self) -> Result<JsonMessage, serde_json::Error> {
-        serde_json::to_value(&self.message)
+impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonEntry for BufferEntry<T> {
+    fn serialize(&self) -> JsonFetchResult {
+        serde_json::to_value(&self.message).map_err(Arc::new)
     }
 
-    fn replace(&mut self, message: JsonMessage, tracer: &BMutTracer) -> JsonMessageReplaceResult {
+    fn replace(&mut self, message: JsonMessage, tracer: &BMutTracer) -> JsonFetchResult {
         tracer.trace_mut(self);
         let new_message: T = serde_json::from_value(message)?;
         let old_message = serde_json::to_value(&self.message)?;
@@ -841,7 +881,7 @@ trait JsonBufferAccessInterface {
         session: Entity,
     ) -> Result<usize, OperationError>;
 
-    fn ensure_session(&self, buffer_mut: &mut EntityWorldMut, session: Entity) -> OperationResult;
+    fn ensure_session(&self, id: BufferInstanceId, world: &mut World) -> OperationResult;
 
     fn pull(
         &self,
@@ -915,9 +955,9 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonBufferAccessIm
 
             any_interface.register_key_downcast(
                 TypeId::of::<JsonBufferKey>(),
-                Box::new(|tag| {
+                Box::new(|body| {
                     Box::new(JsonBufferKey {
-                        tag,
+                        body,
                         interface: Self::get_interface(),
                     })
                 }),
@@ -968,8 +1008,8 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonBufferAccessIn
         buffer_ref.buffered_count::<T>(session)
     }
 
-    fn ensure_session(&self, buffer_mut: &mut EntityWorldMut, session: Entity) -> OperationResult {
-        buffer_mut.ensure_session::<T>(session)
+    fn ensure_session(&self, id: BufferInstanceId, world: &mut World) -> OperationResult {
+        world.ensure_buffer_session::<T>(id)
     }
 
     fn pull(
@@ -1005,22 +1045,20 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonBufferAccessIn
         key: &JsonBufferKey,
         world: &'a World,
     ) -> Result<JsonBufferView<'a>, BufferError> {
-        let buffer_ref = world
-            .get_entity(key.tag.buffer)
-            .map_err(|_| BufferError::BufferMissing)?;
+        let buffer_ref = world.get_entity(key.tag().buffer)?;
         let storage = buffer_ref
             .get::<BufferStorage<T>>()
-            .ok_or(BufferError::BufferMissing)?;
+            .ok_or(BufferError::BufferStorageMissing)?;
         let gate = buffer_ref
             .get::<GateState>()
-            .ok_or(BufferError::BufferMissing)?;
+            .ok_or(BufferError::GateStorageMissing)?;
         Ok(JsonBufferView {
-            viewing: Box::new(BufferView {
+            viewing: Arc::new(BufferView {
                 storage,
-                session: key.tag.session,
+                session: key.tag().session,
             }),
             gate,
-            session: key.tag.session,
+            session: key.tag().session,
         })
     }
 
@@ -1032,11 +1070,13 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonBufferAccessIn
     }
 }
 
-trait JsonBufferAccessMutState {
+pub trait JsonBufferAccessMutState {
     fn get_json_buffer_access_mut<'s, 'w: 's>(
         &'s mut self,
         world: &'w mut World,
     ) -> Box<dyn JsonBufferAccessMut<'w, 's> + 's>;
+
+    fn json_apply(&mut self, world: &mut World);
 }
 
 impl<T> JsonBufferAccessMutState for SystemState<BufferAccessMut<'static, 'static, T>>
@@ -1049,9 +1089,13 @@ where
     ) -> Box<dyn JsonBufferAccessMut<'w, 's> + 's> {
         Box::new(self.get_mut(world))
     }
+
+    fn json_apply(&mut self, world: &mut World) {
+        self.apply(world);
+    }
 }
 
-trait JsonBufferAccessMut<'w, 's> {
+pub trait JsonBufferAccessMut<'w, 's> {
     fn as_json_buffer_mut<'a>(
         &'a mut self,
         req: RequestId,
@@ -1069,16 +1113,13 @@ where
         key: &JsonBufferKey,
     ) -> Result<JsonBufferMut<'w, 's, 'a>, BufferError> {
         let BufferAccessMut { inner, commands } = self;
-        let manager = inner
-            .get_manager(req, &key.tag)
-            .map_err(|_| BufferError::BufferMissing)?;
-
+        let manager = inner.get_manager(req, key.tag())?;
         Ok(JsonBufferMut {
             manager: Box::new(manager),
-            buffer: key.tag.buffer,
-            session: key.tag.session,
-            accessor: Some(key.tag.accessor),
-            commands,
+            buffer: key.tag().buffer,
+            session: key.tag().session,
+            accessor: Some(key.tag().accessor),
+            commands: commands as *mut _,
             modified: false,
         })
     }
@@ -1159,8 +1200,13 @@ impl Buffering for JsonBuffer {
     }
 
     fn ensure_active_session(&self, session: Entity, world: &mut World) -> OperationResult {
-        let mut buffer_mut = world.get_entity_mut(self.id()).or_broken()?;
-        self.interface.ensure_session(&mut buffer_mut, session)
+        self.interface.ensure_session(
+            BufferInstanceId {
+                buffer: self.id(),
+                session,
+            },
+            world,
+        )
     }
 }
 
@@ -1175,12 +1221,11 @@ impl Joining for JsonBuffer {
         let key = BufferKeyTag {
             buffer: self.id(),
             session,
-            accessor: self.id(),
-            lifecycle: None,
+            accessor: req.source,
         };
         match self.join_behavior {
-            JoinBehavior::Pull => self.interface.pull(req, &key, world),
-            JoinBehavior::Clone => self.interface.clone_from_buffer(req, &key, world),
+            FetchBehavior::Pull => self.interface.pull(req, &key, world),
+            FetchBehavior::Clone => self.interface.clone_from_buffer(req, &key, world),
         }
     }
 }
@@ -1195,11 +1240,11 @@ impl Accessing for JsonBuffer {
         Ok(())
     }
 
-    fn create_key(&self, builder: &BufferKeyBuilder) -> Self::Key {
-        JsonBufferKey {
-            tag: builder.make_tag(self.id()),
+    fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key> {
+        Ok(JsonBufferKey {
+            body: builder.make_body(self.id())?,
             interface: self.interface,
-        }
+        })
     }
 
     fn deep_clone_key(key: &Self::Key) -> Self::Key {
@@ -1211,8 +1256,126 @@ impl Accessing for JsonBuffer {
     }
 }
 
+impl AccessKey for JsonBufferKey {
+    fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool {
+        let entry = included.entry(self.tag().instance()).or_default();
+        *entry += 1;
+        *entry == 1
+    }
+
+    type State = Box<dyn JsonBufferAccessMutState>;
+    type Param<'w, 's>
+        = Box<dyn JsonBufferAccessMut<'w, 's> + 's>
+    where
+        'w: 's;
+
+    fn get_state(&self, world: &mut World) -> Self::State {
+        self.interface.create_json_buffer_access_mut_state(world)
+    }
+
+    fn get_param<'w, 's>(state: &'s mut Self::State, world: &'w mut World) -> Self::Param<'w, 's>
+    where
+        'w: 's,
+    {
+        state.get_json_buffer_access_mut(world)
+    }
+
+    fn get_mut<'w, 's, 'a>(
+        &self,
+        req: RequestId,
+        param: &'a mut Self::Param<'w, 's>,
+    ) -> Result<Self::Access<'w, 's, 'a>, BufferError>
+    where
+        'w: 's,
+        's: 'a,
+    {
+        param.as_json_buffer_mut(req, self)
+    }
+
+    fn apply_state(state: &mut Self::State, world: &mut World) {
+        state.json_apply(world);
+    }
+}
+
 impl Accessor for JsonBufferKey {
     type Buffers = JsonBuffer;
+
+    async fn wait_for_change(&mut self) {
+        let _ = self.body.receiver.changed().await;
+    }
+
+    type Seen = Seq;
+    fn seen(&mut self, seen: Self::Seen) {
+        if self.body.receiver.borrow_and_update().0 != seen {
+            self.body.receiver.mark_changed();
+        }
+    }
+
+    fn make_seen(&self, world: &mut World) -> Self::Seen {
+        world.get_buffer_seen(self.tag().instance())
+    }
+
+    fn is_disjoint(&self) -> Result<(), OverlapError> {
+        // A single buffer key is always disjoint
+        Ok(())
+    }
+
+    fn can_join(&self, world: &World) -> Result<bool, AccessError> {
+        let view = world.json_buffer_view_untraced(self)?;
+        // Check that at least one entry can be serialized
+        // TODO(@mxgrey): It would be good if we can cache these serializations
+        // to avoid redundant effort. We would have to add a caching field to
+        // BufferEntry when the diagram feature is enabled.
+        Ok(view.iter().any(|json| json.serialize().is_ok()))
+    }
+
+    type Joined = JsonMessage;
+    fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
+        Ok(world.json_buffer_mut(req, self, |mut buffer| {
+            loop {
+                match buffer.pull() {
+                    Some(Ok(value)) => return Some(value),
+                    Some(Err(_)) => continue,
+                    None => return None,
+                }
+            }
+        })?)
+    }
+
+    fn distribute(
+        &self,
+        value: Self::Joined,
+        req: RequestId,
+        world: &mut World,
+    ) -> Result<(), AccessError> {
+        world.json_buffer_mut(req, self, move |mut buffer| {
+            let _ = buffer.push(value);
+        })?;
+        Ok(())
+    }
+
+    type View<'a> = JsonBufferView<'a>;
+    fn view<'a>(
+        &self,
+        req: RequestId,
+        world: &'a mut World,
+    ) -> Result<Self::View<'a>, BufferError> {
+        world.json_buffer_view(req, self)
+    }
+
+    fn view_untraced<'a>(&self, world: &'a World) -> Result<Self::View<'a>, BufferError> {
+        world.json_buffer_view_untraced(self)
+    }
+
+    type Access<'w, 's, 'a> = JsonBufferMut<'w, 's, 'a>;
+    fn access<U>(
+        &self,
+        req: RequestId,
+        world: &mut World,
+        f: impl FnOnce(JsonBufferMut) -> U,
+    ) -> Result<U, AccessError> {
+        Ok(world.json_buffer_mut(req, &self, f)?)
+    }
 }
 
 impl BufferMapLayout for JsonBuffer {
@@ -1249,174 +1412,51 @@ impl BufferMapLayout for JsonBuffer {
 
 impl Joined for serde_json::Map<String, JsonMessage> {
     type Buffers = HashMap<String, JsonBuffer>;
-}
-
-impl BufferMapLayout for HashMap<String, JsonBuffer> {
-    fn try_from_buffer_map(buffers: &BufferMap) -> Result<Self, IncompatibleLayout> {
-        let mut downcast_buffers = HashMap::new();
-        let mut compatibility = IncompatibleLayout::default();
-        for identifier in buffers.keys() {
-            match identifier {
-                IdentifierRef::Name(name) => {
-                    if let Ok(downcast) =
-                        compatibility.require_buffer_for_borrowed_name::<JsonBuffer>(&name, buffers)
-                    {
-                        downcast_buffers.insert(name.clone().into_owned(), downcast);
-                    }
-                }
-                IdentifierRef::Index(index) => {
-                    compatibility
-                        .forbidden_buffers
-                        .push(IdentifierRef::Index(*index));
-                }
-            }
-        }
-
-        compatibility.as_result()?;
-        Ok(downcast_buffers)
-    }
-
-    fn get_buffer_message_type_hints(
-        identifiers: HashSet<IdentifierRef<'static>>,
-    ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
-        let mut evaluation = MessageTypeHintEvaluation::new(identifiers);
-        while let Some(identifier) = evaluation.next_name_required() {
-            evaluation.fallback::<JsonMessage>(identifier);
-        }
-        evaluation.evaluate()
-    }
-
-    fn get_layout_hints() -> BufferMapLayoutHints {
-        BufferMapLayoutHints::Dynamic(DynamicBufferMapLayoutHints {
-            indices: false,
-            names: true,
-            hint: Some(MessageTypeHint::Fallback(TypeInfo::of::<JsonMessage>())),
-        })
-    }
-}
-
-impl BufferMapStruct for HashMap<String, JsonBuffer> {
-    fn buffer_list(&self) -> SmallVec<[AnyBuffer; 8]> {
-        self.values().map(|b| b.as_any_buffer()).collect()
-    }
-}
-
-impl Joining for HashMap<String, JsonBuffer> {
-    type Item = serde_json::Map<String, JsonMessage>;
-    fn fetch_for_join(
-        &self,
-        req: RequestId,
-        session: Entity,
-        world: &mut World,
-    ) -> Result<Self::Item, OperationError> {
-        self.iter()
-            .map(|(key, value)| {
-                value
-                    .fetch_for_join(req, session, world)
-                    .map(|v| (key.clone(), v))
-            })
-            .collect()
+    fn from_item(mut item: <Self::Buffers as Joining>::Item) -> Self {
+        serde_json::Map::from_iter(item.drain())
     }
 }
 
 impl Joined for JsonMessage {
     type Buffers = HashMap<IdentifierRef<'static>, JsonBuffer>;
-}
-
-impl BufferMapLayout for HashMap<IdentifierRef<'static>, JsonBuffer> {
-    fn try_from_buffer_map(buffers: &BufferMap) -> Result<Self, IncompatibleLayout> {
-        let mut downcast_buffers = HashMap::new();
-        let mut compatibility = IncompatibleLayout::default();
-        for identifier in buffers.keys() {
-            if let Ok(downcast) = compatibility
-                .require_buffer_for_identifier::<JsonBuffer>(identifier.clone(), buffers)
-            {
-                downcast_buffers.insert(identifier.clone(), downcast);
-            }
-        }
-
-        compatibility.as_result()?;
-        Ok(downcast_buffers)
-    }
-
-    fn get_buffer_message_type_hints(
-        identifiers: HashSet<IdentifierRef<'static>>,
-    ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
-        let mut evaluation = MessageTypeHintEvaluation::new(identifiers);
-        while let Some(identifier) = evaluation.next_unevaluated() {
-            evaluation.fallback::<JsonMessage>(identifier);
-        }
-        evaluation.evaluate()
-    }
-
-    fn get_layout_hints() -> BufferMapLayoutHints {
-        BufferMapLayoutHints::Dynamic(DynamicBufferMapLayoutHints {
-            indices: true,
-            names: true,
-            hint: Some(MessageTypeHint::Fallback(TypeInfo::of::<JsonMessage>())),
-        })
-    }
-}
-
-impl BufferMapStruct for HashMap<IdentifierRef<'static>, JsonBuffer> {
-    fn buffer_list(&self) -> SmallVec<[AnyBuffer; 8]> {
-        self.values().map(|b| b.as_any_buffer()).collect()
-    }
-}
-
-impl Joining for HashMap<IdentifierRef<'static>, JsonBuffer> {
-    type Item = JsonMessage;
-    fn fetch_for_join(
-        &self,
-        req: RequestId,
-        session: Entity,
-        world: &mut World,
-    ) -> Result<Self::Item, OperationError> {
+    fn from_item(item: <Self::Buffers as Joining>::Item) -> Self {
         let mut object = serde_json::Map::<String, JsonMessage>::new();
         let mut array = Vec::<JsonMessage>::new();
-
-        for (identifier, buffer) in self.iter() {
+        for (identifier, element) in item {
             match identifier {
                 IdentifierRef::Index(index) => {
-                    if *index >= array.len() {
+                    if index >= array.len() {
                         // Ensure we have enough items in the array to reach the
                         // specified index.
-                        array.resize(*index + 1, JsonMessage::Null);
+                        array.resize(index + 1, JsonMessage::Null);
                     }
 
-                    array[*index] = buffer.fetch_for_join(req, session, world)?;
+                    array[index] = element;
                 }
                 IdentifierRef::Name(name) => {
-                    object.insert(
-                        name.as_ref().to_owned(),
-                        buffer.fetch_for_join(req, session, world)?,
-                    );
+                    object.insert(name.as_ref().to_owned(), element);
                 }
             }
         }
 
-        let value = if !object.is_empty() && !array.is_empty() {
-            // There are keyed buffers as well as arrayed buffers, so we need to
+        if !object.is_empty() && !array.is_empty() {
+            // There are named items as well as indexed items, so we need to
             // organize them into two different fields in a json object.
             JsonMessage::Object(serde_json::Map::from_iter([
                 ("array".to_owned(), JsonMessage::Array(array)),
                 ("object".to_owned(), JsonMessage::Object(object)),
             ]))
         } else if !object.is_empty() {
-            // There are only object entries, so we will join them into a
-            // top-level object.
+            // There are only named items, so we will join them into an object
             JsonMessage::Object(object)
         } else if !array.is_empty() {
-            // There are only array entries, so we will join them into a
-            // top-level array.
+            // There are only indexed items, so we will join them into an array
             JsonMessage::Array(array)
         } else {
-            // There are no entries at all. This shouldn't happen, but we will
+            // There are no items at all. This shouldn't happen, but we will
             // handle it by returning a null value.
             JsonMessage::Null
-        };
-
-        Ok(value)
+        }
     }
 }
 
@@ -1556,7 +1596,7 @@ mod tests {
         world
             .json_buffer_mut(id, &key, |mut access| {
                 let mut values = Vec::new();
-                while let Ok(Some(value)) = access.pull() {
+                while let Some(Ok(value)) = access.pull() {
                     values.push(value);
                 }
                 values

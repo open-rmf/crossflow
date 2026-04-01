@@ -15,7 +15,10 @@
  *
 */
 
-use bevy_ecs::prelude::{Component, Entity, World};
+use bevy_ecs::{
+    prelude::{Component, Entity, Query, World},
+    system::SystemState,
+};
 
 use std::{
     collections::{HashMap, hash_map::Entry},
@@ -25,10 +28,10 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::{
-    Accessing, BufferKeyBuilder, ChannelQueue, InScope, Input, InputBundle, ManageInput,
-    MessageRoute, Operation, OperationCleanup, OperationError, OperationReachability,
-    OperationRequest, OperationResult, OperationSetup, OrBroken, ReachabilityResult, Seq,
-    SingleInputStorage, SingleTargetStorage, output_port,
+    Accessing, BufferChangeBroadcasters, BufferKeyBuilder, ChannelQueue, InScope, Input,
+    InputBundle, ManageInput, MessageRoute, Operation, OperationCleanup, OperationError,
+    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
+    ReachabilityResult, Seq, SingleInputStorage, SingleTargetStorage, output_port,
 };
 
 pub(crate) struct OperateBufferAccess<T, B>
@@ -150,18 +153,29 @@ where
         .sender
         .clone();
 
-    let mut storage = world
-        .get_mut::<BufferAccessStorage<B>>(source)
-        .or_broken()?;
+    let mut state: SystemState<(
+        Query<&mut BufferAccessStorage<B>>,
+        Query<&mut BufferChangeBroadcasters>,
+    )> = SystemState::new(world);
+    let (mut storages, mut broadcasters) = state.get_mut(world);
+
+    let mut storage = storages.get_mut(source).or_broken()?;
     let s = storage.as_mut();
     let mut made_key = false;
     let keys = match s.keys.entry(session) {
         Entry::Occupied(occupied) => B::deep_clone_key(occupied.get()),
         Entry::Vacant(vacant) => {
             made_key = true;
-            let builder =
-                BufferKeyBuilder::with_tracking(scope, session, source, seq, sender, Arc::new(()));
-            let new_key = vacant.insert(s.buffers.create_key(&builder));
+            let mut builder = BufferKeyBuilder::with_tracking(
+                scope,
+                session,
+                source,
+                seq,
+                sender,
+                Arc::new(()),
+                &mut broadcasters,
+            );
+            let new_key = vacant.insert(s.buffers.create_key(&mut builder)?);
             B::deep_clone_key(new_key)
         }
     };

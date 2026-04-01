@@ -77,7 +77,7 @@ pub use crate::type_info::TypeInfo;
 use crate::{
     Builder, IdentifierRef, IncompatibleLayout, IncrementalScopeError, JsonMessage,
     MessageTypeHint, Scope, Service, SpawnWorkflowExt, SplitConnectionError, StreamPack,
-    is_default,
+    format_list, is_default,
 };
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -1083,15 +1083,6 @@ pub enum DiagramErrorCode {
 
     #[error("Unable to infer message types within the diagram: {0}")]
     MessageTypeInferenceFailure(MessageTypeInferenceFailure),
-}
-
-fn format_list<T: std::fmt::Display>(list: &[T]) -> String {
-    let mut output = String::new();
-    for op in list {
-        output += &format!("[{op}]");
-    }
-
-    output
 }
 
 impl From<DiagramErrorCode> for DiagramError {
