@@ -4,10 +4,72 @@
   "templates": {},
   "start": "start_engine",
   "ops": {
-    "process_obstacles": {
+    "change_lane_buffer_access": {
+      "type": "buffer_access",
+      "buffers": [
+        "obstacles_buffer"
+      ],
+      "next": "check_change_lane"
+    },
+    "check_change_lane": {
       "type": "node",
-      "builder": "process_obstacles",
-      "next": "process_obstacles_fork_result"
+      "builder": "check_change_lane",
+      "next": "accelerate_vehicle"
+    },
+    "start_engine_fork_clone": {
+      "type": "fork_clone",
+      "next": [
+        "detect_obstacles",
+        "wait_for_destination_reached"
+      ]
+    },
+    "obstacles_buffer": {
+      "type": "buffer",
+      "settings": {
+        "retention": {
+          "keep_last": 10
+        }
+      }
+    },
+    "obstacles_buffer_access": {
+      "type": "buffer_access",
+      "buffers": [
+        "obstacles_buffer"
+      ],
+      "next": "process_obstacles"
+    },
+    "start_engine": {
+      "type": "node",
+      "builder": "start_engine",
+      "next": "start_engine_fork_result"
+    },
+    "start_engine_fork_result": {
+      "type": "fork_result",
+      "err": {
+        "builtin": "terminate"
+      },
+      "ok": "start_engine_fork_clone"
+    },
+    "accelerate_vehicle": {
+      "type": "node",
+      "builder": "accelerate_vehicle",
+      "next": {
+        "builtin": "dispose"
+      }
+    },
+    "stop_engine": {
+      "type": "node",
+      "builder": "stop_engine",
+      "next": {
+        "builtin": "terminate"
+      }
+    },
+    "process_obstacles_fork_result": {
+      "type": "fork_result",
+      "err": {
+        "builtin": "dispose"
+      },
+      "ok": "change_lane_buffer_access"
     },
     "detect_obstacles": {
       "type": "node",
@@ -19,97 +81,32 @@
         "obstacles": "obstacles_buffer"
       }
     },
-    "process_obstacles_fork_result": {
-      "type": "fork_result",
-      "err": "trigger_check",
-      "ok": "change_lane_buffer_access"
-    },
-    "stop_engine": {
+    "process_obstacles": {
       "type": "node",
-      "builder": "stop_engine",
-      "next": {
-        "builtin": "terminate"
+      "builder": "process_obstacles",
+      "next": "process_obstacles_fork_result"
+    },
+    "wait_for_destination_reached": {
+      "type": "node",
+      "builder": "wait_for_destination_reached",
+      "next": "stop_engine",
+      "stream_out": {
+        "trigger": "obstacles_buffer_access"
       }
-    },
-    "destination_reached_fork_result": {
-      "type": "fork_result",
-      "err": "trigger_check",
-      "ok": "stop_engine"
-    },
-    "destination_reached": {
-      "type": "node",
-      "builder": "destination_reached",
-      "next": "destination_reached_fork_result"
-    },
-    "move_vehicle": {
-      "type": "node",
-      "builder": "move_vehicle",
-      "next": "destination_reached"
-    },
-    "start_engine_fork_result": {
-      "type": "fork_result",
-      "err": {
-        "builtin": "terminate"
-      },
-      "ok": "start_engine_fork_clone"
-    },
-    "start_engine": {
-      "type": "node",
-      "builder": "start_engine",
-      "next": "start_engine_fork_result"
-    },
-    "obstacles_buffer_access": {
-      "type": "buffer_access",
-      "buffers": [
-        "obstacles_buffer"
-      ],
-      "next": "process_obstacles"
-    },
-    "trigger_check": {
-      "type": "node",
-      "builder": "trigger_check",
-      "next": "obstacles_buffer_access"
-    },
-    "obstacles_buffer": {
-      "type": "buffer",
-      "settings": {
-        "retention": {
-          "keep_last": 10
-        }
-      }
-    },
-    "start_engine_fork_clone": {
-      "type": "fork_clone",
-      "next": [
-        "trigger_check",
-        "detect_obstacles"
-      ]
-    },
-    "check_change_lane": {
-      "type": "node",
-      "builder": "check_change_lane",
-      "next": "move_vehicle"
-    },
-    "change_lane_buffer_access": {
-      "type": "buffer_access",
-      "buffers": [
-        "obstacles_buffer"
-      ],
-      "next": "check_change_lane"
     }
   },
   "description": "A workflow that moves the vehicle forward until it travelled the requested distance while avoiding obstacles, and allows the vehicle to switch lanes if the adjacent lane is clear.",
   "input_examples": [],
   "extensions": {
     "crossflow-diagram-editor-v1": {
-      "hash": "9087395550b1eb2300449b2329b42eb0c3d4b3df",
+      "hash": "9e62c0fbd3030ff5d6cad61abd67db0f9120a78b",
       "state": {
         "nodes": [
           {
             "id": ":__builtin_start__",
             "type": "start",
             "position": {
-              "x": 312.5,
+              "x": 292.5,
               "y": 25
             },
             "selectable": false,
@@ -125,8 +122,8 @@
             "id": ":__builtin_terminate__",
             "type": "terminate",
             "position": {
-              "x": 312.5,
-              "y": 1325
+              "x": 100,
+              "y": 625
             },
             "selectable": false,
             "data": {
@@ -138,19 +135,179 @@
             }
           },
           {
-            "id": "b763320e-8304-4e6a-86b3-e5978a670a97",
-            "type": "node",
+            "id": "851ed8c3-b172-47d5-9091-07e3efb4442c",
+            "type": "buffer_access",
             "position": {
-              "x": 110,
-              "y": 725
+              "x": 427.5,
+              "y": 925
             },
             "data": {
               "namespace": "",
-              "opId": "process_obstacles",
+              "opId": "change_lane_buffer_access",
+              "op": {
+                "type": "buffer_access",
+                "buffers": [
+                  "obstacles_buffer"
+                ],
+                "next": "check_change_lane"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            }
+          },
+          {
+            "id": "cf2e467c-4b3f-4120-acd4-a46df5ec2393",
+            "type": "node",
+            "position": {
+              "x": 427.5,
+              "y": 1025
+            },
+            "data": {
+              "namespace": "",
+              "opId": "check_change_lane",
               "op": {
                 "type": "node",
-                "builder": "process_obstacles",
-                "next": "process_obstacles_fork_result"
+                "builder": "check_change_lane",
+                "next": "accelerate_vehicle"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            }
+          },
+          {
+            "id": "4db49ff8-4abe-4bf1-b75b-cba7cbc6a477",
+            "type": "fork_clone",
+            "position": {
+              "x": 360,
+              "y": 325
+            },
+            "data": {
+              "namespace": "",
+              "opId": "start_engine_fork_clone",
+              "op": {
+                "type": "fork_clone",
+                "next": [
+                  "detect_obstacles",
+                  "wait_for_destination_reached"
+                ]
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            }
+          },
+          {
+            "id": "a8818db5-3fa1-42f7-81c3-0126789da99e",
+            "type": "buffer",
+            "position": {
+              "x": 495,
+              "y": 525
+            },
+            "data": {
+              "namespace": "",
+              "opId": "obstacles_buffer",
+              "op": {
+                "type": "buffer",
+                "settings": {
+                  "retention": {
+                    "keep_last": 10
+                  }
+                }
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            }
+          },
+          {
+            "id": "02b308ea-b23e-4a21-9aaf-7efeb3fde1df",
+            "type": "buffer_access",
+            "position": {
+              "x": 360,
+              "y": 625
+            },
+            "data": {
+              "namespace": "",
+              "opId": "obstacles_buffer_access",
+              "op": {
+                "type": "buffer_access",
+                "buffers": [
+                  "obstacles_buffer"
+                ],
+                "next": "process_obstacles"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            }
+          },
+          {
+            "id": "3e4fd35e-c5aa-408d-bb85-f4520bb55150",
+            "type": "node",
+            "position": {
+              "x": 292.5,
+              "y": 125
+            },
+            "data": {
+              "namespace": "",
+              "opId": "start_engine",
+              "op": {
+                "type": "node",
+                "builder": "start_engine",
+                "next": "start_engine_fork_result"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            }
+          },
+          {
+            "id": "1a7baa5d-9eaf-462d-bff1-bec1ba4a5919",
+            "type": "fork_result",
+            "position": {
+              "x": 292.5,
+              "y": 225
+            },
+            "data": {
+              "namespace": "",
+              "opId": "start_engine_fork_result",
+              "op": {
+                "type": "fork_result",
+                "err": {
+                  "builtin": "terminate"
+                },
+                "ok": "start_engine_fork_clone"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            }
+          },
+          {
+            "id": "66ab5150-0040-45d4-a339-57d7e6562b15",
+            "type": "node",
+            "position": {
+              "x": 427.5,
+              "y": 1125
+            },
+            "data": {
+              "namespace": "",
+              "opId": "accelerate_vehicle",
+              "op": {
+                "type": "node",
+                "builder": "accelerate_vehicle",
+                "next": {
+                  "builtin": "dispose"
+                }
               }
             },
             "measured": {
@@ -160,10 +317,57 @@
             "selected": false
           },
           {
-            "id": "eda9aef1-bf75-4b01-8472-5dd556f4ed83",
+            "id": "7a56b1f8-7c80-4fa1-b96f-a58932624021",
             "type": "node",
             "position": {
-              "x": 100,
+              "x": 167.5,
+              "y": 525
+            },
+            "data": {
+              "namespace": "",
+              "opId": "stop_engine",
+              "op": {
+                "type": "node",
+                "builder": "stop_engine",
+                "next": {
+                  "builtin": "terminate"
+                }
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            }
+          },
+          {
+            "id": "1c38d93f-c626-4c81-b366-77a11d8fefde",
+            "type": "fork_result",
+            "position": {
+              "x": 360,
+              "y": 825
+            },
+            "data": {
+              "namespace": "",
+              "opId": "process_obstacles_fork_result",
+              "op": {
+                "type": "fork_result",
+                "err": {
+                  "builtin": "dispose"
+                },
+                "ok": "change_lane_buffer_access"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false
+          },
+          {
+            "id": "7a2e0b9f-fcd6-4430-9c40-2d2d4b5e67f8",
+            "type": "node",
+            "position": {
+              "x": 495,
               "y": 425
             },
             "data": {
@@ -186,306 +390,58 @@
             }
           },
           {
-            "id": "945cd6f1-9cda-44dc-9c89-9f49c55ce1c0",
-            "type": "fork_result",
+            "id": "87b332db-bb01-4aa9-b70e-da0c8ee8b138",
+            "type": "node",
             "position": {
-              "x": 61.327666723664706,
-              "y": 813.7903888943887
+              "x": 360,
+              "y": 725
             },
             "data": {
               "namespace": "",
-              "opId": "process_obstacles_fork_result",
+              "opId": "process_obstacles",
               "op": {
-                "type": "fork_result",
-                "err": "trigger_check",
-                "ok": "change_lane_buffer_access"
+                "type": "node",
+                "builder": "process_obstacles",
+                "next": "process_obstacles_fork_result"
               }
             },
             "measured": {
               "width": 200,
               "height": 50
-            },
-            "selected": false,
-            "dragging": false
+            }
           },
           {
-            "id": "9a1aeccc-35e3-4622-893b-58248b22a113",
+            "id": "946ee162-be16-424d-aea0-c64842768c18",
             "type": "node",
             "position": {
-              "x": 245,
-              "y": 1225
+              "x": 235,
+              "y": 425
             },
             "data": {
               "namespace": "",
-              "opId": "stop_engine",
+              "opId": "wait_for_destination_reached",
               "op": {
                 "type": "node",
-                "builder": "stop_engine",
-                "next": {
-                  "builtin": "terminate"
+                "builder": "wait_for_destination_reached",
+                "next": "stop_engine",
+                "stream_out": {
+                  "trigger": "obstacles_buffer_access"
                 }
               }
             },
             "measured": {
               "width": 200,
               "height": 50
-            }
-          },
-          {
-            "id": "52dded48-7c65-481e-a82d-10c765af32bb",
-            "type": "fork_result",
-            "position": {
-              "x": 245,
-              "y": 1125
             },
-            "data": {
-              "namespace": "",
-              "opId": "destination_reached_fork_result",
-              "op": {
-                "type": "fork_result",
-                "err": "trigger_check",
-                "ok": "stop_engine"
-              }
-            },
-            "measured": {
-              "width": 200,
-              "height": 50
-            }
-          },
-          {
-            "id": "5eaa7e94-a280-4bf9-a02a-95ff1c2c4a85",
-            "type": "node",
-            "position": {
-              "x": 177.5,
-              "y": 1025
-            },
-            "data": {
-              "namespace": "",
-              "opId": "destination_reached",
-              "op": {
-                "type": "node",
-                "builder": "destination_reached",
-                "next": "destination_reached_fork_result"
-              }
-            },
-            "measured": {
-              "width": 200,
-              "height": 50
-            }
-          },
-          {
-            "id": "0e08f914-eb24-4b82-a618-161667565eb5",
-            "type": "node",
-            "position": {
-              "x": 177.5,
-              "y": 925
-            },
-            "data": {
-              "namespace": "",
-              "opId": "move_vehicle",
-              "op": {
-                "type": "node",
-                "builder": "move_vehicle",
-                "next": "destination_reached"
-              }
-            },
-            "measured": {
-              "width": 200,
-              "height": 50
-            }
-          },
-          {
-            "id": "2d6a7378-9836-440e-ab05-440f942742a5",
-            "type": "fork_result",
-            "position": {
-              "x": 312.5,
-              "y": 225
-            },
-            "data": {
-              "namespace": "",
-              "opId": "start_engine_fork_result",
-              "op": {
-                "type": "fork_result",
-                "err": {
-                  "builtin": "terminate"
-                },
-                "ok": "start_engine_fork_clone"
-              }
-            },
-            "measured": {
-              "width": 200,
-              "height": 50
-            }
-          },
-          {
-            "id": "f3537259-794f-465c-a0dc-9120895d009a",
-            "type": "node",
-            "position": {
-              "x": 312.5,
-              "y": 125
-            },
-            "data": {
-              "namespace": "",
-              "opId": "start_engine",
-              "op": {
-                "type": "node",
-                "builder": "start_engine",
-                "next": "start_engine_fork_result"
-              }
-            },
-            "measured": {
-              "width": 200,
-              "height": 50
-            }
-          },
-          {
-            "id": "a9095e07-0310-448a-8cf2-5431c50227bc",
-            "type": "buffer_access",
-            "position": {
-              "x": 189.48633329433468,
-              "y": 628.0571666651667
-            },
-            "data": {
-              "namespace": "",
-              "opId": "obstacles_buffer_access",
-              "op": {
-                "type": "buffer_access",
-                "buffers": [
-                  "obstacles_buffer"
-                ],
-                "next": "process_obstacles"
-              }
-            },
-            "measured": {
-              "width": 200,
-              "height": 50
-            },
-            "selected": false,
-            "dragging": false
-          },
-          {
-            "id": "20ee0f2c-cf73-4e25-9624-142924826e33",
-            "type": "node",
-            "position": {
-              "x": 370,
-              "y": 525
-            },
-            "data": {
-              "namespace": "",
-              "opId": "trigger_check",
-              "op": {
-                "type": "node",
-                "builder": "trigger_check",
-                "next": "obstacles_buffer_access"
-              }
-            },
-            "measured": {
-              "width": 200,
-              "height": 50
-            }
-          },
-          {
-            "id": "d38c49a1-70dc-4acf-b783-b9caeddadce3",
-            "type": "buffer",
-            "position": {
-              "x": 100,
-              "y": 525
-            },
-            "data": {
-              "namespace": "",
-              "opId": "obstacles_buffer",
-              "op": {
-                "type": "buffer",
-                "settings": {
-                  "retention": {
-                    "keep_last": 10
-                  }
-                }
-              }
-            },
-            "measured": {
-              "width": 200,
-              "height": 50
-            }
-          },
-          {
-            "id": "eee464e1-1b2f-4b13-ad71-5606bc0f3f82",
-            "type": "fork_clone",
-            "position": {
-              "x": 177.5,
-              "y": 325
-            },
-            "data": {
-              "namespace": "",
-              "opId": "start_engine_fork_clone",
-              "op": {
-                "type": "fork_clone",
-                "next": [
-                  "trigger_check",
-                  "detect_obstacles"
-                ]
-              }
-            },
-            "measured": {
-              "width": 200,
-              "height": 50
-            }
-          },
-          {
-            "id": "f512d341-352e-4a2b-9718-5af1413d1dbc",
-            "type": "node",
-            "position": {
-              "x": -109.75374023134728,
-              "y": 938.8047049538111
-            },
-            "data": {
-              "namespace": "",
-              "opId": "check_change_lane",
-              "op": {
-                "type": "node",
-                "builder": "check_change_lane",
-                "next": "move_vehicle"
-              }
-            },
-            "measured": {
-              "width": 200,
-              "height": 50
-            },
-            "selected": false,
-            "dragging": false
-          },
-          {
-            "id": "e4777347-b470-4dba-9539-daf76a285aed",
-            "type": "buffer_access",
-            "position": {
-              "x": -223.8879623975714,
-              "y": 810.403705016809
-            },
-            "data": {
-              "namespace": "",
-              "opId": "change_lane_buffer_access",
-              "op": {
-                "type": "buffer_access",
-                "buffers": [
-                  "obstacles_buffer"
-                ],
-                "next": "check_change_lane"
-              }
-            },
-            "measured": {
-              "width": 200,
-              "height": 50
-            },
-            "selected": false,
-            "dragging": false
+            "selected": false
           }
         ],
         "edges": [
           {
-            "id": "76e013f8-a59e-47e0-8b89-5b7e6d03bdee",
+            "id": "a8dec761-3830-44d3-b26e-d6ddf533c305",
             "source": ":__builtin_start__",
             "sourceHandle": null,
-            "target": "f3537259-794f-465c-a0dc-9120895d009a",
+            "target": "3e4fd35e-c5aa-408d-bb85-f4520bb55150",
             "targetHandle": null,
             "markerEnd": {
               "type": "arrowclosed",
@@ -501,10 +457,31 @@
             }
           },
           {
-            "id": "9cddda29-e57c-420a-91a9-fb9ad4f9e4ae",
-            "source": "b763320e-8304-4e6a-86b3-e5978a670a97",
+            "id": "f7fd2ce5-03d4-4131-8b9f-197a4f3f2c50",
+            "source": "a8818db5-3fa1-42f7-81c3-0126789da99e",
             "sourceHandle": null,
-            "target": "945cd6f1-9cda-44dc-9c89-9f49c55ce1c0",
+            "target": "851ed8c3-b172-47d5-9091-07e3efb4442c",
+            "targetHandle": null,
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "buffer",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "bufferSeq",
+                "seq": 0
+              }
+            },
+            "style": {}
+          },
+          {
+            "id": "d62f0e91-3b93-4631-8b24-f1aa7deb02c2",
+            "source": "851ed8c3-b172-47d5-9091-07e3efb4442c",
+            "sourceHandle": null,
+            "target": "cf2e467c-4b3f-4120-acd4-a46df5ec2393",
             "targetHandle": null,
             "markerEnd": {
               "type": "arrowclosed",
@@ -520,10 +497,183 @@
             }
           },
           {
-            "id": "863ba834-3d7a-4b4b-acf6-e1756418fa7e",
-            "source": "eda9aef1-bf75-4b01-8472-5dd556f4ed83",
+            "id": "fc546e79-0070-4ed4-8a63-4d0a888eaea8",
+            "source": "cf2e467c-4b3f-4120-acd4-a46df5ec2393",
+            "sourceHandle": null,
+            "target": "66ab5150-0040-45d4-a339-57d7e6562b15",
+            "targetHandle": null,
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "3d51fe6a-abb9-4055-a074-e0319e69b804",
+            "source": "4db49ff8-4abe-4bf1-b75b-cba7cbc6a477",
+            "sourceHandle": null,
+            "target": "7a2e0b9f-fcd6-4430-9c40-2d2d4b5e67f8",
+            "targetHandle": null,
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "06d15f8b-bf0a-4553-ad70-88d300ba7bc4",
+            "source": "a8818db5-3fa1-42f7-81c3-0126789da99e",
+            "sourceHandle": null,
+            "target": "02b308ea-b23e-4a21-9aaf-7efeb3fde1df",
+            "targetHandle": null,
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "buffer",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "bufferSeq",
+                "seq": 0
+              }
+            },
+            "style": {}
+          },
+          {
+            "id": "26a3feca-bae0-4225-b09a-ad3010449c10",
+            "source": "02b308ea-b23e-4a21-9aaf-7efeb3fde1df",
+            "sourceHandle": null,
+            "target": "87b332db-bb01-4aa9-b70e-da0c8ee8b138",
+            "targetHandle": null,
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "de688049-a1b5-4edc-862d-d7df12c63985",
+            "source": "3e4fd35e-c5aa-408d-bb85-f4520bb55150",
+            "sourceHandle": null,
+            "target": "1a7baa5d-9eaf-462d-bff1-bec1ba4a5919",
+            "targetHandle": null,
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "a555cad9-8579-4ede-8ea9-3f37f8798601",
+            "source": "1a7baa5d-9eaf-462d-bff1-bec1ba4a5919",
+            "sourceHandle": "forkResultOk",
+            "target": "4db49ff8-4abe-4bf1-b75b-cba7cbc6a477",
+            "targetHandle": null,
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "forkResultOk",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "39c263ad-d552-4dec-890e-340077b42e39",
+            "source": "1a7baa5d-9eaf-462d-bff1-bec1ba4a5919",
+            "sourceHandle": "forkResultErr",
+            "target": ":__builtin_terminate__",
+            "targetHandle": null,
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "forkResultErr",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "9ce59522-f5e6-4615-b028-5f2662785bd5",
+            "source": "7a56b1f8-7c80-4fa1-b96f-a58932624021",
+            "sourceHandle": null,
+            "target": ":__builtin_terminate__",
+            "targetHandle": null,
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "6aa005f5-34be-45b0-a2c8-c510fe32eec0",
+            "source": "1c38d93f-c626-4c81-b366-77a11d8fefde",
+            "sourceHandle": "forkResultOk",
+            "target": "851ed8c3-b172-47d5-9091-07e3efb4442c",
+            "targetHandle": null,
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "forkResultOk",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "d81b4bcc-9b48-4639-b492-6757de3599fc",
+            "source": "7a2e0b9f-fcd6-4430-9c40-2d2d4b5e67f8",
             "sourceHandle": "dataStream",
-            "target": "d38c49a1-70dc-4acf-b783-b9caeddadce3",
+            "target": "a8818db5-3fa1-42f7-81c3-0126789da99e",
             "targetHandle": null,
             "markerEnd": {
               "type": "arrowclosed",
@@ -541,29 +691,10 @@
             }
           },
           {
-            "id": "7e655666-3a95-4e97-8297-0c04777c1ae0",
-            "source": "945cd6f1-9cda-44dc-9c89-9f49c55ce1c0",
-            "sourceHandle": "forkResultErr",
-            "target": "20ee0f2c-cf73-4e25-9624-142924826e33",
-            "targetHandle": null,
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "forkResultErr",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "default"
-              }
-            }
-          },
-          {
-            "id": "386160f6-6c45-47f4-973b-c8a364cc904c",
-            "source": "9a1aeccc-35e3-4622-893b-58248b22a113",
+            "id": "4802d784-84a4-4438-9be5-6744a3f3c4d6",
+            "source": "87b332db-bb01-4aa9-b70e-da0c8ee8b138",
             "sourceHandle": null,
-            "target": ":__builtin_terminate__",
+            "target": "1c38d93f-c626-4c81-b366-77a11d8fefde",
             "targetHandle": null,
             "markerEnd": {
               "type": "arrowclosed",
@@ -579,49 +710,9 @@
             }
           },
           {
-            "id": "74bb04e5-d29b-40f1-bc24-eeb649b2043c",
-            "source": "52dded48-7c65-481e-a82d-10c765af32bb",
-            "sourceHandle": "forkResultOk",
-            "target": "9a1aeccc-35e3-4622-893b-58248b22a113",
-            "targetHandle": null,
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "forkResultOk",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "default"
-              }
-            }
-          },
-          {
-            "id": "539b00c4-7ab7-4ff2-ab65-1e496706c8de",
-            "source": "52dded48-7c65-481e-a82d-10c765af32bb",
-            "sourceHandle": "forkResultErr",
-            "target": "20ee0f2c-cf73-4e25-9624-142924826e33",
-            "targetHandle": null,
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "forkResultErr",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "default"
-              }
-            }
-          },
-          {
-            "id": "428396c8-784b-4f3c-8047-813a87fbbd02",
-            "source": "5eaa7e94-a280-4bf9-a02a-95ff1c2c4a85",
-            "sourceHandle": null,
-            "target": "52dded48-7c65-481e-a82d-10c765af32bb",
-            "targetHandle": null,
+            "id": "d1b53ffb-16fc-4e48-85d3-d3631a2f0edb",
+            "source": "4db49ff8-4abe-4bf1-b75b-cba7cbc6a477",
+            "target": "946ee162-be16-424d-aea0-c64842768c18",
             "markerEnd": {
               "type": "arrowclosed",
               "width": 20,
@@ -636,11 +727,9 @@
             }
           },
           {
-            "id": "32756fbc-09e5-425d-9f0c-112558b4aa34",
-            "source": "0e08f914-eb24-4b82-a618-161667565eb5",
-            "sourceHandle": null,
-            "target": "5eaa7e94-a280-4bf9-a02a-95ff1c2c4a85",
-            "targetHandle": null,
+            "id": "240382a0-fa40-49cc-9730-055c4a220195",
+            "source": "946ee162-be16-424d-aea0-c64842768c18",
+            "target": "7a56b1f8-7c80-4fa1-b96f-a58932624021",
             "markerEnd": {
               "type": "arrowclosed",
               "width": 20,
@@ -655,228 +744,25 @@
             }
           },
           {
-            "id": "e18fa1de-91c3-4570-9831-2853d472b300",
-            "source": "2d6a7378-9836-440e-ab05-440f942742a5",
-            "sourceHandle": "forkResultOk",
-            "target": "eee464e1-1b2f-4b13-ad71-5606bc0f3f82",
-            "targetHandle": null,
+            "id": "96a9e03c-5cb2-4795-86f7-69f687e1c282",
+            "source": "946ee162-be16-424d-aea0-c64842768c18",
+            "sourceHandle": "dataStream",
+            "target": "02b308ea-b23e-4a21-9aaf-7efeb3fde1df",
             "markerEnd": {
               "type": "arrowclosed",
               "width": 20,
               "height": 20
             },
-            "type": "forkResultOk",
+            "type": "streamOut",
             "data": {
-              "output": {},
-              "input": {
-                "type": "default"
-              }
-            }
-          },
-          {
-            "id": "c3506eee-c9b1-4fcf-8eca-e7378b448298",
-            "source": "2d6a7378-9836-440e-ab05-440f942742a5",
-            "sourceHandle": "forkResultErr",
-            "target": ":__builtin_terminate__",
-            "targetHandle": null,
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "forkResultErr",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "default"
-              }
-            }
-          },
-          {
-            "id": "23cdd58c-244d-4f2e-9509-f6b3b115105c",
-            "source": "f3537259-794f-465c-a0dc-9120895d009a",
-            "sourceHandle": null,
-            "target": "2d6a7378-9836-440e-ab05-440f942742a5",
-            "targetHandle": null,
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "default",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "default"
-              }
-            }
-          },
-          {
-            "id": "6fa805fa-6f34-4bca-be3d-061864570e1a",
-            "source": "d38c49a1-70dc-4acf-b783-b9caeddadce3",
-            "sourceHandle": null,
-            "target": "a9095e07-0310-448a-8cf2-5431c50227bc",
-            "targetHandle": null,
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "buffer",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "bufferSeq",
-                "seq": 0
-              }
-            },
-            "style": {}
-          },
-          {
-            "id": "b82e2c18-b382-4c42-ba1c-716994120457",
-            "source": "20ee0f2c-cf73-4e25-9624-142924826e33",
-            "sourceHandle": null,
-            "target": "a9095e07-0310-448a-8cf2-5431c50227bc",
-            "targetHandle": null,
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "default",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "default"
-              }
-            }
-          },
-          {
-            "id": "99c71bce-b522-4902-bc07-e15b09b1e35c",
-            "source": "eee464e1-1b2f-4b13-ad71-5606bc0f3f82",
-            "sourceHandle": null,
-            "target": "20ee0f2c-cf73-4e25-9624-142924826e33",
-            "targetHandle": null,
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "default",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "default"
-              }
-            }
-          },
-          {
-            "id": "a8b5429d-02fb-4400-b914-18e2347f6357",
-            "source": "eee464e1-1b2f-4b13-ad71-5606bc0f3f82",
-            "sourceHandle": null,
-            "target": "eda9aef1-bf75-4b01-8472-5dd556f4ed83",
-            "targetHandle": null,
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "default",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "default"
-              }
-            }
-          },
-          {
-            "id": "daaff302-2b21-489d-8db9-7dc26767b86f",
-            "source": "f512d341-352e-4a2b-9718-5af1413d1dbc",
-            "target": "0e08f914-eb24-4b82-a618-161667565eb5",
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "default",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "default"
-              }
-            }
-          },
-          {
-            "id": "fd110bbb-2048-4e07-ad6a-c93e19471168",
-            "source": "a9095e07-0310-448a-8cf2-5431c50227bc",
-            "target": "b763320e-8304-4e6a-86b3-e5978a670a97",
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "default",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "default"
-              }
-            }
-          },
-          {
-            "id": "da66dd2e-8503-4c26-809c-0af0f7e1c1c9",
-            "source": "d38c49a1-70dc-4acf-b783-b9caeddadce3",
-            "target": "e4777347-b470-4dba-9539-daf76a285aed",
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "buffer",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "bufferSeq",
-                "seq": 0
-              }
-            },
-            "style": {}
-          },
-          {
-            "id": "fe8b2a1a-fd57-4488-9b79-27b75a58225f",
-            "source": "e4777347-b470-4dba-9539-daf76a285aed",
-            "target": "f512d341-352e-4a2b-9718-5af1413d1dbc",
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "default",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "default"
-              }
-            }
-          },
-          {
-            "id": "38c331d5-ea5d-47cf-837e-a7fcac803c12",
-            "source": "945cd6f1-9cda-44dc-9c89-9f49c55ce1c0",
-            "sourceHandle": "forkResultOk",
-            "target": "e4777347-b470-4dba-9539-daf76a285aed",
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "forkResultOk",
-            "data": {
-              "output": {},
+              "output": {
+                "streamId": "trigger"
+              },
               "input": {
                 "type": "default"
               }
             },
-            "selected": true
+            "selected": false
           }
         ]
       }

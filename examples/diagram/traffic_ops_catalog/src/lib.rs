@@ -49,10 +49,16 @@ pub mod vehicle;
 pub use vehicle::*;
 
 #[derive(StreamPack)]
+struct MidJourneyStreams {
+    trigger: (),
+}
+
+#[derive(StreamPack)]
 struct TrafficStateStreams {
     traffic_signal: TrafficSignal,
     obstacles: Obstacles,
     arriving: ApproachingIntersection,
+    speed_limit: SpeedLimit,
 }
 
 #[derive(Clone, Accessor)]
@@ -60,6 +66,7 @@ struct TrafficStateAccessor {
     traffic_signal: BufferKey<TrafficSignal>,
     obstacles: BufferKey<Obstacles>,
     arriving: BufferKey<ApproachingIntersection>,
+    speed_limit: BufferKey<SpeedLimit>,
 }
 
 #[derive(Clone, Accessor)]
@@ -111,14 +118,24 @@ pub fn register(setup: &mut BasicExecutorSetup) {
             request: distance_to_destination,
             ..
         }: Blocking<f32>,
+        mut commands: Commands,
         mut vehicle_state: ResMut<VehicleState>,
+        vehicle_velocity: Query<Entity, (With<MainVehicle>, With<Velocity>)>,
     ) -> Result<(), TripRequestError> {
+        let Ok(e) = vehicle_velocity.single() else {
+            return Err(TripRequestError::EngineStartError);
+        };
+        let e_cmds = commands.entity(e);
+
         vehicle_state.toggle_engine(true);
         if vehicle_state.set_distance_to_destination(distance_to_destination) {
             info!(
                 "Vehicle beginning its trip, distance to destination: {}",
                 vehicle_state.distance_left()
             );
+            // Move vehicle forward upon starting engine
+            vehicle_state.try_move(e_cmds, MoveVehicle::Forward(Velocity::default_forward()));
+
             Ok(())
         } else {
             info!(
@@ -232,21 +249,6 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         NodeBuilderOptions::new("detect_traffic_signal".to_string())
             .with_description(detect_traffic_signal_description),
         move |builder, _config: ()| builder.create_node(detect_traffic_signal_service),
-    );
-
-    // =========================================================================
-    let trigger_check_description = "Trigger a check every interval";
-    registry.register_node_builder(
-        NodeBuilderOptions::new("trigger_check").with_description(trigger_check_description),
-        |builder, _config: ()| {
-            builder.create_map_async(|_: ()| {
-                async move {
-                    // Sleep for X seconds to allow events to be detected
-                    // TODO(@xiyuoh) Make this configurable from config
-                    sleep(Duration::from_millis(500));
-                }
-            })
-        },
     );
 
     // =========================================================================
@@ -404,7 +406,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
             .map(|tf| tf.translation.y)
         {
             let distance_to_intersection = y_next_light - y_vehicle;
-            if distance_to_intersection < 0.5 * world_limits.vehicle_size.1
+            if distance_to_intersection <= 0.5 * world_limits.vehicle_size.1
                 || distance_to_intersection > world_limits.vehicle_size.1
             {
                 // Ignore if vehicle's front has already passed the intersection
@@ -513,46 +515,62 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         .with_common_response();
 
     // =========================================================================
+    let check_speed_limit_description = "Checks the current speed limit on the road";
+    fn check_speed_limit(
+        srv: ContinuousService<(), (), TrafficStateStreams>,
+        mut orders: ContinuousQuery<(), (), TrafficStateStreams>,
+        current_speed_limit: Res<CurrentSpeedLimit>,
+    ) {
+        let Some(mut orders) = orders.get_mut(&srv.key) else {
+            return;
+        };
+
+        if orders.is_empty() {
+            return;
+        }
+
+        orders.for_each(|order| {
+            order
+                .streams()
+                .speed_limit
+                .send(current_speed_limit.0.clone())
+        });
+    }
+
+    let check_speed_limit_service = app.spawn_continuous_service(PostUpdate, check_speed_limit);
+    registry.register_node_builder(
+        NodeBuilderOptions::new("check_speed_limit".to_string())
+            .with_description(check_speed_limit_description),
+        move |builder, _config: ()| builder.create_node(check_speed_limit_service),
+    );
+
+    // =========================================================================
     let follow_speed_limit_description = "Check the current speed limit and clamp
         vehicle speed if it exceeds limit";
     fn follow_speed_limit(
         Blocking {
-            request: next_move, ..
-        }: Blocking<MoveVehicle>,
-        current_speed_limit: Res<CurrentSpeedLimit>,
+            request: (_, key),
+            id,
+            ..
+        }: Blocking<((), BufferKey<SpeedLimit>)>,
+        mut access: BufferAccessMut<SpeedLimit>,
         vehicle_state: Res<VehicleState>,
-    ) -> MoveVehicle {
-        match next_move {
-            MoveVehicle::Forward(ref velocity) => {
-                if velocity.y >= current_speed_limit.0.0 as f32 {
-                    // If the requested velocity is above speed limit, check the
-                    // vehicle's current speed. Slow down if above limit.
-                    if vehicle_state.speed() >= current_speed_limit.0.0 {
-                        return MoveVehicle::ChangeSpeed(Acceleration::default_slow_down());
-                    }
-                }
-            }
-            MoveVehicle::ChangeSpeed(ref acceleration) => {
-                if acceleration.y >= 0.0 {
-                    // If vehicle is speeding up, check vehicle state and whether
-                    // the current speed is already above limit. If so, slow down.
-                    if vehicle_state.speed() as f32 >= current_speed_limit.0.0 as f32 {
-                        return MoveVehicle::ChangeSpeed(Acceleration::default_slow_down());
-                    }
-                }
-            }
-            MoveVehicle::ChangeLane(ref velocity) => {
-                // If ChangeLane velocity is higher than speed limit, slow down instead
-                if velocity.y > current_speed_limit.0.0 as f32 {
-                    return MoveVehicle::ChangeSpeed(Acceleration::default_slow_down());
-                }
-            }
-            MoveVehicle::Stop => {
-                // Do nothing if the vehicle is already stopping
-            }
+    ) -> Result<MoveVehicle, ()> {
+        let Some(speed_limit) = access
+            .get_mut(id, &key)
+            .ok()
+            .map(|res| res.newest().cloned())
+            .flatten()
+        else {
+            return Err(());
+        };
+
+        let vehicle_speed = vehicle_state.speed();
+        if vehicle_speed >= speed_limit.0 {
+            return Ok(MoveVehicle::ChangeSpeed(Acceleration::default_slow_down()));
         }
 
-        next_move
+        Ok(MoveVehicle::Forward(Velocity::default_forward()))
     }
     let follow_speed_limit_service = app.spawn_service(follow_speed_limit);
     registry
@@ -564,6 +582,8 @@ pub fn register(setup: &mut BasicExecutorSetup) {
                 .with_description(follow_speed_limit_description),
             move |builder, _config: ()| builder.create_node(follow_speed_limit_service),
         )
+        .with_buffer_access()
+        .with_result()
         .with_common_response();
 
     // =========================================================================
@@ -772,6 +792,8 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         mut traffic_signal_access: BufferAccessMut<TrafficSignal>,
         mut obstacles_access: BufferAccessMut<Obstacles>,
         mut arriving_access: BufferAccessMut<ApproachingIntersection>,
+        mut speed_limit_access: BufferAccessMut<SpeedLimit>,
+        vehicle_state: Res<VehicleState>,
         world_limits: Res<WorldLimits>,
     ) -> Result<MoveVehicle, TripRequestError> {
         let Ok(traffic_signal_buffer) = traffic_signal_access.get(id, &keys.traffic_signal) else {
@@ -784,6 +806,10 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         };
         let Ok(obstacles_buffer) = obstacles_access.get(id, &keys.obstacles) else {
             error!("Unable to access obstacles buffer");
+            return Err(TripRequestError::BufferAccessError);
+        };
+        let Ok(speed_limit_buffer) = speed_limit_access.get(id, &keys.speed_limit) else {
+            error!("Unable to access speed limit buffer");
             return Err(TripRequestError::BufferAccessError);
         };
 
@@ -805,15 +831,26 @@ pub fn register(setup: &mut BasicExecutorSetup) {
             MoveVehicle::Stop
         };
 
+        let mut best_move = signal_next_move.clone();
         // If obstacles buffer is non-empty, determine the best move from all
         // buffers
         if let Some(obstacles_next_move) = obstacles_buffer.newest().and_then(|obstacles| {
             determine_next_move_from_obstacles(&obstacles, &world_limits).ok()
         }) {
-            return Ok(choose_best_move(&signal_next_move, &obstacles_next_move));
+            best_move = choose_best_move(&signal_next_move, &obstacles_next_move);
+        }
+        // If speed limit buffer is non-empty, clamp speed and choose the best move
+        if let Some(speed_limit_move) = speed_limit_buffer.newest().cloned().map(|limit| {
+            if vehicle_state.speed() >= limit.0 {
+                MoveVehicle::ChangeSpeed(Acceleration::default_slow_down())
+            } else {
+                MoveVehicle::Forward(Velocity::default_forward())
+            }
+        }) {
+            best_move = choose_best_move(&best_move, &speed_limit_move);
         }
 
-        Ok(signal_next_move)
+        Ok(best_move)
     }
     let listen_traffic_state_service = app.spawn_service(listen_traffic_state);
     registry
@@ -830,19 +867,8 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         .with_common_response();
 
     // =========================================================================
-    let move_forward_description = "Generates a MoveVehicle::Forward output";
-    fn move_forward(Blocking { .. }: Blocking<()>) -> MoveVehicle {
-        MoveVehicle::Forward(Velocity::default_forward())
-    }
-    registry.register_node_builder(
-        NodeBuilderOptions::new("move_forward".to_owned())
-            .with_description(move_forward_description),
-        |builder, _config: ()| builder.create_node(move_forward.into_callback()),
-    );
-
-    // =========================================================================
-    let move_vehicle_description = "Move vehicle";
-    fn move_vehicle(
+    let accelerate_vehicle_description = "Accelerate vehicle based on the requested MoveVehicle";
+    fn accelerate_vehicle(
         Blocking {
             request: move_vehicle,
             ..
@@ -855,35 +881,73 @@ pub fn register(setup: &mut BasicExecutorSetup) {
             return;
         };
         let e_cmds = commands.entity(e);
-        vehicle_state.try_move(e_cmds, move_vehicle);
+
+        match move_vehicle {
+            MoveVehicle::Forward(velocity) => {
+                if velocity.y > vehicle_state.speed() as f32 {
+                    // If the vehicle is starting to move from a stationary state,
+                    // speed up quickly. Else, use the default acceleration.
+                    if vehicle_state.speed() < 20 {
+                        vehicle_state.try_move(
+                            e_cmds,
+                            MoveVehicle::ChangeSpeed(Acceleration::quick_speed_up()),
+                        );
+                    } else {
+                        vehicle_state.try_move(
+                            e_cmds,
+                            MoveVehicle::ChangeSpeed(Acceleration::default_speed_up()),
+                        );
+                    }
+                } else {
+                    vehicle_state.try_move(
+                        e_cmds,
+                        MoveVehicle::ChangeSpeed(Acceleration::default_slow_down()),
+                    );
+                }
+            }
+            _ => {
+                vehicle_state.try_move(e_cmds, move_vehicle);
+            }
+        }
     }
-    let move_vehicle_service = app.spawn_service(move_vehicle);
+    let accelerate_vehicle_service = app.spawn_service(accelerate_vehicle);
     registry.register_node_builder(
-        NodeBuilderOptions::new("move_vehicle".to_string())
-            .with_description(move_vehicle_description),
-        move |builder, _config: ()| builder.create_node(move_vehicle_service),
+        NodeBuilderOptions::new("accelerate_vehicle".to_string())
+            .with_description(accelerate_vehicle_description),
+        move |builder, _config: ()| builder.create_node(accelerate_vehicle_service),
     );
 
     // =========================================================================
-    let destination_reached_description = "Check if the main vehicle has reached the destination";
-    fn destination_reached(
-        Blocking { .. }: Blocking<()>,
+    let wait_for_destination_reached_description =
+        "Wait until the main vehicle has reached the destination";
+    fn wait_for_destination_reached(
+        srv: ContinuousService<(), (), MidJourneyStreams>,
+        mut orders: ContinuousQuery<(), (), MidJourneyStreams>,
         vehicle_state: Res<VehicleState>,
-    ) -> Result<(), ()> {
+    ) {
+        let Some(mut orders) = orders.get_mut(&srv.key) else {
+            return;
+        };
+        if orders.is_empty() {
+            return;
+        }
+        let Some(order) = orders.get_mut(0) else {
+            return;
+        };
+
         if vehicle_state.at_destination() {
-            Ok(())
+            order.respond(());
         } else {
-            Err(())
+            order.streams().trigger.send(());
         }
     }
-    let destination_reached_service = app.spawn_service(destination_reached);
-    registry
-        .register_node_builder(
-            NodeBuilderOptions::new("destination_reached".to_string())
-                .with_description(destination_reached_description),
-            move |builder, _config: ()| builder.create_node(destination_reached_service),
-        )
-        .with_result();
+    let wait_for_destination_reached_service =
+        app.spawn_continuous_service(PostUpdate, wait_for_destination_reached);
+    registry.register_node_builder(
+        NodeBuilderOptions::new("wait_for_destination_reached".to_string())
+            .with_description(wait_for_destination_reached_description),
+        move |builder, _config: ()| builder.create_node(wait_for_destination_reached_service),
+    );
 
     // =========================================================================
     let stop_engine_description = "Stop engine and reset vehicle";
@@ -927,7 +991,6 @@ fn choose_best_move(move_a: &MoveVehicle, move_b: &MoveVehicle) -> MoveVehicle {
 }
 
 fn determine_next_move_from_traffic_signal(signal: &TrafficSignal) -> MoveVehicle {
-    // TODO(@xiyuoh) only process changes if vehicle is within X distance of traffic light
     return match signal {
         TrafficSignal::Green => MoveVehicle::Forward(Velocity::default_forward()),
         TrafficSignal::Yellow => MoveVehicle::ChangeSpeed(Acceleration::default_slow_down()), // slow down for yellow light

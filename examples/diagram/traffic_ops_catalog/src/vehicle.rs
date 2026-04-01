@@ -117,17 +117,7 @@ impl VehicleState {
     pub fn try_move(&mut self, mut e_cmds: EntityCommands, move_vehicle: MoveVehicle) -> &mut Self {
         match move_vehicle {
             MoveVehicle::Forward(velocity) => {
-                if velocity.y > self.speed as f32 {
-                    // If the vehicle is starting to move from a stationary state,
-                    // speed up quickly. Else, use the default acceleration.
-                    if self.speed < 20 {
-                        e_cmds.insert(Acceleration::quick_speed_up());
-                    } else {
-                        e_cmds.insert(Acceleration::default_speed_up());
-                    }
-                } else {
-                    e_cmds.insert(Acceleration::default_slow_down());
-                }
+                e_cmds.insert(velocity);
             }
             MoveVehicle::ChangeSpeed(acceleration) => {
                 e_cmds.insert(acceleration);

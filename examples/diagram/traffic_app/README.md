@@ -13,7 +13,6 @@ Basic/utility nodes to get started:
 | ------ |------------ | ------- | -------- |
 | `start_engine` | Takes in a float representing the requested trip distance, and toggles the engine on and sets the distance to destination in `VehicleState`. | `f32` | `Result<(), TripRequestError>` |
 | `trigger_check` | This is an async node that sleeps for 500ms to allow other parts of the traffic simulator to run. This is useful in workflows that contain all `Blocking` nodes, and prevents the app from being stuck executing the workflow. | - | - |
-| `move_forward` | Outputs the default forward movement. Useful for testing the base workflow. | - | `MoveVehicle` |
 | `move_vehicle` | Given the input `MoveVehicle` command, attempt to move the simulated vehicle accordingly. | `MoveVehicle` | - |
 | `destination_reached` | Checks the current `VehicleState` and whether the vehicle has completed travelling the requested distance. | - | `Result<(), ()>` |
 | `stop_engine` | Stops the vehicle, turns its engine off, and reset state parameters. | - | - |
