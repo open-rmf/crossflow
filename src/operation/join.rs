@@ -18,28 +18,59 @@
 use bevy_ecs::prelude::{Component, Entity};
 
 use crate::{
-    FunnelInputStorage, Input, InputBundle, Joining, ManageInput, Operation, OperationCleanup,
-    OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ReachabilityResult, RequestId, SingleInputStorage, SingleTargetStorage, output_port,
+    FunnelInputStorage, Input, InputBundle, Joined, Joining, ManageInput, Operation,
+    OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationSetup,
+    OrBroken, ReachabilityResult, RequestId, SingleInputStorage, SingleTargetStorage, output_port,
 };
 
-pub(crate) struct Join<Buffers> {
+pub(crate) struct Join<Buffers: Joining, Target = <Buffers as Joining>::Item> {
     buffers: Buffers,
     target: Entity,
+    from_item: fn(Buffers::Item) -> Target,
 }
 
-impl<Buffers> Join<Buffers> {
+impl<Buffers: Joining> Join<Buffers> {
     pub(crate) fn new(buffers: Buffers, target: Entity) -> Self {
-        Self { buffers, target }
+        Self {
+            buffers,
+            target,
+            from_item: |x| x,
+        }
+    }
+}
+
+impl<Buffers: Joining, Target> Join<Buffers, Target> {
+    pub(crate) fn for_joined(buffers: Buffers, target: Entity) -> Self
+    where
+        Target: Joined<Buffers = Buffers>,
+    {
+        Self {
+            buffers,
+            target,
+            from_item: Target::from_item,
+        }
     }
 }
 
 #[derive(Component)]
-struct BufferStorage<Buffers>(Buffers);
+struct JoinStorage<Buffers: Joining, Target> {
+    buffers: Buffers,
+    from_item: fn(Buffers::Item) -> Target,
+}
 
-impl<Buffers: Joining + 'static + Send + Sync> Operation for Join<Buffers>
+impl<Buffers: Joining, Target> Clone for JoinStorage<Buffers, Target> {
+    fn clone(&self) -> Self {
+        Self {
+            buffers: self.buffers.clone(),
+            from_item: self.from_item,
+        }
+    }
+}
+
+impl<Buffers: Joining + 'static + Send + Sync, Target> Operation for Join<Buffers, Target>
 where
     Buffers::Item: 'static + Send + Sync,
+    Target: 'static + Send + Sync,
 {
     fn setup(self, OperationSetup { source, world }: OperationSetup) -> OperationResult {
         world
@@ -51,7 +82,10 @@ where
 
         world.entity_mut(source).insert((
             FunnelInputStorage::from(self.buffers.as_input()),
-            BufferStorage(self.buffers),
+            JoinStorage {
+                buffers: self.buffers,
+                from_item: self.from_item,
+            },
             InputBundle::<()>::new(),
             SingleTargetStorage::new(self.target),
         ));
@@ -68,10 +102,9 @@ where
         let Input { session, seq, .. } = world.take_input::<()>(source)?;
         let source_ref = world.get_entity(source).or_broken()?;
         let target = source_ref.get::<SingleTargetStorage>().or_broken()?.get();
-        let buffers = source_ref
-            .get::<BufferStorage<Buffers>>()
+        let JoinStorage { buffers, from_item } = source_ref
+            .get::<JoinStorage<Buffers, Target>>()
             .or_broken()?
-            .0
             .clone();
 
         let req = RequestId {
@@ -85,7 +118,9 @@ where
                 return Ok(());
             }
 
-            let output = buffers.fetch_for_join(req, session, world)?;
+            let item = buffers.fetch_for_join(req, session, world)?;
+            let output = from_item(item);
+
             let route = req.to_message_route(&port, target);
             world.give_input(route, output, roster)?;
         }
@@ -97,10 +132,11 @@ where
     }
 
     fn is_reachable(mut r: OperationReachability) -> ReachabilityResult {
-        let buffers = r
+        let buffers = &r
             .world
-            .get::<BufferStorage<Buffers>>(r.source)
-            .or_broken()?;
+            .get::<JoinStorage<Buffers, Target>>(r.source)
+            .or_broken()?
+            .buffers;
 
         let inputs = r
             .world
@@ -112,7 +148,7 @@ where
             if !r.check_upstream(*input)? {
                 // This input buffer is no longer reachable, so if it is also
                 // empty then there will be no way to ever perform a join.
-                if buffers.0.buffered_count_for(*input, r.session, r.world)? == 0 {
+                if buffers.buffered_count_for(*input, r.session, r.world)? == 0 {
                     return Ok(false);
                 }
             }

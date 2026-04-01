@@ -1243,8 +1243,8 @@ mod tests {
             return Err(());
         }
 
-        if let Ok(Some(json)) = world.json_buffer_view(id, &keys.json).unwrap().newest() {
-            assert_eq!(&json, expected);
+        if let Some(json) = world.json_buffer_view(id, &keys.json).unwrap().newest() {
+            assert_eq!(&json.serialize().unwrap(), expected);
         } else {
             return Err(());
         }

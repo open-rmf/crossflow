@@ -1191,4 +1191,13 @@ pub(crate) mod tests {
         stream_i32: i32,
         stream_string: String,
     }
+
+    /// Test that a StreamPack can be created when one of the stream messages
+    /// is not cloneable.
+    #[derive(StreamPack)]
+    struct NonCloneStreamPack {
+        not_cloneable: NotCloneable,
+    }
+
+    struct NotCloneable;
 }

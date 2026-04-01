@@ -38,7 +38,7 @@ use crate::{
 #[cfg(feature = "trace")]
 use crate::{
     BufferAccessRecord, BufferEvent, BufferModification, BufferPush, BufferRemoval, BufferTracer,
-    MessageTracer, TraceBuffer, TraceTarget, TracedEvent, TracedMessage,
+    MessageTracer, TraceBuffer, TraceTarget, TracedEvent, TracedMessage, WriteToTraceLog,
 };
 
 /// A wrapper type that allows the tracing feature to track changes to buffer
@@ -126,11 +126,11 @@ impl<'w, 's, T: 'static + Send + Sync> BufferMutQuery<'w, 's, T> {
             storage,
             input,
             req,
-            commands: &mut self.commands,
+            commands: &mut self.commands as *mut _,
             bmut: BMutBuilder {
                 key: key.clone(),
                 #[cfg(feature = "trace")]
-                tracer: &self.tracer,
+                tracer: &self.tracer as *const _,
                 _ignore: Default::default(),
             },
         })
@@ -164,7 +164,11 @@ pub(crate) struct BufferManager<'w, 's, 'a, T: 'static + Send + Sync> {
     storage: Mut<'a, BufferStorage<T>>,
     input: Mut<'a, InputStorage<T>>,
     pub(crate) req: RequestId,
-    pub(crate) commands: &'a mut Commands<'w, 's>,
+    // TODO(@mxgrey): We use a raw pointer here to escape an HRTB bug in the
+    // Rust compiler: https://github.com/rust-lang/rust/issues/100013
+    // When that issue is resolved we should try to revert this to a regular
+    // safe borrow.
+    pub(crate) commands: *mut Commands<'w, 's>,
     bmut: BMutBuilder<'w, 's, 'a>,
 }
 
@@ -173,8 +177,12 @@ pub(crate) struct BufferManager<'w, 's, 'a, T: 'static + Send + Sync> {
 #[derive(Clone)]
 struct BMutBuilder<'w, 's, 'a> {
     key: BufferKeyTag,
+    // TODO(@mxgrey): We use a raw pointer here to escape an HRTB bug in the
+    // Rust compiler: https://github.com/rust-lang/rust/issues/100013
+    // When that issue is resolved we should try to revert this to a regular
+    // safe borrow.
     #[cfg(feature = "trace")]
-    tracer: &'a BufferTracer<'w, 's>,
+    tracer: *const BufferTracer<'w, 's>,
     _ignore: std::marker::PhantomData<fn(&'w (), &'s (), &'a ())>,
 }
 
@@ -184,7 +192,9 @@ impl<'w, 's, 'a> BMutBuilder<'w, 's, 'a> {
             entry,
             tracer: BMutTracer {
                 #[cfg(feature = "trace")]
-                trace: self.tracer.get_message_tracer(&self.key),
+                // SAFETY: The tracer pointer comes from a valid reference that
+                // outlives this BufferManager, so it is safe to dereference.
+                trace: unsafe { &*self.tracer }.get_message_tracer(&self.key),
                 _ignore: Default::default(),
             },
         }
@@ -234,7 +244,7 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
             &self.bmut.key,
             self.commands,
             #[cfg(feature = "trace")]
-            &self.bmut.tracer,
+            self.bmut.tracer,
         );
 
         removed.map(|e| e.message)
@@ -257,7 +267,7 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
             &self.bmut.key,
             self.commands,
             #[cfg(feature = "trace")]
-            &self.bmut.tracer,
+            self.bmut.tracer,
         );
 
         removed.map(|e| e.message)
@@ -347,7 +357,9 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
                 .get_mut(&self.bmut.key.session)
                 .map(|q| q.iter_mut().rev()),
             #[cfg(feature = "trace")]
-            trace: self.bmut.tracer.get_message_tracer(&self.bmut.key),
+            // SAFETY: The tracer pointer comes from a valid reference that
+            // outlives this BufferManager, so it is safe to dereference.
+            trace: unsafe { &*self.bmut.tracer }.get_message_tracer(&self.bmut.key),
         }
     }
 
@@ -389,7 +401,7 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
                         &self.bmut.key,
                         self.commands,
                         #[cfg(feature = "trace")]
-                        &self.bmut.tracer,
+                        self.bmut.tracer,
                     );
                 }
 
@@ -425,11 +437,13 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
                 .map(|q| q.drain(range).rev()),
             _commands: self.commands,
             #[cfg(feature = "trace")]
-            tracer: self.bmut.tracer.get_message_tracer(&self.bmut.key),
+            // SAFETY: The tracer pointer comes from a valid reference that
+            // outlives this BufferManager, so it is safe to dereference.
+            tracer: unsafe { &*self.bmut.tracer }.get_message_tracer(&self.bmut.key),
             #[cfg(feature = "trace")]
-            accessor: self.bmut.tracer.get_trace_target(self.req),
+            accessor: unsafe { &*self.bmut.tracer }.get_trace_target(self.req),
             #[cfg(feature = "trace")]
-            buffer: self.bmut.tracer.get_trace_buffer(&self.bmut.key),
+            buffer: unsafe { &*self.bmut.tracer }.get_trace_buffer(&self.bmut.key),
         }
     }
 
@@ -440,8 +454,8 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
         message: T,
         _req: &RequestId,
         _key: &BufferKeyTag,
-        _cmds: &mut Commands,
-        #[cfg(feature = "trace")] tracer: &BufferTracer,
+        _cmds: *mut Commands,
+        #[cfg(feature = "trace")] tracer: *const BufferTracer,
     ) -> Option<BufferEntry<T>> {
         let entry = BufferEntry::new(seq, message);
         let replaced = match retention {
@@ -476,16 +490,19 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
 
     #[cfg(feature = "trace")]
     fn trace_modifications(&mut self) {
-        let toggle = self.bmut.tracer.get_trace_toggle(&self.bmut.key);
+        // SAFETY: Both pointers come from valid references that outlive this
+        // BufferManager, so they are safe to dereference.
+        let (commands, tracer) = unsafe { (&mut *self.commands, &*self.bmut.tracer) };
+        let toggle = tracer.get_trace_toggle(&self.bmut.key);
         if !toggle.is_on() {
             return;
         }
 
         let instant = std::time::Instant::now();
         let time = std::time::SystemTime::now();
-        let accessor = self.bmut.tracer.get_trace_target(self.req);
-        let buffer = self.bmut.tracer.get_trace_buffer(&self.bmut.key);
-        let trace = self.bmut.tracer.get_message_tracer(&self.bmut.key);
+        let accessor = tracer.get_trace_target(self.req);
+        let buffer = tracer.get_trace_buffer(&self.bmut.key);
+        let trace = tracer.get_message_tracer(&self.bmut.key);
 
         if let Some(reverse_queue) = self.storage.reverse_queues.get_mut(&self.bmut.key.session) {
             for BufferEntry {
@@ -505,7 +522,7 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
                         }),
                     };
 
-                    self.commands.trigger(TracedEvent {
+                    commands.write_trace(TracedEvent {
                         event: event.into(),
                         instant,
                         time,
@@ -522,9 +539,12 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
         position: usize,
         req: &RequestId,
         key: &BufferKeyTag,
-        cmds: &mut Commands,
-        tracer: &BufferTracer,
+        cmds: *mut Commands,
+        tracer: *const BufferTracer,
     ) {
+        // SAFETY: Both pointers come from valid references that outlive the
+        // BufferManager, so they are safe to dereference.
+        let (cmds, tracer) = unsafe { (&mut *cmds, &*tracer) };
         let toggle = tracer.get_trace_toggle(key);
         if toggle.is_on() {
             let trace = tracer.get_message_tracer(key);
@@ -540,7 +560,7 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
                     buffer: buffer.clone(),
                     access,
                 };
-                cmds.trigger(TracedEvent {
+                cmds.write_trace(TracedEvent {
                     event: event.into(),
                     instant,
                     time,
@@ -559,7 +579,7 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
                 buffer,
                 access,
             };
-            cmds.trigger(TracedEvent {
+            cmds.write_trace(TracedEvent {
                 event: event.into(),
                 instant,
                 time,
@@ -569,19 +589,22 @@ impl<'w, 's, 'a, T: 'static + Send + Sync> BufferManager<'w, 's, 'a, T> {
 
     #[cfg(feature = "trace")]
     fn trace_removal(&mut self, seq: Seq) {
-        let toggle = self.bmut.tracer.get_trace_toggle(&self.bmut.key);
+        // SAFETY: Both pointers come from valid references that outlive this
+        // BufferManager, so they are safe to dereference.
+        let (commands, tracer) = unsafe { (&mut *self.commands, &*self.bmut.tracer) };
+        let toggle = tracer.get_trace_toggle(&self.bmut.key);
         if toggle.is_on() {
             let instant = std::time::Instant::now();
             let time = std::time::SystemTime::now();
-            let accessor = self.bmut.tracer.get_trace_target(self.req);
-            let buffer = self.bmut.tracer.get_trace_buffer(&self.bmut.key);
+            let accessor = tracer.get_trace_target(self.req);
+            let buffer = tracer.get_trace_buffer(&self.bmut.key);
             let access = BufferAccessRecord::Removed(BufferRemoval { seq });
             let event = BufferEvent {
                 accessor,
                 buffer,
                 access,
             };
-            self.commands.trigger(TracedEvent {
+            commands.write_trace(TracedEvent {
                 event: event.into(),
                 instant,
                 time,
@@ -659,7 +682,7 @@ impl<T> BufferStorage<T> {
         }
     }
 
-    pub(crate) fn oldest(&self, session: Entity) -> Option<&T> {
+    pub(crate) fn oldest<'a>(&'a self, session: Entity) -> Option<&'a T> {
         self.reverse_queues
             .get(&session)
             .and_then(|q| q.last())
@@ -761,7 +784,11 @@ where
     T: 'static + Send + Sync,
 {
     drain: Option<Rev<Drain<'b, [BufferEntry<T>; 16]>>>,
-    _commands: &'b mut Commands<'w, 's>,
+    // TODO(@mxgrey): We use a raw pointer here to escape an HRTB bug in the
+    // Rust compiler: https://github.com/rust-lang/rust/issues/100013
+    // When that issue is resolved we should try to revert this to a regular
+    // safe borrow.
+    _commands: *mut Commands<'w, 's>,
     #[cfg(feature = "trace")]
     tracer: MessageTracer<'b>,
     #[cfg(feature = "trace")]
@@ -793,7 +820,9 @@ where
                     buffer: self.buffer.clone(),
                     access,
                 };
-                self._commands.trigger(TracedEvent {
+                // SAFETY: The _commands pointer comes from a valid reference
+                // that outlives this DrainBuffer, so it is safe to dereference.
+                unsafe { &mut *self._commands }.write_trace(TracedEvent {
                     event: event.into(),
                     instant,
                     time,
