@@ -1107,8 +1107,6 @@ impl DiagramErrorCode {
     }
 }
 
-
-
 // TODO(@mxgrey): Add explainability to this error. E.g. say in plain words why
 // there was no valid choice.
 #[derive(Clone, ThisError, Default)]
