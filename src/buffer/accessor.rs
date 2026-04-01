@@ -17,7 +17,11 @@
 
 use variadics_please::all_tuples;
 
-use std::{collections::HashMap, hash::Hash};
+use std::{
+    collections::HashMap,
+    hash::Hash,
+    sync::Arc,
+};
 
 use thiserror::Error as ThisError;
 

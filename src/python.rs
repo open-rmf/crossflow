@@ -17,31 +17,96 @@
 
 #[pyo3::pymodule]
 mod crossflow {
-    use crate::{InnerChannel, JsonBufferKey};
+    use crate::{
+        Channel, JsonBufferKey, IdentifierRef, AccessError, BufferError, OverlapError,
+        JsonBufferMut,
+        Reply, format_vertical_list
+    };
     use std::{
         collections::HashMap,
-        sync::Arc
+        sync::{Arc, Mutex},
+    };
+    use futures::{
+        future::Shared,
+        FutureExt,
     };
     use pyo3::prelude::*;
+
+    impl From<BufferError> for PyErr {
+        fn from(value: BufferError) -> Self {
+            pyo3::exceptions::PyKeyError::new_err(format!("{value}"))
+        }
+    }
+
+    impl From<OverlapError> for PyErr {
+        fn from(value: OverlapError) -> Self {
+            pyo3::exceptions::PyValueError::new_err(format!("{value}"))
+        }
+    }
+
+    impl From<AccessError> for PyErr {
+        fn from(value: AccessError) -> Self {
+            match value {
+                AccessError::NotDisjoint(overlap) => {
+                    overlap.into()
+                }
+                AccessError::Inaccessible(error) => {
+                    error.into()
+                }
+                AccessError::Multiple(multiple) => {
+                    pyo3::exceptions::PyValueError::new_err(
+                        format!(
+                            "Multiple errors encountered:{}",
+                            format_vertical_list(&multiple),
+                        )
+                    )
+                }
+            }
+        }
+    }
 
     #[derive(Clone)]
     #[pyclass(from_py_object)]
     struct PythonAccessor {
-        accessors: HashMap<String, JsonBufferKey>,
+        accessors: Arc<HashMap<IdentifierRef<'static>, JsonBufferKey>>,
     }
 
     #[derive(Clone)]
     #[pyclass(from_py_object)]
     struct PythonChannel {
-        inner: Arc<InnerChannel>,
+        channel: Arc<Channel>,
     }
 
     #[pymethods]
     impl PythonChannel {
-        fn access(&self, accessor: PythonAccessor) -> PyResult<()> {
-            Ok(())
+        fn access(&self, accessor: PythonAccessor, callback: Py<PyAny>) -> PythonReply {
+            let accessor_map = accessor.accessors.as_ref().clone();
+            let reply = self.channel.access(accessor_map, move |access| {
+                Python::attach(move |py| {
+                    Arc::new(callback.call0(py))
+                })
+            })
+            .shared();
+
+            PythonReply { reply }
         }
     }
+
+    /// This wraps the [`Reply`] struct so that Python scripts can await it.
+    #[derive(Clone)]
+    #[pyclass(from_py_object)]
+    struct PythonReply {
+        reply: Shared<Reply<Result<Arc<PyResult<Py<PyAny>>>, AccessError>>>,
+    }
+
+    #[derive(Clone)]
+    #[pyclass]
+    struct PythonBufferAccessMap {
+        access: Arc<Mutex<Option<HashMap<IdentifierRef<'static>, *mut JsonBufferMut<'static, 'static, 'static>>>>>,
+    }
+
+    unsafe impl Send for PythonBufferAccessMap {}
+    unsafe impl Sync for PythonBufferAccessMap {}
 
     #[pyfunction]
     fn hello_crossflow() {
