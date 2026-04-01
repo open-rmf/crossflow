@@ -24,12 +24,12 @@ use variadics_please::all_tuples;
 use smallvec::SmallVec;
 
 use crate::{
-    AddOperation, BeginCleanupWorkflow, Buffer, BufferAccessors, BufferKey, BufferKeyBuilder,
-    BufferKeyLifecycle, BufferKeyTag, BufferStorage, BufferWorldAccess, Builder, Chain,
-    CleanupWorkflowConditions, CloneFromBuffer, ForkTargetStorage, Gate, GateState, InputSlot,
-    InspectBufferSessions, Join, Listen, ManageBufferSessions, Node, OperateBufferAccess,
-    OperationError, OperationResult, OperationRoster, OrBroken, Output, RequestId, Scope,
-    ScopeSettings, SingleInputStorage, UnusedTarget,
+    AddOperation, BeginCleanupWorkflow, Buffer, BufferAccessors, BufferInstanceId, BufferKey,
+    BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferStorage, BufferWorldAccess, Builder,
+    Chain, CleanupWorkflowConditions, CloneFromBuffer, ForkTargetStorage, Gate, GateState,
+    InputSlot, InspectBufferSessions, Join, Listen, ManageBufferSessions, Node,
+    OperateBufferAccess, OperationError, OperationResult, OperationRoster, OrBroken, Output,
+    RequestId, Scope, ScopeSettings, SingleInputStorage, UnusedTarget,
 };
 
 pub trait Buffering: 'static + Send + Sync + Clone {
@@ -97,7 +97,7 @@ pub trait Joining: Buffering {
 pub trait Accessing: Buffering {
     type Key: 'static + Send + Sync + Clone;
     fn add_accessor(&self, accessor: Entity, world: &mut World) -> OperationResult;
-    fn create_key(&self, builder: &BufferKeyBuilder) -> Self::Key;
+    fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key>;
     fn deep_clone_key(key: &Self::Key) -> Self::Key;
     fn is_key_in_use(key: &Self::Key) -> bool;
 
@@ -285,7 +285,6 @@ impl<T: 'static + Send + Sync> Joining for Buffer<T> {
             buffer: self.id(),
             session,
             accessor: req.source,
-            lifecycle: None,
         };
 
         world
@@ -305,7 +304,7 @@ impl<T: 'static + Send + Sync> Accessing for Buffer<T> {
         Ok(())
     }
 
-    fn create_key(&self, builder: &BufferKeyBuilder) -> Self::Key {
+    fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key> {
         Self::Key::create_key(&self, builder)
     }
 
@@ -363,10 +362,10 @@ impl<T: 'static + Send + Sync + Clone> Buffering for CloneFromBuffer<T> {
     }
 
     fn ensure_active_session(&self, session: Entity, world: &mut World) -> OperationResult {
-        world
-            .get_entity_mut(self.id())
-            .or_broken()?
-            .ensure_session::<T>(session)
+        world.ensure_buffer_session::<T>(BufferInstanceId {
+            buffer: self.id(),
+            session,
+        })
     }
 }
 
@@ -381,8 +380,7 @@ impl<T: 'static + Send + Sync + Clone> Joining for CloneFromBuffer<T> {
         let key = BufferKeyTag {
             buffer: self.id(),
             session,
-            accessor: self.id(),
-            lifecycle: None,
+            accessor: req.source,
         };
         let value = world
             .unchecked_buffer_view::<T>(req, &key)
@@ -403,7 +401,7 @@ impl<T: 'static + Send + Sync + Clone> Accessing for CloneFromBuffer<T> {
         Ok(())
     }
 
-    fn create_key(&self, builder: &BufferKeyBuilder) -> Self::Key {
+    fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key> {
         Self::Key::create_key(&(*self).into(), builder)
     }
 
@@ -539,12 +537,14 @@ macro_rules! impl_buffered_for_tuple {
 
             fn create_key(
                 &self,
-                builder: &BufferKeyBuilder,
-            ) -> Self::Key {
+                builder: &mut BufferKeyBuilder,
+            ) -> OperationResult<Self::Key> {
                 let ($($T,)*) = self;
-                ($(
-                    $T.create_key(builder),
-                )*)
+                Ok(
+                    ($(
+                        $T.create_key(builder)?,
+                    )*)
+                )
             }
 
             fn deep_clone_key(key: &Self::Key) -> Self::Key {
@@ -663,12 +663,12 @@ impl<T: Accessing, const N: usize> Accessing for [T; N] {
         Ok(())
     }
 
-    fn create_key(&self, builder: &BufferKeyBuilder) -> Self::Key {
+    fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key> {
         let mut keys = SmallVec::new();
         for buffer in self {
-            keys.push(buffer.create_key(builder));
+            keys.push(buffer.create_key(builder)?);
         }
-        keys
+        Ok(keys)
     }
 
     fn deep_clone_key(key: &Self::Key) -> Self::Key {
@@ -783,12 +783,12 @@ impl<T: Accessing, const N: usize> Accessing for SmallVec<[T; N]> {
         Ok(())
     }
 
-    fn create_key(&self, builder: &BufferKeyBuilder) -> Self::Key {
+    fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key> {
         let mut keys = SmallVec::new();
         for buffer in self {
-            keys.push(buffer.create_key(builder));
+            keys.push(buffer.create_key(builder)?);
         }
-        keys
+        Ok(keys)
     }
 
     fn deep_clone_key(key: &Self::Key) -> Self::Key {
@@ -903,12 +903,12 @@ impl<B: Accessing> Accessing for Vec<B> {
         Ok(())
     }
 
-    fn create_key(&self, builder: &BufferKeyBuilder) -> Self::Key {
+    fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key> {
         let mut keys = Vec::new();
         for buffer in self {
-            keys.push(buffer.create_key(builder));
+            keys.push(buffer.create_key(builder)?);
         }
-        keys
+        Ok(keys)
     }
 
     fn deep_clone_key(key: &Self::Key) -> Self::Key {

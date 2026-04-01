@@ -101,7 +101,7 @@ impl<'w, 's> BufferGateAccessMut<'w, 's> {
         let key: AnyBufferKey = key.into();
         let buffer = key.id();
         let session = key.session();
-        let accessor = key.tag.accessor;
+        let accessor = key.tag().accessor;
         self.query.get_mut(buffer).map(|gate| {
             BufferGateMut::new(
                 gate,

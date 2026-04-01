@@ -21,11 +21,11 @@ use std::{
     any::{Any, TypeId},
     collections::{HashMap, HashSet, hash_map::Entry},
     ops::RangeBounds,
-    sync::{Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use bevy_ecs::{
-    prelude::{Commands, Entity, EntityRef, EntityWorldMut, World},
+    prelude::{Commands, Entity, EntityRef, World},
     system::SystemState,
 };
 
@@ -34,13 +34,14 @@ use thiserror::Error as ThisError;
 use smallvec::SmallVec;
 
 use crate::{
-    Accessing, Accessor, BMut, BMutTracer, Buffer, BufferAccessMut, BufferAccessors, BufferEntry,
-    BufferError, BufferKey, BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation,
-    BufferManager, BufferMap, BufferMapLayout, BufferMapLayoutHints, BufferStorage, BufferView,
-    BufferWorldAccess, Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer,
-    FetchFromBuffer, Gate, GateState, IdentifierRef, IncompatibleLayout, InspectBufferSessions,
-    Joining, ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
-    NotifyBufferUpdate, OperationError, OperationResult, OperationRoster, OrBroken, RequestId,
+    AccessError, AccessKey, Accessing, Accessor, BMut, BMutTracer, Buffer, BufferAccessMut,
+    BufferAccessors, BufferEntry, BufferError, BufferInstanceId, BufferKey, BufferKeyBody,
+    BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferManager, BufferMap,
+    BufferMapLayout, BufferMapLayoutHints, BufferStorage, BufferView, BufferWorldAccess,
+    Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer, FetchFromBuffer, Gate, GateState,
+    IdentifierRef, IncompatibleLayout, InspectBufferSessions, IterBufferView, Joining,
+    ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
+    NotifyBufferUpdate, OperationError, OperationResult, OperationRoster, OrBroken, RequestId, Seq,
     TypeInfo, add_listener_to_source,
 };
 
@@ -52,7 +53,7 @@ use crate::{BufferAccessRecord, BufferTracer};
 #[derive(Clone, Copy)]
 pub struct AnyBuffer {
     pub(crate) location: BufferLocation,
-    pub(crate) join_behavior: JoinBehavior,
+    pub(crate) join_behavior: FetchBehavior,
     pub(crate) interface: &'static (dyn AnyBufferAccessInterface + Send + Sync),
 }
 
@@ -60,7 +61,7 @@ impl AnyBuffer {
     /// Specify that you want this buffer to join by pulling an element. This is
     /// always supported.
     pub fn join_by_pulling(mut self) -> AnyBuffer {
-        self.join_behavior = JoinBehavior::Pull;
+        self.join_behavior = FetchBehavior::Pull;
         self
     }
 
@@ -72,7 +73,7 @@ impl AnyBuffer {
     /// stored by this buffer has registered its [`Clone`] trait.
     pub fn join_by_cloning(mut self) -> Option<AnyBuffer> {
         self.interface.clone_for_join_fn()?;
-        self.join_behavior = JoinBehavior::Clone;
+        self.join_behavior = FetchBehavior::Clone;
         Some(self)
     }
 
@@ -168,7 +169,7 @@ impl<T: 'static + Send + Sync> From<Buffer<T>> for AnyBuffer {
         let interface = AnyBuffer::interface_for::<T>();
         AnyBuffer {
             location: value.location,
-            join_behavior: JoinBehavior::Pull,
+            join_behavior: FetchBehavior::Pull,
             interface,
         }
     }
@@ -179,7 +180,7 @@ impl<T: 'static + Send + Sync + Clone> From<CloneFromBuffer<T>> for AnyBuffer {
         let interface = AnyBuffer::interface_for::<T>();
         AnyBuffer {
             location: value.location,
-            join_behavior: JoinBehavior::Clone,
+            join_behavior: FetchBehavior::Clone,
             interface,
         }
     }
@@ -189,7 +190,7 @@ impl<T: 'static + Send + Sync + Clone> From<CloneFromBuffer<T>> for AnyBuffer {
 /// make copies of the [`Buffer`] reference and give each copy a different behavior
 /// so that it gets used differently for each join operation that it takes part in.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum JoinBehavior {
+pub enum FetchBehavior {
     /// Pull a value from the buffer while joining
     #[default]
     Pull,
@@ -246,7 +247,7 @@ impl<T: 'static + Send + Sync + Clone> AsAnyBuffer for CloneFromBuffer<T> {
 /// [1]: bevy_ecs::prelude::World
 #[derive(Clone)]
 pub struct AnyBufferKey {
-    pub(crate) tag: BufferKeyTag,
+    pub(crate) body: BufferKeyBody,
     pub(crate) interface: &'static (dyn AnyBufferAccessInterface + Send + Sync),
 }
 
@@ -257,7 +258,7 @@ impl AnyBufferKey {
     pub fn downcast_for_message<Message: 'static>(self) -> Option<BufferKey<Message>> {
         if TypeId::of::<Message>() == self.interface.message_type_id() {
             Some(BufferKey {
-                tag: self.tag,
+                body: self.body,
                 _ignore: Default::default(),
             })
         } else {
@@ -268,7 +269,7 @@ impl AnyBufferKey {
     /// Downcast this into a different special buffer key representation, such
     /// as a `JsonBufferKey`.
     pub fn downcast_buffer_key<KeyType: 'static>(self) -> Option<KeyType> {
-        self.interface.key_downcast(TypeId::of::<KeyType>())?(self.tag)
+        self.interface.key_downcast(TypeId::of::<KeyType>())?(self.body)
             .downcast::<KeyType>()
             .ok()
             .map(|x| *x)
@@ -276,32 +277,36 @@ impl AnyBufferKey {
 
     /// The buffer ID of this key.
     pub fn id(&self) -> Entity {
-        self.tag.buffer
+        self.body.tag.buffer
     }
 
     /// The session that this key belongs to.
     pub fn session(&self) -> Entity {
-        self.tag.session
+        self.body.tag.session
+    }
+
+    pub fn tag(&self) -> &BufferKeyTag {
+        &self.body.tag
     }
 }
 
 impl BufferKeyLifecycle for AnyBufferKey {
     type TargetBuffer = AnyBuffer;
 
-    fn create_key(buffer: &AnyBuffer, builder: &BufferKeyBuilder) -> Self {
-        AnyBufferKey {
-            tag: builder.make_tag(buffer.id()),
+    fn create_key(buffer: &AnyBuffer, builder: &mut BufferKeyBuilder) -> OperationResult<Self> {
+        Ok(AnyBufferKey {
+            body: builder.make_body(buffer.id())?,
             interface: buffer.interface,
-        }
+        })
     }
 
     fn is_in_use(&self) -> bool {
-        self.tag.is_in_use()
+        self.body.is_in_use()
     }
 
     fn deep_clone(&self) -> Self {
         Self {
-            tag: self.tag.deep_clone(),
+            body: self.body.deep_clone(),
             interface: self.interface,
         }
     }
@@ -311,7 +316,7 @@ impl std::fmt::Debug for AnyBufferKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AnyBufferKey")
             .field("message_type_name", &self.interface.message_type_name())
-            .field("tag", &self.tag)
+            .field("body", &self.body)
             .finish()
     }
 }
@@ -320,14 +325,123 @@ impl<T: 'static + Send + Sync + Any> From<BufferKey<T>> for AnyBufferKey {
     fn from(value: BufferKey<T>) -> Self {
         let interface = AnyBuffer::interface_for::<T>();
         AnyBufferKey {
-            tag: value.tag,
+            body: value.body,
             interface,
         }
     }
 }
 
+impl AccessKey for AnyBufferKey {
+    fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool {
+        let entry = included.entry(self.tag().instance()).or_default();
+        *entry += 1;
+        *entry == 1
+    }
+
+    type State = Box<dyn AnyBufferAccessMutState>;
+    type Param<'w, 's>
+        = Box<dyn AnyBufferAccessMut<'w, 's> + 's>
+    where
+        'w: 's;
+
+    fn get_state(&self, world: &mut World) -> Self::State {
+        self.interface.create_any_buffer_access_mut_state(world)
+    }
+
+    fn get_param<'w, 's>(state: &'s mut Self::State, world: &'w mut World) -> Self::Param<'w, 's>
+    where
+        'w: 's,
+    {
+        state.get_any_buffer_access_mut(world)
+    }
+
+    fn get_mut<'w, 's, 'a>(
+        &self,
+        req: RequestId,
+        param: &'a mut Self::Param<'w, 's>,
+    ) -> Result<AnyBufferMut<'w, 's, 'a>, BufferError>
+    where
+        'w: 's,
+        's: 'a,
+    {
+        param.as_any_buffer_mut(req, self)
+    }
+
+    fn apply_state(state: &mut Self::State, world: &mut World) {
+        state.any_apply(world);
+    }
+}
+
 impl Accessor for AnyBufferKey {
     type Buffers = AnyBuffer;
+
+    async fn wait_for_change(&mut self) {
+        let _ = self.body.receiver.changed().await;
+    }
+
+    type Seen = Seq;
+    fn seen(&mut self, seen: Self::Seen) {
+        if self.body.receiver.borrow_and_update().0 != seen {
+            // Since the latest value is different from what the user last saw,
+            // we'll mark this key as having not seen the latest value.
+            self.body.receiver.mark_changed();
+        }
+    }
+
+    fn make_seen(&self, world: &mut World) -> Self::Seen {
+        world.get_buffer_seen(self.tag().instance())
+    }
+
+    fn is_disjoint(&self) -> Result<(), super::OverlapError> {
+        // A single buffer key is always disjoint
+        Ok(())
+    }
+
+    fn can_join(&self, world: &World) -> Result<bool, AccessError> {
+        let view = world.any_buffer_view_untraced(self)?;
+        Ok(view.oldest().is_some())
+    }
+
+    type Joined = AnyMessageBox;
+    fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
+        Ok(world.any_buffer_mut(req, self, |mut buffer| buffer.pull())?)
+    }
+
+    fn distribute(
+        &self,
+        value: Self::Joined,
+        req: RequestId,
+        world: &mut World,
+    ) -> Result<(), AccessError> {
+        world.any_buffer_mut(req, self, |mut buffer| {
+            let _ = buffer.push(value);
+        })?;
+
+        Ok(())
+    }
+
+    type View<'a> = AnyBufferView<'a>;
+    fn view<'a>(
+        &self,
+        req: RequestId,
+        world: &'a mut World,
+    ) -> Result<Self::View<'a>, BufferError> {
+        world.any_buffer_view(req, self)
+    }
+
+    fn view_untraced<'a>(&self, world: &'a World) -> Result<Self::View<'a>, BufferError> {
+        world.any_buffer_view_untraced(self)
+    }
+
+    type Access<'w, 's, 'a> = AnyBufferMut<'w, 's, 'a>;
+    fn access<U>(
+        &self,
+        req: RequestId,
+        world: &mut World,
+        f: impl FnOnce(AnyBufferMut) -> U,
+    ) -> Result<U, AccessError> {
+        Ok(world.any_buffer_mut(req, &self, f)?)
+    }
 }
 
 impl BufferMapLayout for AnyBuffer {
@@ -364,27 +478,35 @@ impl BufferMapLayout for AnyBuffer {
 /// Similar to [`BufferView`], but this can be unlocked with
 /// an [`AnyBufferKey`], so it can work for any buffer whose message types
 /// support serialization and deserialization.
+#[derive(Clone)]
 pub struct AnyBufferView<'a> {
-    viewing: Box<dyn AnyBufferViewing + 'a>,
+    viewing: Arc<dyn AnyBufferViewing<'a> + 'a>,
     gate: &'a GateState,
     session: Entity,
 }
 
 impl<'a> AnyBufferView<'a> {
     /// Look at the oldest message in the buffer.
-    pub fn oldest(&self) -> Option<AnyMessageRef<'_>> {
+    pub fn oldest(&self) -> Option<AnyMessageRef<'a>> {
         self.viewing.any_oldest()
     }
 
     /// Look at the newest message in the buffer.
-    pub fn newest(&self) -> Option<AnyMessageRef<'_>> {
+    pub fn newest(&self) -> Option<AnyMessageRef<'a>> {
         self.viewing.any_newest()
     }
 
     /// Borrow a message from the buffer. Index 0 is the oldest message in the buffer
     /// while the highest index is the newest message in the buffer.
-    pub fn get(&self, index: usize) -> Option<AnyMessageRef<'_>> {
+    pub fn get(&self, index: usize) -> Option<AnyMessageRef<'a>> {
         self.viewing.any_get(index)
+    }
+
+    /// Iterate through the contents of this buffer.
+    pub fn iter(&self) -> IterAnyBuffer<'a> {
+        IterAnyBuffer {
+            interface: self.viewing.any_iter(),
+        }
     }
 
     /// Get how many messages are in this buffer.
@@ -405,6 +527,11 @@ impl<'a> AnyBufferView<'a> {
             .copied()
             .unwrap_or(Gate::Open)
     }
+
+    /// Get the type of the message stored in this buffer
+    pub fn message_type(&self) -> TypeInfo {
+        self.viewing.any_message_type()
+    }
 }
 
 /// Similar to [`BufferMut`][crate::BufferMut], but this can be unlocked with an
@@ -416,7 +543,11 @@ pub struct AnyBufferMut<'w, 's, 'a> {
     req: RequestId,
     session: Entity,
     accessor: Option<Entity>,
-    commands: &'a mut Commands<'w, 's>,
+    // TODO(@mxgrey): We use a raw pointer here to escape an HRTB bug in the
+    // Rust compiler: https://github.com/rust-lang/rust/issues/100013
+    // When that issue is resolved we should try to revert this to a regular
+    // safe borrow.
+    commands: *mut Commands<'w, 's>,
     modified: bool,
 }
 
@@ -443,6 +574,13 @@ impl<'w, 's, 'a> AnyBufferMut<'w, 's, 'a> {
     /// while the highest index is the newest message in the buffer.
     pub fn get(&self, index: usize) -> Option<AnyMessageRef<'_>> {
         self.manager.any_get(index)
+    }
+
+    /// Iterate through the contents of this buffer.
+    pub fn iter(&self) -> IterAnyBuffer<'_> {
+        IterAnyBuffer {
+            interface: self.manager.any_iter(),
+        }
     }
 
     /// Get how many messages are in this buffer.
@@ -504,7 +642,7 @@ impl<'w, 's, 'a> AnyBufferMut<'w, 's, 'a> {
     /// If the input value does not match the message type of the buffer, this
     /// will return [`Err`] and give back the message that you tried to push.
     pub fn push<T: 'static + Send + Sync + Any>(&mut self, value: T) -> Result<Option<T>, T> {
-        if TypeId::of::<T>() != self.manager.any_message_type() {
+        if TypeInfo::of::<T>() != self.manager.any_message_type() {
             return Err(value);
         }
 
@@ -545,7 +683,7 @@ impl<'w, 's, 'a> AnyBufferMut<'w, 's, 'a> {
         &mut self,
         value: T,
     ) -> Result<Option<T>, T> {
-        if TypeId::of::<T>() != self.manager.any_message_type() {
+        if TypeInfo::of::<T>() != self.manager.any_message_type() {
             return Err(value);
         }
 
@@ -579,12 +717,19 @@ impl<'w, 's, 'a> AnyBufferMut<'w, 's, 'a> {
     pub fn pulse(&mut self) {
         self.modified = true;
     }
+
+    /// Get the type of the message stored in this buffer
+    pub fn message_type(&self) -> TypeInfo {
+        self.manager.any_message_type()
+    }
 }
 
 impl<'w, 's, 'a> Drop for AnyBufferMut<'w, 's, 'a> {
     fn drop(&mut self) {
         if self.modified {
-            self.commands.queue(NotifyBufferUpdate::new(
+            // SAFETY: The commands pointer comes from a valid reference that
+            // outlives this AnyBufferMut, so it is safe to dereference.
+            unsafe { &mut *self.commands }.queue(NotifyBufferUpdate::new(
                 self.buffer,
                 self.req,
                 self.session,
@@ -607,20 +752,20 @@ pub trait AnyBufferWorldAccess {
     /// if the tracing feature is enabled. If you want to view the buffer with
     /// non-mutable access, you can use `any_buffer_view_untraced`, but the
     /// viewing activity will not be traced.
-    fn any_buffer_view(
-        &mut self,
+    fn any_buffer_view<'a>(
+        &'a mut self,
         req: RequestId,
         key: &AnyBufferKey,
-    ) -> Result<AnyBufferView<'_>, BufferError>;
+    ) -> Result<AnyBufferView<'a>, BufferError>;
 
     /// Call this to get read-only access to any buffer.
     ///
     /// This buffer viewing will not be traced, which may be confusing if you
     /// review a log of the workflow activity.
-    fn any_buffer_view_untraced(
-        &self,
+    fn any_buffer_view_untraced<'a>(
+        &'a self,
         key: &AnyBufferKey,
-    ) -> Result<AnyBufferView<'_>, BufferError>;
+    ) -> Result<AnyBufferView<'a>, BufferError>;
 
     /// Call this to get mutable access to any buffer.
     ///
@@ -635,26 +780,26 @@ pub trait AnyBufferWorldAccess {
 }
 
 impl AnyBufferWorldAccess for World {
-    fn any_buffer_view(
-        &mut self,
+    fn any_buffer_view<'a>(
+        &'a mut self,
         _req: RequestId,
         key: &AnyBufferKey,
-    ) -> Result<AnyBufferView<'_>, BufferError> {
+    ) -> Result<AnyBufferView<'a>, BufferError> {
         #[cfg(feature = "trace")]
         {
             let mut tracer_state: SystemState<BufferTracer> = SystemState::new(self);
             let mut tracer = tracer_state.get_mut(self);
-            tracer.trace(_req.into(), &key.tag, BufferAccessRecord::Viewed);
+            tracer.trace(_req.into(), key.tag(), BufferAccessRecord::Viewed);
             tracer_state.apply(self);
         }
 
         key.interface.create_any_buffer_view(key, self)
     }
 
-    fn any_buffer_view_untraced(
-        &self,
+    fn any_buffer_view_untraced<'a>(
+        &'a self,
         key: &AnyBufferKey,
-    ) -> Result<AnyBufferView<'_>, BufferError> {
+    ) -> Result<AnyBufferView<'a>, BufferError> {
         key.interface.create_any_buffer_view(key, self)
     }
 
@@ -666,29 +811,42 @@ impl AnyBufferWorldAccess for World {
     ) -> Result<U, BufferError> {
         let interface = key.interface;
         let mut state = interface.create_any_buffer_access_mut_state(self);
-        let mut access = state.get_any_buffer_access_mut(self);
-        let buffer_mut = access.as_any_buffer_mut(req.into(), key)?;
-        Ok(f(buffer_mut))
+        let r = {
+            let mut access = state.get_any_buffer_access_mut(self);
+            let buffer_mut = access.as_any_buffer_mut(req.into(), key)?;
+            f(buffer_mut)
+        };
+
+        state.any_apply(self);
+        Ok(r)
     }
 }
 
-trait AnyBufferViewing {
+trait AnyBufferViewing<'a> {
     fn any_count(&self) -> usize;
-    fn any_oldest<'a>(&'a self) -> Option<AnyMessageRef<'a>>;
-    fn any_newest<'a>(&'a self) -> Option<AnyMessageRef<'a>>;
-    fn any_get<'a>(&'a self, index: usize) -> Option<AnyMessageRef<'a>>;
-    fn any_message_type(&self) -> TypeId;
+    fn any_oldest(&self) -> Option<AnyMessageRef<'a>>;
+    fn any_newest(&self) -> Option<AnyMessageRef<'a>>;
+    fn any_get(&self, index: usize) -> Option<AnyMessageRef<'a>>;
+    fn any_iter(&self) -> Box<dyn IterAnyBufferInterface<'a> + 'a>;
+    fn any_message_type(&self) -> TypeInfo;
 }
 
-trait AnyBufferManagement: AnyBufferViewing {
+trait AnyBufferManagement {
+    fn any_count(&self) -> usize;
+    fn any_oldest(&self) -> Option<AnyMessageRef<'_>>;
+    fn any_newest(&self) -> Option<AnyMessageRef<'_>>;
+    fn any_get(&self, index: usize) -> Option<AnyMessageRef<'_>>;
+    fn any_iter(&self) -> Box<dyn IterAnyBufferInterface<'_> + '_>;
+    fn any_message_type(&self) -> TypeInfo;
+
     fn any_push(&mut self, value: AnyMessageBox) -> AnyMessagePushResult;
     fn any_push_as_oldest(&mut self, value: AnyMessageBox) -> AnyMessagePushResult;
     fn any_pull(&mut self) -> Option<AnyMessageBox>;
     fn any_pull_newest(&mut self) -> Option<AnyMessageBox>;
-    fn any_oldest_mut<'a>(&'a mut self) -> Option<AnyMut<'a>>;
-    fn any_newest_mut<'a>(&'a mut self) -> Option<AnyMut<'a>>;
-    fn any_get_mut<'a>(&'a mut self, index: usize) -> Option<AnyMut<'a>>;
-    fn any_drain<'a>(&'a mut self, range: AnyRange) -> Box<dyn DrainAnyBufferInterface + 'a>;
+    fn any_oldest_mut(&mut self) -> Option<AnyMut<'_>>;
+    fn any_newest_mut(&mut self) -> Option<AnyMut<'_>>;
+    fn any_get_mut(&mut self, index: usize) -> Option<AnyMut<'_>>;
+    fn any_drain(&mut self, range: AnyRange) -> Box<dyn DrainAnyBufferInterface + '_>;
 }
 
 pub(crate) struct AnyRange {
@@ -761,47 +919,29 @@ impl std::ops::RangeBounds<usize> for AnyRange {
 
 pub type AnyMessageRef<'a> = &'a (dyn Any + 'static + Send + Sync);
 
-impl<T: 'static + Send + Sync + Any> AnyBufferViewing for BufferView<'_, T> {
+impl<'a, T: 'static + Send + Sync + Any> AnyBufferViewing<'a> for BufferView<'a, T> {
     fn any_count(&self) -> usize {
         self.len()
     }
 
-    fn any_oldest<'a>(&'a self) -> Option<AnyMessageRef<'a>> {
+    fn any_oldest(&self) -> Option<AnyMessageRef<'a>> {
         self.oldest().map(to_any_ref)
     }
 
-    fn any_newest<'a>(&'a self) -> Option<AnyMessageRef<'a>> {
+    fn any_newest(&self) -> Option<AnyMessageRef<'a>> {
         self.newest().map(to_any_ref)
     }
 
-    fn any_get<'a>(&'a self, index: usize) -> Option<AnyMessageRef<'a>> {
+    fn any_get(&self, index: usize) -> Option<AnyMessageRef<'a>> {
         self.get(index).map(to_any_ref)
     }
 
-    fn any_message_type(&self) -> TypeId {
-        TypeId::of::<T>()
-    }
-}
-
-impl<T: 'static + Send + Sync + Any> AnyBufferViewing for BufferManager<'_, '_, '_, T> {
-    fn any_count(&self) -> usize {
-        self.len()
+    fn any_iter(&self) -> Box<dyn IterAnyBufferInterface<'a> + 'a> {
+        Box::new(self.iter())
     }
 
-    fn any_oldest<'a>(&'a self) -> Option<AnyMessageRef<'a>> {
-        self.oldest().map(to_any_ref)
-    }
-
-    fn any_newest<'a>(&'a self) -> Option<AnyMessageRef<'a>> {
-        self.newest().map(to_any_ref)
-    }
-
-    fn any_get<'a>(&'a self, index: usize) -> Option<AnyMessageRef<'a>> {
-        self.get(index).map(to_any_ref)
-    }
-
-    fn any_message_type(&self) -> TypeId {
-        TypeId::of::<T>()
+    fn any_message_type(&self) -> TypeInfo {
+        TypeInfo::of::<T>()
     }
 }
 
@@ -856,6 +996,30 @@ pub struct AnyMessageError {
 pub type AnyMessagePushResult = Result<Option<AnyMessageBox>, AnyMessageError>;
 
 impl<T: 'static + Send + Sync + Any> AnyBufferManagement for BufferManager<'_, '_, '_, T> {
+    fn any_count(&self) -> usize {
+        self.len()
+    }
+
+    fn any_oldest(&self) -> Option<AnyMessageRef<'_>> {
+        self.oldest().map(to_any_ref)
+    }
+
+    fn any_newest(&self) -> Option<AnyMessageRef<'_>> {
+        self.newest().map(to_any_ref)
+    }
+
+    fn any_get(&self, index: usize) -> Option<AnyMessageRef<'_>> {
+        self.get(index).map(to_any_ref)
+    }
+
+    fn any_iter(&self) -> Box<dyn IterAnyBufferInterface<'_> + '_> {
+        Box::new(self.iter())
+    }
+
+    fn any_message_type(&self) -> TypeInfo {
+        TypeInfo::of::<T>()
+    }
+
     fn any_push(&mut self, value: AnyMessageBox) -> AnyMessagePushResult {
         let value = from_any_message::<T>(value)?;
         Ok(self.push(value).map(to_any_message))
@@ -938,16 +1102,22 @@ pub trait AnyBufferAccessMutState {
         &'s mut self,
         world: &'w mut World,
     ) -> Box<dyn AnyBufferAccessMut<'w, 's> + 's>;
+
+    fn any_apply(&mut self, world: &mut World);
 }
 
 impl<T: 'static + Send + Sync + Any> AnyBufferAccessMutState
-    for SystemState<BufferAccessMut<'static, 'static, T>>
+    for SystemState<BufferAccessMut<'_, '_, T>>
 {
     fn get_any_buffer_access_mut<'s, 'w: 's>(
         &'s mut self,
         world: &'w mut World,
     ) -> Box<dyn AnyBufferAccessMut<'w, 's> + 's> {
         Box::new(self.get_mut(world))
+    }
+
+    fn any_apply(&mut self, world: &mut World) {
+        self.apply(world);
     }
 }
 
@@ -968,17 +1138,15 @@ impl<'w, 's, T: 'static + Send + Sync + Any> AnyBufferAccessMut<'w, 's>
         key: &AnyBufferKey,
     ) -> Result<AnyBufferMut<'w, 's, 'a>, BufferError> {
         let BufferAccessMut { inner, commands } = self;
-        let manager = inner
-            .get_manager(req, &key.tag)
-            .map_err(|_| BufferError::BufferMissing)?;
-
+        let tag = key.tag();
+        let manager = inner.get_manager(req, tag)?;
         Ok(AnyBufferMut {
             manager: Box::new(manager),
             req,
-            buffer: key.tag.buffer,
-            session: key.tag.session,
-            accessor: Some(key.tag.accessor),
-            commands,
+            buffer: tag.buffer,
+            session: tag.session,
+            accessor: Some(tag.accessor),
+            commands: commands as *mut _,
             modified: false,
         })
     }
@@ -991,7 +1159,7 @@ pub trait AnyBufferAccessInterface {
 
     fn buffered_count(&self, entity: &EntityRef, session: Entity) -> Result<usize, OperationError>;
 
-    fn ensure_session(&self, entity_mut: &mut EntityWorldMut, session: Entity) -> OperationResult;
+    fn ensure_session(&self, id: BufferInstanceId, world: &mut World) -> OperationResult;
 
     fn register_buffer_downcast(&self, buffer_type: TypeId, f: BufferDowncastBox);
 
@@ -1040,8 +1208,8 @@ pub type AnyMessageResult = Result<AnyMessageBox, OperationError>;
 // TODO(@mxgrey): Consider changing this trait box into a function pointer
 pub type BufferDowncastBox = Box<dyn Fn(AnyBuffer) -> AnyMessageResult + Send + Sync>;
 pub type BufferDowncastRef = &'static (dyn Fn(AnyBuffer) -> AnyMessageResult + Send + Sync);
-pub type KeyDowncastBox = Box<dyn Fn(BufferKeyTag) -> AnyMessageBox + Send + Sync>;
-pub type KeyDowncastRef = &'static (dyn Fn(BufferKeyTag) -> AnyMessageBox + Send + Sync);
+pub type KeyDowncastBox = Box<dyn Fn(BufferKeyBody) -> AnyMessageBox + Send + Sync>;
+pub type KeyDowncastRef = &'static (dyn Fn(BufferKeyBody) -> AnyMessageBox + Send + Sync);
 pub type CloneForAnyFn = fn(RequestId, &BufferKeyTag, &mut World) -> AnyMessageResult;
 
 struct AnyBufferAccessImpl<T> {
@@ -1102,9 +1270,9 @@ impl<T: 'static + Send + Sync> AnyBufferAccessImpl<T> {
         // Automatically register a downcast to AnyBufferKey
         key_downcasts.insert(
             TypeId::of::<AnyBufferKey>(),
-            Box::leak(Box::new(|tag| -> AnyMessageBox {
+            Box::leak(Box::new(|body| -> AnyMessageBox {
                 Box::new(AnyBufferKey {
-                    tag,
+                    body,
                     interface: AnyBuffer::interface_for::<T>(),
                 })
             })),
@@ -1132,8 +1300,8 @@ impl<T: 'static + Send + Sync + Any> AnyBufferAccessInterface for AnyBufferAcces
         entity.buffered_count::<T>(session)
     }
 
-    fn ensure_session(&self, entity_mut: &mut EntityWorldMut, session: Entity) -> OperationResult {
-        entity_mut.ensure_session::<T>(session)
+    fn ensure_session(&self, id: BufferInstanceId, world: &mut World) -> OperationResult {
+        world.ensure_buffer_session::<T>(id)
     }
 
     fn register_buffer_downcast(&self, buffer_type: TypeId, f: BufferDowncastBox) {
@@ -1219,25 +1387,22 @@ impl<T: 'static + Send + Sync + Any> AnyBufferAccessInterface for AnyBufferAcces
         key: &AnyBufferKey,
         world: &'a World,
     ) -> Result<AnyBufferView<'a>, BufferError> {
-        let buffer_ref = world
-            .get_entity(key.tag.buffer)
-            .map_err(|_| BufferError::BufferMissing)?;
-
+        let buffer_ref = world.get_entity(key.tag().buffer)?;
         let storage = buffer_ref
             .get::<BufferStorage<T>>()
-            .ok_or(BufferError::BufferMissing)?;
+            .ok_or(BufferError::BufferStorageMissing)?;
 
         let gate = buffer_ref
             .get::<GateState>()
-            .ok_or(BufferError::BufferMissing)?;
+            .ok_or(BufferError::GateStorageMissing)?;
 
         Ok(AnyBufferView {
-            viewing: Box::new(BufferView::<T> {
+            viewing: Arc::new(BufferView::<T> {
                 storage,
-                session: key.tag.session,
+                session: key.tag().session,
             }),
             gate,
-            session: key.tag.session,
+            session: key.tag().session,
         })
     }
 
@@ -1246,6 +1411,28 @@ impl<T: 'static + Send + Sync + Any> AnyBufferAccessInterface for AnyBufferAcces
         world: &mut World,
     ) -> Box<dyn AnyBufferAccessMutState> {
         Box::new(SystemState::<BufferAccessMut<T>>::new(world))
+    }
+}
+
+pub struct IterAnyBuffer<'a> {
+    interface: Box<dyn IterAnyBufferInterface<'a> + 'a>,
+}
+
+impl<'a> Iterator for IterAnyBuffer<'a> {
+    type Item = AnyMessageRef<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.interface.any_next()
+    }
+}
+
+trait IterAnyBufferInterface<'a> {
+    fn any_next(&mut self) -> Option<AnyMessageRef<'a>>;
+}
+
+impl<'a, T: 'static + Send + Sync + Any> IterAnyBufferInterface<'a> for IterBufferView<'a, T> {
+    fn any_next(&mut self) -> Option<AnyMessageRef<'a>> {
+        self.next().map(to_any_ref)
     }
 }
 
@@ -1324,8 +1511,13 @@ impl Buffering for AnyBuffer {
     }
 
     fn ensure_active_session(&self, session: Entity, world: &mut World) -> OperationResult {
-        let mut entity_mut = world.get_entity_mut(self.id()).or_broken()?;
-        self.interface.ensure_session(&mut entity_mut, session)
+        self.interface.ensure_session(
+            BufferInstanceId {
+                buffer: self.id(),
+                session,
+            },
+            world,
+        )
     }
 }
 
@@ -1340,12 +1532,11 @@ impl Joining for AnyBuffer {
         let key = BufferKeyTag {
             buffer: self.id(),
             session,
-            accessor: self.id(),
-            lifecycle: None,
+            accessor: req.source,
         };
         match self.join_behavior {
-            JoinBehavior::Pull => self.interface.pull(req, &key, world),
-            JoinBehavior::Clone => self.interface.clone_from_buffer(req, &key, world),
+            FetchBehavior::Pull => self.interface.pull(req, &key, world),
+            FetchBehavior::Clone => self.interface.clone_from_buffer(req, &key, world),
         }
     }
 }
@@ -1360,11 +1551,11 @@ impl Accessing for AnyBuffer {
         Ok(())
     }
 
-    fn create_key(&self, builder: &super::BufferKeyBuilder) -> Self::Key {
-        AnyBufferKey {
-            tag: builder.make_tag(self.id()),
+    fn create_key(&self, builder: &mut super::BufferKeyBuilder) -> OperationResult<Self::Key> {
+        Ok(AnyBufferKey {
+            body: builder.make_body(self.id())?,
             interface: self.interface,
-        }
+        })
     }
 
     fn deep_clone_key(key: &Self::Key) -> Self::Key {

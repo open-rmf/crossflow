@@ -28,24 +28,22 @@ use smallvec::SmallVec;
 use bevy_ecs::prelude::{Entity, World};
 
 use crate::{
-    Accessing, AnyBuffer, AnyBufferKey, AnyMessageBox, AsAnyBuffer, Buffer, BufferKeyBuilder,
-    BufferKeyLifecycle, Bufferable, Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer,
-    Gate, GateState, IdentifierRef, Joining, Node, OperationError, OperationResult,
-    OperationRoster, RequestId, TypeInfo, add_listener_to_source,
+    Accessing, AddOperation, AnyBuffer, AsAnyBuffer, Buffer, BufferKeyBuilder, Bufferable,
+    Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer, Gate, GateState, Identifiable,
+    IdentifierRef, Join, Joining, OperationError, OperationResult, OperationRoster, Output,
+    RequestId, TypeInfo, UnusedTarget, add_listener_to_source,
 };
+
+use variadics_please::all_tuples;
 
 #[cfg(feature = "diagram")]
 use crate::MessageRegistry;
-
-pub use crossflow_derive::{Accessor, Joined};
 
 #[cfg(feature = "diagram")]
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "diagram")]
 use schemars::JsonSchema;
-
-use super::BufferKey;
 
 pub type BufferMap = HashMap<IdentifierRef<'static>, AnyBuffer>;
 
@@ -571,8 +569,8 @@ impl<T: BufferMapStruct> Buffering for T {
 /// By default each field of the generated buffers struct will have a type of
 /// [`Buffer<T>`], but you can override this using `#[joined(buffer = ...)]`
 /// to specify a special buffer type. For example if your `Joined` struct
-/// contains an [`AnyMessageBox`] then by default the macro will use `Buffer<AnyMessageBox>`,
-/// but you probably really want it to have an [`AnyBuffer`]:
+/// contains an [`AnyMessageBox`][3] then by default the macro will use
+/// `Buffer<AnyMessageBox>`, but you probably really want it to have an [`AnyBuffer`]:
 ///
 /// ```
 /// # use crossflow::prelude::*;
@@ -590,11 +588,15 @@ impl<T: BufferMapStruct> Buffering for T {
 ///
 /// [1]: crate::Builder::join
 /// [2]: crate::Builder::try_join
+/// [3]: crate::AnyMessageBox
 pub trait Joined: 'static + Send + Sync + Sized {
     /// This associated type must represent a buffer map layout that implements
     /// the [`Joining`] trait. The message type yielded by [`Joining`] for this
     /// associated type must match the [`Joined`] type.
-    type Buffers: 'static + BufferMapLayout + Joining<Item = Self> + Send + Sync;
+    type Buffers: 'static + BufferMapLayout + Joining + Send + Sync;
+
+    /// This converts from the buffer Joining::Item type into the Joined type
+    fn from_item(item: <Self::Buffers as Joining>::Item) -> Self;
 
     /// Used by [`Builder::try_join`]
     fn try_join_from<'w, 's, 'a, 'b>(
@@ -602,121 +604,26 @@ pub trait Joined: 'static + Send + Sync + Sized {
         builder: &'b mut Builder<'w, 's, 'a>,
     ) -> Result<Chain<'w, 's, 'a, 'b, Self>, IncompatibleLayout> {
         let buffers: Self::Buffers = Self::Buffers::try_from_buffer_map(buffers)?;
-        Ok(buffers.join(builder))
+        let scope = builder.scope();
+        buffers.verify_scope(scope);
+
+        let join = builder.commands.spawn(()).id();
+        let target = builder.commands.spawn(UnusedTarget).id();
+        builder.commands.queue(AddOperation::new(
+            Some(scope),
+            join,
+            Join::<_, Self>::for_joined(buffers, target),
+        ));
+
+        Ok(Output::new(scope, target).chain(builder))
     }
 }
 
-/// Trait to describe a set of buffer keys. This allows [listen][1] and [access][2]
-/// to work for arbitrary structs of buffer keys. Structs with this trait can be
-/// produced by [`try_listen`][3] and [`try_create_buffer_access`][4].
-///
-/// Each field in the struct must be some kind of buffer key.
-///
-/// This does not generally need to be implemented explicitly. Instead you should
-/// define a struct where all fields are buffer keys and then apply
-/// `#[derive(Accessor)]` to it, e.g.:
-///
-/// ```
-/// use crossflow::prelude::*;
-///
-/// #[derive(Clone, Accessor)]
-/// struct SomeKeys {
-///     integer: BufferKey<i64>,
-///     string: BufferKey<String>,
-///     any: AnyBufferKey,
-/// }
-/// ```
-///
-/// The macro will generate a struct of buffers to match the keys. The name of
-/// that struct is anonymous by default since you don't generally need to use it
-/// directly, but if you want to give it a name you can use `#[key(buffers_struct_name = ...)]`:
-///
-/// ```
-/// # use crossflow::prelude::*;
-///
-/// #[derive(Clone, Accessor)]
-/// #[key(buffers_struct_name = SomeBuffers)]
-/// struct SomeKeys {
-///     integer: BufferKey<i64>,
-///     string: BufferKey<String>,
-///     any: AnyBufferKey,
-/// }
-/// ```
-///
-/// [1]: crate::Builder::listen
-/// [2]: crate::Builder::create_buffer_access
-/// [3]: crate::Builder::try_listen
-/// [4]: crate::Builder::try_create_buffer_access
-pub trait Accessor: 'static + Send + Sync + Sized + Clone {
-    type Buffers: 'static + BufferMapLayout + Accessing<Key = Self> + Send + Sync;
-
-    fn try_listen_from<'w, 's, 'a, 'b>(
-        buffers: &BufferMap,
-        builder: &'b mut Builder<'w, 's, 'a>,
-    ) -> Result<Chain<'w, 's, 'a, 'b, Self>, IncompatibleLayout> {
-        let buffers: Self::Buffers = Self::Buffers::try_from_buffer_map(buffers)?;
-        Ok(buffers.listen(builder))
-    }
-
-    fn try_buffer_access<T: 'static + Send + Sync>(
-        buffers: &BufferMap,
-        builder: &mut Builder,
-    ) -> Result<Node<T, (T, Self)>, IncompatibleLayout> {
-        let buffers: Self::Buffers = Self::Buffers::try_from_buffer_map(buffers)?;
-        Ok(buffers.access(builder))
-    }
-}
-
-impl<T> Accessor for BufferKey<T>
+impl<K, B: Joining + AsAnyBuffer> Joining for HashMap<K, B>
 where
-    T: Send + Sync + 'static,
+    K: 'static + Send + Sync + Clone + Eq + Hash,
 {
-    type Buffers = Buffer<T>;
-}
-
-impl<T> Accessor for Vec<BufferKey<T>>
-where
-    T: Send + Sync + 'static,
-{
-    type Buffers = Vec<Buffer<T>>;
-}
-
-impl BufferMapLayout for BufferMap {
-    fn try_from_buffer_map(buffers: &BufferMap) -> Result<Self, IncompatibleLayout> {
-        Ok(buffers.clone())
-    }
-
-    fn get_buffer_message_type_hints(
-        identifiers: HashSet<IdentifierRef<'static>>,
-    ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
-        // We have no information available at compile time about what the right
-        // identifiers are or what the messages types should be. BufferMap can
-        // support anything.
-        let mut evaluation = MessageTypeHintEvaluation::new(identifiers);
-        while let Some(identifier) = evaluation.next_unevaluated() {
-            evaluation.fallback::<AnyMessageBox>(identifier);
-        }
-
-        evaluation.evaluate()
-    }
-
-    fn get_layout_hints() -> BufferMapLayoutHints {
-        BufferMapLayoutHints::Dynamic(DynamicBufferMapLayoutHints {
-            indices: true,
-            names: true,
-            hint: None,
-        })
-    }
-}
-
-impl BufferMapStruct for BufferMap {
-    fn buffer_list(&self) -> SmallVec<[AnyBuffer; 8]> {
-        self.values().cloned().collect()
-    }
-}
-
-impl Joining for BufferMap {
-    type Item = HashMap<IdentifierRef<'static>, AnyMessageBox>;
+    type Item = HashMap<K, B::Item>;
 
     fn fetch_for_join(
         &self,
@@ -725,31 +632,37 @@ impl Joining for BufferMap {
         world: &mut World,
     ) -> Result<Self::Item, OperationError> {
         let mut value = HashMap::new();
-        for (name, buffer) in self.iter() {
-            value.insert(name.clone(), buffer.fetch_for_join(req, session, world)?);
+        for (key, buffer) in self.iter() {
+            value.insert(key.clone(), buffer.fetch_for_join(req, session, world)?);
         }
 
         Ok(value)
     }
 }
 
-impl Joined for HashMap<IdentifierRef<'static>, AnyMessageBox> {
-    type Buffers = BufferMap;
+impl<K, T> Joined for HashMap<K, T>
+where
+    K: 'static + Send + Sync + Clone + Eq + Hash + Identifiable,
+    T: 'static + Send + Sync,
+{
+    type Buffers = HashMap<K, Buffer<T>>;
+    fn from_item(item: <Self::Buffers as Joining>::Item) -> Self {
+        item
+    }
 }
 
-impl Accessing for BufferMap {
-    type Key = HashMap<IdentifierRef<'static>, AnyBufferKey>;
+impl<K, B: Accessing + AsAnyBuffer> Accessing for HashMap<K, B>
+where
+    K: 'static + Send + Sync + Clone + Eq + Hash,
+{
+    type Key = HashMap<K, B::Key>;
 
-    fn create_key(&self, builder: &BufferKeyBuilder) -> Self::Key {
+    fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key> {
         let mut keys = HashMap::new();
-        for (name, buffer) in self.iter() {
-            let key = AnyBufferKey {
-                tag: builder.make_tag(buffer.id()),
-                interface: buffer.interface,
-            };
-            keys.insert(name.clone(), key);
+        for (key, buffer) in self {
+            keys.insert(key.clone(), buffer.create_key(builder)?);
         }
-        keys
+        Ok(keys)
     }
 
     fn add_accessor(&self, accessor: Entity, world: &mut World) -> OperationResult {
@@ -762,14 +675,14 @@ impl Accessing for BufferMap {
     fn deep_clone_key(key: &Self::Key) -> Self::Key {
         let mut cloned_key = HashMap::new();
         for (name, key) in key.iter() {
-            cloned_key.insert(name.clone(), key.deep_clone());
+            cloned_key.insert(name.clone(), B::deep_clone_key(key));
         }
         cloned_key
     }
 
     fn is_key_in_use(key: &Self::Key) -> bool {
         for k in key.values() {
-            if k.is_in_use() {
+            if B::is_key_in_use(k) {
                 return true;
             }
         }
@@ -778,8 +691,21 @@ impl Accessing for BufferMap {
     }
 }
 
+impl<K, B: AsAnyBuffer> BufferMapStruct for HashMap<K, B>
+where
+    K: 'static + Send + Sync + Clone,
+    B: 'static + Send + Sync + Clone,
+{
+    fn buffer_list(&self) -> SmallVec<[AnyBuffer; 8]> {
+        self.values().map(B::as_any_buffer).collect()
+    }
+}
+
 impl<T: 'static + Send + Sync> Joined for Vec<T> {
     type Buffers = Vec<Buffer<T>>;
+    fn from_item(item: <Self::Buffers as Joining>::Item) -> Self {
+        item
+    }
 }
 
 impl<T: 'static + Send + Sync> BufferMapLayout for Buffer<T> {
@@ -895,8 +821,63 @@ impl<B: 'static + Send + Sync + AsAnyBuffer + Clone> BufferMapLayout for Vec<B> 
     }
 }
 
+impl<K, B> BufferMapLayout for HashMap<K, B>
+where
+    K: 'static + Send + Sync + PartialEq + Eq + Hash + Identifiable + Clone,
+    B: 'static + Send + Sync + AsAnyBuffer + Clone,
+{
+    fn try_from_buffer_map(buffers: &BufferMap) -> Result<Self, IncompatibleLayout> {
+        let mut downcast_buffers = HashMap::new();
+        let mut compatibility = IncompatibleLayout::default();
+        for identifier in buffers.keys() {
+            let Some(key) = K::try_from_id(identifier) else {
+                compatibility.forbidden_buffers.push(identifier.clone());
+                continue;
+            };
+
+            if let Ok(downcast) =
+                compatibility.require_buffer_for_identifier::<B>(identifier.clone(), buffers)
+            {
+                downcast_buffers.insert(key, downcast);
+            }
+        }
+
+        compatibility.as_result()?;
+        Ok(downcast_buffers)
+    }
+
+    fn get_buffer_message_type_hints(
+        identifiers: HashSet<IdentifierRef<'static>>,
+    ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
+        let mut compatibility = IncompatibleLayout::default();
+        let mut hints = HashMap::new();
+        for identifier in identifiers.iter() {
+            let Some(_) = K::try_from_id(identifier) else {
+                compatibility.forbidden_buffers.push(identifier.clone());
+                continue;
+            };
+
+            hints.insert(identifier.clone(), B::message_type_hint());
+        }
+
+        compatibility.as_result()?;
+        Ok(hints)
+    }
+
+    fn get_layout_hints() -> BufferMapLayoutHints {
+        BufferMapLayoutHints::Dynamic(DynamicBufferMapLayoutHints {
+            indices: K::indexable(),
+            names: K::nameable(),
+            hint: Some(B::message_type_hint()),
+        })
+    }
+}
+
 impl<T: 'static + Send + Sync, const N: usize> Joined for SmallVec<[T; N]> {
     type Buffers = SmallVec<[Buffer<T>; N]>;
+    fn from_item(item: <Self::Buffers as Joining>::Item) -> Self {
+        item
+    }
 }
 
 impl<B: 'static + Send + Sync + AsAnyBuffer + Clone, const N: usize> BufferMapLayout
@@ -925,6 +906,61 @@ impl<B: 'static + Send + Sync + AsAnyBuffer + Clone, const N: usize> BufferMapLa
         Vec::<B>::get_layout_hints()
     }
 }
+
+macro_rules! impl_buffer_map_layout_for_tuple {
+    ($(($B:ident, $b:ident)),*) => {
+        #[allow(non_snake_case)]
+        impl<$($B: 'static + Send + Sync + AsAnyBuffer + Clone),*> BufferMapLayout for ($($B,)*) {
+            fn try_from_buffer_map(buffers: &BufferMap) -> Result<Self, IncompatibleLayout> {
+                let mut compatibility = IncompatibleLayout::default();
+                let mut _index = 0;
+                let downcast_buffers = ($(
+                    {
+                        let buffer = match compatibility.require_buffer_for_identifier::<$B>(_index, buffers) {
+                            Ok(downcast) => Some(downcast),
+                            Err(_) => None,
+                        };
+                        _index += 1;
+                        buffer
+                    },
+                )*);
+
+                let ($(Some($b),)*) = downcast_buffers else {
+                    return Err(compatibility);
+                };
+
+                Ok(($($b,)*))
+            }
+
+            fn get_buffer_message_type_hints(
+                identifiers: HashSet<IdentifierRef<'static>>,
+            ) -> Result<MessageTypeHintMap, IncompatibleLayout> {
+                let mut evaluation = MessageTypeHintEvaluation::new(identifiers);
+                $(
+                    if let Some(identifier) = evaluation.next_index_required() {
+                        evaluation.set_hint(identifier, $B::message_type_hint());
+                    }
+                )*
+
+                evaluation.evaluate()
+            }
+
+            fn get_layout_hints() -> BufferMapLayoutHints {
+                let mut hints = MessageTypeHintMap::new();
+                let mut _index = 0;
+                $(
+                    hints.insert(_index.into(), $B::message_type_hint());
+                    _index += 1;
+                )*
+
+                BufferMapLayoutHints::Static(hints)
+            }
+        }
+    }
+}
+
+// Implements the BufferMapLayout trait for all tuples of buffers between size 1 and 12 (inclusive).
+all_tuples!(impl_buffer_map_layout_for_tuple, 1, 12, B, b);
 
 #[cfg(test)]
 mod tests {
@@ -1099,7 +1135,7 @@ mod tests {
     }
 
     #[derive(Clone, Accessor)]
-    #[key(buffers_struct_name = TestKeysBuffers)]
+    #[accessor(buffers_struct_name = TestKeysBuffers)]
     struct TestKeys<T: 'static + Send + Sync + Clone> {
         integer: BufferKey<i64>,
         float: BufferKey<f64>,
@@ -1107,6 +1143,7 @@ mod tests {
         generic: BufferKey<T>,
         any: AnyBufferKey,
     }
+
     #[test]
     fn test_listen() {
         let mut context = TestingContext::minimal_plugins();
