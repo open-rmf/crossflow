@@ -50,6 +50,11 @@ impl TrafficLight {
     }
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema)]
+pub struct ApproachingIntersection {
+    pub distance: f32,
+}
+
 #[derive(Clone, Debug, Default, Event, Serialize, Deserialize, JsonSchema, Hash, Eq, PartialEq)]
 pub struct ObstacleInRange {
     pub offset_x: i32,

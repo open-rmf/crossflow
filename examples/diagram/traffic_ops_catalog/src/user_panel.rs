@@ -106,6 +106,7 @@ pub struct UserInteraction<'w, 's> {
     traffic_lights: Query<'w, 's, (Entity, &'static TrafficLight)>,
     user_panel: ResMut<'w, UserPanel>,
     vehicle_state: Res<'w, VehicleState>,
+    world_limits: Res<'w, WorldLimits>,
 }
 
 impl<'w, 's> WidgetSystem for UserInteraction<'w, 's> {
@@ -187,6 +188,23 @@ impl<'w, 's> UserInteraction<'w, 's> {
             .size(14.0),
         );
         ui.add_space(10.0);
+
+        let distance_to_intersection = {
+            let dist = self.vehicle_state.distance_to_intersection();
+            if dist > self.world_limits.full_runway {
+                "Nil".to_string()
+            } else {
+                format!("{:.1}", dist)
+            }
+        };
+        ui.label(
+            RichText::new(format!(
+                "Distance to next intersection: {}",
+                distance_to_intersection
+            ))
+            .size(14.0),
+        );
+        ui.add_space(20.0);
 
         ui.horizontal(|ui| {
             ui.add_space(20.0);

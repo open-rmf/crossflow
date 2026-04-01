@@ -102,7 +102,7 @@
       "next": "stop_engine"
     }
   },
-  "description": "A workflow that moves the vehicle forward until it travelled the requested distance, while respecting both traffic light signals and obstacle avoidance.",
+  "description": "A workflow that moves the vehicle forward until it travelled the requested distance, with Join operation connected to traffic signal and obstacles buffers.",
   "input_examples": [],
   "extensions": {
     "crossflow-diagram-editor-v1": {

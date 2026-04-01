@@ -52,14 +52,14 @@ pub use vehicle::*;
 struct TrafficStateStreams {
     traffic_signal: TrafficSignal,
     obstacles: Obstacles,
-    speed_limit: SpeedLimit,
+    arriving: ApproachingIntersection,
 }
 
 #[derive(Clone, Accessor)]
 struct TrafficStateAccessor {
     traffic_signal: BufferKey<TrafficSignal>,
     obstacles: BufferKey<Obstacles>,
-    speed_limit: BufferKey<SpeedLimit>,
+    arriving: BufferKey<ApproachingIntersection>,
 }
 
 #[derive(Clone, Accessor)]
@@ -68,11 +68,10 @@ struct TrafficSignalWithObstaclesAccessor {
     obstacles: BufferKey<Obstacles>,
 }
 
-#[derive(Clone, Debug, Default, Joined)]
-pub struct TrafficState {
-    traffic_signal: TrafficSignal,
-    obstacles: Obstacles,
-    speed_limit: SpeedLimit,
+#[derive(Clone, Accessor)]
+struct TrafficSignalWithArrivingAccessor {
+    traffic_signal: BufferKey<TrafficSignal>,
+    arriving: BufferKey<ApproachingIntersection>,
 }
 
 #[derive(Clone, Debug, Default, Joined)]
@@ -81,14 +80,20 @@ pub struct TrafficSignalWithObstacles {
     obstacles: Obstacles,
 }
 
+#[derive(Clone, Debug, Default, Joined)]
+pub struct TrafficSignalWithArriving {
+    traffic_signal: TrafficSignal,
+    arriving: ApproachingIntersection,
+}
+
 #[derive(Clone, Debug, Error, Serialize, Deserialize, JsonSchema)]
 pub enum TripRequestError {
     #[error("Engine start error")]
     EngineStartError,
     #[error("Vehicle check error")]
     VehicleCheckError,
-    #[error("Buffer empty error")]
-    BufferEmptyError,
+    #[error("Buffer access error")]
+    BufferAccessError,
     #[error("Next move error")]
     NextMoveError,
     #[error("Vehicle position error")]
@@ -371,6 +376,58 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         .with_common_response();
 
     // =========================================================================
+    let approaching_intersection_description = "Detects how far the vehicle is from
+        the upcoming traffic intersection";
+    fn approaching_intersection(
+        srv: ContinuousService<(), (), TrafficStateStreams>,
+        mut orders: ContinuousQuery<(), (), TrafficStateStreams>,
+        next_traffic_light: Res<NextTrafficLight>,
+        main_vehicle: Query<&Transform, With<MainVehicle>>,
+        traffic_lights: Query<&Transform, (With<TrafficLight>, Without<MainVehicle>)>,
+        world_limits: Res<WorldLimits>,
+    ) {
+        let Some(mut orders) = orders.get_mut(&srv.key) else {
+            return;
+        };
+
+        if orders.is_empty() {
+            return;
+        }
+
+        let Ok(y_vehicle) = main_vehicle.single().map(|tf| tf.translation.y) else {
+            return;
+        };
+
+        if let Some(y_next_light) = next_traffic_light
+            .0
+            .and_then(|e| traffic_lights.get(e).ok())
+            .map(|tf| tf.translation.y)
+        {
+            let distance_to_intersection = y_next_light - y_vehicle;
+            if distance_to_intersection < 0.5 * world_limits.vehicle_size.1
+                || distance_to_intersection > world_limits.vehicle_size.1
+            {
+                // Ignore if vehicle's front has already passed the intersection
+                // or if the vehicle is still a car length away
+                return;
+            }
+            orders.for_each(|order| {
+                order.streams().arriving.send(ApproachingIntersection {
+                    distance: distance_to_intersection,
+                })
+            });
+        }
+    }
+
+    let approaching_intersection_service =
+        app.spawn_continuous_service(PostUpdate, approaching_intersection);
+    registry.register_node_builder(
+        NodeBuilderOptions::new("approaching_intersection".to_string())
+            .with_description(approaching_intersection_description),
+        move |builder, _config: ()| builder.create_node(approaching_intersection_service),
+    );
+
+    // =========================================================================
     let check_change_lane_description = "Check whether changing lane is an option \
         based on obstacles buffer and vehicle's current lane status";
     fn check_change_lane(
@@ -549,6 +606,37 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         .with_common_response();
 
     // =========================================================================
+    let join_traffic_signal_and_arriving_description = "Join the latest traffic signal, \
+        obstacles and approaching intersection buffers, and determine the best move
+        from these inputs";
+    fn join_traffic_signal_and_arriving(
+        Blocking { request: input, .. }: Blocking<TrafficSignalWithArriving>,
+    ) -> Result<MoveVehicle, TripRequestError> {
+        // Since this is a Join operation combining TrafficSignal and
+        // ApproachingIntersection buffers, the vehicle is definitely approaching
+        // an intersection since the buffer is non-empty.
+        Ok(determine_next_move_from_traffic_signal(
+            &input.traffic_signal,
+        ))
+    }
+    let join_traffic_signal_and_arriving_service =
+        app.spawn_service(join_traffic_signal_and_arriving);
+    registry
+        .opt_out()
+        .no_serializing()
+        .no_deserializing()
+        .register_node_builder(
+            NodeBuilderOptions::new("join_traffic_signal_and_arriving".to_string())
+                .with_description(join_traffic_signal_and_arriving_description),
+            move |builder, _config: ()| {
+                builder.create_node(join_traffic_signal_and_arriving_service)
+            },
+        )
+        .with_result()
+        .with_join()
+        .with_common_response();
+
+    // =========================================================================
     let listen_traffic_signal_and_obstacles_description = "Listen to both traffic \
         signal and obstacles buffers and determine the next move based on the \
         combination of buffer activated.";
@@ -612,6 +700,130 @@ pub fn register(setup: &mut BasicExecutorSetup) {
             move |builder, _config: ()| {
                 builder.create_node(listen_traffic_signal_and_obstacles_service)
             },
+        )
+        .with_listen()
+        .with_result()
+        .with_common_response();
+
+    // =========================================================================
+    let listen_traffic_signal_and_arriving_description = "Listen both traffic signal and \
+        approaching intersection buffers and determine the next move based on \
+        the combination of buffers activated.";
+    fn listen_traffic_signal_and_arriving(
+        Blocking {
+            request: keys, id, ..
+        }: Blocking<TrafficSignalWithArrivingAccessor>,
+        mut traffic_signal_access: BufferAccessMut<TrafficSignal>,
+        mut arriving_access: BufferAccessMut<ApproachingIntersection>,
+    ) -> Result<MoveVehicle, TripRequestError> {
+        let Ok(traffic_signal_buffer) = traffic_signal_access.get(id, &keys.traffic_signal) else {
+            error!("Unable to access traffic signal buffer");
+            return Err(TripRequestError::BufferAccessError);
+        };
+        let Ok(mut arriving_buffer) = arriving_access.get_mut(id, &keys.arriving) else {
+            error!("Unable to access approaching intersection buffer");
+            return Err(TripRequestError::BufferAccessError);
+        };
+
+        let signal_next_move = if arriving_buffer.is_empty() {
+            // Ignore traffic signal as vehicle is not approaching the intersection
+            MoveVehicle::Forward(Velocity::default_forward())
+        } else if let Some(signal) = traffic_signal_buffer.newest() {
+            // If traffic signal is Green, drain the arriving buffer.
+            // Else, leave it alone so that we can continue to listen for traffic
+            // signal changes while approaching the intersection.
+            if matches!(signal, TrafficSignal::Green) {
+                arriving_buffer.drain(..);
+            }
+            determine_next_move_from_traffic_signal(&signal)
+        } else {
+            // The vehicle is approaching the intersection but no traffic signal
+            // is detected. To be safe, treat this as a red light and stop the
+            // vehicle regardless of obstacles.
+            MoveVehicle::Stop
+        };
+
+        Ok(signal_next_move)
+    }
+    let listen_traffic_signal_and_arriving_service =
+        app.spawn_service(listen_traffic_signal_and_arriving);
+    registry
+        .opt_out()
+        .no_serializing()
+        .no_deserializing()
+        .register_node_builder(
+            NodeBuilderOptions::new("listen_traffic_signal_and_arriving".to_string())
+                .with_description(listen_traffic_signal_and_arriving_description),
+            move |builder, _config: ()| {
+                builder.create_node(listen_traffic_signal_and_arriving_service)
+            },
+        )
+        .with_listen()
+        .with_result()
+        .with_common_response();
+
+    // =========================================================================
+    let listen_traffic_state_description = "Listen all traffic state buffers \
+        and determine the next move based on the combination of buffers activated.";
+    fn listen_traffic_state(
+        Blocking {
+            request: keys, id, ..
+        }: Blocking<TrafficStateAccessor>,
+        mut traffic_signal_access: BufferAccessMut<TrafficSignal>,
+        mut obstacles_access: BufferAccessMut<Obstacles>,
+        mut arriving_access: BufferAccessMut<ApproachingIntersection>,
+        world_limits: Res<WorldLimits>,
+    ) -> Result<MoveVehicle, TripRequestError> {
+        let Ok(traffic_signal_buffer) = traffic_signal_access.get(id, &keys.traffic_signal) else {
+            error!("Unable to access traffic signal buffer");
+            return Err(TripRequestError::BufferAccessError);
+        };
+        let Ok(mut arriving_buffer) = arriving_access.get_mut(id, &keys.arriving) else {
+            error!("Unable to access approaching intersection buffer");
+            return Err(TripRequestError::BufferAccessError);
+        };
+        let Ok(obstacles_buffer) = obstacles_access.get(id, &keys.obstacles) else {
+            error!("Unable to access obstacles buffer");
+            return Err(TripRequestError::BufferAccessError);
+        };
+
+        let signal_next_move = if arriving_buffer.is_empty() {
+            // Ignore traffic signal as vehicle is not approaching the intersection
+            MoveVehicle::Forward(Velocity::default_forward())
+        } else if let Some(signal) = traffic_signal_buffer.newest() {
+            // If traffic signal is Green, drain the arriving buffer.
+            // Else, leave it alone so that we can continue to listen for traffic
+            // signal changes while approaching the intersection.
+            if matches!(signal, TrafficSignal::Green) {
+                arriving_buffer.drain(..);
+            }
+            determine_next_move_from_traffic_signal(&signal)
+        } else {
+            // The vehicle is approaching the intersection but no traffic signal
+            // is detected. To be safe, treat this as a red light and stop the
+            // vehicle regardless of obstacles.
+            MoveVehicle::Stop
+        };
+
+        // If obstacles buffer is non-empty, determine the best move from all
+        // buffers
+        if let Some(obstacles_next_move) = obstacles_buffer.newest().and_then(|obstacles| {
+            determine_next_move_from_obstacles(&obstacles, &world_limits).ok()
+        }) {
+            return Ok(choose_best_move(&signal_next_move, &obstacles_next_move));
+        }
+
+        Ok(signal_next_move)
+    }
+    let listen_traffic_state_service = app.spawn_service(listen_traffic_state);
+    registry
+        .opt_out()
+        .no_serializing()
+        .no_deserializing()
+        .register_node_builder(
+            NodeBuilderOptions::new("listen_traffic_state".to_string())
+                .with_description(listen_traffic_state_description),
+            move |builder, _config: ()| builder.create_node(listen_traffic_state_service),
         )
         .with_listen()
         .with_result()

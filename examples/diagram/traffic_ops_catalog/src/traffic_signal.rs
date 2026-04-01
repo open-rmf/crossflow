@@ -22,7 +22,7 @@ use crate::{
     spawn_world::{TRAFFIC_LIGHT_LAYER_Z, WorldLimits, WorldMeshes},
     traffic::{TrafficLight, TrafficSignal},
     user_panel::UserPanel,
-    vehicle::MainVehicle,
+    vehicle::{MainVehicle, VehicleState},
 };
 use bevy::prelude::*;
 use bevy_color::{Srgba, palettes::css as Colors};
@@ -86,7 +86,7 @@ fn spawn_traffic_lights(
     world_meshes: Res<WorldMeshes>,
 ) {
     let mut rng = rand::rng();
-    let n_lights = rng.random_range(1..5);
+    let n_lights = rng.random_range(3..5);
     let y_start = rng.random_range(0.0..world_limits.window_height / 2.0);
     let y_interval = world_limits.full_runway / n_lights as f32;
 
@@ -226,6 +226,7 @@ fn get_material_for_signal(
 fn monitor_upcoming_traffic_signal(
     mut upcoming_signal: EventWriter<UpcomingTrafficSignal>,
     mut next_traffic_light: ResMut<NextTrafficLight>,
+    mut vehicle_state: ResMut<VehicleState>,
     main_vehicle: Query<&Transform, With<MainVehicle>>,
     traffic_lights: Query<(Entity, &Transform, &TrafficLight), Without<MainVehicle>>,
     world_limits: Res<WorldLimits>,
@@ -246,14 +247,14 @@ fn monitor_upcoming_traffic_signal(
         if transform.translation.y > 0.5 * world_limits.window_height {
             continue;
         }
-        // TODO(@xiyuoh) Consider ignoring traffic lights too far away, or
-        // incorporating approaching intersection logic.
 
         if offset_y < distance_to_next_signal {
             let _ = next_signal.insert((e, traffic_light.signal.clone()));
             distance_to_next_signal = offset_y;
         }
     }
+
+    vehicle_state.distance_to_intersection_mut(distance_to_next_signal);
 
     if let Some((new_next_entity, new_next_signal)) = next_signal {
         if next_traffic_light.0.is_none()
