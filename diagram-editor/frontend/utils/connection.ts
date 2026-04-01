@@ -36,7 +36,8 @@ const ALLOWED_OUTPUT_EDGES: Record<NodeTypes, EdgeTypes[]> = {
   sectionInput: ['default'],
   sectionOutput: [],
   sectionBuffer: ['buffer'],
-  split: ['splitKey', 'splitSeq', 'splitRemaining'],
+  // Keep splitSeq first so new split connections default to visible sequence index labels.
+  split: ['splitSeq', 'splitKey', 'splitRemaining'],
   start: ['default'],
   stream_out: [],
   terminate: [],

@@ -140,3 +140,4 @@ test('export diagram with templates', () => {
   }
   expect(template.buffers.test_buffer).toBe('test_op_buffer');
 });
+

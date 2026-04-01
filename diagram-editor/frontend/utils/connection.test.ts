@@ -3,6 +3,8 @@ import {
   createDefaultEdge,
   createForkResultErrEdge,
   createForkResultOkEdge,
+  createSplitKeyEdge,
+  createSplitSeqEdge,
   type DiagramEditorEdge,
 } from '../edges';
 import { HandleId } from '../handles';
@@ -431,6 +433,38 @@ describe('validate edges', () => {
       const result = validateEdgeSimple(newEdge, nodeManager, existingEdges);
       expect(result.valid).toBe(false);
     }
+  });
+
+  test('"split" operation prefers sequential edge type by default', () => {
+    const splitNode = createOperationNode(
+      ROOT_NAMESPACE,
+      undefined,
+      { x: 0, y: 0 },
+      { type: 'split' },
+      'test_split',
+    );
+    const targetNode = createOperationNode(
+      ROOT_NAMESPACE,
+      undefined,
+      { x: 0, y: 0 },
+      { type: 'buffer' },
+      'test_buffer',
+    );
+
+    const validEdges = getValidEdgeTypes(splitNode, null, targetNode, null);
+    expect(validEdges[0]).toBe('splitSeq');
+    expect(validEdges).toEqual(['splitSeq', 'splitKey', 'splitRemaining']);
+
+    const nodeManager = new NodeManager([splitNode, targetNode]);
+    const splitSeqEdge = createSplitSeqEdge(splitNode.id, null, targetNode.id, null, {
+      seq: 0,
+    });
+    const splitKeyEdge = createSplitKeyEdge(splitNode.id, null, targetNode.id, null, {
+      key: 'k',
+    });
+
+    expect(validateEdgeQuick(splitSeqEdge, nodeManager).valid).toBe(true);
+    expect(validateEdgeQuick(splitKeyEdge, nodeManager).valid).toBe(true);
   });
 
   test('buffer edges connecting to a section must have "sectionBuffer" input', () => {

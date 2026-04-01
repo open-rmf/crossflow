@@ -47,7 +47,7 @@ import { ExportDiagramDialog } from './export-diagram-dialog';
 import { defaultEdgeData, EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
 import { type LoadContext, LoadContextProvider } from './load-context-provider';
-import { type DiagramProperties, DiagramPropertiesProvider } from './diagram-properties-provider';
+import { DiagramPropertiesProvider } from './diagram-properties-provider';
 import { NodeManager, NodeManagerProvider } from './node-manager';
 import {
   type DiagramEditorNode,
