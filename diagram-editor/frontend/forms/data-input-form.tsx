@@ -37,7 +37,7 @@ export function DataInputForm({ edge, onChange }: DataInputEdgeFormProps) {
 
     if (typeof targetNode.data.op.builder === 'string') {
       const sectionBuilder = registry.sections[targetNode.data.op.builder];
-      return Object.keys(sectionBuilder?.metadata.inputs || {});
+      return Object.keys(sectionBuilder?.interface.inputs || {});
     } else if (typeof targetNode.data.op.template === 'string') {
       const template = templates[targetNode.data.op.template];
       return template ? getTemplateInputs(template) : [];
