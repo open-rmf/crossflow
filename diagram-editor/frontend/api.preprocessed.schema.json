@@ -58,20 +58,6 @@
       ],
       "type": "object"
     },
-    "BufferIdentifier": {
-      "anyOf": [
-        {
-          "description": "Identify a buffer by name",
-          "type": "string"
-        },
-        {
-          "description": "Identify a buffer by an index value",
-          "format": "uint",
-          "minimum": 0,
-          "type": "integer"
-        }
-      ]
-    },
     "BufferMapLayoutHints": {
       "oneOf": [
         {
@@ -741,6 +727,20 @@
       ],
       "type": "object"
     },
+    "IdentifierRef": {
+      "anyOf": [
+        {
+          "description": "Identify by a name",
+          "type": "string"
+        },
+        {
+          "description": "Identify by an index value",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      ]
+    },
     "InputExample": {
       "properties": {
         "description": {
@@ -781,7 +781,7 @@
         "clone": {
           "description": "List of the keys in the `buffers` dictionary whose value should be cloned\ninstead of removed from the buffer (pulled) when the join occurs. Cloning\nthe value will leave the buffer unchanged after the join operation takes\nplace.",
           "items": {
-            "$ref": "#/$defs/BufferIdentifier"
+            "$ref": "#/$defs/IdentifierRef"
           },
           "type": "array"
         },

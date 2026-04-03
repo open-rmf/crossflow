@@ -231,7 +231,7 @@ export function SectionEdgeForm({ edge, onChange }: SectionEdgeFormProps) {
     if (sourceNode && isSectionNode(sourceNode)) {
       if (typeof sourceNode.data.op.builder === 'string') {
         const sectionBuilder = registry.sections[sourceNode.data.op.builder];
-        return Object.keys(sectionBuilder?.metadata.outputs || {});
+        return Object.keys(sectionBuilder?.interface.outputs || {});
       } else if (typeof sourceNode.data.op.template === 'string') {
         const template = templates[sourceNode.data.op.template];
         return template?.outputs || [];

@@ -68,7 +68,7 @@ export function BufferEdgeInputForm({
     if (typeof targetNode.data.op.builder === 'string') {
       const sectionRegistration = registry.sections[targetNode.data.op.builder];
       return sectionRegistration
-        ? Object.keys(sectionRegistration.metadata.buffers)
+        ? Object.keys(sectionRegistration.interface.buffers)
         : [];
     } else if (typeof targetNode.data.op.template === 'string') {
       const template = templates[targetNode.data.op.template];
