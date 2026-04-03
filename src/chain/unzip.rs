@@ -25,6 +25,9 @@ use crate::{
     OperationRequest, OperationResult, OrBroken, Output, UnusedTarget, output_port,
 };
 
+/// Derive macro for creating enum-based unzip/fork behavior.
+pub use crossflow_derive::Fork;
+
 /// A trait for response types that can be unzipped
 pub trait Unzippable: Sized {
     type Unzipped;
@@ -124,3 +127,78 @@ macro_rules! impl_unzipbuilder_for_tuple {
 
 // Implements the `UnzipBuilder` trait for all tuples between size 1 and 12
 all_tuples!(impl_unzipbuilder_for_tuple, 2, 12, A, F, U);
+
+#[cfg(test)]
+mod tests {
+    use crate::{Fork, prelude::*, testing::*};
+
+    #[derive(Fork)]
+    enum Decision {
+        Continue(i32),
+        Stop,
+    }
+
+    #[derive(Fork)]
+    enum Multi {
+        Unit,
+        Single(i32),
+        Pair(i32, i32),
+        Named { value: i32 },
+    }
+
+    #[test]
+    fn test_derive_fork_for_basic_enum() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope: Scope<Decision, i32>, builder| {
+            let (continue_output, stop_output) = builder.chain(scope.start).unzip();
+            builder
+                .chain(continue_output)
+                .map_block(|v| v + 1)
+                .connect(scope.terminate);
+            builder
+                .chain(stop_output)
+                .map_block(|_| -1)
+                .connect(scope.terminate);
+        });
+
+        let continue_result = context.resolve_request(Decision::Continue(41), workflow);
+        assert_eq!(continue_result, 42);
+
+        let stop_result = context.resolve_request(Decision::Stop, workflow);
+        assert_eq!(stop_result, -1);
+    }
+
+    #[test]
+    fn test_derive_fork_for_multi_field_variants() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope: Scope<Multi, i32>, builder| {
+            let (unit, single, pair, named) = builder.chain(scope.start).unzip();
+            builder
+                .chain(unit)
+                .map_block(|_| 0)
+                .connect(scope.terminate);
+            builder
+                .chain(single)
+                .map_block(|v| v)
+                .connect(scope.terminate);
+            builder
+                .chain(pair)
+                .map_block(|(a, b)| a + b)
+                .connect(scope.terminate);
+            builder
+                .chain(named)
+                .map_block(|value| value * 2)
+                .connect(scope.terminate);
+        });
+
+        assert_eq!(context.resolve_request(Multi::Unit, workflow), 0);
+        assert_eq!(context.resolve_request(Multi::Single(7), workflow), 7);
+        assert_eq!(context.resolve_request(Multi::Pair(4, 9), workflow), 13);
+        assert_eq!(
+            context.resolve_request(Multi::Named { value: 11 }, workflow),
+            22
+        );
+    }
+}
