@@ -1,0 +1,30 @@
+[package]
+name = "crossflow_python"
+version = "0.0.7"
+edition = "2024"
+authors = ["Open Source Robotics Foundation"]
+license = "Apache-2.0"
+description = "Experimental Python bindings for crossflow"
+readme = "README.md"
+repository = "https://github.com/open-rmf/crossflow"
+keywords = ["workflow", "python", "pyo3", "bevy"]
+categories = [
+  "science::robotics",
+  "asynchronous",
+  "concurrency",
+  "api-bindings",
+]
+
+[lib]
+name = "crossflow_python"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bevy_app = { workspace = true }
+crossflow = { version = "0.0.7", path = "..", features = ["diagram"] }
+pyo3 = { version = "0.23", features = ["auto-initialize"] }
+pythonize = "0.23"
+serde_json = { workspace = true }
+
+[features]
+extension-module = ["pyo3/extension-module"]

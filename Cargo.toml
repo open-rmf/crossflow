@@ -176,6 +176,7 @@ test-log = { version = "0.2.16", features = [
 
 [workspace]
 members = [
+  "crossflow-python",
   "examples/diagram/calculator",
   "examples/zenoh-examples",
   "diagram-editor",

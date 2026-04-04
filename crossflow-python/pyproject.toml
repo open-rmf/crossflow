@@ -1,0 +1,15 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "crossflow_python"
+description = "Experimental Python bindings for crossflow"
+readme = "README.md"
+requires-python = ">=3.9"
+dynamic = ["version"]
+
+[tool.maturin]
+features = ["extension-module"]
+module-name = "crossflow_python"
+manifest-path = "Cargo.toml"
