@@ -13,4 +13,11 @@ node_modules
 *storybook.log
 storybook-static
 
+# MacOS
 .DS_Store
+
+# python
+.venv*/
+__pycache__/
+*.py[cod]
+.pytest_cache/

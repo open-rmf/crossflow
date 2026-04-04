@@ -22,7 +22,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 bevy_app = { workspace = true }
 crossflow = { version = "0.0.7", path = "..", features = ["diagram"] }
-pyo3 = { version = "0.23", features = ["auto-initialize"] }
+pyo3 = { version = "0.23", features = ["abi3-py39", "auto-initialize"] }
 pythonize = "0.23"
 serde_json = { workspace = true }
 
