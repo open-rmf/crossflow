@@ -21,3 +21,6 @@ storybook-static
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+#AI
+.claude/
