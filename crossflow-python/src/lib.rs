@@ -122,10 +122,7 @@ impl Executor {
                         .map_block(move |request: JsonMessage| {
                             call_python_node(&callback, request, config.clone())
                         })
-                        .fork_result(
-                            |ok| ok.connect(scope.terminate),
-                            |err| err.then_cancel(),
-                        );
+                        .fork_result(|ok| ok.connect(scope.terminate), |err| err.then_cancel());
                 })
             });
 
@@ -382,11 +379,7 @@ mod tests {
         Python::with_gil(|py| {
             let mut executor = Executor::new_inner();
             let callback = py
-                .eval(
-                    c_str!("lambda request, config: request * 2"),
-                    None,
-                    None,
-                )
+                .eval(c_str!("lambda request, config: request * 2"), None, None)
                 .unwrap();
             executor
                 .register_node_inner("double", callback.unbind(), None)
@@ -420,8 +413,7 @@ mod tests {
                 .register_node_inner("async_node", callback.unbind(), None)
                 .unwrap();
 
-            let diagram =
-                json_to_python(py, &sample_diagram("async_node", json!(null))).unwrap();
+            let diagram = json_to_python(py, &sample_diagram("async_node", json!(null))).unwrap();
             let request = json_to_python(py, &json!(1)).unwrap();
             let err = executor
                 .run_inner(py, diagram.bind(py), request.bind(py))
