@@ -87,7 +87,7 @@ fn spawn_traffic_lights(
 ) {
     let mut rng = rand::rng();
     let n_lights = rng.random_range(3..5);
-    let y_start = rng.random_range(0.0..world_limits.window_height / 2.0);
+    let y_start = rng.random_range(0.0..world_limits.window.1 / 2.0);
     let y_interval = world_limits.full_runway / n_lights as f32;
 
     // For each traffic light, spawn an entity
@@ -244,13 +244,13 @@ fn monitor_upcoming_traffic_signal(
             continue;
         }
         // Ignore if traffic light is off-screen
-        if transform.translation.y > 0.5 * world_limits.window_height {
+        if transform.translation.y > 0.5 * world_limits.window.1 {
             continue;
         }
 
         if offset_y < distance_to_next_signal {
             let _ = next_signal.insert((e, traffic_light.signal.clone()));
-            distance_to_next_signal = offset_y;
+            distance_to_next_signal = offset_y - (0.5 * world_limits.vehicle_size.1);
         }
     }
 

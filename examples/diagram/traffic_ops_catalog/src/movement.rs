@@ -119,7 +119,7 @@ fn scroll_world_system(
     global_speed: Res<GlobalSpeed>,
     world_limits: Res<WorldLimits>,
 ) {
-    let window_height = world_limits.window_height;
+    let window_height = world_limits.window.1;
     let dt = time.delta_secs();
     let scroll_distance = global_speed.0 * dt;
 

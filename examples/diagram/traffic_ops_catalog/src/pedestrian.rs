@@ -141,7 +141,7 @@ fn move_pedestrians(
         // If for some reason pedestrians stopped moving, ensure that they resume
         // velocity off-screen. This could be due to users toggling pedestrian
         // awareness off while the pedestrian is waiting.
-        if velocity.x == 0.0 && transform.translation.y > 0.5 * world_limits.window_height {
+        if velocity.x == 0.0 && transform.translation.y > 0.5 * world_limits.window.1 {
             *velocity = Velocity::default_pedestrian();
         }
 
@@ -184,7 +184,7 @@ fn update_pedestrian_state(
         0.5 * world_limits.vehicle_size.1,
     );
     for (e, transform, pedestrian) in transforms.iter() {
-        if !pedestrian.is_alive() && transform.translation.y > 0.5 * world_limits.window_height {
+        if !pedestrian.is_alive() && transform.translation.y > 0.5 * world_limits.window.1 {
             // If pedestrian is dead, revive them through the scrolling world
             commands.trigger(PedestrianStateChange::Revival(e))
         } else if pedestrian.is_alive() {

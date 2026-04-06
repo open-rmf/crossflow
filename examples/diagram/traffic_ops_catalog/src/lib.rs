@@ -351,7 +351,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
                         return false;
                     }
                     // Ignore obstacles off screen
-                    if ob.translation.y > 0.5 * world_limits.window_height {
+                    if ob.translation.y > 0.5 * world_limits.window.1 {
                         return false;
                     }
                     true

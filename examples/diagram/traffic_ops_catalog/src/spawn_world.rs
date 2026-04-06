@@ -91,7 +91,7 @@ impl ObstacleLimits {
 
 #[derive(Clone, Debug, Resource)]
 pub struct WorldLimits {
-    pub window_height: f32,
+    pub window: (f32, f32),
     pub full_runway: f32,
     pub road_center: (f32, f32),
     pub user_panel_width: f32,
@@ -105,8 +105,11 @@ pub struct WorldLimits {
 impl FromWorld for WorldLimits {
     fn from_world(world: &mut World) -> Self {
         let mut q_window = world.query_filtered::<&Window, With<PrimaryWindow>>();
-        let window_height = q_window.single(world).map(|w| w.height()).unwrap_or(720.0);
-        let full_runway = window_height * 4.0;
+        let window = q_window
+            .single(world)
+            .map(|w| (w.width(), w.height()))
+            .unwrap_or((1280.0, 720.0));
+        let full_runway = window.1 * 4.0;
         let user_panel_width = 320.0;
         let road_center = (-0.5 * user_panel_width, 0.0);
         let (lane_limits, pavement_limits) = {
@@ -132,7 +135,7 @@ impl FromWorld for WorldLimits {
             road_center.0 - half_lane_width,
             road_center.0 + half_lane_width,
         );
-        let vehicle_size = (60.0, 100.0);
+        let vehicle_size = (71.0, 131.0);
         let obstacle_limits = ObstacleLimits {
             x_threshold: 0.25 * (lane_limits.1 - lane_limits.0),
             y_stop: vehicle_size.1 * 1.5,
@@ -141,7 +144,7 @@ impl FromWorld for WorldLimits {
         };
 
         Self {
-            window_height,
+            window,
             full_runway,
             road_center,
             user_panel_width,
@@ -195,32 +198,34 @@ impl WorldLimits {
 
 #[derive(Clone, Debug, Resource)]
 pub struct WorldMeshes {
-    pub vehicle: (Handle<Mesh>, Handle<ColorMaterial>),
     pub lane_dash: (Handle<Mesh>, Handle<ColorMaterial>),
-    pub random_box: (Handle<Mesh>, Handle<ColorMaterial>),
+    pub vehicle: Handle<Image>,
+    pub foliage: Vec<Handle<Image>>,
 }
 
 impl FromWorld for WorldMeshes {
     fn from_world(world: &mut World) -> Self {
         let world_limits = world.resource::<WorldLimits>();
-        let window_height = world_limits.window_height.clone();
-        let vehicle_size = world_limits.vehicle_size.clone();
-        let item_dimension = 50.0;
+        let window_height = world_limits.window.1.clone();
 
         let mut meshes = world.resource_mut::<Assets<Mesh>>();
-        let vehicle_mesh = meshes.add(Rectangle::new(vehicle_size.0, vehicle_size.1));
         let lane_dash_mesh = meshes.add(create_dotted_line_mesh(window_height));
-        let random_box_mesh = meshes.add(Rectangle::new(item_dimension, item_dimension));
 
         let mut materials = world.resource_mut::<Assets<ColorMaterial>>();
-        let vehicle_mat = materials.add(Color::Srgba(Colors::DARK_CYAN));
         let lane_dash_mat = materials.add(Color::Srgba(Colors::ANTIQUE_WHITE));
-        let random_box_mat = materials.add(Color::Srgba(Colors::DARK_TURQUOISE));
+
+        let asset_server = world.resource::<AssetServer>();
+        let vehicle = asset_server.load("sprites/cars/car_blue_1.png");
+        let mut foliage = Vec::<Handle<Image>>::new();
+        for id in 1..10 {
+            let texture_path = format!("sprites/foliage/foliagePack_00{}.png", id);
+            foliage.push(asset_server.load(texture_path));
+        }
 
         Self {
-            vehicle: (vehicle_mesh, vehicle_mat),
             lane_dash: (lane_dash_mesh, lane_dash_mat),
-            random_box: (random_box_mesh, random_box_mat),
+            vehicle,
+            foliage,
         }
     }
 }
@@ -260,6 +265,7 @@ impl Plugin for SpawnWorldPlugin {
 fn spawn_vehicle_and_camera(
     mut commands: Commands,
     world_limits: Res<WorldLimits>,
+    world_meshes: Res<WorldMeshes>,
     q_window: Query<Entity, With<PrimaryWindow>>,
 ) {
     let Ok(window_entity) = q_window.single() else {
@@ -274,13 +280,10 @@ fn spawn_vehicle_and_camera(
     ));
 
     // Spawn main vehicle
+    // Vehicle assets provided by https://kenney.nl/assets/racing-pack
     commands.spawn((
         Sprite {
-            color: Color::srgb(0.3, 0.3, 0.9),
-            custom_size: Some(Vec2::new(
-                world_limits.vehicle_size.0,
-                world_limits.vehicle_size.1,
-            )),
+            image: world_meshes.vehicle.clone(),
             ..default()
         },
         Transform::from_xyz(
@@ -301,7 +304,7 @@ fn spawn_environment(
     // Log the initial world limits for reference
     info!("Initialized world limits: {:?}", world_limits);
 
-    let window_height = world_limits.window_height;
+    let window_height = world_limits.window.1;
     // Spawn lane lines to govern left and right lanes
     let lane_segment_x = [
         world_limits.lane_limits.0,
@@ -324,21 +327,15 @@ fn spawn_environment(
         }
     }
 
-    // Spawn random things outside the lane lines
-    let item_dimension = 50.0;
-    let left_range = (
-        world_limits.pavement_limits.0,
-        world_limits.lane_limits.0 - item_dimension,
-    );
+    // Spawn foliage along the pavement
+    // Foliage assets provided by https://kenney.nl/assets/foliage-pack
+    let left_range = (-0.5 * world_limits.window.0, world_limits.pavement_limits.0);
     let right_range = (
-        world_limits.lane_limits.1 + item_dimension,
         world_limits.pavement_limits.1,
+        world_limits.window.0 - world_limits.user_panel_width,
     );
-    // NOTE(@xiyuoh) these are NOT other VEHICLES, these are static objects in
-    // the world. Other cars should not be part of ScrollingWorld as they should
-    // also have some sort of velocity.
     let mut rng = rand::rng();
-    let n_objects = rng.random_range(10..20);
+    let n_objects = rng.random_range(20..30);
     for i in 0..n_objects {
         let x = if i % 2 == 0 {
             rng.random_range(left_range.0..left_range.1)
@@ -347,12 +344,14 @@ fn spawn_environment(
         };
         let y = rng.random_range(0.0..world_limits.full_runway);
 
+        let item_id = rng.random_range(0..9);
         commands.spawn((
-            ((
-                Mesh2d(world_meshes.random_box.0.clone()),
-                MeshMaterial2d(world_meshes.random_box.1.clone()),
-                Transform::from_xyz(x, y, ENV_LAYER_Z),
-            )),
+            Sprite {
+                image: world_meshes.foliage[item_id].clone(),
+                anchor: bevy::sprite::Anchor::BottomCenter,
+                ..default()
+            },
+            Transform::from_xyz(x, y, ENV_LAYER_Z),
             ScrollingWorld,
         ));
     }

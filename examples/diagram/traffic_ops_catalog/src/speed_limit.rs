@@ -54,7 +54,7 @@ fn spawn_speed_signs(
 ) {
     let mut rng = rand::rng();
     let n_signs = rng.random_range(1..5);
-    let y_start = rng.random_range(0.0..world_limits.window_height / 2.0);
+    let y_start = rng.random_range(0.0..world_limits.window.1 / 2.0);
     let y_interval = world_limits.full_runway / n_signs as f32;
     let x_sign = world_limits.lane_limits.0 - 50.0;
 
@@ -113,7 +113,7 @@ fn update_current_speed_limit(
     };
 
     let mut signs_in_window = HashMap::<SpeedLimit, f32>::new();
-    let window_height = world_limits.window_height;
+    let window_height = world_limits.window.1;
     for (tf, speed) in speed_signs.iter() {
         if tf.translation.y < -0.5 * window_height || tf.translation.y > 0.5 * window_height {
             continue;
