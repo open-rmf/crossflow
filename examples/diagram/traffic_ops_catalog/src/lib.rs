@@ -21,6 +21,7 @@ use crossflow_diagram_editor::basic_executor::BasicExecutorSetup;
 use rand::Rng;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::{collections::HashMap, thread::sleep, time::Duration};
 use thiserror::Error;
 
@@ -194,7 +195,6 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     // =========================================================================
     let validate_vehicle_check_description = "Validates items in vehicle checklist are ready";
     fn validate_vehicle_check(
-        // TODO(@xiyuoh) Use Collect operation when it's ready on the diagram editor
         Blocking {
             request: checklist, ..
         }: Blocking<Vec<ReadyState>>,
@@ -285,6 +285,42 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         .with_buffer_access()
         .with_result()
         .with_common_response();
+
+    // =========================================================================
+    let configure_obstacles_thresholds_description = "Update ObstacleLimits based on
+        the configured thresholds";
+    let configure_obstacles_thresholds_examples = [ConfigExample::new(
+        "Set thresholds for obstacle detection.",
+        json!({
+            "x_threshold": 100.0,
+            "y_stop": 300.0,
+            "y_slow_down": 400.0,
+            "y_back": 100.0
+        }),
+    )];
+    registry
+        .opt_out()
+        .no_serializing()
+        .no_deserializing()
+        .register_node_builder(
+            NodeBuilderOptions::new("configure_obstacles_thresholds".to_string())
+                .with_description(configure_obstacles_thresholds_description)
+                .with_config_examples(configure_obstacles_thresholds_examples),
+            move |builder, config: Option<ObstacleLimits>| {
+                let configure_obstacles_thresholds_service = builder.commands().spawn_service(
+                    move |Blocking { .. }: Blocking<()>, mut world_limits: ResMut<WorldLimits>| {
+                        if let Some(limits) = config.as_ref() {
+                            *world_limits.obstacle_limits_mut() = limits.clone();
+                            info!(
+                                "Updated obstacle limits: {:?}",
+                                world_limits.obstacle_limits
+                            );
+                        }
+                    },
+                );
+                builder.create_node(configure_obstacles_thresholds_service)
+            },
+        );
 
     // =========================================================================
     let detect_obstacles_description = "Detects obstacles in range via query";
@@ -406,11 +442,8 @@ pub fn register(setup: &mut BasicExecutorSetup) {
             .map(|tf| tf.translation.y)
         {
             let distance_to_intersection = y_next_light - y_vehicle;
-            if distance_to_intersection <= 0.5 * world_limits.vehicle_size.1
-                || distance_to_intersection > world_limits.vehicle_size.1
-            {
+            if distance_to_intersection <= 0.5 * world_limits.vehicle_size.1 {
                 // Ignore if vehicle's front has already passed the intersection
-                // or if the vehicle is still a car length away
                 return;
             }
             orders.for_each(|order| {
@@ -428,6 +461,30 @@ pub fn register(setup: &mut BasicExecutorSetup) {
             .with_description(approaching_intersection_description),
         move |builder, _config: ()| builder.create_node(approaching_intersection_service),
     );
+
+    // =========================================================================
+    let filter_arriving_description = "Filter arriving messages based on distance to intersection";
+    let filter_arriving_examples = [ConfigExample::new(
+        "Filter ApproachingIntersection messages such that they are considered to
+         be arriving if they are within 200.0 px from the intersection.",
+        json!(200.0),
+    )];
+    registry
+        .register_node_builder(
+            NodeBuilderOptions::new("filter_arriving")
+                .with_description(filter_arriving_description)
+                .with_config_examples(filter_arriving_examples),
+            |builder, config: Option<f32>| {
+                builder.create_map_block(move |arriving: ApproachingIntersection| {
+                    if arriving.distance <= config.unwrap_or(100.0) {
+                        Ok(arriving)
+                    } else {
+                        Err(())
+                    }
+                })
+            },
+        )
+        .with_result();
 
     // =========================================================================
     let check_change_lane_description = "Check whether changing lane is an option \
@@ -955,6 +1012,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         Blocking { .. }: Blocking<()>,
         mut commands: Commands,
         mut vehicle_state: ResMut<VehicleState>,
+        mut world_limits: ResMut<WorldLimits>,
         vehicle_velocity: Query<Entity, (With<MainVehicle>, With<Velocity>)>,
     ) {
         let Ok(e) = vehicle_velocity.single() else {
@@ -965,6 +1023,10 @@ pub fn register(setup: &mut BasicExecutorSetup) {
             .try_move(e_cmds, MoveVehicle::Stop)
             .toggle_engine(false)
             .reset();
+
+        // Reset obstacle limits in case they were modified
+        world_limits.reset_obstacle_limits();
+
         info!("Vehicle successfully completed its trip!");
     }
     let stop_engine_service = app.spawn_service(stop_engine);

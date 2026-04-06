@@ -123,8 +123,6 @@ impl VehicleState {
                 e_cmds.insert(acceleration);
             }
             MoveVehicle::ChangeLane(velocity) => {
-                // TODO(@xiyuoh) incorporate lane change into the workflow instead
-                // of handling it from the simulator
                 let new_to_lane = if velocity.x > 0.0 {
                     Lane::Right
                 } else {

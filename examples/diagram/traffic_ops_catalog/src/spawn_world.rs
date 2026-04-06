@@ -27,6 +27,8 @@ use bevy::{
 use bevy_color::palettes::css as Colors;
 use bevy_egui::EguiPlugin;
 use rand::Rng;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 // Use Z-values in Transform to handle layering/depth
 pub const LANE_LAYER_Z: f32 = 0.0;
@@ -35,13 +37,19 @@ pub const PEDESTRIAN_LAYER_Z: f32 = 8.0;
 pub const TRAFFIC_LIGHT_LAYER_Z: f32 = 9.0;
 pub const VEHICLE_LAYER_Z: f32 = 10.0;
 
-#[derive(Clone, Debug)]
-// TODO(@xiyuoh) allow users to modify these values at runtime, either via the
-// user panel or via workflow
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ObstacleLimits {
+    // The maximum x-offset an obstacle can befrom the vehicle to be considered
+    // in the same lane.
     pub x_threshold: f32,
+    // The y-offset of an obstacle from the vehicle's center such that the vehicle
+    // should stop moving forward
     pub y_stop: f32,
+    // The y-offset of an obstacle from the vehicle's center such that the vehicle
+    // should slow down
     pub y_slow_down: f32,
+    // The absolute distance behind the vehicle's center at which an obstacle is
+    // considered behind the vehicle
     pub y_back: f32,
 }
 
@@ -166,6 +174,23 @@ impl WorldLimits {
         }
         Some((x - self.lane_limits.0, self.lane_limits.1 - x))
     }
+
+    pub fn obstacle_limits_mut(&mut self) -> &mut ObstacleLimits {
+        &mut self.obstacle_limits
+    }
+
+    pub fn default_obstacle_limits(&self) -> ObstacleLimits {
+        ObstacleLimits {
+            x_threshold: 0.25 * (self.lane_limits.1 - self.lane_limits.0),
+            y_stop: self.vehicle_size.1 * 1.5,
+            y_slow_down: self.vehicle_size.1 * 3.0,
+            y_back: self.vehicle_size.1 * 0.5,
+        }
+    }
+
+    pub fn reset_obstacle_limits(&mut self) {
+        self.obstacle_limits = self.default_obstacle_limits();
+    }
 }
 
 #[derive(Clone, Debug, Resource)]
@@ -273,6 +298,9 @@ fn spawn_environment(
     world_limits: Res<WorldLimits>,
     world_meshes: Res<WorldMeshes>,
 ) {
+    // Log the initial world limits for reference
+    info!("Initialized world limits: {:?}", world_limits);
+
     let window_height = world_limits.window_height;
     // Spawn lane lines to govern left and right lanes
     let lane_segment_x = [
