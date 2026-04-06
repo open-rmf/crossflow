@@ -443,7 +443,7 @@ fn wait_for<A: Accessor, U: 'static + Send>(
 mod tests {
     use crate::{prelude::*, testing::*};
     use bevy_ecs::system::EntityCommands;
-    use std::time::Duration;
+    use std::{collections::HashMap, time::Duration};
 
     #[test]
     fn test_channel_request() {
@@ -561,7 +561,7 @@ mod tests {
     }
 
     #[test]
-    fn test_wait_for_access() {
+    fn test_struct_wait_for_access() {
         let mut context = TestingContext::minimal_plugins();
 
         let workflow = context.spawn_io_workflow(|scope, builder| {
@@ -628,29 +628,186 @@ mod tests {
         assert!(result > 4);
     }
 
-    async fn async_distribute_values(
+    #[test]
+    fn test_tuple_wait_for_access() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffers: (Buffer<i32>, Buffer<Vec<i32>>, Buffer<String>) = (
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+            );
+            type Keys = (BufferKey<i32>, BufferKey<Vec<i32>>, BufferKey<String>);
+
+            let (values, trigger) = builder
+                .chain(scope.start)
+                .map_block(|value| (value, ()))
+                .unzip();
+
+            builder
+                .chain(trigger)
+                .with_access(buffers)
+                .map(
+                    |Async {
+                         request: (_, keys),
+                         channel,
+                         id,
+                         ..
+                     }: Async<((), Keys)>| {
+                        async move {
+                            channel
+                                .wait_for(keys.clone(), move |world| {
+                                    world
+                                        .buffers_mut(id, &keys, |mut buffers| {
+                                            let value = buffers.0.pull()?;
+                                            // Note: Using the ? above means that this function will
+                                            // return None until it manages to pull a value from the
+                                            // first buffer.
+
+                                            let mut values = buffers.1.oldest_mut().unwrap();
+                                            values.push(value);
+
+                                            // Put a value back into the first buffer so we
+                                            // can join all the buffers again later.
+                                            buffers.0.push(*values.first().unwrap());
+
+                                            // Return Some to end this wait_for
+                                            Some(())
+                                        })
+                                        .unwrap()
+                                })
+                                .await;
+                        }
+                    },
+                )
+                .with_access(buffers)
+                .then(async_join_values.into_callback())
+                .connect(scope.terminate);
+
+            builder
+                .chain(values)
+                .with_access(buffers)
+                .then(async_distribute_values.into_callback())
+                .unused();
+        });
+
+        let values = (5, vec![0, 1, 2, 3, 4], String::from("hello"));
+
+        let result = context.resolve_request(values.clone(), workflow);
+        assert_eq!(result.0, 0);
+        assert_eq!(result.1, vec![0, 1, 2, 3, 4, 5]);
+        assert_eq!(result.2, values.2);
+    }
+
+    #[test]
+    fn test_hashmap_wait_for_access() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let mut buffers = HashMap::new();
+            buffers.insert(
+                String::from("alice"),
+                builder.create_buffer(Default::default()),
+            );
+            buffers.insert(
+                String::from("bob"),
+                builder.create_buffer(Default::default()),
+            );
+            buffers.insert(
+                String::from("chris"),
+                builder.create_buffer(Default::default()),
+            );
+
+            let (values, trigger) = builder
+                .chain(scope.start)
+                .map_block(|value| (value, ()))
+                .unzip();
+
+            builder
+                .chain(trigger)
+                .with_access(buffers.clone())
+                .map(
+                    |Async {
+                         request: (_, keys),
+                         channel,
+                         id,
+                         ..
+                     }: Async<((), HashMap<String, BufferKey<i32>>)>| {
+                        async move {
+                            channel
+                                .wait_for(keys.clone(), move |world| {
+                                    world
+                                        .buffers_mut(id, &keys, |mut buffers| {
+                                            let [alice, bob, chris] =
+                                                buffers.get_disjoint_mut(["alice", "bob", "chris"]);
+                                            let mut alice = alice?.oldest_mut()?;
+                                            let mut bob = bob?.oldest_mut()?;
+                                            let chris = chris?.oldest_mut()?;
+                                            *alice = *alice - *bob;
+                                            *bob = *bob - *chris;
+
+                                            Some(())
+                                        })
+                                        .unwrap()
+                                })
+                                .await;
+                        }
+                    },
+                )
+                .with_access(buffers.clone())
+                .then(async_join_values.into_callback())
+                .connect(scope.terminate);
+
+            builder
+                .chain(values)
+                .with_access(buffers)
+                .then(async_distribute_values.into_callback())
+                .unused();
+        });
+
+        let mut values = HashMap::new();
+        values.insert(String::from("alice"), 42);
+        values.insert(String::from("bob"), 67);
+        values.insert(String::from("chris"), 88);
+
+        let resolved = context.resolve_request(values.clone(), workflow);
+
+        // Manipulate the values in the same way they should have been manipulated by the accessor
+        let [alice, bob, chris] = values.get_disjoint_mut(["alice", "bob", "chris"]);
+        let alice = alice.unwrap();
+        let bob = bob.unwrap();
+        let chris = chris.unwrap();
+        *alice = *alice - *bob;
+        *bob = *bob - *chris;
+
+        // Now check that the resolved values are what they are supposed to be
+        assert_eq!(resolved, values);
+    }
+
+    async fn async_distribute_values<A: Accessor>(
         Async {
             request, channel, ..
-        }: Async<(TestJoined, TestKeys)>,
+        }: Async<(A::Joined, A)>,
     ) {
         let (values, keys) = request;
         channel.distribute(keys, values).await.unwrap();
     }
 
-    async fn async_join_values(
+    async fn async_join_values<A: Accessor>(
         Async {
             request, channel, ..
-        }: Async<((), TestKeys)>,
-    ) -> TestJoined {
+        }: Async<((), A)>,
+    ) -> A::Joined {
         let (_, keys) = request;
         channel.try_join(keys).await.unwrap().unwrap()
     }
 
-    async fn async_wait_for_join_values(
+    async fn async_wait_for_join_values<A: Accessor>(
         Async {
             request, channel, ..
-        }: Async<((), TestKeys)>,
-    ) -> TestJoined {
+        }: Async<((), A)>,
+    ) -> A::Joined {
         let (_, keys) = request;
         channel.wait_for_join(keys).await.unwrap()
     }

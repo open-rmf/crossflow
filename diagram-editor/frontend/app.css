@@ -13,6 +13,11 @@
   width: 8px;
   height: 8px;
   z-index: 10;
+  transition:
+    box-shadow 120ms ease,
+    opacity 120ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 .react-flow__handle::before {
   content: "";
@@ -41,4 +46,26 @@
     var(--mui-palette-warning-dark) 50%,
     var(--xy-handle-background-color-default) 50%
   );
+}
+.react-flow__handle.connectionindicator {
+  opacity: 1;
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+.react-flow__handle.handle-compatible {
+  border: 1px solid var(--mui-palette-success-main);
+  box-shadow: 0 0 0 4px rgb(76 175 80 / 22%);
+}
+.react-flow__handle.handle-compatible:hover,
+.react-flow__handle.valid {
+  box-shadow: 0 0 0 6px rgb(76 175 80 / 30%);
+  border-color: var(--mui-palette-success-main);
+}
+.react-flow__handle.connectingto:not(.valid) {
+  opacity: 0.9;
+  box-shadow: 0 0 0 6px rgb(244 67 54 / 24%);
+  border-color: var(--mui-palette-error-main);
+}
+.react-flow__handle.connectingfrom {
+  box-shadow: 0 0 0 6px rgb(33 150 243 / 18%);
 }
