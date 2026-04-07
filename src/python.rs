@@ -19,7 +19,7 @@
 mod crossflow {
     use crate::{
         Channel, JsonBufferKey, IdentifierRef, AccessError, BufferError, OverlapError,
-        JsonBufferMut,
+        JsonBufferMut, JsonMut, JsonRef, JsonMessage,
         Reply, format_vertical_list
     };
     use std::{
@@ -36,7 +36,7 @@ mod crossflow {
         types::{PySlice, PySliceIndices, PyNone, PyList, PyString, PyStringMethods},
         exceptions::{PyValueError, PyKeyError, PyIndexError, PyRuntimeError},
     };
-    use pythonize::pythonize;
+    use pythonize::{depythonize, pythonize};
 
     impl From<BufferError> for PyErr {
         fn from(value: BufferError) -> Self {
@@ -108,24 +108,27 @@ mod crossflow {
     #[derive(Clone)]
     #[pyclass(from_py_object, name = "BufferAccess")]
     struct PythonBufferAccess {
-        mutex: BufferMutex,
-        access: Arc<HashMap<IdentifierRef<'static>, *mut JsonBufferMut<'static, 'static, 'static>>>,
+        access: AccessMapRef,
         len: Option<isize>,
     }
 
     impl PythonBufferAccess {
         fn new(
-            mutex: BufferMutex,
-            access: &mut HashMap<IdentifierRef<'static>, JsonBufferMut<'_, '_, '_>>,
+            mutex: &BufferMutex,
+            access_map: &mut HashMap<IdentifierRef<'static>, JsonBufferMut<'_, '_, '_>>,
         ) -> Self {
-            let mut unsafe_access = HashMap::new();
+            let mut access = HashMap::new();
             let mut len = None;
-            for (identifier, buffer) in access {
+            for (identifier, buffer) in access_map {
                 let buffer_ptr: *mut JsonBufferMut<'static, 'static, 'static> = unsafe {
                     std::mem::transmute(buffer)
                 };
+                let buffer_mut = PythonBufferMut {
+                    mutex: mutex.clone(),
+                    buffer_ptr,
+                };
 
-                unsafe_access.insert(identifier.clone(), buffer_ptr);
+                access.insert(identifier.clone(), buffer_mut);
                 if let Some(index) = identifier.index() {
                     let index = index as isize;
                     if let Some(len) = &mut len {
@@ -145,8 +148,7 @@ mod crossflow {
             }
 
             Self {
-                mutex,
-                access: Arc::new(unsafe_access),
+                access: AccessMapRef::new(access),
                 len,
             }
         }
@@ -157,24 +159,20 @@ mod crossflow {
 
     #[pymethods]
     impl PythonBufferAccess {
-        fn __bool__(&self) -> bool {
-            self.mutex.is_alive() && !self.access.is_empty()
+        fn __len__(&self) -> PyResult<usize> {
+            Ok(self.access.lock()?.len())
         }
 
         fn __getitem__(&self, py: Python, key: Bound<PyAny>) -> PyResult<Py<PyAny>> {
-            // Lock the buffer access mutex to ensure that all references remain
-            // valid throughout the duration of this function call.
-            let lock = self.mutex.lock()?;
-
             if let Ok(name) = key.extract::<String>() {
                 let identifier = IdentifierRef::Name(Cow::Owned(name));
-                match self.get_item(&identifier) {
+                match self.get_item(&identifier)? {
                     Some(buffer) => {
                         return Ok(Py::new(py, buffer)?.into());
                     }
                     None => {
                         return Err(PyKeyError::new_err(
-                            format!("name \"{}\" does not exist for accessor", identifier)
+                            format!("name \"{}\" does not exist for this buffer access", identifier)
                         ))
                     }
                 }
@@ -186,7 +184,7 @@ mod crossflow {
                 }
 
                 Err(PyKeyError::new_err(
-                    format!("cannot use index for accessor that is not a list")
+                    format!("cannot use index for buffer access that is not a list")
                 ))?;
             }
 
@@ -202,19 +200,53 @@ mod crossflow {
                 }
 
                 Err(PyKeyError::new_err(
-                    format!("cannot use slice for accessor that is not a list")
+                    format!("cannot use slice for buffer access that is not a list")
                 ))?;
             }
 
-            drop(lock);
             Err(PyKeyError::new_err("unsupported key type - must provide a name, index, or slice").into())
+        }
+
+        fn __setitem__(&self, key: Bound<PyAny>, value: PythonBufferMut) -> PyResult<()> {
+            if let Ok(name) = key.extract::<String>() {
+                let identifier = IdentifierRef::Name(Cow::Owned(name));
+                let mut access = self.access.lock()?;
+                access.insert(identifier, value);
+                return Ok(());
+            }
+
+            if let Ok(original_index) = key.extract::<isize>() {
+                if original_index < 0 {
+                    // The index is negative so we need to resolve it to the
+                    // actual index before we can use it.
+                    if let Some(len) = self.len {
+                        let index = get_index(original_index, len)?;
+                        let identifier = IdentifierRef::from_index(index as usize);
+                        let mut access = self.access.lock()?;
+                        access.insert(identifier, value);
+
+                        return Ok(());
+                    }
+
+                    Err(PyKeyError::new_err(
+                        format!("cannot use negative index for an buffer access that is not a list")
+                    ))?;
+                }
+
+                let identifier = IdentifierRef::from_index(original_index as usize);
+                let mut access = self.access.lock()?;
+                access.insert(identifier, value);
+                return Ok(());
+            }
+
+            Err(PyKeyError::new_err("unsupported key type - must provide a name or index").into())
         }
     }
 
     impl PythonBufferAccess {
         fn get_item_at_index(&self, py: Python, original_index: isize, len: isize) -> PyResult<Py<PyAny>> {
             let index = get_index(original_index, len)?;
-            match self.get_item(&IdentifierRef::from_index(index as usize)) {
+            match self.get_item(&IdentifierRef::from_index(index as usize))? {
                 Some(buffer) => {
                     return Ok(Py::new(py, buffer)?.into());
                 }
@@ -228,11 +260,25 @@ mod crossflow {
             }
         }
 
-        fn get_item(&self, identifier: &IdentifierRef<'static>) -> Option<PythonBufferMut> {
-            let buffer = self.access.get(identifier)?;
-            Some(PythonBufferMut {
-                mutex: self.mutex.clone(),
-                buffer: *buffer,
+        fn get_item(&self, identifier: &IdentifierRef<'static>) -> PyResult<Option<PythonBufferMut>> {
+            let access = self.access.lock()?;
+            Ok(access.get(identifier).cloned())
+        }
+    }
+
+    type AccessMap = HashMap<IdentifierRef<'static>, PythonBufferMut>;
+
+    #[derive(Clone)]
+    struct AccessMapRef(Arc<Mutex<AccessMap>>);
+
+    impl AccessMapRef {
+        fn new(map: AccessMap) -> Self {
+            Self(Arc::new(Mutex::new(map)))
+        }
+
+        fn lock(&self) -> PyResult<MutexGuard<'_, AccessMap>> {
+            self.0.lock().map_err(|err| {
+                PyRuntimeError::new_err(format!("mutex poisoned: {err}")).into()
             })
         }
     }
@@ -259,7 +305,7 @@ mod crossflow {
     #[pyclass(from_py_object, name = "BufferMut")]
     struct PythonBufferMut {
         mutex: BufferMutex,
-        buffer: *mut JsonBufferMut<'static, 'static, 'static>,
+        buffer_ptr: *mut JsonBufferMut<'static, 'static, 'static>,
     }
 
     unsafe impl Send for PythonBufferMut {}
@@ -267,13 +313,17 @@ mod crossflow {
 
     #[pymethods]
     impl PythonBufferMut {
-        fn __bool__(&self) -> bool {
-            self.mutex.is_alive()
+        fn __len__(&self) -> PyResult<usize> {
+            let lock = self.mutex.lock()?;
+            let buffer = unsafe { &*self.buffer_ptr };
+            let len = buffer.len();
+            drop(lock);
+            Ok(len)
         }
 
         fn __getitem__(&self, py: Python, key: Bound<PyAny>) -> PyResult<Py<PyAny>> {
             let lock = self.mutex.lock()?;
-            let buffer = unsafe { &*self.buffer };
+            let buffer = unsafe { &*self.buffer_ptr };
             let len = buffer.len() as isize;
 
             if let Ok(original_index) = key.extract::<isize>() {
@@ -292,27 +342,126 @@ mod crossflow {
             drop(lock);
             Err(PyKeyError::new_err("unsupported key type - must provide an index or slice").into())
         }
+
+        fn __setitem__(&self, original_index: isize, value: Bound<PyAny>) -> PyResult<()> {
+            let lock = self.mutex.lock()?;
+            let buffer = unsafe { &mut *self.buffer_ptr };
+            let len = buffer.len() as isize;
+            let index = get_index(original_index, len)? as usize;
+
+            let Some(mut json) = buffer.get_mut(index) else {
+                return Err(PyIndexError::new_err(
+                    format!("index {original_index} is outside the range of the buffer, len={len}")
+                ).into());
+            };
+
+            insert_json_value(&mut json, &value)?;
+
+            drop(lock);
+            Ok(())
+        }
+
+        #[getter(oldest)]
+        fn get_oldest(&self, py: Python) -> PyResult<Py<PyAny>> {
+            let lock = self.mutex.lock()?;
+            let buffer = unsafe { &*self.buffer_ptr };
+
+            let Some(json) = buffer.oldest() else {
+                return Ok(py_none(py));
+            };
+            let value = get_json_value(py, &json);
+
+            drop(lock);
+            value
+        }
+
+        #[setter(oldest)]
+        fn set_oldest(&self, value: Bound<PyAny>) -> PyResult<()> {
+            let lock = self.mutex.lock()?;
+            let buffer = unsafe { &mut *self.buffer_ptr };
+
+            if let Some(mut json) = buffer.oldest_mut() {
+                return insert_json_value(&mut json, &value);
+            }
+
+            let value: JsonMessage = depythonize(&value)?;
+            buffer.push_as_oldest(value).map_err(|err| {
+                PyRuntimeError::new_err(
+                    format!("unable to serialize input data: {err}")
+                )
+            })?;
+
+            drop(lock);
+            Ok(())
+        }
+
+        #[getter(newest)]
+        fn get_newest(&self, py: Python) -> PyResult<Py<PyAny>> {
+            let lock = self.mutex.lock()?;
+            let buffer = unsafe { &*self.buffer_ptr };
+
+            let Some(json) = buffer.newest() else {
+                return Ok(py_none(py));
+            };
+            let value = get_json_value(py, &json);
+
+            drop(lock);
+            value
+        }
+
+        #[setter(newest)]
+        fn set_newest(&self, value: Bound<PyAny>) -> PyResult<()> {
+            let lock = self.mutex.lock()?;
+            let buffer = unsafe { &mut *self.buffer_ptr };
+
+            if let Some(mut json) = buffer.newest_mut() {
+                return insert_json_value(&mut json, &value);
+            }
+
+            let value: JsonMessage = depythonize(&value)?;
+            buffer.push(value).map_err(|err| {
+                PyRuntimeError::new_err(
+                    format!("unable to serialize input data: {err}")
+                )
+            })?;
+
+            drop(lock);
+            Ok(())
+        }
+
+        #[pyo3(signature = (index, value = None))]
+        fn get(&self, py: Python, index: isize, value: Option<Py<PyAny>>) -> PyResult<Py<PyAny>> {
+            let lock = self.mutex.lock()?;
+            let buffer = unsafe { &mut *self.buffer_ptr };
+            let len = buffer.len() as isize;
+
+            let index = get_index(index, len)? as usize;
+            let Some(json) = buffer.get(index) else {
+                match value {
+                    Some(value) => return Ok(value),
+                    None => return Ok(py_none(py)),
+                }
+            };
+
+            let data = get_json_value(py, &json)?;
+            drop(lock);
+            Ok(data)
+        }
     }
 
     impl PythonBufferMut {
         fn get_item(&self, py: Python, original_index: isize) -> PyResult<Py<PyAny>> {
-            let buffer = unsafe { &*self.buffer };
+            let buffer = unsafe { &*self.buffer_ptr };
             let len = buffer.len() as isize;
 
             let index = get_index(original_index, len)? as usize;
             let Some(json) = buffer.get(index) else {
                 return Err(PyIndexError::new_err(
-                    format!("index {original_index} is outside the range of the list, len={len}")
+                    format!("index {original_index} is outside the range of the buffer, len={len}")
                 ).into());
             };
 
-            let data = json.serialize().map_err(|err| {
-                PyRuntimeError::new_err(
-                    format!("unable to serialize buffer data: {err}")
-                )
-            })?;
-
-            return Ok(pythonize(py, &data)?.unbind());
+            get_json_value(py, &json)
         }
     }
 
@@ -340,14 +489,29 @@ mod crossflow {
                 Err(PyRuntimeError::new_err("buffer access has expired").into())
             }
         }
-
-        fn is_alive(&self) -> bool {
-            self.mutex.lock().is_ok_and(|m| *m)
-        }
     }
 
     fn py_none(py: Python) -> Py<PyAny> {
         PyNone::get(py).as_ref().clone_ref(py)
+    }
+
+    fn insert_json_value(json: &mut JsonMut, value: &Bound<PyAny>) -> PyResult<()> {
+        json.insert(depythonize(value)?).map_err(|err| {
+            PyRuntimeError::new_err(
+                format!("unable to serialize input data: {err}")
+            )
+            .into()
+        })
+    }
+
+    fn get_json_value(py: Python, json: &JsonRef) -> PyResult<Py<PyAny>> {
+        let data = json.serialize().map_err(|err| {
+            PyRuntimeError::new_err(
+                format!("unable to serialize buffer data: {err}")
+            )
+        })?;
+
+        Ok(pythonize(py, &data)?.unbind())
     }
 
     struct PySliceIterator {
@@ -382,11 +546,6 @@ mod crossflow {
             self.next += self.indices.step;
             Some(next)
         }
-    }
-
-    #[pyfunction]
-    fn hello_crossflow() {
-        println!("Hello, crossflow");
     }
 
     #[cfg(test)]
