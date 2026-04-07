@@ -51,6 +51,7 @@ tokio = { version = "1.47.1", default-features = false }
 tonic = "0.14"
 prost = "0.14"
 pyo3 = "0.28.2"
+pythonize = "0.28"
 tonic-prost = "0.14"
 tonic-prost-build = "0.14"
 prost-build = "0.14"
@@ -118,8 +119,8 @@ cel-interpreter = { version = "0.9.0", features = ["json"], optional = true }
 
 
 # --- Dependencies for python feature
-pyo3 = { workspace = true, optional = true, features = ["auto-initialize"] }
-
+pyo3 = { workspace = true, optional = true, features = ["auto-initialize", "either"] }
+pythonize = { workspace = true, optional = true }
 
 # --- Dependencies for grpc feature
 tonic = { workspace = true, optional = true }
@@ -144,19 +145,21 @@ getrandom = { version = "0.3.3", features = ["wasm_js"] }
 json = [
   "dep:serde",
   "dep:serde_json",
+  "dep:schemars",
 ]
 single_threaded_async = ["dep:async-task"]
 diagram = [
   "json",
   "dep:cel-interpreter",
-  "dep:schemars",
   "dep:semver",
   "dep:serde_with",
   "dep:strum",
 ]
 trace = ["diagram"]
 python = [
+  "json",
   "dep:pyo3",
+  "dep:pythonize",
 ]
 
 grpc = [

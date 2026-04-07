@@ -29,7 +29,7 @@ use schemars::JsonSchema;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(
-    feature = "diagram",
+    feature = "json",
     derive(Serialize, Deserialize, JsonSchema),
     serde(untagged)
 )]
