@@ -33,7 +33,7 @@ mod crossflow {
     };
     use pyo3::{
         prelude::*,
-        types::{PySlice, PyNone, PyList, PyString, PyStringMethods},
+        types::{PySlice, PySliceIndices, PyNone, PyList, PyString, PyStringMethods},
         exceptions::{PyValueError, PyKeyError, PyIndexError, PyRuntimeError},
     };
     use pythonize::pythonize;
@@ -190,34 +190,11 @@ mod crossflow {
                 ))?;
             }
 
-            if let Ok(slice) = key.extract::<Py<PySlice>>() {
+            if let Ok(slice) = key.extract::<Bound<PySlice>>() {
                 if let Some(len) = self.len {
-                    let indices = slice.bind(py).indices(len)?;
                     let mut buffers = Vec::new();
-
-                    let mut next = get_index(indices.start, len)?;
-                    let stop = get_index(indices.stop, len)?;
-                    let step = indices.step;
-                    if step == 0 {
-                        Err(PyValueError::new_err("slice step cannot be zero"))?;
-                    }
-
-                    let increment = |next: &mut isize| -> Option<isize> {
-                        let current = *next;
-                        if step > 0 && current >= stop {
-                            return None;
-                        }
-
-                        if step < 0 && current <= stop {
-                            return None;
-                        }
-
-                        *next += step;
-                        Some(current as isize)
-                    };
-
-                    while let Some(current) = increment(&mut next) {
-                        buffers.push(self.get_item_at_index(py, current, len)?);
+                    for index in PySliceIterator::create(&slice, len)? {
+                        buffers.push(self.get_item_at_index(py, index, len)?);
                     }
 
                     // Return a list when the user requests a slice of accessors.
@@ -300,24 +277,16 @@ mod crossflow {
             let len = buffer.len() as isize;
 
             if let Ok(original_index) = key.extract::<isize>() {
-                let index = get_index(original_index, len)? as usize;
-                let Some(json) = buffer.get(index) else {
-                    return Err(PyIndexError::new_err(
-                        format!("index {original_index} is outside the range of the list, len={len}")
-                    ).into());
-                };
-
-                let data = json.serialize().map_err(|err| {
-                    PyRuntimeError::new_err(
-                        format!("unable to serialize buffer data: {err}")
-                    )
-                })?;
-
-                return Ok(pythonize(py, &data)?.unbind());
+                return self.get_item(py, original_index);
             }
 
-            if let Ok(slice) = key.extract::<Py<PySlice>>() {
+            if let Ok(slice) = key.extract::<Bound<PySlice>>() {
+                let mut list = Vec::new();
+                for index in PySliceIterator::create(&slice, len)? {
+                    list.push(self.get_item(py, index)?);
+                }
 
+                return Ok(PyList::new(py, list)?.unbind().into());
             }
 
             drop(lock);
@@ -325,7 +294,27 @@ mod crossflow {
         }
     }
 
+    impl PythonBufferMut {
+        fn get_item(&self, py: Python, original_index: isize) -> PyResult<Py<PyAny>> {
+            let buffer = unsafe { &*self.buffer };
+            let len = buffer.len() as isize;
 
+            let index = get_index(original_index, len)? as usize;
+            let Some(json) = buffer.get(index) else {
+                return Err(PyIndexError::new_err(
+                    format!("index {original_index} is outside the range of the list, len={len}")
+                ).into());
+            };
+
+            let data = json.serialize().map_err(|err| {
+                PyRuntimeError::new_err(
+                    format!("unable to serialize buffer data: {err}")
+                )
+            })?;
+
+            return Ok(pythonize(py, &data)?.unbind());
+        }
+    }
 
     /// This is used to keep track of whether a PythonBufferAccessMap still has
     /// valid access to its buffers.
@@ -359,6 +348,40 @@ mod crossflow {
 
     fn py_none(py: Python) -> Py<PyAny> {
         PyNone::get(py).as_ref().clone_ref(py)
+    }
+
+    struct PySliceIterator {
+        next: isize,
+        indices: PySliceIndices,
+    }
+
+    impl PySliceIterator {
+        fn create(slice: &Bound<PySlice>, len: isize) -> PyResult<Self> {
+            let indices = slice.indices(len)?;
+            if indices.step == 0 {
+                return Err(PyValueError::new_err("slice step cannot be zero").into());
+            }
+
+            let next = get_index(indices.start, len)?;
+            Ok(Self { next, indices })
+        }
+    }
+
+    impl Iterator for PySliceIterator {
+        type Item = isize;
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.indices.step > 0 && self.next >= self.indices.stop {
+                return None;
+            }
+
+            if self.indices.stop < 0 && self.next <= self.indices.stop {
+                return None;
+            }
+
+            let next = self.next;
+            self.next += self.indices.step;
+            Some(next)
+        }
     }
 
     #[pyfunction]
