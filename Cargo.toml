@@ -51,6 +51,7 @@ tokio = { version = "1.47.1", default-features = false }
 tonic = "0.14"
 prost = "0.14"
 pyo3 = "0.28.2"
+pyo3-async-runtimes = "0.28"
 pythonize = "0.28"
 tonic-prost = "0.14"
 tonic-prost-build = "0.14"
@@ -120,6 +121,7 @@ cel-interpreter = { version = "0.9.0", features = ["json"], optional = true }
 
 # --- Dependencies for python feature
 pyo3 = { workspace = true, optional = true, features = ["auto-initialize", "either"] }
+pyo3-async-runtimes = { workspace = true, optional = true, features = ["async-std-runtime"] }
 pythonize = { workspace = true, optional = true }
 
 # --- Dependencies for grpc feature
@@ -159,6 +161,7 @@ trace = ["diagram"]
 python = [
   "json",
   "dep:pyo3",
+  "dep:pyo3-async-runtimes",
   "dep:pythonize",
 ]
 

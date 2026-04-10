@@ -25,15 +25,16 @@ mod crossflow {
     use std::{
         borrow::Cow,
         collections::HashMap,
-        sync::{Arc, Mutex, MutexGuard},
+        sync::{Arc, Mutex, MutexGuard, atomic::AtomicBool},
     };
     use futures::{
         future::Shared,
         FutureExt,
     };
+    use tokio::sync::oneshot;
     use pyo3::{
         prelude::*,
-        types::{PySlice, PySliceIndices, PyNone, PyList, PyString, PyStringMethods},
+        types::{PySlice, PySliceIndices, PyNone, PyList, PyDict, PyDictMethods},
         exceptions::{PyValueError, PyKeyError, PyIndexError, PyRuntimeError},
     };
     use pythonize::{depythonize, pythonize};
@@ -87,22 +88,78 @@ mod crossflow {
     impl PythonChannel {
         fn access(&self, accessor: PythonAccessor, callback: Py<PyAny>) -> PythonReply {
             let accessor_map = accessor.accessors.as_ref().clone();
-            let reply = self.channel.access(accessor_map, move |access| {
-                Python::attach(move |py| {
-                    Arc::new(callback.call0(py))
-                })
-            })
-            .shared();
+            let reply = self.channel.access(accessor_map, move |mut access| {
+                let r = Python::attach(move |py| {
+                    let mutex = BufferMutex::new();
+                    let py_access = PythonBufferAccess::new(&mutex, &mut access);
+                    let kwargs = PyDict::new(py);
+                    kwargs.set_item("access", py_access)?;
+                    let r = callback.call(py, (), Some(&kwargs));
+                    mutex.close();
+                    r
+                });
+                Arc::new(r)
+            });
+            let (future, detached) = reply.into_parts();
+            let future = future.shared();
 
-            PythonReply { reply }
+            PythonReply { future, detached }
         }
     }
 
-    /// This wraps the [`Reply`] struct so that Python scripts can await it.
+    /// Get the reply of a request sent to crossflow channel. Await this object
+    /// to get the return value.
+    ///
+    /// Some commands sent to the channel might get cancelled if you drop this
+    /// object before the command is finished. To prevent the drop from happening
+    /// you can explicitl call `.detach()` on this object, and the command will
+    /// continue until it finishes, no matter what you do with this Reply.
     #[derive(Clone)]
     #[pyclass(from_py_object, name = "Reply")]
     struct PythonReply {
-        reply: Shared<Reply<Result<Arc<PyResult<Py<PyAny>>>, AccessError>>>,
+        future: Shared<oneshot::Receiver<Result<Arc<PyResult<Py<PyAny>>>, AccessError>>>,
+        detached: Arc<AtomicBool>,
+    }
+
+    #[pymethods]
+    impl PythonReply {
+        fn __await__(&self, py: Python) -> PyResult<Py<PyAny>> {
+            let future = self.future.clone();
+            pyo3_async_runtimes::async_std::future_into_py(py, async move {
+                match future.await {
+                    Ok(Ok(result)) => {
+                        match result.as_ref() {
+                            Ok(result) => {
+                                Python::attach(|py| {
+                                    Ok(result.clone_ref(py))
+                                })
+                            }
+                            Err(err) => {
+                                Python::attach(|py| {
+                                    Err(err.clone_ref(py))
+                                })
+                            }
+                        }
+                    }
+                    Ok(Err(err)) => {
+                        return Err(PyRuntimeError::new_err(
+                            format!("failed to access buffer: {err}")
+                        ));
+                    }
+                    Err(err) => {
+                        return Err(PyRuntimeError::new_err(
+                            format!("unable to receive reply: {err}")
+                        ));
+                    }
+                }
+            })
+            .map(|bound| bound.unbind())
+        }
+
+        fn detach(&self) -> PyResult<()> {
+            self.detached.store(true, std::sync::atomic::Ordering::Release);
+            Ok(())
+        }
     }
 
     #[derive(Clone)]
@@ -614,6 +671,22 @@ mod crossflow {
     #[derive(Clone)]
     struct BufferMutex {
         mutex: Arc<Mutex<bool>>,
+    }
+
+    impl BufferMutex {
+        fn new() -> Self {
+            Self {
+                mutex: Arc::new(Mutex::new(true))
+            }
+        }
+
+        fn close(&self) {
+            let Ok(mut guard) = self.mutex.lock() else {
+                return;
+            };
+
+            *guard = false;
+        }
     }
 
     struct BufferLocked<'a> {

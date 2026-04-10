@@ -131,4 +131,8 @@ impl<T> Reply<T> {
     pub(crate) fn detached(&self) -> Arc<AtomicBool> {
         self.detached.clone()
     }
+
+    pub(crate) fn into_parts(self) -> (oneshot::Receiver<T>, Arc<AtomicBool>) {
+        (self.inner, self.detached)
+    }
 }
