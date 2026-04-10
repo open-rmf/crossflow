@@ -378,6 +378,11 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
         self
     }
 
+    /// Alternative to [`Self::allow_closed_loops`] that modifies in place.
+    pub fn enable_closed_loops(&mut self) {
+        self.accessor = None;
+    }
+
     /// Get a serialized copy of the oldest message in the buffer.
     pub fn oldest(&self) -> Option<JsonRef<'_>> {
         self.manager.json_oldest()

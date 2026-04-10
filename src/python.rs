@@ -361,9 +361,41 @@ mod crossflow {
             Ok(())
         }
 
-        #[getter(oldest)]
+        /// Whenever the values in a buffer are modified, listeners for that
+        /// buffer will be notified that a change has occurred. If a listener
+        /// of that buffer made that modification, there's a risk of an endlessly
+        /// recurring loop within the workflow.
+        ///
+        /// In most cases, we expect this type of loop to be a mistake since a
+        /// listener should not need to be notified about a change that it made
+        /// itself. Therefore changes made via buffer access will not notify the
+        /// listener whose key was used to make the change.
+        ///
+        /// There may be some cases where you do want the listener to be notified
+        /// of a change caused by its own key, such as if the change was made by
+        /// a downstream operation and the original listener needs to be made
+        /// aware of that change. For those cases, you can enable closed loops
+        /// here.
+        fn enable_closed_loops(&self) -> PyResult<()> {
+            let lock = self.mutex.lock()?;
+            // SAFETY: The mutex that keeps this buffer valid is locked
+            let buffer = unsafe { &mut *self.buffer_ptr };
+            buffer.enable_closed_loops();
+            drop(lock);
+            Ok(())
+        }
+
+        /// Look at the "oldest" message in this buffer. This might not really
+        /// be the oldest message since the value of the oldest message can be
+        /// manipulated, but this is the message in the "oldest" position, which
+        /// means it will be pulled first during a join operation.
+        ///
+        /// Making modifications to the object that you receive will not affect
+        /// the data in the buffer. To change the value of the oldest message,
+        /// use `set_oldest(_)`.
         fn get_oldest(&self, py: Python) -> PyResult<Py<PyAny>> {
             let lock = self.mutex.lock()?;
+            // SAFETY: The mutex that keeps this buffer valid is locked
             let buffer = unsafe { &*self.buffer_ptr };
 
             let Some(json) = buffer.oldest() else {
@@ -375,9 +407,16 @@ mod crossflow {
             value
         }
 
-        #[setter(oldest)]
+        /// Set the "oldest" message in this buffer to the specified value.
+        ///
+        /// If the buffer is empty, the value will be inserted and the buffer
+        /// will be left with one entry. If the buffer already contained one or
+        /// more messages, the "oldest" message will be replaced with this new
+        /// value, and this new value will be considered the "oldest" message,
+        /// even though it was newly introduced.
         fn set_oldest(&self, value: Bound<PyAny>) -> PyResult<()> {
             let lock = self.mutex.lock()?;
+            // SAFETY: The mutex that keeps this buffer valid is locked
             let buffer = unsafe { &mut *self.buffer_ptr };
 
             if let Some(mut json) = buffer.oldest_mut() {
@@ -395,9 +434,17 @@ mod crossflow {
             Ok(())
         }
 
-        #[getter(newest)]
+        /// Look at the "newest" message in this buffer. This might not really
+        /// be the newest message since the value of the newest message can be
+        /// manipulated, but this is the message in the "newest" position, which
+        /// means it will be pulled first during a join operation.
+        ///
+        /// Making modifications to the object that you receive will not affect
+        /// the data in the buffer. To change the value of the newest message,
+        /// use `set_newest(_)`.
         fn get_newest(&self, py: Python) -> PyResult<Py<PyAny>> {
             let lock = self.mutex.lock()?;
+            // SAFETY: The mutex that keeps this buffer valid is locked
             let buffer = unsafe { &*self.buffer_ptr };
 
             let Some(json) = buffer.newest() else {
@@ -409,9 +456,16 @@ mod crossflow {
             value
         }
 
-        #[setter(newest)]
+        /// Set the "newest" message in this buffer to the specified value.
+        ///
+        /// If the buffer is empty, the value will be inserted and the buffer
+        /// will be left with one entry. If the buffer already contained one or
+        /// more messages, the "newest" message will be replaced with this new
+        /// value, and this new value will be considered the "newest" message,
+        /// even though it was newly introduced.
         fn set_newest(&self, value: Bound<PyAny>) -> PyResult<()> {
             let lock = self.mutex.lock()?;
+            // SAFETY: The mutex that keeps this buffer valid is locked
             let buffer = unsafe { &mut *self.buffer_ptr };
 
             if let Some(mut json) = buffer.newest_mut() {
@@ -429,9 +483,12 @@ mod crossflow {
             Ok(())
         }
 
+        /// Get the value at a certain position within the buffer. 0 is the
+        /// oldest position, and `len(buffer) - 1` is the newest position.
         #[pyo3(signature = (index, value = None))]
         fn get(&self, py: Python, index: isize, value: Option<Py<PyAny>>) -> PyResult<Py<PyAny>> {
             let lock = self.mutex.lock()?;
+            // SAFETY: The mutex that keeps this buffer valid is locked
             let buffer = unsafe { &mut *self.buffer_ptr };
             let len = buffer.len() as isize;
 
@@ -446,6 +503,93 @@ mod crossflow {
             let data = get_json_value(py, &json)?;
             drop(lock);
             Ok(data)
+        }
+
+        /// Pull the oldest value out of the buffer. By default this is what
+        /// the join operation does. Used together with `push(_)`, you will get
+        /// FIFO behavior from the buffer.
+        fn pull(&self, py: Python) -> PyResult<Py<PyAny>> {
+            let lock = self.mutex.lock()?;
+            // SAFETY: The mutex that keeps this buffer access valid is locked
+            let buffer = unsafe { &mut *self.buffer_ptr };
+
+            let data = match buffer.pull() {
+                Some(Ok(data)) => data,
+                Some(Err(err)) => {
+                    return Err(PyRuntimeError::new_err(
+                        format!("failed to deserialize message: {err}")
+                    ));
+                }
+                None => {
+                    return Ok(py_none(py));
+                }
+            };
+
+            let data = pythonize(py, &data)?.unbind();
+
+            drop(lock);
+            Ok(data)
+        }
+
+        /// Pull the newest value out of the buffer. Used together with `push(_)`
+        /// you will get LIFO behavior from the buffer.
+        fn pull_newest(&self, py: Python) -> PyResult<Py<PyAny>> {
+            let lock = self.mutex.lock()?;
+            // SAFETY: The mutex that keeps this buffer access valid is locked
+            let buffer = unsafe { &mut *self.buffer_ptr };
+
+            let data = match buffer.pull_newest() {
+                Some(Ok(data)) => data,
+                Some(Err(err)) => {
+                    return Err(PyRuntimeError::new_err(
+                        format!("failed to deserialize message: {err}")
+                    ));
+                }
+                None => {
+                    return Ok(py_none(py));
+                }
+            };
+
+            let data = pythonize(py, &data)?.unbind();
+
+            drop(lock);
+            Ok(data)
+        }
+
+        /// Push a new value into the buffer. The new value will go to the
+        /// "newest" message position.
+        fn push(&self, value: Bound<PyAny>) -> PyResult<()> {
+            let lock = self.mutex.lock()?;
+            // SAFETY: The mutex that keeps this buffer access valid is locked
+            let buffer = unsafe { &mut *self.buffer_ptr };
+
+            let value: JsonMessage = depythonize(&value)?;
+            if let Err(err) = buffer.push_json(value) {
+                return Err(PyRuntimeError::new_err(
+                    format!("failed to deserialize message: {err}")
+                ));
+            }
+
+            drop(lock);
+            Ok(())
+        }
+
+        /// Push a new value into the buffer, but put it at the "oldest" message
+        /// position.
+        fn push_as_oldest(&self, value: Bound<PyAny>) -> PyResult<()> {
+            let lock = self.mutex.lock();
+            // SAFETY: The mutex that keeps this buffer access valid is locked
+            let buffer = unsafe { &mut *self.buffer_ptr };
+
+            let value: JsonMessage = depythonize(&value)?;
+            if let Err(err) = buffer.push_json_as_oldest(value) {
+                return Err(PyRuntimeError::new_err(
+                    format!("failed to deserialize message: {err}")
+                ));
+            }
+
+            drop(lock);
+            Ok(())
         }
     }
 
