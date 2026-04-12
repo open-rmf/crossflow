@@ -58,6 +58,9 @@ pub use registration_metadata::*;
 pub mod scope_registration;
 use scope_registration::*;
 
+pub mod script_environment_registration;
+use script_environment_registration::*;
+
 pub mod section_registration;
 pub use section_registration::*;
 
@@ -68,6 +71,7 @@ pub struct DiagramElementRegistry {
     pub(super) nodes: HashMap<BuilderId, NodeRegistration>,
     pub(super) sections: HashMap<BuilderId, SectionRegistration>,
     pub(super) messages: MessageRegistry,
+    pub(super) script_environments: HashMap<BuilderId, ScriptEnvironmentRegistration>,
 }
 
 impl Default for DiagramElementRegistry {
@@ -80,6 +84,7 @@ impl Default for DiagramElementRegistry {
             nodes: Default::default(),
             sections: Default::default(),
             messages: MessageRegistry::new(),
+            script_environments: Default::default(),
         };
 
         registry.register_builtin_messages();
@@ -101,6 +106,7 @@ impl DiagramElementRegistry {
             nodes: Default::default(),
             sections: Default::default(),
             messages: MessageRegistry::new(),
+            script_environments: Default::default(),
         }
     }
 

@@ -23,10 +23,10 @@ use crate::{Builder, ConfigExample, DisplayText};
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 
-use super::{DiagramErrorCode, Section, SectionInterface};
+use super::{DiagramErrorCode, Section, SectionInterface, JsonMessage};
 
 type CreateSectionFn =
-    dyn FnMut(&mut Builder, serde_json::Value) -> Result<Box<dyn Section>, DiagramErrorCode> + Send;
+    dyn FnMut(&mut Builder, JsonMessage) -> Result<Box<dyn Section>, DiagramErrorCode> + Send;
 
 pub struct SectionRegistration {
     pub(crate) metadata: SectionMetadata,
@@ -38,7 +38,7 @@ pub struct SectionMetadata {
     pub(crate) default_display_text: DisplayText,
     pub(crate) interface: SectionInterface,
     pub(crate) config_schema: Schema,
-    pub(crate) description: Option<String>,
+    pub(crate) description: Option<Arc<str>>,
     pub(crate) config_examples: Vec<ConfigExample>,
 }
 
