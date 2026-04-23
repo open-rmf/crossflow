@@ -257,8 +257,7 @@ impl Plugin for SpawnWorldPlugin {
             .init_resource::<VehicleState>()
             .init_resource::<TrafficLightColors>()
             .add_event::<AbandonTrip>()
-            .add_systems(Startup, (spawn_vehicle_and_camera, spawn_environment))
-            .add_observer(on_abandon_trip);
+            .add_systems(Startup, (spawn_vehicle_and_camera, spawn_environment));
     }
 }
 
@@ -399,9 +398,4 @@ fn create_dotted_line_mesh(window_height: f32) -> Mesh {
     mesh.insert_indices(Indices::U32(indices));
 
     mesh
-}
-
-fn on_abandon_trip(_trigger: Trigger<AbandonTrip>, mut vehicle_state: ResMut<VehicleState>) {
-    info!("Received request to abandon trip!");
-    vehicle_state.reset();
 }

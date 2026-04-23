@@ -22,7 +22,7 @@ use crate::{
     spawn_world::{TRAFFIC_LIGHT_LAYER_Z, WorldLimits, WorldMeshes},
     traffic::{TrafficLight, TrafficSignal},
     user_panel::UserPanel,
-    vehicle::{MainVehicle, VehicleState},
+    vehicle::MainVehicle,
 };
 use bevy::prelude::*;
 use bevy_color::{Srgba, palettes::css as Colors};
@@ -226,7 +226,6 @@ fn get_material_for_signal(
 fn monitor_upcoming_traffic_signal(
     mut upcoming_signal: EventWriter<UpcomingTrafficSignal>,
     mut next_traffic_light: ResMut<NextTrafficLight>,
-    mut vehicle_state: ResMut<VehicleState>,
     main_vehicle: Query<&Transform, With<MainVehicle>>,
     traffic_lights: Query<(Entity, &Transform, &TrafficLight), Without<MainVehicle>>,
     world_limits: Res<WorldLimits>,
@@ -253,8 +252,6 @@ fn monitor_upcoming_traffic_signal(
             distance_to_next_signal = offset_y - (0.5 * world_limits.vehicle_size.1);
         }
     }
-
-    vehicle_state.distance_to_intersection_mut(distance_to_next_signal);
 
     if let Some((new_next_entity, new_next_signal)) = next_signal {
         if next_traffic_light.0.is_none()

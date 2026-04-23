@@ -71,7 +71,6 @@ pub struct VehicleState {
     checklist: HashMap<String, ReadyState>,
     changing_to_lane: Option<Lane>,
     speed: i32,
-    distance_to_intersection: f32,
 }
 
 impl Default for VehicleState {
@@ -87,7 +86,6 @@ impl Default for VehicleState {
             checklist,
             changing_to_lane: None,
             speed: Velocity::default_forward().y.round() as i32,
-            distance_to_intersection: f32::INFINITY,
         }
     }
 }
@@ -182,15 +180,6 @@ impl VehicleState {
 
     pub fn update_speed(&mut self, speed: i32) -> &mut Self {
         self.speed = speed;
-        self
-    }
-
-    pub fn distance_to_intersection(&self) -> f32 {
-        self.distance_to_intersection
-    }
-
-    pub fn distance_to_intersection_mut(&mut self, distance: f32) -> &mut Self {
-        self.distance_to_intersection = distance;
         self
     }
 }

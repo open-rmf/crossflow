@@ -56,10 +56,11 @@ struct MidJourneyStreams {
 
 #[derive(StreamPack)]
 struct TrafficStateStreams {
-    traffic_signal: TrafficSignal,
-    obstacles: Obstacles,
     arriving: ApproachingIntersection,
+    kinematics: Kinematics,
+    obstacles: Obstacles,
     speed_limit: SpeedLimit,
+    traffic_signal: TrafficSignal,
 }
 
 #[derive(Clone, Accessor)]
@@ -221,6 +222,134 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         )
         .with_join()
         .with_result()
+        .with_common_response();
+
+    // =========================================================================
+    let detect_kinematics_description = "Detects vehicle kinematics via query";
+    fn detect_kinematics(
+        srv: ContinuousService<(), (), TrafficStateStreams>,
+        mut orders: ContinuousQuery<(), (), TrafficStateStreams>,
+        main_vehicle: Query<(&Velocity, &Acceleration), With<MainVehicle>>,
+        time: Res<Time>,
+    ) {
+        let Some(mut orders) = orders.get_mut(&srv.key) else {
+            return;
+        };
+        if orders.is_empty() {
+            return;
+        }
+
+        let Ok((velocity, acceleration)) = main_vehicle.single() else {
+            return;
+        };
+
+        orders.for_each(|order| {
+            order.streams().kinematics.send(Kinematics {
+                velocity: velocity.clone(),
+                acceleration: acceleration.clone(),
+                dt: time.delta_secs(),
+            })
+        });
+    }
+    let detect_kinematics_service = app.spawn_continuous_service(Last, detect_kinematics);
+    registry.register_node_builder(
+        NodeBuilderOptions::new("detect_kinematics".to_string())
+            .with_description(detect_kinematics_description),
+        move |builder, _config: ()| builder.create_node(detect_kinematics_service),
+    );
+
+    // =========================================================================
+    let process_kinematics_description = "Process the latest vehicle kinematics
+        data and calculate the distance travelled";
+    fn process_kinematics(
+        Blocking {
+            request: (_, key),
+            id,
+            ..
+        }: Blocking<((), BufferKey<Kinematics>)>,
+        mut access: BufferAccessMut<Kinematics>,
+    ) -> Result<(f32, f32), ()> {
+        let Some(Kinematics {
+            velocity,
+            acceleration,
+            dt,
+        }) = access
+            .get_mut(id, &key)
+            .ok()
+            .map(|mut res| res.pull_newest()) // we MUST pull the message out of buffer
+            .flatten()
+        else {
+            return Err(());
+        };
+
+        // dt is very short, assume Euler integration is ok
+        let (mut vx, mut vy) = (velocity.x, velocity.y);
+        vx += acceleration.x * dt;
+        vy += acceleration.y * dt;
+        let (_dx, dy) = (vx * dt, vy * dt);
+
+        Ok((dy, vy))
+    }
+    registry
+        .opt_out()
+        .no_serializing()
+        .no_deserializing()
+        .register_node_builder(
+            NodeBuilderOptions::new("process_kinematics".to_owned())
+                .with_description(process_kinematics_description),
+            |builder, _config: ()| builder.create_node(process_kinematics.into_callback()),
+        )
+        .with_buffer_access()
+        .with_result()
+        .with_common_response();
+
+    // =========================================================================
+    let update_vehicle_state_description = "Updates changes in vehicle state to the resource";
+    fn update_vehicle_state(
+        Blocking {
+            request: (dy, vy), ..
+        }: Blocking<(f32, f32)>,
+        mut vehicle_state: ResMut<VehicleState>,
+        transform: Query<&Transform, With<MainVehicle>>,
+        world_limits: Res<WorldLimits>,
+    ) {
+        vehicle_state.update_remaining_distance(dy);
+        vehicle_state.update_speed(vy.round() as i32);
+
+        // Check and update lane change status
+        let Ok(transform) = transform.single() else {
+            return;
+        };
+        if let Some(to_lane) = vehicle_state.changing_lane() {
+            let vehicle_x = transform.translation.x;
+            let done_changing = match to_lane {
+                Lane::Left => {
+                    if (vehicle_x - world_limits.lane_centers.0).abs() < 5.0 {
+                        true
+                    } else {
+                        false
+                    }
+                }
+                Lane::Right => {
+                    if (vehicle_x - world_limits.lane_centers.1).abs() < 5.0 {
+                        true
+                    } else {
+                        false
+                    }
+                }
+            };
+            if done_changing {
+                vehicle_state.changed_lane();
+            }
+        }
+    }
+    let update_vehicle_state_service = app.spawn_service(update_vehicle_state);
+    registry
+        .register_node_builder(
+            NodeBuilderOptions::new("update_vehicle_state".to_string())
+                .with_description(update_vehicle_state_description),
+            move |builder, _config: ()| builder.create_node(update_vehicle_state_service),
+        )
         .with_common_response();
 
     // =========================================================================
@@ -993,6 +1122,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         };
 
         if vehicle_state.at_destination() {
+            info!("Vehicle successfully completed its trip!");
             order.respond(());
         } else {
             order.streams().trigger.send(());
@@ -1004,6 +1134,34 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         NodeBuilderOptions::new("wait_for_destination_reached".to_string())
             .with_description(wait_for_destination_reached_description),
         move |builder, _config: ()| builder.create_node(wait_for_destination_reached_service),
+    );
+
+    // =========================================================================
+    let abandon_trip_description = "Detects abandon trip events";
+    fn abandon_trip(
+        srv: ContinuousService<(), (), TrafficStateStreams>,
+        mut orders: ContinuousQuery<(), (), TrafficStateStreams>,
+        abandon_trip: EventReader<AbandonTrip>,
+    ) {
+        let Some(mut orders) = orders.get_mut(&srv.key) else {
+            return;
+        };
+
+        if orders.is_empty() {
+            return;
+        }
+
+        if abandon_trip.len() > 0 {
+            info!("Trip has been abandoned!");
+            orders.for_each(|order| order.respond(()));
+        }
+    }
+
+    let abandon_trip_service = app.spawn_continuous_service(PostUpdate, abandon_trip);
+    registry.register_node_builder(
+        NodeBuilderOptions::new("abandon_trip".to_string())
+            .with_description(abandon_trip_description),
+        move |builder, _config: ()| builder.create_node(abandon_trip_service),
     );
 
     // =========================================================================
@@ -1026,8 +1184,6 @@ pub fn register(setup: &mut BasicExecutorSetup) {
 
         // Reset obstacle limits in case they were modified
         world_limits.reset_obstacle_limits();
-
-        info!("Vehicle successfully completed its trip!");
     }
     let stop_engine_service = app.spawn_service(stop_engine);
     registry.register_node_builder(

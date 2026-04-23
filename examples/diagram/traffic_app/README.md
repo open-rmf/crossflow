@@ -12,9 +12,12 @@ Basic/utility nodes to get started:
 | Node   | Use case    | Input   | Output   |
 | ------ |------------ | ------- | -------- |
 | `start_engine` | Takes in a float representing the requested trip distance, and toggles the engine on and sets the distance to destination in `VehicleState`. | `f32` | `Result<(), TripRequestError>` |
-| `trigger_check` | This is an async node that sleeps for 500ms to allow other parts of the traffic simulator to run. This is useful in workflows that contain all `Blocking` nodes, and prevents the app from being stuck executing the workflow. | - | - |
+| `detect_kinematics` | A continuous service node that monitors the current vehicle velocity and acceleration via query, and streams them out. | - | - |
+| `process_kinematics` | This node pulls the newest `Kinematics` message in the buffer to determine the distance travelled by the vehicle in the last time step. It outputs a `(f32, f32)` representing the distance travelled and velocity in the y-direction. It requires a key to access the `Kinematics` buffer. | `((), BufferKey<Kinematics>)` | `Result<(f32, f32), ()>` |
+| `update_vehicle_state` | Takes in kinematics data in the last cycle by the vehicle and updates the `VehicleState` resource. | `(f32, f32)` | - |
 | `move_vehicle` | Given the input `MoveVehicle` command, attempt to move the simulated vehicle accordingly. | `MoveVehicle` | - |
 | `wait_for_destination_reached` | A continuous service that checks the current `VehicleState` and responds when the vehicle has completed travelling the requested distance. | - | - |
+| `abandon_trip` | A continuous service with an EventReader for `AbandonTrip` events to end the workflow. | - | - |
 | `stop_engine` | Stops the vehicle, turns its engine off, and reset state parameters. | - | - |
 | `trip_error` | A logger node that prints out trip errors. | `TripRequestError` | - |
 

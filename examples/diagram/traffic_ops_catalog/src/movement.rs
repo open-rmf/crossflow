@@ -17,9 +17,11 @@
 
 use crate::{
     spawn_world::{LaneDash, WorldLimits},
-    vehicle::{Acceleration, Lane, MainVehicle, VehicleState, Velocity},
+    vehicle::{Acceleration, MainVehicle, Velocity},
 };
 use bevy::prelude::*;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Component)]
 pub struct ScrollingWorld;
@@ -31,6 +33,13 @@ impl FromWorld for GlobalSpeed {
     fn from_world(_world: &mut World) -> Self {
         Self(0.0)
     }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema)]
+pub struct Kinematics {
+    pub velocity: Velocity,
+    pub acceleration: Acceleration,
+    pub dt: f32,
 }
 
 #[derive(Default)]
@@ -55,9 +64,7 @@ fn move_vehicles(
         &Acceleration,
         Option<&MainVehicle>,
     )>,
-    mut vehicle_state: ResMut<VehicleState>,
     time: Res<Time>,
-    world_limits: Res<WorldLimits>,
 ) {
     let dt = time.delta_secs();
     for (mut transform, mut velocity, acceleration, main_vehicle) in transforms.iter_mut() {
@@ -73,32 +80,6 @@ fn move_vehicles(
         if main_vehicle.is_none() {
             // Only update y-transform for non-main vehicles
             transform.translation.y += velocity.y * dt;
-        } else {
-            // Update main vehicle state
-            vehicle_state.update_speed(velocity.y.round() as i32);
-            if let Some(to_lane) = vehicle_state.changing_lane() {
-                let vehicle_x = transform.translation.x;
-                let done_changing = match to_lane {
-                    Lane::Left => {
-                        if (vehicle_x - world_limits.lane_centers.0).abs() < 5.0 {
-                            true
-                        } else {
-                            false
-                        }
-                    }
-                    Lane::Right => {
-                        if (vehicle_x - world_limits.lane_centers.1).abs() < 5.0 {
-                            true
-                        } else {
-                            false
-                        }
-                    }
-                };
-                if done_changing {
-                    vehicle_state.changed_lane();
-                }
-            }
-            vehicle_state.update_remaining_distance(velocity.y * dt);
         }
     }
 }
