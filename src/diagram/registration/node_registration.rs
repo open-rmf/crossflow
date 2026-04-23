@@ -51,7 +51,7 @@ impl NodeRegistration {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct NodeMetadata {
     /// If the user does not specify a default display text, the node ID will
     /// be used here.

@@ -24,7 +24,7 @@ use crate::Builder;
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
-    InferenceContext, MessageRegistry, NextOperation, OperationName, RegisterClone,
+    InferenceContext, MessageRegistry, NextOperation, OperationName, RegisterClone, Templates, Operations,
     SerializeMessage, TraceInfo, TraceSettings, supported::*,
 };
 
@@ -137,6 +137,10 @@ impl BuildDiagramOperation for UnzipSchema {
     ) -> Result<(), DiagramErrorCode> {
         ctx.unzip(id, self.next.iter());
         Ok(())
+    }
+
+    fn child_operations(&self, _: &Templates) -> Result<Option<Operations>, DiagramErrorCode> {
+        Ok(None)
     }
 }
 

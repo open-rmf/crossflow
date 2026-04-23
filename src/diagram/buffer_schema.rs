@@ -141,6 +141,10 @@ impl BuildDiagramOperation for BufferSchema {
         ctx.buffer(id, self.serialize)?;
         Ok(())
     }
+
+    fn child_operations(&self, _: &super::Templates) -> Result<Option<super::Operations>, DiagramErrorCode> {
+        Ok(None)
+    }
 }
 
 /// Zip a message together with access to one or more buffers.
@@ -231,6 +235,10 @@ impl BuildDiagramOperation for BufferAccessSchema {
     ) -> Result<(), DiagramErrorCode> {
         ctx.buffer_access(id, &self.buffers, &self.next);
         Ok(())
+    }
+
+    fn child_operations(&self, _: &super::Templates) -> Result<Option<super::Operations>, DiagramErrorCode> {
+        Ok(None)
     }
 }
 
@@ -354,6 +362,10 @@ impl BuildDiagramOperation for ListenSchema {
     ) -> Result<(), DiagramErrorCode> {
         ctx.listen(id, &self.buffers, &self.next);
         Ok(())
+    }
+
+    fn child_operations(&self, _: &super::Templates) -> Result<Option<super::Operations>, DiagramErrorCode> {
+        Ok(None)
     }
 }
 

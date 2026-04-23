@@ -121,6 +121,10 @@ impl BuildDiagramOperation for NodeSchema {
         ctx.node(id, self)?;
         Ok(())
     }
+
+    fn child_operations(&self, _: &super::Templates) -> Result<Option<super::Operations>, DiagramErrorCode> {
+        Ok(None)
+    }
 }
 
 #[cfg(test)]

@@ -100,6 +100,10 @@ impl BuildDiagramOperation for ForkResultSchema {
         ctx.result(id, &self.ok, &self.err);
         Ok(())
     }
+
+    fn child_operations(&self, _: &super::Templates) -> Result<Option<super::Operations>, DiagramErrorCode> {
+        Ok(None)
+    }
 }
 
 pub trait RegisterForkResult {

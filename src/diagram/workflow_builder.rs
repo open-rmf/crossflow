@@ -34,7 +34,7 @@ use super::{
     DiagramErrorCode, DynInputSlot, DynOutput, FinishingErrors, ImplicitDeserialization,
     ImplicitSerialization, ImplicitStringify, InferenceBoundaryConditions, InferenceContext,
     NamedOperationRef, NamespaceList, NextOperation, OperationName, OperationRef, Operations,
-    TraceToggle, TypeInfo, TypeMismatch,
+    TraceToggle, TypeInfo, TypeMismatch, Templates,
 };
 
 use bevy_ecs::prelude::Entity;
@@ -541,6 +541,8 @@ pub trait BuildDiagramOperation {
         id: &OperationName,
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode>;
+
+    fn child_operations(&self, templates: &Templates) -> Result<Option<Operations>, DiagramErrorCode>;
 }
 
 /// This trait is used to connect outputs to their target operations. This trait

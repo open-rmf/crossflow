@@ -15,25 +15,53 @@
  *
 */
 
-use std::sync::Arc;
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    sync::Arc,
+};
 
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
+use anyhow::Error as Anyhow;
 
-use crate::{ConfigExample, JsonMessage, DiagramErrorCode, ScriptEnvironment};
+use crate::{
+    ConfigExample, JsonMessage, ScriptEnvironment, OperationName, BuilderId,
+    ScriptEnvironmentSchema,
+};
 
 type CreateScriptEnvironmentFn =
-    dyn FnMut(JsonMessage) -> Result<Box<dyn ScriptEnvironment>, DiagramErrorCode> + Send;
+    dyn FnMut(JsonMessage) -> Result<Arc<dyn ScriptEnvironment>, Anyhow> + Send;
 
 pub struct ScriptEnvironmentRegistration {
     pub(crate) metadata: ScriptEnvironmentMetadata,
+    pub(crate) create_environment_impl: RefCell<Box<CreateScriptEnvironmentFn>>,
 }
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ScriptEnvironmentMetadata {
-    pub(crate) language: Arc<str>,
-    pub(crate) interpreter: Arc<str>,
+    /// The scripting language that will be used for this environment
+    pub(crate) language: OperationName,
+    /// The interpreter that will be used to process the scripting language
+    pub(crate) interpreter: OperationName,
+    /// The schema for configuring an environment made by this builder
     pub(crate) config_schema: Schema,
+    /// Human-friendly name for the script environment builder
+    pub(crate) display_text: Option<Arc<str>>,
+    /// A description of what kind of environments are made by this builder
     pub(crate) description: Option<Arc<str>>,
+    /// Examples of valid configurations for this builder
     pub(crate) config_examples: Vec<ConfigExample>,
+}
+
+#[derive(Default)]
+pub struct Scripting {
+    pub builders: HashMap<BuilderId, ScriptEnvironmentRegistration>,
+    pub automatic_environments: HashMap<OperationName, ScriptEnvironmentSchema>,
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ScriptingMetadata {
+    pub builders: HashMap<BuilderId, ScriptEnvironmentMetadata>,
+    pub automatic_environments: HashMap<OperationName, ScriptEnvironmentSchema>,
 }

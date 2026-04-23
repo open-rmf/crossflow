@@ -15,7 +15,10 @@
  *
 */
 
-use std::cell::RefCell;
+use std::{
+    cell::RefCell,
+    sync::Arc,
+};
 
 pub use crate::dyn_node::*;
 use crate::{Builder, ConfigExample, DisplayText};
@@ -33,7 +36,7 @@ pub struct SectionRegistration {
     pub(crate) create_section_impl: RefCell<Box<CreateSectionFn>>,
 }
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SectionMetadata {
     pub(crate) default_display_text: DisplayText,
     pub(crate) interface: SectionInterface,

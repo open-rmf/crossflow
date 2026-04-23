@@ -42,6 +42,9 @@ pub mod grpc;
 #[cfg(feature = "zenoh")]
 pub mod zenoh;
 
+#[cfg(feature = "python")]
+pub mod python_operation;
+
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::system::Commands;
 pub use buffer_schema::*;
@@ -399,6 +402,24 @@ impl BuildDiagramOperation for DiagramOperation {
             Self::Unzip(op) => op.apply_message_type_constraints(id, ctx),
         }
     }
+
+    fn child_operations(&self, templates: &Templates) -> Result<Option<Operations>, DiagramErrorCode> {
+        match self {
+            Self::Buffer(op) => op.child_operations(templates),
+            Self::BufferAccess(op) => op.child_operations(templates),
+            Self::ForkClone(op) => op.child_operations(templates),
+            Self::ForkResult(op) => op.child_operations(templates),
+            Self::Join(op) => op.child_operations(templates),
+            Self::Listen(op) => op.child_operations(templates),
+            Self::Node(op) => op.child_operations(templates),
+            Self::Scope(op) => op.child_operations(templates),
+            Self::Section(op) => op.child_operations(templates),
+            Self::Split(op) => op.child_operations(templates),
+            Self::StreamOut(op) => op.child_operations(templates),
+            Self::Transform(op) => op.child_operations(templates),
+            Self::Unzip(op) => op.child_operations(templates),
+        }
+    }
 }
 
 /// Returns the schema for [`String`]
@@ -458,8 +479,22 @@ pub struct Diagram {
     #[schemars(schema_with = "schema_with_string")]
     version: semver::Version,
 
+    /// Section templates used by this diagram.
     #[serde(default)]
     pub templates: Templates,
+
+    /// Custom script environments used by this diagram.
+    ///
+    /// To run a script operation you will need to specify what its environment
+    /// is. A script environment determines the language and interpreter for the
+    /// script, as well as any other factors specific to the environment.
+    ///
+    /// Script environment builders may have automatic configs, which you should
+    /// consider using before creating a custom environment.
+    ///
+    /// [1]: ScriptEnvironmentMetadata
+    #[serde(default)]
+    pub script_environments: HashMap<OperationName, ScriptEnvironmentSchema>,
 
     /// Indicates where the workflow should start running.
     pub start: NextOperation,
@@ -552,6 +587,7 @@ impl Diagram {
         Self {
             version: semver::Version::parse(CURRENT_DIAGRAM_VERSION).unwrap(),
             start,
+            script_environments: Default::default(),
             templates: Default::default(),
             on_implicit_error: Default::default(),
             ops: Default::default(),
@@ -692,7 +728,18 @@ impl Diagram {
     /// Make sure all operation names are valid, e.g. no reserved words such as
     /// `builtin` are being used.
     pub fn validate_operation_names(&self) -> Result<(), DiagramErrorCode> {
-        self.ops.validate_operation_names()?;
+        check_circular_operation_dependency(&self.ops, &self.templates)?;
+        let mut all_ops = vec![self.ops.clone()];
+        while let Some(ops) = all_ops.pop() {
+            for op in ops.values() {
+                if let Some(children) = op.child_operations(&self.templates)? {
+                    all_ops.push(children);
+                }
+            }
+
+            ops.validate_operation_names()?;
+        }
+
         self.templates.validate_operation_names()?;
         Ok(())
     }
@@ -701,15 +748,22 @@ impl Diagram {
     /// recursively within any templates used by the `ops` section. Any unused
     /// templates will not be validated.
     pub fn validate_template_usage(&self) -> Result<(), DiagramErrorCode> {
-        for op in self.ops.values() {
-            match op.as_ref() {
-                DiagramOperation::Section(section) => match &section.provider {
-                    SectionProvider::Template(template) => {
-                        self.templates.validate_template(template)?;
-                    }
+        let mut all_ops = vec![self.ops.clone()];
+        while let Some(ops) = all_ops.pop() {
+            for op in ops.values() {
+                if let Some(children) = op.child_operations(&self.templates)? {
+                    all_ops.push(children);
+                }
+
+                match op.as_ref() {
+                    DiagramOperation::Section(section) => match &section.provider {
+                        SectionProvider::Template(template) => {
+                            self.templates.validate_template(template)?;
+                        }
+                        _ => continue,
+                    },
                     _ => continue,
-                },
-                _ => continue,
+                }
             }
         }
 
@@ -771,7 +825,7 @@ impl Templates {
     /// Check for potential issues in one of the templates, e.g. a circular
     /// dependency with other templates.
     pub fn validate_template(&self, template_id: &OperationName) -> Result<(), DiagramErrorCode> {
-        check_circular_template_dependency(template_id, &self.0)?;
+        check_circular_operation_dependency(&self.get_template(template_id)?.ops, &self)?;
         Ok(())
     }
 }
@@ -796,59 +850,64 @@ fn validate_operation_name(name: &str) -> Result<(), DiagramErrorCode> {
     Ok(())
 }
 
-fn check_circular_template_dependency(
-    start_from: &OperationName,
-    templates: &HashMap<OperationName, SectionTemplate>,
+fn check_circular_operation_dependency(
+    start_from: &Operations,
+    templates: &Templates,
 ) -> Result<(), DiagramErrorCode> {
     let mut queue = Vec::new();
-    queue.push(TemplateStack::new(start_from));
+    queue.push(OperationStack::new(start_from, templates.clone()));
 
     while let Some(top) = queue.pop() {
-        let Some(template) = templates.get(&top.next) else {
-            return Err(DiagramErrorCode::UnknownTemplate(top.next));
-        };
-
-        for op in template.ops.0.values() {
-            match op.as_ref() {
-                DiagramOperation::Section(section) => match &section.provider {
-                    SectionProvider::Template(template) => {
-                        queue.push(top.child(template)?);
-                    }
-                    _ => continue,
-                },
-                _ => continue,
-            }
-        }
+        queue.extend(top.children()?);
     }
 
     Ok(())
 }
 
-struct TemplateStack {
-    used: HashSet<OperationName>,
-    next: OperationName,
+#[derive(Clone)]
+struct OperationStack {
+    used: Vec<Operations>,
+    names: Vec<OperationName>,
+    templates: Templates,
+    next: Operations,
 }
 
-impl TemplateStack {
-    fn new(op: &OperationName) -> Self {
-        TemplateStack {
-            used: HashSet::from_iter([Arc::clone(op)]),
-            next: Arc::clone(op),
+impl OperationStack {
+    fn new(op: &Operations, templates: Templates) -> Self {
+        OperationStack {
+            used: vec![op.clone()],
+            names: Default::default(),
+            templates,
+            next: op.clone(),
         }
     }
 
-    fn child(&self, next: &OperationName) -> Result<Self, DiagramErrorCode> {
-        let mut used = self.used.clone();
-        if !used.insert(Arc::clone(next)) {
-            return Err(DiagramErrorCode::CircularTemplateDependency(
-                used.into_iter().collect(),
-            ));
+    fn children(&self) -> Result<Vec<Self>, DiagramErrorCode> {
+        let mut children = Vec::new();
+
+        for (name, next_op) in self.next.iter() {
+            if let Some(child_ops) = next_op.child_operations(&self.templates)? {
+                children.push(self.child(Arc::clone(name), child_ops)?);
+            }
         }
 
-        Ok(Self {
-            used,
-            next: Arc::clone(next),
-        })
+        Ok(children)
+    }
+
+    fn child(
+        &self,
+        name: OperationName,
+        next: Operations,
+    ) -> Result<Self, DiagramErrorCode> {
+        let mut child = self.clone();
+        child.used.push(child.next);
+        child.names.push(name);
+        if self.used.iter().any(|ops| Arc::ptr_eq(&ops.0, &next.0)) {
+            return Err(DiagramErrorCode::CircularOperationDependency(child.names));
+        }
+
+        child.next = next;
+        Ok(child)
     }
 }
 
@@ -914,6 +973,12 @@ pub enum DiagramErrorCode {
 
     #[error("section builder [{builder}] encountered an error: {error}")]
     SectionBuildingError {
+        builder: BuilderId,
+        error: Arc<Anyhow>,
+    },
+
+    #[error("script environment builder [{builder}] encountered an error: {error}")]
+    ScriptEnvironmentBuildingError {
         builder: BuilderId,
         error: Arc<Anyhow>,
     },
@@ -1074,8 +1139,8 @@ pub enum DiagramErrorCode {
     #[error("A circular redirection exists between operations: {}", format_list(&.0))]
     CircularRedirect(Vec<OperationRef>),
 
-    #[error("A circular dependency exists between templates: {}", format_list(&.0))]
-    CircularTemplateDependency(Vec<OperationName>),
+    #[error("A circular dependency exists between operations: {}", format_list(&.0))]
+    CircularOperationDependency(Vec<OperationName>),
 
     #[error("An error occurred while finishing the workflow build: {0}")]
     FinishingErrors(FinishingErrors),

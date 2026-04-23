@@ -95,4 +95,8 @@ impl BuildDiagramOperation for StreamOutSchema {
         ctx.stream_out(id, &self.name);
         Ok(())
     }
+
+    fn child_operations(&self, templates: &super::Templates) -> Result<Option<super::Operations>, DiagramErrorCode> {
+        Ok(None)
+    }
 }

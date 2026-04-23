@@ -22,6 +22,9 @@
       "type": "object",
       "additionalProperties": true
     },
+    "scripting": {
+      "$ref": "#/$defs/ScriptingMetadata"
+    },
     "sections": {
       "type": "object",
       "additionalProperties": {
@@ -35,6 +38,7 @@
   "required": [
     "nodes",
     "sections",
+    "scripting",
     "messages",
     "schemas",
     "reverse_message_lookup",
@@ -482,6 +486,85 @@
       "type": [
         "object",
         "boolean"
+      ]
+    },
+    "ScriptEnvironmentMetadata": {
+      "type": "object",
+      "properties": {
+        "config_examples": {
+          "description": "Examples of valid configurations for this builder",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ConfigExample"
+          }
+        },
+        "config_schema": {
+          "description": "The schema for configuring an environment made by this builder",
+          "$ref": "#/$defs/Schema"
+        },
+        "description": {
+          "description": "A description of what kind of environments are made by this builder",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display_text": {
+          "description": "Human-friendly name for the script environment builder",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "interpreter": {
+          "description": "The interpreter that will be used to process the scripting language",
+          "type": "string"
+        },
+        "language": {
+          "description": "The scripting language that will be used for this environment",
+          "type": "string"
+        }
+      },
+      "required": [
+        "language",
+        "interpreter",
+        "config_schema",
+        "config_examples"
+      ]
+    },
+    "ScriptEnvironmentSchema": {
+      "description": "Description of a scripting environment that a diagram uses to run scripts.",
+      "type": "object",
+      "properties": {
+        "builder": {
+          "type": "string"
+        },
+        "config": true
+      },
+      "required": [
+        "builder",
+        "config"
+      ]
+    },
+    "ScriptingMetadata": {
+      "type": "object",
+      "properties": {
+        "automatic_environments": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ScriptEnvironmentSchema"
+          }
+        },
+        "builders": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ScriptEnvironmentMetadata"
+          }
+        }
+      },
+      "required": [
+        "builders",
+        "automatic_environments"
       ]
     },
     "SectionBuffer": {

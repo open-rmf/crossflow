@@ -26,7 +26,7 @@ use crate::{ForkResultOutput, InferenceContext, JsonMessage};
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, NextOperation,
-    OperationName, TraceInfo, TraceSettings,
+    OperationName, TraceInfo, TraceSettings, Templates, Operations,
 };
 
 #[derive(Clone, ThisError, Debug)]
@@ -154,6 +154,10 @@ impl BuildDiagramOperation for TransformSchema {
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode> {
         ctx.transform(id, &self.next)
+    }
+
+    fn child_operations(&self, _: &Templates) -> Result<Option<Operations>, DiagramErrorCode> {
+        Ok(None)
     }
 }
 

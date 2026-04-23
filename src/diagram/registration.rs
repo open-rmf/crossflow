@@ -31,7 +31,8 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::SerializeMap};
 use super::{
     BuilderId, DeserializeMessage, DiagramErrorCode, DynForkClone, DynForkResult, DynSplit,
     DynType, JsonRegistration, RegisterJson, RegisterSplit, Section, SectionInterface,
-    SectionInterfaceDescription, SerializeMessage, SplitSchema, TransformError, TypeInfo,
+    SectionInterfaceDescription, SerializeMessage, SplitSchema, TypeInfo, OperationName, TransformError,
+    ScriptEnvironment,
     buffer_schema::BufferAccessRequest,
     fork_clone_schema::RegisterClone,
     fork_result_schema::{ForkResultRegistration, RegisterForkResult},
@@ -70,8 +71,8 @@ type EnableTraceSerializeFn = fn(&mut Trace);
 pub struct DiagramElementRegistry {
     pub(super) nodes: HashMap<BuilderId, NodeRegistration>,
     pub(super) sections: HashMap<BuilderId, SectionRegistration>,
+    pub(super) scripting: Scripting,
     pub(super) messages: MessageRegistry,
-    pub(super) script_environments: HashMap<BuilderId, ScriptEnvironmentRegistration>,
 }
 
 impl Default for DiagramElementRegistry {
@@ -83,8 +84,8 @@ impl Default for DiagramElementRegistry {
         let mut registry = DiagramElementRegistry {
             nodes: Default::default(),
             sections: Default::default(),
+            scripting: Default::default(),
             messages: MessageRegistry::new(),
-            script_environments: Default::default(),
         };
 
         registry.register_builtin_messages();
@@ -105,8 +106,8 @@ impl DiagramElementRegistry {
         DiagramElementRegistry {
             nodes: Default::default(),
             sections: Default::default(),
+            scripting: Default::default(),
             messages: MessageRegistry::new(),
-            script_environments: Default::default(),
         }
     }
 
@@ -141,12 +142,6 @@ impl DiagramElementRegistry {
     ///     |builder, _config: ()| builder.create_map_block(|msg: String| msg)
     /// );
     /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - Id of the builder, this must be unique.
-    /// * `name` - Friendly name for the builder, this is only used for display purposes.
-    /// * `f` - The node builder to register.
     pub fn register_node_builder<Config, Request, Response, Streams: StreamPack>(
         &mut self,
         options: NodeBuilderOptions,
@@ -250,9 +245,12 @@ impl DiagramElementRegistry {
                 config_examples: options.config_examples.clone(),
             },
             create_section_impl: RefCell::new(Box::new(move |builder, config| {
+                let config = serde_json::from_value::<Config>(config)
+                    .map_err(|err| DiagramErrorCode::ConfigError(Arc::new(err)))?;
+
                 let section =
-                    section_builder(builder, serde_json::from_value::<Config>(config).unwrap())
-                        .map_err(|error| DiagramErrorCode::NodeBuildingError {
+                    section_builder(builder, config)
+                        .map_err(|error| DiagramErrorCode::SectionBuildingError {
                             builder: Arc::clone(&builder_id),
                             error: Arc::new(error),
                         })?;
@@ -262,6 +260,29 @@ impl DiagramElementRegistry {
 
         self.sections.insert(options.id, registration);
         SectionT::on_register(self);
+    }
+
+    pub fn register_script_environment_builder<Config, Env>(
+        &mut self,
+        options: ScriptEnvironmentBuilderOptions,
+        mut environment_builder: impl FnMut(Config) -> Result<Arc<Env>, Anyhow>,
+    )
+    where
+        Config: DeserializeOwned + JsonSchema,
+        Env: ScriptEnvironment,
+    {
+        let builder_id = Arc::clone(&options.id);
+        let builder = RefCell::new(Box::new(move |config: JsonMessage| {
+            let config = serde_json::from_value::<Config>(config)
+                .map_err(|err| DiagramErrorCode::ConfigError(Arc::new(err)))?;
+
+            environment_builder(config)
+                .map_err(|err|
+                    DiagramErrorCode::ScriptEnvironmentBuildingError {
+                        builder: builder_id,
+                        error: Arc::new(err),
+                    })
+        }));
     }
 
     /// In some cases the common operations of deserialization, serialization,
@@ -434,7 +455,7 @@ pub struct NodeBuilderOptions {
     pub config_examples: Vec<ConfigExample>,
 }
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ConfigExample {
     /// A description of what this config is for
     pub description: String,
@@ -485,7 +506,7 @@ impl NodeBuilderOptions {
         mut self,
         config_examples: impl IntoIterator<Item = ConfigExample>,
     ) -> Self {
-        self.config_examples = config_examples.into_iter().collect();
+        self.config_examples.extend(config_examples);
         self
     }
 }
@@ -499,7 +520,7 @@ pub struct SectionBuilderOptions {
     /// display text.
     pub default_display_text: Option<BuilderId>,
     /// Optional text to describe the builder.
-    pub description: Option<String>,
+    pub description: Option<Arc<str>>,
     /// Examples of configurations that can be used with this section builder.
     pub config_examples: Vec<ConfigExample>,
 }
@@ -519,7 +540,7 @@ impl SectionBuilderOptions {
         self
     }
 
-    pub fn with_description(mut self, text: impl Into<String>) -> Self {
+    pub fn with_description(mut self, text: impl Into<Arc<str>>) -> Self {
         self.description = Some(text.into());
         self
     }
@@ -528,7 +549,58 @@ impl SectionBuilderOptions {
         mut self,
         config_examples: impl IntoIterator<Item = ConfigExample>,
     ) -> Self {
-        self.config_examples = config_examples.into_iter().collect();
+        self.config_examples.extend(config_examples);
+        self
+    }
+}
+
+pub struct ScriptEnvironmentBuilderOptions {
+    /// The unique identifier for this script environment builder. Diagrams will
+    /// use this ID to refer to this script environment builder.
+    pub id: BuilderId,
+    /// The scripting language that will be used for this environment
+    pub language: OperationName,
+    /// The interpreter that will be used to process the scripting language
+    pub interpreter: OperationName,
+    /// Human-friendly name for the script environment builder
+    pub display_text: Option<Arc<str>>,
+    /// A description of what kind of environments are made by this builder
+    pub description: Option<Arc<str>>,
+    /// Examples of valid configurations for this builder
+    pub config_examples: Vec<ConfigExample>,
+}
+
+impl ScriptEnvironmentBuilderOptions {
+    pub fn new(
+        id: impl Into<BuilderId>,
+        language: impl Into<OperationName>,
+        interpreter: impl Into<OperationName>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            language: language.into(),
+            interpreter: interpreter.into(),
+            display_text: Default::default(),
+            description: Default::default(),
+            config_examples: Default::default(),
+        }
+    }
+
+    pub fn with_display_text(mut self, text: impl Into<DisplayText>) -> Self {
+        self.display_text = Some(text.into());
+        self
+    }
+
+    pub fn with_description(mut self, text: impl Into<Arc<str>>) -> Self {
+        self.description = Some(text.into());
+        self
+    }
+
+    pub fn with_config_examples(
+        mut self,
+        config_examples: impl IntoIterator<Item = ConfigExample>,
+    ) -> Self {
+        self.config_examples.extend(config_examples);
         self
     }
 }

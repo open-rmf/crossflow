@@ -42,11 +42,20 @@
         "$ref": "#/$defs/DiagramOperation"
       }
     },
+    "script_environments": {
+      "description": "Custom script environments used by this diagram.\n\nTo run a script operation you will need to specify what its environment\nis. A script environment determines the language and interpreter for the\nscript, as well as any other factors specific to the environment.\n\nScript environment builders may have automatic configs, which you should\nconsider using before creating a custom environment.\n\n[1]: ScriptEnvironmentMetadata",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/ScriptEnvironmentSchema"
+      },
+      "default": {}
+    },
     "start": {
       "description": "Indicates where the workflow should start running.",
       "$ref": "#/$defs/NextOperation"
     },
     "templates": {
+      "description": "Section templates used by this diagram.",
       "type": "object",
       "additionalProperties": {
         "$ref": "#/$defs/SectionTemplate"
@@ -799,6 +808,20 @@
       },
       "required": [
         "uninterruptible"
+      ]
+    },
+    "ScriptEnvironmentSchema": {
+      "description": "Description of a scripting environment that a diagram uses to run scripts.",
+      "type": "object",
+      "properties": {
+        "builder": {
+          "type": "string"
+        },
+        "config": true
+      },
+      "required": [
+        "builder",
+        "config"
       ]
     },
     "SectionSchema": {

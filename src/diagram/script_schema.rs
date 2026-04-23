@@ -22,15 +22,20 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{JsonMessage, TraceSettings, NextOperation, OperationName, is_default};
+use crate::{JsonMessage, JsonBufferKey, TraceSettings, NextOperation, OperationName, IdentifierRef, is_default};
+
+#[derive(Debug, Default, Clone)]
+pub struct ScriptMessage {
+    pub data: JsonMessage,
+    pub accessors: HashMap<IdentifierRef<'static>, JsonBufferKey>,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct ScriptSchema {
     /// Name of the environment that will be used to execute this script operation.
-    pub environment: Arc<str>,
-    /// Name of the function to run for this script operation. The function must
-    /// exist in the specified environment.
+    pub environment: OperationName,
+    /// What to run in the environment
     pub run: Arc<str>,
     /// Configured data to pass into the function that `run` refers to. This will
     /// be passed in as a keyword argument named `config`.
@@ -46,10 +51,11 @@ pub struct ScriptSchema {
     pub trace_settings: TraceSettings,
 }
 
+/// Description of a scripting environment that a diagram uses to run scripts.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct ScriptEnvironmentSchema {
-    pub name: Arc<str>,
+    pub builder: OperationName,
     pub config: Arc<JsonMessage>,
 }
 
@@ -87,5 +93,5 @@ impl Script {
 }
 
 pub trait ScriptEnvironment {
-
+    fn run(&self, request: ScriptMessage, script: &Script) -> ScriptMessage;
 }

@@ -28,7 +28,7 @@ use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, BuilderId, DiagramElementRegistry,
     DiagramErrorCode, DynInputSlot, DynOutput, MessageRegistrations, NamespacedOperation,
     NextOperation, OperationName, OperationRef, Operations, RedirectConnection, TraceInfo,
-    TraceSettings,
+    TraceSettings, Templates,
 };
 
 pub use crossflow_derive::Section;
@@ -210,9 +210,21 @@ impl BuildDiagramOperation for SectionSchema {
         ctx.section(id, self)?;
         Ok(())
     }
+
+    fn child_operations(&self, templates: &Templates) -> Result<Option<Operations>, DiagramErrorCode> {
+        match &self.provider {
+            SectionProvider::Template(template) => {
+                let template = templates.get_template(&template)?;
+                Ok(Some(template.ops.clone()))
+            }
+            SectionProvider::Builder(_) => {
+                Ok(None)
+            }
+        }
+    }
 }
 
-#[derive(Serialize, Deserialize, Clone, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 pub struct SectionInterface {
     pub(super) inputs: HashMap<OperationName, SectionInput>,
     pub(super) outputs: HashMap<OperationName, SectionOutput>,
@@ -363,17 +375,17 @@ impl SectionInterfaceItem for JsonBuffer {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SectionInput {
     pub(super) message_type: usize,
 }
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SectionOutput {
     pub(super) message_type: usize,
 }
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SectionBuffer {
     pub(super) message_type: Option<usize>,
 }
@@ -1288,7 +1300,7 @@ mod tests {
 
         assert!(matches!(
             result.code,
-            DiagramErrorCode::CircularTemplateDependency(_),
+            DiagramErrorCode::CircularOperationDependency(_),
         ));
 
         let diagram = Diagram::from_json(json!({
@@ -1363,7 +1375,7 @@ mod tests {
 
         assert!(matches!(
             result.code,
-            DiagramErrorCode::CircularTemplateDependency(_),
+            DiagramErrorCode::CircularOperationDependency(_),
         ));
     }
 }

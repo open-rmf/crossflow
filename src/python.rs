@@ -19,8 +19,7 @@
 mod crossflow {
     use crate::{
         Channel, JsonBufferKey, IdentifierRef, AccessError, BufferError, OverlapError,
-        JsonBufferMut, JsonMut, JsonRef, JsonMessage,
-        Reply, format_vertical_list
+        JsonBufferMut, JsonMut, JsonRef, JsonMessage, format_vertical_list,
     };
     use std::{
         borrow::Cow,
