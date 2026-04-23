@@ -7,9 +7,7 @@
     "trip_error": {
       "type": "node",
       "builder": "trip_error",
-      "next": {
-        "builtin": "terminate"
-      }
+      "next": "stop_engine"
     },
     "start_engine_fork_result": {
       "type": "fork_result",
@@ -93,14 +91,14 @@
   "input_examples": [],
   "extensions": {
     "crossflow-diagram-editor-v1": {
-      "hash": "29b0c5df65e3a66a3335fb90d9cd1cfe9403f236",
+      "hash": "00601a8e42226dbfe059fddedd0bf82dacf110b8",
       "state": {
         "nodes": [
           {
             "id": ":__builtin_start__",
             "type": "start",
             "position": {
-              "x": 292.5,
+              "x": 350,
               "y": 25
             },
             "selectable": false,
@@ -116,7 +114,7 @@
             "id": ":__builtin_terminate__",
             "type": "terminate",
             "position": {
-              "x": 177.5,
+              "x": 350,
               "y": 625
             },
             "selectable": false,
@@ -133,7 +131,7 @@
             "type": "node",
             "position": {
               "x": 100,
-              "y": 525
+              "y": 425
             },
             "data": {
               "namespace": "",
@@ -141,9 +139,7 @@
               "op": {
                 "type": "node",
                 "builder": "trip_error",
-                "next": {
-                  "builtin": "terminate"
-                }
+                "next": "stop_engine"
               }
             },
             "measured": {
@@ -157,7 +153,7 @@
             "id": "3d891894-2d97-43f1-b79a-9097141382ef",
             "type": "fork_result",
             "position": {
-              "x": 292.5,
+              "x": 350,
               "y": 225
             },
             "data": {
@@ -179,7 +175,7 @@
             "id": "a0ffbab2-cb24-4b65-b2a1-3de63e5ef04e",
             "type": "node",
             "position": {
-              "x": 427.5,
+              "x": 350,
               "y": 525
             },
             "data": {
@@ -204,7 +200,7 @@
             "id": "c0d99733-528b-4010-8e94-72af1870625d",
             "type": "node",
             "position": {
-              "x": 292.5,
+              "x": 350,
               "y": 125
             },
             "data": {
@@ -225,7 +221,7 @@
             "id": "6932c4f9-f387-491a-9827-80bb860abe2d",
             "type": "node",
             "position": {
-              "x": 562.5,
+              "x": 600,
               "y": 425
             },
             "data": {
@@ -251,7 +247,7 @@
             "id": "3970b669-8e35-49ce-afdf-a602b958ba66",
             "type": "node",
             "position": {
-              "x": 812.5,
+              "x": 850,
               "y": 425
             },
             "data": {
@@ -279,7 +275,7 @@
             "id": "756cba1a-d973-495e-8d31-daec68904dc7",
             "type": "buffer",
             "position": {
-              "x": 677.5,
+              "x": 850,
               "y": 525
             },
             "data": {
@@ -300,7 +296,7 @@
             "id": "515b40ee-fec9-40f9-87bd-284f608b0d8c",
             "type": "buffer_access",
             "position": {
-              "x": 687.5,
+              "x": 782.5,
               "y": 625
             },
             "data": {
@@ -325,7 +321,7 @@
             "id": "6b0fc076-851e-42d2-8ed0-794ec7a83150",
             "type": "node",
             "position": {
-              "x": 687.5,
+              "x": 782.5,
               "y": 725
             },
             "data": {
@@ -348,7 +344,7 @@
             "id": "19f96a15-aafb-4039-afed-d778f631eec1",
             "type": "node",
             "position": {
-              "x": 687.5,
+              "x": 782.5,
               "y": 925
             },
             "data": {
@@ -373,7 +369,7 @@
             "id": "37ed8a77-a189-460a-80dc-aba069db5acc",
             "type": "fork_clone",
             "position": {
-              "x": 610,
+              "x": 600,
               "y": 325
             },
             "data": {
@@ -399,7 +395,7 @@
             "id": "8da9503c-c271-423d-95d7-50e755ad409f",
             "type": "fork_result",
             "position": {
-              "x": 687.5,
+              "x": 782.5,
               "y": 825
             },
             "data": {
@@ -423,7 +419,7 @@
             "id": "25c3c257-8335-4ee5-93ae-11d259f1982b",
             "type": "node",
             "position": {
-              "x": 245,
+              "x": 350,
               "y": 425
             },
             "data": {
@@ -449,25 +445,6 @@
             "source": ":__builtin_start__",
             "sourceHandle": null,
             "target": "c0d99733-528b-4010-8e94-72af1870625d",
-            "targetHandle": null,
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "default",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "default"
-              }
-            }
-          },
-          {
-            "id": "1c6e26bc-b165-40fe-a6e6-6f1249446f93",
-            "source": "5850f6e5-d48f-497b-b63b-f842c92b1d55",
-            "sourceHandle": null,
-            "target": ":__builtin_terminate__",
             "targetHandle": null,
             "markerEnd": {
               "type": "arrowclosed",
@@ -742,6 +719,23 @@
           {
             "id": "069fcefa-d128-4f3b-88f2-07e48aa5358b",
             "source": "25c3c257-8335-4ee5-93ae-11d259f1982b",
+            "target": "a0ffbab2-cb24-4b65-b2a1-3de63e5ef04e",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "c3d4b05c-5b54-4151-827e-a936b81f73ee",
+            "source": "5850f6e5-d48f-497b-b63b-f842c92b1d55",
             "target": "a0ffbab2-cb24-4b65-b2a1-3de63e5ef04e",
             "markerEnd": {
               "type": "arrowclosed",

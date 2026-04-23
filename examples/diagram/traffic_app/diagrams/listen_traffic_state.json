@@ -24,7 +24,9 @@
         "detect_traffic_signal",
         "wait_for_destination_reached",
         "check_speed_limit",
-        "configure_obstacles_thresholds"
+        "configure_obstacles_thresholds",
+        "abandon_trip",
+        "detect_kinematics"
       ]
     },
     "arriving_buffer": {
@@ -112,7 +114,10 @@
     "wait_for_destination_reached": {
       "type": "node",
       "builder": "wait_for_destination_reached",
-      "next": "stop_engine"
+      "next": "stop_engine",
+      "stream_out": {
+        "trigger": "kinematics_buffer_access"
+      }
     },
     "check_speed_limit": {
       "type": "node",
@@ -143,20 +148,64 @@
       "type": "node",
       "builder": "configure_obstacles_thresholds",
       "next": "detect_obstacles"
+    },
+    "abandon_trip": {
+      "type": "node",
+      "builder": "abandon_trip",
+      "next": "stop_engine"
+    },
+    "detect_kinematics": {
+      "type": "node",
+      "builder": "detect_kinematics",
+      "next": {
+        "builtin": "dispose"
+      },
+      "stream_out": {
+        "kinematics": "kinematics_buffer"
+      }
+    },
+    "kinematics_buffer": {
+      "type": "buffer"
+    },
+    "kinematics_buffer_access": {
+      "type": "buffer_access",
+      "buffers": [
+        "kinematics_buffer"
+      ],
+      "next": "process_kinematics"
+    },
+    "process_kinematics": {
+      "type": "node",
+      "builder": "process_kinematics",
+      "next": "kinematics_fork_result"
+    },
+    "kinematics_fork_result": {
+      "type": "fork_result",
+      "err": {
+        "builtin": "dispose"
+      },
+      "ok": "update_vehicle_state"
+    },
+    "update_vehicle_state": {
+      "type": "node",
+      "builder": "update_vehicle_state",
+      "next": {
+        "builtin": "dispose"
+      }
     }
   },
   "description": "A workflow that moves the vehicle forward until it travelled the requested distance, with Listen operation connected to traffic signal, obstacles, and arriving buffers.",
   "input_examples": [],
   "extensions": {
     "crossflow-diagram-editor-v1": {
-      "hash": "06567bbee58f08db1036a325b99af96fd250d973",
+      "hash": "38c13b09643f55cc12135196b4e71990e622e3f9",
       "state": {
         "nodes": [
           {
             "id": ":__builtin_start__",
             "type": "start",
             "position": {
-              "x": 475,
+              "x": 542.5,
               "y": 25
             },
             "selectable": false,
@@ -172,7 +221,7 @@
             "id": ":__builtin_terminate__",
             "type": "terminate",
             "position": {
-              "x": 225,
+              "x": 177.5,
               "y": 625
             },
             "selectable": false,
@@ -188,7 +237,7 @@
             "id": "bf04912e-de2b-4f11-a330-66c85940ae26",
             "type": "node",
             "position": {
-              "x": 1042.5,
+              "x": 1120,
               "y": 625
             },
             "data": {
@@ -214,7 +263,7 @@
             "id": "687f4a9e-1b03-4ca4-97b9-521d39408c90",
             "type": "buffer",
             "position": {
-              "x": 1042.5,
+              "x": 1120,
               "y": 725
             },
             "data": {
@@ -233,7 +282,7 @@
             "id": "13a2cb93-d495-4b6b-8ddb-714418324958",
             "type": "fork_clone",
             "position": {
-              "x": 792.5,
+              "x": 985,
               "y": 325
             },
             "data": {
@@ -246,7 +295,9 @@
                   "detect_traffic_signal",
                   "wait_for_destination_reached",
                   "check_speed_limit",
-                  "configure_obstacles_thresholds"
+                  "configure_obstacles_thresholds",
+                  "abandon_trip",
+                  "detect_kinematics"
                 ]
               }
             },
@@ -259,7 +310,7 @@
             "id": "856fa4df-da2b-4929-a47f-46d310daae83",
             "type": "buffer",
             "position": {
-              "x": 792.5,
+              "x": 735,
               "y": 725
             },
             "data": {
@@ -284,7 +335,7 @@
             "id": "7b94dfec-f116-4e9b-b470-bfb203f8475b",
             "type": "node",
             "position": {
-              "x": 542.5,
+              "x": 485,
               "y": 625
             },
             "data": {
@@ -310,7 +361,7 @@
             "id": "5cacf65a-60cd-4d58-a9ee-6c6413b8ed46",
             "type": "node",
             "position": {
-              "x": 475,
+              "x": 542.5,
               "y": 125
             },
             "data": {
@@ -331,7 +382,7 @@
             "id": "08d2028b-9779-4271-bb1b-19945c74db35",
             "type": "fork_result",
             "position": {
-              "x": 475,
+              "x": 542.5,
               "y": 225
             },
             "data": {
@@ -352,7 +403,7 @@
             "id": "be3becfa-685a-4387-94e7-05ceeef0c577",
             "type": "node",
             "position": {
-              "x": 917.5,
+              "x": 927.5,
               "y": 1125
             },
             "data": {
@@ -376,7 +427,7 @@
             "id": "636d978f-b569-4c23-bb47-d0b6b049930a",
             "type": "node",
             "position": {
-              "x": 225,
+              "x": 177.5,
               "y": 525
             },
             "data": {
@@ -399,7 +450,7 @@
             "id": "5d18ab72-4b9f-4e12-80ea-71456eda60e1",
             "type": "fork_result",
             "position": {
-              "x": 917.5,
+              "x": 927.5,
               "y": 1025
             },
             "data": {
@@ -422,7 +473,7 @@
             "id": "af28c278-0a9d-44f0-80f7-8fb7da79ce82",
             "type": "node",
             "position": {
-              "x": 792.5,
+              "x": 735,
               "y": 425
             },
             "data": {
@@ -450,7 +501,7 @@
             "id": "5c683ca4-e88f-4a84-a6ef-d10ac71f6836",
             "type": "buffer",
             "position": {
-              "x": 542.5,
+              "x": 485,
               "y": 725
             },
             "data": {
@@ -469,7 +520,7 @@
             "id": "87f5b155-1512-4192-b724-a02816035ff3",
             "type": "listen",
             "position": {
-              "x": 917.5,
+              "x": 927.5,
               "y": 825
             },
             "data": {
@@ -495,7 +546,7 @@
             "id": "acf863d7-f3fe-4526-92ac-711d7c27074e",
             "type": "node",
             "position": {
-              "x": 917.5,
+              "x": 927.5,
               "y": 925
             },
             "data": {
@@ -538,7 +589,7 @@
             "id": "e0aeac4f-29f1-4c8d-a001-b9be9885fe00",
             "type": "node",
             "position": {
-              "x": 350,
+              "x": 985,
               "y": 425
             },
             "data": {
@@ -547,7 +598,10 @@
               "op": {
                 "type": "node",
                 "builder": "wait_for_destination_reached",
-                "next": "stop_engine"
+                "next": "stop_engine",
+                "stream_out": {
+                  "trigger": "kinematics_buffer_access"
+                }
               }
             },
             "measured": {
@@ -560,7 +614,7 @@
             "id": "741c65ce-adf7-4a65-9497-6c3146a0933b",
             "type": "node",
             "position": {
-              "x": 1292.5,
+              "x": 1370,
               "y": 625
             },
             "data": {
@@ -588,7 +642,7 @@
             "id": "27f62de9-8f2e-4237-9277-caf54921427b",
             "type": "buffer",
             "position": {
-              "x": 1292.5,
+              "x": 1370,
               "y": 725
             },
             "data": {
@@ -607,7 +661,7 @@
             "id": "f3bea8dc-6dde-40d7-aac5-3bd844a7390c",
             "type": "node",
             "position": {
-              "x": 792.5,
+              "x": 735,
               "y": 525
             },
             "data": {
@@ -630,7 +684,7 @@
             "id": "daad362d-aa24-432b-9730-d02e970a5953",
             "type": "fork_result",
             "position": {
-              "x": 792.5,
+              "x": 735,
               "y": 625
             },
             "data": {
@@ -655,7 +709,7 @@
             "id": "0d286eaf-5671-4157-b095-1f042399e229",
             "type": "node",
             "position": {
-              "x": 1042.5,
+              "x": 1120,
               "y": 525
             },
             "data": {
@@ -672,6 +726,172 @@
               "height": 50
             },
             "selected": false
+          },
+          {
+            "id": "ba6af6bb-af84-4fce-9f1b-35f9180dacd9",
+            "type": "node",
+            "position": {
+              "x": 350,
+              "y": 425
+            },
+            "data": {
+              "namespace": "",
+              "opId": "abandon_trip",
+              "op": {
+                "type": "node",
+                "builder": "abandon_trip",
+                "next": "stop_engine"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          },
+          {
+            "id": "b20b6979-f34e-40b1-a5f6-99be0b351ecc",
+            "type": "node",
+            "position": {
+              "x": 1562.5,
+              "y": 425
+            },
+            "data": {
+              "namespace": "",
+              "opId": "detect_kinematics",
+              "op": {
+                "type": "node",
+                "builder": "detect_kinematics",
+                "next": {
+                  "builtin": "dispose"
+                },
+                "stream_out": {
+                  "kinematics": "kinematics_buffer"
+                }
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false
+          },
+          {
+            "id": "d3015a12-9b44-4d07-b15e-487293b8e887",
+            "type": "buffer",
+            "position": {
+              "x": 1562.5,
+              "y": 525
+            },
+            "data": {
+              "namespace": "",
+              "opId": "kinematics_buffer",
+              "op": {
+                "type": "buffer"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false
+          },
+          {
+            "id": "99693d85-f967-41e1-a2b3-f0aa93700fee",
+            "type": "buffer_access",
+            "position": {
+              "x": 1630,
+              "y": 625
+            },
+            "data": {
+              "namespace": "",
+              "opId": "kinematics_buffer_access",
+              "op": {
+                "type": "buffer_access",
+                "buffers": [
+                  "kinematics_buffer"
+                ],
+                "next": "process_kinematics"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false
+          },
+          {
+            "id": "998af2f4-c5ec-4dc7-a16d-9bac1f383678",
+            "type": "node",
+            "position": {
+              "x": 1630,
+              "y": 725
+            },
+            "data": {
+              "namespace": "",
+              "opId": "process_kinematics",
+              "op": {
+                "type": "node",
+                "builder": "process_kinematics",
+                "next": "kinematics_fork_result"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          },
+          {
+            "id": "41023c06-aa22-4e49-a35e-54a2f07f066a",
+            "type": "fork_result",
+            "position": {
+              "x": 1630,
+              "y": 825
+            },
+            "data": {
+              "namespace": "",
+              "opId": "kinematics_fork_result",
+              "op": {
+                "type": "fork_result",
+                "err": {
+                  "builtin": "dispose"
+                },
+                "ok": "update_vehicle_state"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false
+          },
+          {
+            "id": "fc882a5c-7ea2-4a7b-b8e1-f642bb148efc",
+            "type": "node",
+            "position": {
+              "x": 1630,
+              "y": 925
+            },
+            "data": {
+              "namespace": "",
+              "opId": "update_vehicle_state",
+              "op": {
+                "type": "node",
+                "builder": "update_vehicle_state",
+                "next": {
+                  "builtin": "dispose"
+                }
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
           }
         ],
         "edges": [
@@ -1173,6 +1393,170 @@
                 "type": "default"
               }
             }
+          },
+          {
+            "id": "0e6bfa0e-56d2-420c-b92b-f112c4fca2c0",
+            "source": "13a2cb93-d495-4b6b-8ddb-714418324958",
+            "target": "ba6af6bb-af84-4fce-9f1b-35f9180dacd9",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "13e9c2ce-9f9f-4016-8c89-04a216462325",
+            "source": "ba6af6bb-af84-4fce-9f1b-35f9180dacd9",
+            "target": "636d978f-b569-4c23-bb47-d0b6b049930a",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "ca9e9e82-c1a1-416e-a2a7-a25b7d6abba0",
+            "source": "13a2cb93-d495-4b6b-8ddb-714418324958",
+            "target": "b20b6979-f34e-40b1-a5f6-99be0b351ecc",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "5aef61c4-aa8b-42a2-9f01-73c6c7244cb9",
+            "source": "b20b6979-f34e-40b1-a5f6-99be0b351ecc",
+            "sourceHandle": "dataStream",
+            "target": "d3015a12-9b44-4d07-b15e-487293b8e887",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "streamOut",
+            "data": {
+              "output": {
+                "streamId": "kinematics"
+              },
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          },
+          {
+            "id": "b283a586-9f27-457a-9fbd-11f09ef8996a",
+            "source": "d3015a12-9b44-4d07-b15e-487293b8e887",
+            "target": "99693d85-f967-41e1-a2b3-f0aa93700fee",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "buffer",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "bufferSeq",
+                "seq": 0
+              }
+            },
+            "style": {}
+          },
+          {
+            "id": "9b884951-fb05-4f55-a8de-e448ac585886",
+            "source": "99693d85-f967-41e1-a2b3-f0aa93700fee",
+            "target": "998af2f4-c5ec-4dc7-a16d-9bac1f383678",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "d279623d-6d7f-4bf8-aeea-01dae42abba6",
+            "source": "998af2f4-c5ec-4dc7-a16d-9bac1f383678",
+            "target": "41023c06-aa22-4e49-a35e-54a2f07f066a",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "0fe081e4-5edb-47b7-8a53-7f76063ef122",
+            "source": "41023c06-aa22-4e49-a35e-54a2f07f066a",
+            "sourceHandle": "forkResultOk",
+            "target": "fc882a5c-7ea2-4a7b-b8e1-f642bb148efc",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "forkResultOk",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "516c7a62-59a6-48b0-a047-890f05fd0459",
+            "source": "e0aeac4f-29f1-4c8d-a001-b9be9885fe00",
+            "sourceHandle": "dataStream",
+            "target": "99693d85-f967-41e1-a2b3-f0aa93700fee",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "streamOut",
+            "data": {
+              "output": {
+                "streamId": "trigger"
+              },
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
           }
         ]
       }

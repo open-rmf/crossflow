@@ -27,9 +27,7 @@
     },
     "start_engine_fork_result": {
       "type": "fork_result",
-      "err": {
-        "builtin": "terminate"
-      },
+      "err": "trip_error",
       "ok": "start_engine_fork_clone"
     },
     "start_engine": {
@@ -71,7 +69,9 @@
       "type": "fork_clone",
       "next": [
         "wait_for_destination_reached",
-        "configure_obstacles_thresholds"
+        "configure_obstacles_thresholds",
+        "abandon_trip",
+        "detect_kinematics"
       ]
     },
     "wait_for_destination_reached": {
@@ -79,27 +79,83 @@
       "builder": "wait_for_destination_reached",
       "next": "stop_engine",
       "stream_out": {
-        "trigger": "traffic_signal_buffer_access"
+        "trigger": "trigger_fork_clone"
       }
     },
     "configure_obstacles_thresholds": {
       "type": "node",
       "builder": "configure_obstacles_thresholds",
       "next": "detect_obstacles"
+    },
+    "abandon_trip": {
+      "type": "node",
+      "builder": "abandon_trip",
+      "next": "stop_engine"
+    },
+    "detect_kinematics": {
+      "type": "node",
+      "builder": "detect_kinematics",
+      "next": {
+        "builtin": "dispose"
+      },
+      "stream_out": {
+        "kinematics": "kinematics_buffer"
+      }
+    },
+    "kinematics_buffer": {
+      "type": "buffer"
+    },
+    "kinematics_buffer_access": {
+      "type": "buffer_access",
+      "buffers": [
+        "kinematics_buffer"
+      ],
+      "next": "process_kinematics"
+    },
+    "process_kinematics": {
+      "type": "node",
+      "builder": "process_kinematics",
+      "next": "kinematics_fork_result"
+    },
+    "kinematics_fork_result": {
+      "type": "fork_result",
+      "err": {
+        "builtin": "dispose"
+      },
+      "ok": "update_vehicle_state"
+    },
+    "update_vehicle_state": {
+      "type": "node",
+      "builder": "update_vehicle_state",
+      "next": {
+        "builtin": "dispose"
+      }
+    },
+    "trigger_fork_clone": {
+      "type": "fork_clone",
+      "next": [
+        "traffic_signal_buffer_access",
+        "kinematics_buffer_access"
+      ]
+    },
+    "trip_error": {
+      "type": "node",
+      "builder": "trip_error",
+      "next": "stop_engine"
     }
   },
   "description": "A workflow that moves the vehicle forward until it travelled the requested distance, while respecting the traffic light signals: go on Green, stop on Red, and slow down on Yellow.",
   "input_examples": [],
   "extensions": {
     "crossflow-diagram-editor-v1": {
-      "hash": "38d33323a2d4e7fd18219f26576c5c5439b0f1a6",
+      "hash": "8bf129c7ea2835abf43a932277f2a07c76d72687",
       "state": {
         "nodes": [
           {
             "id": ":__builtin_start__",
             "type": "start",
             "position": {
-              "x": 292.5,
+              "x": 485,
               "y": 25
             },
             "selectable": false,
@@ -116,7 +172,7 @@
             "id": ":__builtin_terminate__",
             "type": "terminate",
             "position": {
-              "x": 100,
+              "x": 340,
               "y": 625
             },
             "selectable": false,
@@ -134,7 +190,7 @@
             "id": "d8366e5f-72ef-4e71-a6da-591d67f76a19",
             "type": "fork_result",
             "position": {
-              "x": 427.5,
+              "x": 620,
               "y": 925
             },
             "data": {
@@ -158,7 +214,7 @@
             "id": "da53b797-960e-490e-b24a-d3cccb562f92",
             "type": "node",
             "position": {
-              "x": 167.5,
+              "x": 340,
               "y": 525
             },
             "data": {
@@ -183,7 +239,7 @@
             "id": "c887a4d3-b9cc-4653-9a11-8fea88fdf05d",
             "type": "node",
             "position": {
-              "x": 427.5,
+              "x": 620,
               "y": 1025
             },
             "data": {
@@ -207,7 +263,7 @@
             "id": "6caeabd1-fc5a-4ee2-ab0b-0a19018738a5",
             "type": "fork_result",
             "position": {
-              "x": 292.5,
+              "x": 485,
               "y": 225
             },
             "data": {
@@ -215,9 +271,7 @@
               "opId": "start_engine_fork_result",
               "op": {
                 "type": "fork_result",
-                "err": {
-                  "builtin": "terminate"
-                },
+                "err": "trip_error",
                 "ok": "start_engine_fork_clone"
               }
             },
@@ -231,7 +285,7 @@
             "id": "8cb28806-7d70-4b6b-83a4-441e678d19a7",
             "type": "node",
             "position": {
-              "x": 292.5,
+              "x": 485,
               "y": 125
             },
             "data": {
@@ -253,7 +307,7 @@
             "id": "e5ce8e45-6bd1-4f32-a990-3e7c759827a2",
             "type": "node",
             "position": {
-              "x": 427.5,
+              "x": 620,
               "y": 825
             },
             "data": {
@@ -275,7 +329,7 @@
             "id": "addc4ab1-d8f5-4d55-90bc-f0db0aef4bf5",
             "type": "buffer_access",
             "position": {
-              "x": 427.5,
+              "x": 620,
               "y": 725
             },
             "data": {
@@ -299,7 +353,7 @@
             "id": "80ea05c5-5e1a-438f-b32b-4a56e2b51c7f",
             "type": "node",
             "position": {
-              "x": 495,
+              "x": 870,
               "y": 525
             },
             "data": {
@@ -326,7 +380,7 @@
             "id": "a8825063-f561-4c80-861f-61b3d721ebf5",
             "type": "buffer",
             "position": {
-              "x": 495,
+              "x": 870,
               "y": 625
             },
             "data": {
@@ -351,7 +405,7 @@
             "id": "f75d8029-28c3-498c-96f8-e44026fc9678",
             "type": "fork_clone",
             "position": {
-              "x": 360,
+              "x": 735,
               "y": 325
             },
             "data": {
@@ -361,7 +415,9 @@
                 "type": "fork_clone",
                 "next": [
                   "wait_for_destination_reached",
-                  "configure_obstacles_thresholds"
+                  "configure_obstacles_thresholds",
+                  "abandon_trip",
+                  "detect_kinematics"
                 ]
               }
             },
@@ -375,7 +431,7 @@
             "id": "00673ad8-773a-4a11-84b6-5390c0908951",
             "type": "node",
             "position": {
-              "x": 235,
+              "x": 610,
               "y": 425
             },
             "data": {
@@ -386,7 +442,7 @@
                 "builder": "wait_for_destination_reached",
                 "next": "stop_engine",
                 "stream_out": {
-                  "trigger": "traffic_signal_buffer_access"
+                  "trigger": "trigger_fork_clone"
                 }
               }
             },
@@ -401,7 +457,7 @@
             "id": "51e14d49-5760-4323-b72a-da72eb9e4d7d",
             "type": "node",
             "position": {
-              "x": 495,
+              "x": 870,
               "y": 425
             },
             "data": {
@@ -411,6 +467,216 @@
                 "type": "node",
                 "builder": "configure_obstacles_thresholds",
                 "next": "detect_obstacles"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false
+          },
+          {
+            "id": "9206e750-0c2d-4dcf-b825-3c71310f2c99",
+            "type": "node",
+            "position": {
+              "x": 350,
+              "y": 425
+            },
+            "data": {
+              "namespace": "",
+              "opId": "abandon_trip",
+              "op": {
+                "type": "node",
+                "builder": "abandon_trip",
+                "next": "stop_engine"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          },
+          {
+            "id": "e9395358-7b60-4af8-bd3a-b49e8cfeee33",
+            "type": "node",
+            "position": {
+              "x": 1130,
+              "y": 425
+            },
+            "data": {
+              "namespace": "",
+              "opId": "detect_kinematics",
+              "op": {
+                "type": "node",
+                "builder": "detect_kinematics",
+                "next": {
+                  "builtin": "dispose"
+                },
+                "stream_out": {
+                  "kinematics": "kinematics_buffer"
+                }
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false
+          },
+          {
+            "id": "aad66622-e32d-45ed-ab6d-5272b658b763",
+            "type": "buffer",
+            "position": {
+              "x": 1130,
+              "y": 525
+            },
+            "data": {
+              "namespace": "",
+              "opId": "kinematics_buffer",
+              "op": {
+                "type": "buffer"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false
+          },
+          {
+            "id": "7e848cb8-9e3c-4930-9f2d-0b5b2c475a00",
+            "type": "buffer_access",
+            "position": {
+              "x": 1120,
+              "y": 625
+            },
+            "data": {
+              "namespace": "",
+              "opId": "kinematics_buffer_access",
+              "op": {
+                "type": "buffer_access",
+                "buffers": [
+                  "kinematics_buffer"
+                ],
+                "next": "process_kinematics"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false
+          },
+          {
+            "id": "05ac9d41-220d-4aa6-9c1a-e15f416531f5",
+            "type": "node",
+            "position": {
+              "x": 1120,
+              "y": 725
+            },
+            "data": {
+              "namespace": "",
+              "opId": "process_kinematics",
+              "op": {
+                "type": "node",
+                "builder": "process_kinematics",
+                "next": "kinematics_fork_result"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false
+          },
+          {
+            "id": "e3d430cc-cda6-4b12-8264-fd948c3a3ecd",
+            "type": "fork_result",
+            "position": {
+              "x": 1120,
+              "y": 825
+            },
+            "data": {
+              "namespace": "",
+              "opId": "kinematics_fork_result",
+              "op": {
+                "type": "fork_result",
+                "err": {
+                  "builtin": "dispose"
+                },
+                "ok": "update_vehicle_state"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false
+          },
+          {
+            "id": "4fea18a4-a339-4101-b416-a413f589911c",
+            "type": "node",
+            "position": {
+              "x": 1120,
+              "y": 925
+            },
+            "data": {
+              "namespace": "",
+              "opId": "update_vehicle_state",
+              "op": {
+                "type": "node",
+                "builder": "update_vehicle_state",
+                "next": {
+                  "builtin": "dispose"
+                }
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false
+          },
+          {
+            "id": "1d894c77-dd9b-4851-9bf9-7686b345bb62",
+            "type": "fork_clone",
+            "position": {
+              "x": 620,
+              "y": 525
+            },
+            "data": {
+              "namespace": "",
+              "opId": "trigger_fork_clone",
+              "op": {
+                "type": "fork_clone",
+                "next": [
+                  "traffic_signal_buffer_access",
+                  "kinematics_buffer_access"
+                ]
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false
+          },
+          {
+            "id": "de221614-b678-4d7a-bab6-8d80454eee4f",
+            "type": "node",
+            "position": {
+              "x": 100,
+              "y": 425
+            },
+            "data": {
+              "namespace": "",
+              "opId": "trip_error",
+              "op": {
+                "type": "node",
+                "builder": "trip_error",
+                "next": "stop_engine"
               }
             },
             "measured": {
@@ -493,26 +759,6 @@
               "height": 20
             },
             "type": "forkResultOk",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "default"
-              }
-            },
-            "selected": false
-          },
-          {
-            "id": "acc6906c-6729-436d-8402-d550d0d27496",
-            "source": "6caeabd1-fc5a-4ee2-ab0b-0a19018738a5",
-            "sourceHandle": "forkResultErr",
-            "target": ":__builtin_terminate__",
-            "targetHandle": null,
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "forkResultErr",
             "data": {
               "output": {},
               "input": {
@@ -662,27 +908,6 @@
             "selected": false
           },
           {
-            "id": "2b69ddcd-b89a-455d-9f13-5082c54e4add",
-            "source": "00673ad8-773a-4a11-84b6-5390c0908951",
-            "sourceHandle": "dataStream",
-            "target": "addc4ab1-d8f5-4d55-90bc-f0db0aef4bf5",
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "streamOut",
-            "data": {
-              "output": {
-                "streamId": "trigger"
-              },
-              "input": {
-                "type": "default"
-              }
-            },
-            "selected": false
-          },
-          {
             "source": "f75d8029-28c3-498c-96f8-e44026fc9678",
             "sourceHandle": null,
             "target": "51e14d49-5760-4323-b72a-da72eb9e4d7d",
@@ -706,6 +931,240 @@
             "id": "eea540c9-3804-4f08-a3ae-10a0778ddc11",
             "source": "51e14d49-5760-4323-b72a-da72eb9e4d7d",
             "target": "80ea05c5-5e1a-438f-b32b-4a56e2b51c7f",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "85398745-969e-483a-9a40-09213060aa26",
+            "source": "f75d8029-28c3-498c-96f8-e44026fc9678",
+            "target": "9206e750-0c2d-4dcf-b825-3c71310f2c99",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "e13bb989-b4fe-410e-b6a3-a234fdb44628",
+            "source": "9206e750-0c2d-4dcf-b825-3c71310f2c99",
+            "target": "da53b797-960e-490e-b24a-d3cccb562f92",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "49f335ad-696a-4a9d-846d-ffa444288da6",
+            "source": "f75d8029-28c3-498c-96f8-e44026fc9678",
+            "target": "e9395358-7b60-4af8-bd3a-b49e8cfeee33",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "3ec0491f-7541-4845-926b-a71264a94994",
+            "source": "e9395358-7b60-4af8-bd3a-b49e8cfeee33",
+            "sourceHandle": "dataStream",
+            "target": "aad66622-e32d-45ed-ab6d-5272b658b763",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "streamOut",
+            "data": {
+              "output": {
+                "streamId": "kinematics"
+              },
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          },
+          {
+            "id": "345d6f02-2668-4703-919d-fac38b7e9df9",
+            "source": "aad66622-e32d-45ed-ab6d-5272b658b763",
+            "target": "7e848cb8-9e3c-4930-9f2d-0b5b2c475a00",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "buffer",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "bufferSeq",
+                "seq": 0
+              }
+            },
+            "style": {}
+          },
+          {
+            "id": "0eed45b7-aea7-4f93-a8d8-6ce50a380155",
+            "source": "7e848cb8-9e3c-4930-9f2d-0b5b2c475a00",
+            "target": "05ac9d41-220d-4aa6-9c1a-e15f416531f5",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "f1c3679f-7d37-4101-b483-6d2b7cc3efc1",
+            "source": "05ac9d41-220d-4aa6-9c1a-e15f416531f5",
+            "target": "e3d430cc-cda6-4b12-8264-fd948c3a3ecd",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "222f0deb-61b2-4ae6-8764-a3e591bce08e",
+            "source": "e3d430cc-cda6-4b12-8264-fd948c3a3ecd",
+            "sourceHandle": "forkResultOk",
+            "target": "4fea18a4-a339-4101-b416-a413f589911c",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "forkResultOk",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "2c12bc05-3395-4b5f-b510-c6fa4503c732",
+            "source": "00673ad8-773a-4a11-84b6-5390c0908951",
+            "sourceHandle": "dataStream",
+            "target": "1d894c77-dd9b-4851-9bf9-7686b345bb62",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "streamOut",
+            "data": {
+              "output": {
+                "streamId": "trigger"
+              },
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          },
+          {
+            "id": "06c0ce95-125c-4d55-9166-9591b79f48db",
+            "source": "1d894c77-dd9b-4851-9bf9-7686b345bb62",
+            "target": "addc4ab1-d8f5-4d55-90bc-f0db0aef4bf5",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "aab8d64f-dd98-4a30-be93-27459ab65628",
+            "source": "1d894c77-dd9b-4851-9bf9-7686b345bb62",
+            "target": "7e848cb8-9e3c-4930-9f2d-0b5b2c475a00",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          },
+          {
+            "id": "7fe4edca-7314-4a64-9227-46ba847765a8",
+            "source": "6caeabd1-fc5a-4ee2-ab0b-0a19018738a5",
+            "sourceHandle": "forkResultErr",
+            "target": "de221614-b678-4d7a-bab6-8d80454eee4f",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "forkResultErr",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "cd470572-77a6-4fc2-b0c2-76ac0fe793dc",
+            "source": "de221614-b678-4d7a-bab6-8d80454eee4f",
+            "target": "da53b797-960e-490e-b24a-d3cccb562f92",
             "markerEnd": {
               "type": "arrowclosed",
               "width": 20,
