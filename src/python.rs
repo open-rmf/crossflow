@@ -72,14 +72,18 @@ mod crossflow {
     }
 
     #[derive(Clone)]
-    #[pyclass(from_py_object)]
+    #[pyclass(from_py_object, name = "Accessor")]
     pub struct PythonAccessor {
         accessors: Arc<HashMap<IdentifierRef<'static>, JsonBufferKey>>,
+        channel: Arc<Channel>,
     }
 
     impl PythonAccessor {
-        pub fn new(accessors: Arc<HashMap<IdentifierRef<'static>, JsonBufferKey>>) -> Self {
-            Self { accessors }
+        pub fn new(
+            accessors: Arc<HashMap<IdentifierRef<'static>, JsonBufferKey>>,
+            channel: Arc<Channel>,
+        ) -> Self {
+            Self { accessors, channel }
         }
 
         pub fn depythonize(self) -> HashMap<IdentifierRef<'static>, JsonBufferKey> {
@@ -90,22 +94,10 @@ mod crossflow {
         }
     }
 
-    #[derive(Clone)]
-    #[pyclass(from_py_object, name = "Channel")]
-    pub struct PythonChannel {
-        channel: Arc<Channel>,
-    }
-
-    impl PythonChannel {
-        pub fn new(channel: Arc<Channel>) -> Self {
-            Self { channel }
-        }
-    }
-
     #[pymethods]
-    impl PythonChannel {
-        pub fn access(&self, accessor: PythonAccessor, callback: Py<PyAny>) -> PythonReply {
-            let accessor_map = accessor.accessors.as_ref().clone();
+    impl PythonAccessor {
+        pub fn access(&self, callback: Py<PyAny>) -> PythonReply {
+            let accessor_map = self.accessors.as_ref().clone();
             let reply = self.channel.access(accessor_map, move |mut access| {
                 let r = Python::attach(move |py| {
                     let mutex = BufferMutex::new();
@@ -233,13 +225,14 @@ mod crossflow {
     #[pyclass(from_py_object, name = "Message")]
     pub struct PythonMessage {
         pub data: JsonMessage,
-        pub accessors: PythonAccessor,
+        pub accessors: Option<PythonAccessor>,
     }
 
     #[pymethods]
     impl PythonMessage {
         #[new]
-        pub fn py_new(data: &Bound<PyAny>, accessors: PythonAccessor) -> PyResult<Self> {
+        #[pyo3(signature = (data, accessors=None))]
+        pub fn py_new(data: &Bound<PyAny>, accessors: Option<PythonAccessor>) -> PyResult<Self> {
             let data: JsonMessage = depythonize(data)?;
             Ok(Self { data, accessors })
         }

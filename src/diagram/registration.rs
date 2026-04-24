@@ -32,7 +32,7 @@ use super::{
     BuilderId, DeserializeMessage, DiagramErrorCode, DynForkClone, DynForkResult, DynSplit,
     DynType, JsonRegistration, RegisterJson, RegisterSplit, Section, SectionInterface,
     SectionInterfaceDescription, SerializeMessage, SplitSchema, TypeInfo, OperationName, TransformError,
-    ScriptEnvironment,
+    ScriptEnvironment, Script,
     buffer_schema::BufferAccessRequest,
     fork_clone_schema::RegisterClone,
     fork_result_schema::{ForkResultRegistration, RegisterForkResult},
@@ -567,7 +567,7 @@ pub struct ScriptEnvironmentBuilderOptions {
     /// A description of what kind of environments are made by this builder
     pub description: Option<Arc<str>>,
     /// Examples of valid configurations for this builder
-    pub config_examples: Vec<ConfigExample>,
+    pub config_examples: Vec<ScriptConfigExample>,
 }
 
 impl ScriptEnvironmentBuilderOptions {
@@ -598,10 +598,41 @@ impl ScriptEnvironmentBuilderOptions {
 
     pub fn with_config_examples(
         mut self,
-        config_examples: impl IntoIterator<Item = ConfigExample>,
+        config_examples: impl IntoIterator<Item = ScriptConfigExample>,
     ) -> Self {
         self.config_examples.extend(config_examples);
         self
+    }
+}
+
+/// An example of how to configure an environment
+pub struct ScriptConfigExample {
+    /// The name of this example
+    pub name: Arc<str>,
+    /// A description of this example
+    pub description: Arc<str>,
+    /// The example configuration
+    pub config: Arc<JsonMessage>,
+    /// How to run this example environment, i.e. what goes into the `run` field
+    /// of the [`ScriptSchema`][1].
+    ///
+    /// [1]: crate::ScriptSchema
+    pub run: Script,
+}
+
+impl ScriptConfigExample {
+    pub fn new(
+        name: impl Into<Arc<str>>,
+        description: impl Into<Arc<str>>,
+        config: impl Serialize,
+        run: Script,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            config: Arc::new(serde_json::to_value(config).expect("failed to serialize example config")),
+            run,
+        }
     }
 }
 

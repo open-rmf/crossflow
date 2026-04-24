@@ -17,7 +17,7 @@
 
 use crate::{
     DiagramElementRegistry, ScriptEnvironmentBuilderOptions, Script, PythonAccessor, PythonMessage,
-    PythonChannel, ScriptEnvironment, ScriptExecution, ScriptInput, ScriptMessage, ConfigExample,
+    ScriptEnvironment, ScriptExecution, ScriptInput, ScriptMessage, ScriptConfigExample,
     JsonMessage,
 };
 use pyo3::{
@@ -28,14 +28,14 @@ use pythonize::{depythonize, pythonize};
 use futures::future::{BoxFuture, FutureExt};
 use serde::{Serialize, Deserialize};
 use schemars::JsonSchema;
-use bevy_ecs::prelude::{Entity, World};
+use bevy_ecs::prelude::World;
 
 use std::{
-    collections::{HashMap, hash_map::Entry},
-    sync::{Arc, Mutex},
+    collections::HashMap,
+    sync::Arc,
 };
 
-use anyhow::{anyhow, Error as Anyhow};
+use anyhow::{anyhow, Context, Error as Anyhow};
 
 /// When a node uses a certain Python environment, should the environment and
 /// all its variables be reused each time a script is run in the environment,
@@ -61,7 +61,7 @@ pub enum PythonEnvironmentOwnership {
 
 impl Default for PythonEnvironmentOwnership {
     fn default() -> Self {
-        Self::Shared
+        Self::Reuse
     }
 }
 
@@ -69,8 +69,8 @@ impl Default for PythonEnvironmentOwnership {
 pub struct PythonConfig {
     #[serde(default)]
     pub ownership: PythonEnvironmentOwnership,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub script: Option<Script>,
+    /// A script that sets the variables for the environment.
+    pub script: Script,
 }
 
 impl DiagramElementRegistry {
@@ -84,70 +84,85 @@ impl DiagramElementRegistry {
         })
         .unwrap_or_else(|_| String::from("<unknown>"));
 
-        let description = "Run a Python interpreter directly inside the executor";
+        let builder_description = "Run a Python interpreter directly inside the executor";
+        let script = Script::new(
+r###"
+from crossflow import *
+
+def execute(data: object, accessors: Accessor, config: object):
+    """
+
+    """
+
+    return Message(data = {}, accessors = None)
+"###
+        );
+        let run = Script::new("execute");
+
         let config_examples = vec![
-            ConfigExample::new(
-                "Share environment variables across all nodes",
+            ScriptConfigExample::new(
+                "Shared Python Environment",
+                "All local and global variables in this environment will be \
+                shared among all operations run with this environment.",
                 PythonConfig {
                     ownership: PythonEnvironmentOwnership::Shared,
-                    script: None,
+                    script: script.clone(),
                 },
+                run.clone(),
             ),
-            ConfigExample::new(
-                "Reuse variables between runs of each node",
+            ScriptConfigExample::new(
+                "Reused Python Environment",
+                "The environment will be reused across multiple calls of an \
+                operation within the same workflow session, but each operation \
+                will have its own copy of the environment.",
                 PythonConfig {
                     ownership: PythonEnvironmentOwnership::Reuse,
-                    script: None,
+                    script: script.clone(),
                 },
+                run.clone(),
             ),
-            ConfigExample::new(
-                "Isolate variables per run",
+            ScriptConfigExample::new(
+                "Isolated Python Environment",
+                "The environment will be isolated to each run of each operation. \
+                This means the whole environment script will be re-evaluated \
+                with each run of an operation, and all variables will be reset \
+                with each run, which may reduce performance for bulky environments.",
                 PythonConfig {
                     ownership: PythonEnvironmentOwnership::Isolated,
-                    script: None,
+                    script,
                 },
+                run,
             ),
         ];
 
-        // self.register_script_environment_builder(
-        //     ScriptEnvironmentBuilderOptions::new(
-        //         "process-bound-python",
-        //         "python",
-        //         interpreter,
-        //     )
-        //         .with_description(description)
-        //         .with_display_text("Python")
-        //         .with_config_examples(config_examples),
-        //     |config: PythonConfig| {
-        //         let env = match config.ownership {
-        //             PythonEnvironmentOwnership::Shared => {
-        //                 let shared = SharedPythonEnvironment::new(config.script.as_ref())?;
-        //                 Arc::new(PythonEnvironment::Shared(shared))
-        //             }
-        //             PythonEnvironmentOwnership::Reuse => {
-        //                 let reused = ReusedPythonEnvironment::new(config.script.clone());
-        //                 Arc::new(PythonEnvironment::Reused(reused))
-        //             }
-        //             PythonEnvironmentOwnership::Isolated => {
-        //                 let isolated = IsolatedPythonEnvironment::new(config.script.clone());
-        //                 Arc::new(PythonEnvironment::Isolated(isolated))
-        //             }
-        //         };
+        self.register_script_environment_builder(
+            ScriptEnvironmentBuilderOptions::new(
+                "process-bound-python",
+                "python",
+                interpreter,
+            )
+                .with_description(builder_description)
+                .with_display_text("Python")
+                .with_config_examples(config_examples),
+            |config: PythonConfig| {
+                let env = match config.ownership {
+                    PythonEnvironmentOwnership::Shared => {
+                        let shared = SharedPythonEnvironment::new(&config.script)?;
+                        Arc::new(PythonEnvironment::Shared(shared))
+                    }
+                    PythonEnvironmentOwnership::Reuse => {
+                        let reused = ReusedPythonEnvironment::new(config.script.clone());
+                        Arc::new(PythonEnvironment::Reused(reused))
+                    }
+                    PythonEnvironmentOwnership::Isolated => {
+                        let isolated = IsolatedPythonEnvironment::new(config.script.clone());
+                        Arc::new(PythonEnvironment::Isolated(isolated))
+                    }
+                };
 
-        //         Ok(env)
-        //     },
-        // );
-    }
-}
-
-pub struct PythonExecution {
-    environment: PythonEnvironment,
-    run: Arc<str>,
-}
-
-impl ScriptExecution for PythonExecution {
-    fn run(&self, input: ScriptInput, world: &mut World) -> BoxFuture<'static, Result<ScriptMessage, Anyhow>> {
-        self.environment.run(&self.run, input, world)
+                Ok(env)
+            },
+        );
     }
 }
 
@@ -179,32 +194,119 @@ impl SharedPythonEnvironment {
         })
     }
 
-    pub fn run(&self, run: &Arc<str>, input: ScriptInput) -> BoxFuture<'static, Result<ScriptMessage, Anyhow>> {
-        let run = Arc::clone(run);
-        let globals = Arc::clone(&self.globals);
-        let locals = Arc::clone(&self.locals);
+}
+
+#[derive(Clone)]
+pub struct ReusedPythonEnvironment {
+    script: Script,
+}
+
+impl ReusedPythonEnvironment {
+    pub fn new(script: Script) -> Self {
+        Self { script }
+    }
+}
+
+#[derive(Clone)]
+pub struct IsolatedPythonEnvironment {
+    environment: Script,
+}
+
+impl IsolatedPythonEnvironment {
+    pub fn new(script: Script) -> Self {
+        Self { environment: script }
+    }
+}
+
+#[derive(Clone)]
+pub enum PythonEnvironment {
+    Shared(SharedPythonEnvironment),
+    Reused(ReusedPythonEnvironment),
+    Isolated(IsolatedPythonEnvironment),
+}
+
+impl ScriptEnvironment for PythonEnvironment {
+    fn compile(
+        &self,
+        run: &Script,
+        config: &Arc<JsonMessage>,
+    ) -> Result<Arc<dyn ScriptExecution>, Anyhow> {
+        let execution = match self {
+            Self::Shared(shared) => {
+                let exec = SharedPythonExecution::new(shared, run, &*config)?;
+                PythonExecution::Shared(exec)
+            },
+            Self::Reused(reused) => {
+                let env = SharedPythonEnvironment::new(&reused.script)?;
+                let exec = SharedPythonExecution::new(&env, run, &*config)?;
+                PythonExecution::Shared(exec)
+            },
+            Self::Isolated(isolated) => {
+                let exec = IsolatedPythonExecution::new(
+                    isolated.environment.clone(),
+                    run.clone(),
+                    Arc::clone(config),
+                )?;
+                PythonExecution::Isolated(exec)
+            }
+        };
+
+        Ok(Arc::new(execution))
+    }
+}
+
+pub struct SharedPythonExecution {
+    run: Arc<Py<PyAny>>,
+    config: Arc<Py<PyAny>>,
+}
+
+impl SharedPythonExecution {
+    fn new(
+        env: &SharedPythonEnvironment,
+        run: &Script,
+        config: &JsonMessage,
+    ) -> Result<Self, Anyhow> {
+        let config = Python::attach(|py| {
+            pythonize(py, config)
+                .map(|c| c.unbind())
+                .context("Failed to pythonize the script config")
+        })?;
+
+        let run = Python::attach(|py| {
+            let globals = env.globals.bind(py);
+            let locals = env.locals.bind(py);
+
+            let c_run = run
+                .get_cstr()
+                .with_context(|| format!("Failed to bind the run script [{}]", run.text()))?;
+
+            let callable = py.eval(&*c_run, Some(globals), Some(locals))
+                .with_context(|| format!("Exception while evaluating [{}]", run.text()))?;
+
+            if !callable.is_callable() {
+                return Err(anyhow!("Run script [{}] did not refer to a callable", run.text()));
+            }
+
+            Ok(callable.unbind())
+        })?;
+
+        Ok(Self {
+            run: Arc::new(run),
+            config: Arc::new(config),
+        })
+    }
+
+    pub fn run(
+        &self,
+        input: ScriptInput,
+    ) -> impl Future<Output = Result<ScriptMessage, Anyhow>> + 'static {
+        let run = Arc::clone(&self.run);
+        let config = Arc::clone(&self.config);
 
         let future = async move {
             Python::attach(|py| {
-                let globals = globals.bind(py);
-                let locals = locals.bind(py);
-
-                let callable = locals.get_item(&*run)
-                    .map_err(|err| {
-                        anyhow!("exception while looking for symbol {run} in local variables: {err}")
-                    })?;
-
-                let callable = match callable {
-                    Some(callable) => callable,
-                    None => {
-                        globals.get_item(&*run).map_err(|err| {
-                            anyhow!("exception while looking for symbol {run} in global variables: {err}")
-                        })?
-                        .ok_or_else(|| {
-                            anyhow!("symbol {run} does not exist in the local or global variables")
-                        })?
-                    }
-                };
+                let run = run.bind(py);
+                let config = config.bind(py);
 
                 let ScriptMessage { data, accessors } = input.request;
 
@@ -213,22 +315,21 @@ impl SharedPythonEnvironment {
                         anyhow!("failed to pythonize input data: {err}")
                     })?;
 
-                let accessors = PythonAccessor::new(Arc::new(accessors));
-                let channel = PythonChannel::new(Arc::new(input.channel));
+                let accessors = PythonAccessor::new(Arc::new(accessors), Arc::new(input.channel));
 
                 let kwargs = PyDict::new(py);
                 kwargs.set_item("data", data)?;
                 kwargs.set_item("accessors", accessors)?;
-                kwargs.set_item("channel", channel)?;
+                kwargs.set_item("config", config)?;
 
-                let result = callable
+                let result = run
                     .call((), Some(&kwargs))
                     .map_err(|err| anyhow!("{err}"))?;
 
                 if let Ok(message) = result.extract::<PythonMessage>() {
                     return Ok(ScriptMessage {
                         data: message.data,
-                        accessors: message.accessors.depythonize(),
+                        accessors: message.accessors.map(|a| a.depythonize()).unwrap_or(HashMap::new()),
                     });
                 }
 
@@ -247,113 +348,60 @@ impl SharedPythonEnvironment {
     }
 }
 
-#[derive(Clone)]
-pub struct ReusedPythonEnvironment {
-    cache: Arc<Mutex<HashMap<NodeSession, SharedPythonEnvironment>>>,
-    script: Script,
+pub struct IsolatedPythonExecution {
+    environment: Script,
+    run: Script,
+    config: Arc<JsonMessage>,
 }
 
-impl ReusedPythonEnvironment {
-    pub fn new(script: Script) -> Self {
-        Self {
-            cache: Default::default(),
-            script,
+impl IsolatedPythonExecution {
+    pub fn new(
+        environment: Script,
+        run: Script,
+        config: Arc<JsonMessage>,
+    ) -> Result<Self, Anyhow> {
+        // Test that the overall configuration is valid while we compile the
+        // environment to be run
+        let env = SharedPythonEnvironment::new(&environment)?;
+        SharedPythonExecution::new(&env, &run, &*config)?;
+
+        // If the above worked okay then we'll assume that the compilation is valid
+        Ok(Self {
+            environment,
+            run,
+            config,
+        })
+    }
+
+    fn run(
+        &self,
+        input: ScriptInput,
+    ) -> impl Future<Output = Result<ScriptMessage, Anyhow>> + 'static {
+        let environment = self.environment.clone();
+        let run = self.run.clone();
+        let config = Arc::clone(&self.config);
+        async move {
+            let env = SharedPythonEnvironment::new(&environment)?;
+            let exec = SharedPythonExecution::new(&env, &run, &*config)?;
+            exec.run(input).await
         }
     }
-
-    pub fn run(&self, run: &Arc<str>, input: ScriptInput, world: &mut World) -> BoxFuture<'static, Result<ScriptMessage, Anyhow>> {
-        if let Ok(mut guard) = self.cache.lock() {
-            // Clear out any finished sessions to avoid unnecessary memory growth
-            guard.retain(|e, _| {
-                world.get_entity(e.session).is_ok()
-            });
-        }
-
-        let op = NodeSession {
-            source: input.id.source,
-            session: input.id.session,
-        };
-
-        let mut guard = match self.cache.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                let mut inner = poisoned.into_inner();
-                inner.clear();
-                inner
-            }
-        };
-
-        let env = match guard.entry(op) {
-            Entry::Occupied(env) => Ok(env.get().clone()),
-            Entry::Vacant(vacant) => {
-                match SharedPythonEnvironment::new(&self.script) {
-                    Ok(env) => Ok(vacant.insert(env).clone()),
-                    Err(err) => Err(err)
-                }
-            }
-        };
-        self.cache.clear_poison();
-
-        let run = Arc::clone(run);
-        let future = async move {
-            let env = env?;
-            env.run(&run, input).await
-        };
-
-        future.boxed()
-    }
 }
 
-#[derive(Clone)]
-pub struct IsolatedPythonEnvironment {
-    script: Script,
+pub enum PythonExecution {
+    Shared(SharedPythonExecution),
+    Isolated(IsolatedPythonExecution),
 }
 
-impl IsolatedPythonEnvironment {
-    pub fn new(script: Script) -> Self {
-        Self { script }
-    }
-
-    pub fn run(&self, run: &Arc<str>, input: ScriptInput) -> BoxFuture<'static, Result<ScriptMessage, Anyhow>> {
-        let script = self.script.clone();
-        let run = Arc::clone(run);
-        let future = async move {
-            let env = SharedPythonEnvironment::new(&script)?;
-            env.run(&run, input).await
-        };
-
-        future.boxed()
-    }
-}
-
-#[derive(Clone)]
-pub enum PythonEnvironment {
-    Shared(SharedPythonEnvironment),
-    Reused(ReusedPythonEnvironment),
-    Isolated(IsolatedPythonEnvironment),
-}
-
-impl PythonEnvironment {
-    pub fn run(&self, run: &Arc<str>, input: ScriptInput, world: &mut World) -> BoxFuture<'static, Result<ScriptMessage, Anyhow>> {
+impl ScriptExecution for PythonExecution {
+    fn run(
+        &self,
+        input: ScriptInput,
+        _: &mut World,
+    ) -> BoxFuture<'static, Result<ScriptMessage, Anyhow>> {
         match self {
-            Self::Shared(shared) => shared.run(run, input),
-            Self::Reused(reused) => reused.run(run, input, world),
-            Self::Isolated(isolated) => isolated.run(run, input),
+            Self::Shared(shared) => shared.run(input).boxed(),
+            Self::Isolated(isolated) => isolated.run(input).boxed(),
         }
     }
-}
-
-impl ScriptEnvironment for PythonEnvironment {
-    fn compile(&self, script: &Script) -> Result<Arc<dyn ScriptExecution>, Anyhow> {
-        Ok(Arc::new(PythonExecution {
-            environment: self.clone(),
-            run: Arc::clone(&script.text),
-        }))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct NodeSession {
-    source: Entity,
-    session: Entity,
 }

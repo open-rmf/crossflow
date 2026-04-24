@@ -18,7 +18,6 @@
 use anyhow::Error as Anyhow;
 use bevy_ecs::prelude::World;
 use futures::future::BoxFuture;
-use tokio::sync::oneshot::Receiver;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -44,7 +43,7 @@ pub struct ScriptSchema {
     /// Name of the environment that will be used to execute this script operation.
     pub environment: OperationName,
     /// What to run in the environment
-    pub run: Arc<str>,
+    pub run: Script,
     /// Configured data to pass into the function that `run` refers to. This will
     /// be passed in as a keyword argument named `config`.
     #[serde(default, skip_serializing_if = "is_default")]
@@ -69,12 +68,33 @@ pub struct ScriptEnvironmentSchema {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct Script {
-    pub text: Arc<str>,
+    text: Arc<str>,
     #[serde(skip)]
     cache: Arc<Mutex<Option<Arc<std::ffi::CStr>>>>,
 }
 
 impl Script {
+    pub fn new(text: impl Into<Arc<str>>) -> Self {
+        Self {
+            text: text.into(),
+            cache: Default::default(),
+        }
+    }
+
+    pub fn set_text(&mut self, text: impl Into<Arc<str>>) {
+        self.text = text.into();
+        let mut guard = match self.cache.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *guard = None;
+        self.cache.clear_poison();
+    }
+
+    pub fn text(&self) -> &Arc<str> {
+        &self.text
+    }
+
     /// Get a C-compatible string for the script so it can be passed to a Python
     /// interpreter.
     pub fn get_cstr(&self) -> Result<Arc<std::ffi::CStr>, std::ffi::NulError> {
@@ -100,8 +120,21 @@ impl Script {
     }
 }
 
+impl Default for Script {
+    fn default() -> Self {
+        Self {
+            text: String::new().into(),
+            cache: Default::default(),
+        }
+    }
+}
+
 pub trait ScriptEnvironment {
-    fn compile(&self, script: &Script) -> Result<Arc<dyn ScriptExecution>, Anyhow>;
+    fn compile(
+        &self,
+        run: &Script,
+        config: &Arc<JsonMessage>,
+    ) -> Result<Arc<dyn ScriptExecution>, Anyhow>;
 }
 
 pub type ScriptInput = Async<ScriptMessage, DynamicallyNamedStream<StreamOf<ScriptMessage>>>;
