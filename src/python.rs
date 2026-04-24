@@ -73,19 +73,38 @@ mod crossflow {
 
     #[derive(Clone)]
     #[pyclass(from_py_object)]
-    struct PythonAccessor {
+    pub struct PythonAccessor {
         accessors: Arc<HashMap<IdentifierRef<'static>, JsonBufferKey>>,
     }
 
+    impl PythonAccessor {
+        pub fn new(accessors: Arc<HashMap<IdentifierRef<'static>, JsonBufferKey>>) -> Self {
+            Self { accessors }
+        }
+
+        pub fn depythonize(self) -> HashMap<IdentifierRef<'static>, JsonBufferKey> {
+            match Arc::try_unwrap(self.accessors) {
+                Ok(accessors) => accessors,
+                Err(this) => (*this).clone(),
+            }
+        }
+    }
+
     #[derive(Clone)]
-    #[pyclass(from_py_object)]
-    struct PythonChannel {
+    #[pyclass(from_py_object, name = "Channel")]
+    pub struct PythonChannel {
         channel: Arc<Channel>,
+    }
+
+    impl PythonChannel {
+        pub fn new(channel: Arc<Channel>) -> Self {
+            Self { channel }
+        }
     }
 
     #[pymethods]
     impl PythonChannel {
-        fn access(&self, accessor: PythonAccessor, callback: Py<PyAny>) -> PythonReply {
+        pub fn access(&self, accessor: PythonAccessor, callback: Py<PyAny>) -> PythonReply {
             let accessor_map = accessor.accessors.as_ref().clone();
             let reply = self.channel.access(accessor_map, move |mut access| {
                 let r = Python::attach(move |py| {
@@ -115,7 +134,7 @@ mod crossflow {
     /// continue until it finishes, no matter what you do with this Reply.
     #[derive(Clone)]
     #[pyclass(from_py_object, name = "Reply")]
-    struct PythonReply {
+    pub struct PythonReply {
         future: Shared<oneshot::Receiver<Result<Arc<PyResult<Py<PyAny>>>, AccessError>>>,
         detached: Arc<AtomicBool>,
     }
@@ -163,7 +182,7 @@ mod crossflow {
 
     #[derive(Clone)]
     #[pyclass(from_py_object, name = "BufferAccess")]
-    struct PythonBufferAccess {
+    pub struct PythonBufferAccess {
         access: AccessMapRef,
         len: Option<isize>,
     }
@@ -207,6 +226,22 @@ mod crossflow {
                 access: AccessMapRef::new(access),
                 len,
             }
+        }
+    }
+
+    #[derive(Clone)]
+    #[pyclass(from_py_object, name = "Message")]
+    pub struct PythonMessage {
+        pub data: JsonMessage,
+        pub accessors: PythonAccessor,
+    }
+
+    #[pymethods]
+    impl PythonMessage {
+        #[new]
+        pub fn py_new(data: &Bound<PyAny>, accessors: PythonAccessor) -> PyResult<Self> {
+            let data: JsonMessage = depythonize(data)?;
+            Ok(Self { data, accessors })
         }
     }
 
@@ -790,8 +825,6 @@ def foo(b, c):
                 let locals = PyDict::new(py);
                 py.run(python_script, Some(&globals), Some(&locals)).unwrap();
 
-                dbg!(&locals);
-
                 let a_py = locals.get_item("a").unwrap().unwrap();
                 let a: i64 = a_py.extract().unwrap();
                 assert_eq!(a, 0);
@@ -809,13 +842,27 @@ def foo(b, c):
                 let indices = s.bind(py).indices(10).unwrap();
                 assert_eq!(indices.start, 2);
                 assert_eq!(indices.stop, 9);
-                dbg!(indices);
 
+                let foo_py = py.eval(c"foo", Some(&globals), Some(&locals)).unwrap();
+                let r: i64 = foo_py.call1((b, c)).unwrap().extract().unwrap();
+                assert_eq!(r, 3);
 
-                let foo_py = locals.get_item("foo").unwrap().unwrap();
-                let foo: i64 = foo_py.call1((b, c)).unwrap().extract().unwrap();
-                assert_eq!(foo, 3);
+                let run_script =
+cr###"
+def bar(a, b):
+    return a * b;
+"###;
+                py.run(run_script, Some(&globals), Some(&locals)).unwrap();
+                let (_, bar_py) = locals.iter().last().unwrap();
+                let r: i64 = bar_py.call1((2, 3)).unwrap().extract().unwrap();
+                assert_eq!(r, 6);
+
+                let foo_py = py.eval(c"foo", Some(&globals), Some(&locals)).unwrap();
+                let r: i64 = foo_py.call1((5, 6)).unwrap().extract().unwrap();
+                assert_eq!(r, 11);
             });
         }
     }
 }
+
+pub use crate::python::crossflow::*;

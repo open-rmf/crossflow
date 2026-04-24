@@ -34,7 +34,7 @@ pub(crate) type CancelSender = AsyncComputeTaskPoolSender;
 #[cfg(feature = "single_threaded_async")]
 pub(crate) type CancelSender = SingleThreadedExecutionSender;
 
-pub(crate) fn spawn_task<T>(
+pub fn spawn_task<T>(
     future: impl Future<Output = T> + Sendish + 'static,
     _world: &mut World,
 ) -> TaskHandle<T>

@@ -15,6 +15,10 @@
  *
 */
 
+use anyhow::Error as Anyhow;
+use bevy_ecs::prelude::World;
+use futures::future::BoxFuture;
+use tokio::sync::oneshot::Receiver;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -22,7 +26,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{JsonMessage, JsonBufferKey, TraceSettings, NextOperation, OperationName, IdentifierRef, is_default};
+use crate::{
+    Async, DynamicallyNamedStream, JsonMessage, JsonBufferKey, TraceSettings,
+    NextOperation, OperationName, IdentifierRef, StreamOf,
+    is_default,
+};
 
 #[derive(Debug, Default, Clone)]
 pub struct ScriptMessage {
@@ -93,5 +101,11 @@ impl Script {
 }
 
 pub trait ScriptEnvironment {
-    fn run(&self, request: ScriptMessage, script: &Script) -> ScriptMessage;
+    fn compile(&self, script: &Script) -> Result<Arc<dyn ScriptExecution>, Anyhow>;
+}
+
+pub type ScriptInput = Async<ScriptMessage, DynamicallyNamedStream<StreamOf<ScriptMessage>>>;
+
+pub trait ScriptExecution {
+    fn run(&self, input: ScriptInput, world: &mut World) -> BoxFuture<'static, Result<ScriptMessage, Anyhow>>;
 }

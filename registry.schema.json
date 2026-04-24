@@ -23,7 +23,10 @@
       "additionalProperties": true
     },
     "scripting": {
-      "$ref": "#/$defs/ScriptingMetadata"
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/ScriptEnvironmentMetadata"
+      }
     },
     "sections": {
       "type": "object",
@@ -530,41 +533,6 @@
         "interpreter",
         "config_schema",
         "config_examples"
-      ]
-    },
-    "ScriptEnvironmentSchema": {
-      "description": "Description of a scripting environment that a diagram uses to run scripts.",
-      "type": "object",
-      "properties": {
-        "builder": {
-          "type": "string"
-        },
-        "config": true
-      },
-      "required": [
-        "builder",
-        "config"
-      ]
-    },
-    "ScriptingMetadata": {
-      "type": "object",
-      "properties": {
-        "automatic_environments": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/ScriptEnvironmentSchema"
-          }
-        },
-        "builders": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/ScriptEnvironmentMetadata"
-          }
-        }
-      },
-      "required": [
-        "builders",
-        "automatic_environments"
       ]
     },
     "SectionBuffer": {

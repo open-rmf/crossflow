@@ -31,7 +31,7 @@ use super::{BuilderId, DiagramErrorCode, TypeInfo};
 pub struct DiagramElementMetadata {
     nodes: HashMap<BuilderId, NodeMetadata>,
     sections: HashMap<BuilderId, SectionMetadata>,
-    scripting: ScriptingMetadata,
+    scripting: HashMap<BuilderId, ScriptEnvironmentMetadata>,
     messages: Vec<MessageMetadata>,
     schemas: serde_json::Map<String, JsonMessage>,
     reverse_message_lookup: ReverseMessageLookup,
@@ -72,18 +72,11 @@ impl DiagramElementMetadata {
             .map(|(id, section)| (Arc::clone(id), section.metadata.clone()))
             .collect();
 
-        let scripting = ScriptingMetadata {
-            builders: registry
-                .scripting
-                .builders
-                .iter()
-                .map(|(id, builder)| (Arc::clone(id), builder.metadata.clone()))
-                .collect(),
-            automatic_environments: registry
-                .scripting
-                .automatic_environments
-                .clone(),
-        };
+        let scripting = registry
+            .scripting
+            .iter()
+            .map(|(id, builder)| (Arc::clone(id), builder.metadata.clone()))
+            .collect();
 
         let messages = registry.messages.registration.metadata();
         let schemas = registry.messages.schema_generator.definitions().clone();

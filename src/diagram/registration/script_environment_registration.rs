@@ -53,15 +53,3 @@ pub struct ScriptEnvironmentMetadata {
     /// Examples of valid configurations for this builder
     pub(crate) config_examples: Vec<ConfigExample>,
 }
-
-#[derive(Default)]
-pub struct Scripting {
-    pub builders: HashMap<BuilderId, ScriptEnvironmentRegistration>,
-    pub automatic_environments: HashMap<OperationName, ScriptEnvironmentSchema>,
-}
-
-#[derive(Default, Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct ScriptingMetadata {
-    pub builders: HashMap<BuilderId, ScriptEnvironmentMetadata>,
-    pub automatic_environments: HashMap<OperationName, ScriptEnvironmentSchema>,
-}
