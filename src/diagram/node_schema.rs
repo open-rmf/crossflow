@@ -22,7 +22,7 @@ use std::{collections::HashMap, sync::Arc};
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, BuilderId, DiagramErrorCode,
     InferenceContext, JsonMessage, MissingStream, NextOperation, OperationName, TraceInfo,
-    TraceSettings, is_default,
+    TraceSettings, is_default, Templates, Operations,
 };
 
 /// Create an operation that that takes an input message and produces an
@@ -122,7 +122,7 @@ impl BuildDiagramOperation for NodeSchema {
         Ok(())
     }
 
-    fn child_operations(&self, _: &super::Templates) -> Result<Option<super::Operations>, DiagramErrorCode> {
+    fn child_operations(&self, _: &Templates) -> Result<Option<Operations>, DiagramErrorCode> {
         Ok(None)
     }
 }

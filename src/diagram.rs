@@ -983,6 +983,12 @@ pub enum DiagramErrorCode {
         error: Arc<Anyhow>,
     },
 
+    #[error("script failed to compile for environment {environment}: {error}")]
+    ScriptCompileError {
+        environment: BuilderId,
+        error: Arc<Anyhow>,
+    },
+
     #[error("operation [{0}] not found")]
     OperationNotFound(NextOperation),
 
@@ -1059,6 +1065,12 @@ pub enum DiagramErrorCode {
 
     #[error("There was an attempt to use an unknown section template: [{0}]")]
     UnknownTemplate(OperationName),
+
+    #[error("There was an attempt to use an unknown script environment: [{0}]")]
+    UnknownScriptEnvironment(OperationName),
+
+    #[error("There was an attempt to use an unknown script environment builder: [{0}]")]
+    UnknownScriptEnvironmentBuilder(OperationName),
 
     #[error("Could not find port in inference graph: [{0}]")]
     UnknownPort(PortRef),

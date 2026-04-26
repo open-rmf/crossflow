@@ -27,15 +27,11 @@ use std::{
 
 use crate::{
     Async, DynamicallyNamedStream, JsonMessage, JsonBufferKey, TraceSettings,
-    NextOperation, OperationName, IdentifierRef, StreamOf,
+    NextOperation, OperationName, IdentifierRef, StreamOf, BuildDiagramOperation,
+    Templates, Operations, DiagramErrorCode, BuilderContext, BuildStatus, IntoCallback,
+    Node, StreamPack, DynStreamOutputPack,
     is_default,
 };
-
-#[derive(Debug, Default, Clone)]
-pub struct ScriptMessage {
-    pub data: JsonMessage,
-    pub accessors: HashMap<IdentifierRef<'static>, JsonBufferKey>,
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -56,6 +52,39 @@ pub struct ScriptSchema {
     pub stream_out: HashMap<OperationName, NextOperation>,
     #[serde(flatten)]
     pub trace_settings: TraceSettings,
+}
+
+impl BuildDiagramOperation for ScriptSchema {
+    fn build_diagram_operation<'a, 'c>(
+        &self,
+        id: &OperationName,
+        ctx: &mut BuilderContext,
+    ) -> Result<BuildStatus, DiagramErrorCode> {
+        let env = ctx.get_script_environment(&self.environment)?;
+        let script = env.compile(&self.run, &self.config)
+            .map_err(|error| DiagramErrorCode::ScriptCompileError {
+                environment: self.environment.clone(),
+                error: Arc::new(error),
+            })?;
+
+        let callback = move |input: ScriptInput, world: &mut World| {
+            script.run(input, world)
+        };
+
+        let Node { input, output, streams } = ctx.builder.create_node(callback.into_callback());
+
+        TODO: Build outputs based on the connected stream names
+    }
+
+    fn child_operations(&self, _: &Templates) -> Result<Option<Operations>, DiagramErrorCode> {
+        Ok(None)
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct ScriptMessage {
+    pub data: JsonMessage,
+    pub accessors: HashMap<IdentifierRef<'static>, JsonBufferKey>,
 }
 
 /// Description of a scripting environment that a diagram uses to run scripts.

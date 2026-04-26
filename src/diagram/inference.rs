@@ -124,6 +124,7 @@ impl Diagram {
                     diagram_context: DiagramContext {
                         operations: unfinished.sibling_ops.clone(),
                         templates: &self.templates,
+                        script_environments: &self.script_environments,
                         on_implicit_error: &unfinished.on_implicit_error,
                         default_trace: self.default_trace,
                         namespaces: unfinished.namespaces.clone(),
@@ -228,6 +229,7 @@ fn set_boundary_conditions(
         diagram_context: DiagramContext {
             operations: diagram.ops.clone(),
             templates: &diagram.templates,
+            script_environments: &diagram.script_environments,
             on_implicit_error: &root_on_implicit_error,
             default_trace: diagram.default_trace,
             namespaces: Default::default(),

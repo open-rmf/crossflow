@@ -24,6 +24,7 @@ use std::{
 use crate::{
     AnyBuffer, BufferMap, Builder, BuilderScopeContext, IdentifierRef, JsonMessage, PortRef, Scope,
     StreamPack, dyn_node::DynStreamInputPack,
+    diagram::script_environment_registration::ArcScriptEnvironment,
 };
 
 #[cfg(feature = "trace")]
@@ -51,6 +52,8 @@ struct DiagramConstruction {
     buffers: HashMap<OperationRef, BufferRef>,
     /// Operations that were spawned by another operation.
     generated_operations: Vec<UnfinishedOperation>,
+    /// Scripting environments that have been built
+    script_environments: HashMap<Arc<str>, ArcScriptEnvironment>,
 }
 
 impl<'a> DiagramConstruction {
@@ -451,6 +454,38 @@ impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
 
         (exposed, inner)
     }
+
+    pub fn get_script_environment(
+        &mut self,
+        environment: &OperationName,
+    ) -> Result<ArcScriptEnvironment, DiagramErrorCode> {
+        let env = match self.construction.script_environments.entry(environment.clone()) {
+            Entry::Occupied(entry) => entry.get().clone(),
+            Entry::Vacant(entry) => {
+                let env_description = self
+                    .diagram_context
+                    .script_environments
+                    .get(&*environment)
+                    .ok_or_else(|| DiagramErrorCode::UnknownScriptEnvironment(environment.clone()))?;
+
+                let env_builder = self
+                    .registry
+                    .scripting
+                    .get(&*env_description.builder)
+                    .ok_or_else(|| DiagramErrorCode::UnknownScriptEnvironmentBuilder(env_description.builder.clone()))?;
+
+                let mut f = env_builder.create_environment_impl.borrow_mut();
+                let env = (*f)((*env_description.config).clone())
+                    .map_err(|error| DiagramErrorCode::ScriptEnvironmentBuildingError {
+                        builder: env_description.builder.clone(),
+                        error: Arc::new(error),
+                    })?;
+                entry.insert(env).clone()
+            }
+        };
+
+        Ok(env)
+    }
 }
 
 impl<'a, 'c, 'w, 's, 'b> Deref for BuilderContext<'a, 'c, 'w, 's, 'b> {
@@ -596,6 +631,7 @@ where
             diagram_context: DiagramContext {
                 operations: diagram.ops.clone(),
                 templates: &diagram.templates,
+                script_environments: &diagram.script_environments,
                 default_trace: diagram.default_trace,
                 on_implicit_error: &root_on_implicit_error,
                 namespaces: NamespaceList::default(),
@@ -642,6 +678,7 @@ where
                 diagram_context: DiagramContext {
                     operations: unfinished.sibling_ops.clone(),
                     templates: &diagram.templates,
+                    script_environments: &diagram.script_environments,
                     default_trace: diagram.default_trace,
                     on_implicit_error: &unfinished.on_implicit_error,
                     namespaces: unfinished.namespaces.clone(),
@@ -697,6 +734,7 @@ where
                     diagram_context: DiagramContext {
                         operations: diagram.ops.clone(),
                         templates: &diagram.templates,
+                        script_environments: &diagram.script_environments,
                         default_trace: diagram.default_trace,
                         on_implicit_error: &root_on_implicit_error,
                         // TODO(@mxgrey): The namespace while connecting into targets

@@ -30,8 +30,10 @@ use crate::{
     ScriptEnvironmentSchema,
 };
 
+pub type ArcScriptEnvironment = Arc<dyn ScriptEnvironment + Send + Sync>;
+
 type CreateScriptEnvironmentFn =
-    dyn FnMut(JsonMessage) -> Result<Arc<dyn ScriptEnvironment>, Anyhow> + Send;
+    dyn FnMut(JsonMessage) -> Result<ArcScriptEnvironment, Anyhow> + Send;
 
 pub struct ScriptEnvironmentRegistration {
     pub(crate) metadata: ScriptEnvironmentMetadata,

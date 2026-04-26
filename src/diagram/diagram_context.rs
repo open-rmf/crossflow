@@ -15,15 +15,18 @@
  *
 */
 
+use std::collections::HashMap;
+
 use crate::{
     NamespaceList, OperationName, OperationRef, Operations, OutputRef, PortRef, Templates,
-    TraceToggle,
+    TraceToggle, ScriptEnvironmentSchema,
 };
 
 pub struct DiagramContext<'a> {
     pub operations: Operations,
     pub templates: &'a Templates,
     pub on_implicit_error: &'a OperationRef,
+    pub script_environments: &'a HashMap<OperationName, ScriptEnvironmentSchema>,
     #[allow(unused)]
     pub(crate) default_trace: TraceToggle,
     pub(crate) namespaces: NamespaceList,
