@@ -33,7 +33,7 @@ mod crossflow {
     use tokio::sync::oneshot;
     use pyo3::{
         prelude::*,
-        types::{PySlice, PySliceIndices, PyNone, PyList, PyDict, PyDictMethods},
+        types::{PySlice, PySliceIndices, PyNone, PyList},
         exceptions::{PyValueError, PyKeyError, PyIndexError, PyRuntimeError},
     };
     use pythonize::{depythonize, pythonize};
@@ -71,14 +71,18 @@ mod crossflow {
         }
     }
 
+    /// A dictionary of buffer keys that grant access to buffers in the workflow.
+    ///
+    /// The key can be referenced by index or by name, depending on how the
+    /// `listen` or `buffer_access` operation constructed it.
     #[derive(Clone)]
-    #[pyclass(from_py_object, name = "Accessor")]
-    pub struct PythonAccessor {
+    #[pyclass(from_py_object, name = "Accessors")]
+    pub struct PythonAccessors {
         accessors: Arc<HashMap<IdentifierRef<'static>, JsonBufferKey>>,
         channel: Arc<Channel>,
     }
 
-    impl PythonAccessor {
+    impl PythonAccessors {
         pub fn new(
             accessors: Arc<HashMap<IdentifierRef<'static>, JsonBufferKey>>,
             channel: Arc<Channel>,
@@ -95,21 +99,54 @@ mod crossflow {
     }
 
     #[pymethods]
-    impl PythonAccessor {
+    impl PythonAccessors {
         pub fn access(&self, callback: Py<PyAny>) -> PythonReply {
             let accessor_map = self.accessors.as_ref().clone();
             let reply = self.channel.access(accessor_map, move |mut access| {
                 let r = Python::attach(move |py| {
                     let mutex = BufferMutex::new();
                     let py_access = PythonBufferAccess::new(&mutex, &mut access);
-                    let kwargs = PyDict::new(py);
-                    kwargs.set_item("access", py_access)?;
-                    let r = callback.call(py, (), Some(&kwargs));
+                    let r = callback.call(py, (py_access,), None);
                     mutex.close();
                     r
                 });
                 Arc::new(r)
             });
+            let (future, detached) = reply.into_parts();
+            let future = future.shared();
+
+            PythonReply { future, detached }
+        }
+    }
+
+
+    #[derive(Clone)]
+    #[pyclass(from_py_object, name = "Accessor")]
+    pub struct PythonAccessor {
+        key: JsonBufferKey,
+        channel: Arc<Channel>,
+    }
+
+    #[pymethods]
+    impl PythonAccessor {
+        pub fn access(&self, callback: Py<PyAny>) -> PythonReply {
+            let reply = self.channel.access(self.key.clone(), move |access| {
+                let r = Python::attach(move |py| {
+                    let mutex = BufferMutex::new();
+                    let buffer_ptr: *mut JsonBufferMut<'static, 'static, 'static> = unsafe {
+                        std::mem::transmute(&access)
+                    };
+                    let py_buffer_mut = PythonBufferMut {
+                        mutex: mutex.clone(),
+                        buffer_ptr,
+                    };
+                    let r = callback.call(py, (py_buffer_mut,), None);
+                    mutex.close();
+                    r
+                });
+                Arc::new(r)
+            });
+
             let (future, detached) = reply.into_parts();
             let future = future.shared();
 
@@ -225,15 +262,20 @@ mod crossflow {
     #[pyclass(from_py_object, name = "Message")]
     pub struct PythonMessage {
         pub data: JsonMessage,
-        pub accessors: Option<PythonAccessor>,
+        pub accessors: Option<PythonAccessors>,
     }
 
     #[pymethods]
     impl PythonMessage {
         #[new]
-        #[pyo3(signature = (data, accessors=None))]
-        pub fn py_new(data: &Bound<PyAny>, accessors: Option<PythonAccessor>) -> PyResult<Self> {
-            let data: JsonMessage = depythonize(data)?;
+        #[pyo3(signature = (data=None, accessors=None))]
+        pub fn py_new(data: Option<&Bound<PyAny>>, accessors: Option<PythonAccessors>) -> PyResult<Self> {
+            let data: JsonMessage = if let Some(data) = data {
+                depythonize(data)?
+            } else {
+                JsonMessage::Null
+            };
+
             Ok(Self { data, accessors })
         }
     }

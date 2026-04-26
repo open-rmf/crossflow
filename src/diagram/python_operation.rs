@@ -16,7 +16,7 @@
 */
 
 use crate::{
-    DiagramElementRegistry, ScriptEnvironmentBuilderOptions, Script, PythonAccessor, PythonMessage,
+    DiagramElementRegistry, ScriptEnvironmentBuilderOptions, Script, PythonAccessors, PythonMessage,
     ScriptEnvironment, ScriptExecution, ScriptInput, ScriptMessage, ScriptConfigExample,
     JsonMessage,
 };
@@ -89,9 +89,24 @@ impl DiagramElementRegistry {
 r###"
 from crossflow import *
 
-def execute(data: object, accessors: Accessor, config: object):
-    """
+def execute(data: object, accessors: Accessors, config: object):
+    """Execute a node in a workflow
 
+    Keyword arguments:
+    :param data: JSON-style data sent into this node as a request
+    :param accessors: A collection of buffers that this node has access to
+    :param config: JSON-style data set for this node in the original JSON diagram
+    :return: either a JSON-style value or a crossflow.Message
+
+    The incoming request will be split into `data` for JSON-style data and
+    `accessors` which is a dictionary of buffer accessors. You can refer to the
+    accessors by index or by name, as long as you're consistent with how they
+    were put into the incoming request message by the `listen` or `buffer_access`
+    operation that created the message.
+
+    For the return value, you can return any value that can be converted into
+    regular JSON. If you want to also pass along accessors, then you can return
+    a `crossflow.Message` with a `data` field and/or an `accessors` field.
     """
 
     return Message(data = {}, accessors = None)
@@ -315,7 +330,7 @@ impl SharedPythonExecution {
                         anyhow!("failed to pythonize input data: {err}")
                     })?;
 
-                let accessors = PythonAccessor::new(Arc::new(accessors), Arc::new(input.channel));
+                let accessors = PythonAccessors::new(Arc::new(accessors), Arc::new(input.channel));
 
                 let kwargs = PyDict::new(py);
                 kwargs.set_item("data", data)?;
