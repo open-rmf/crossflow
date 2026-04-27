@@ -118,6 +118,8 @@ impl DiagramElementMetadata {
 pub trait MetadataAccess {
     fn json_message_index(&self) -> Result<usize, DiagramErrorCode>;
 
+    fn script_message_index(&self) -> Result<usize, DiagramErrorCode>;
+
     fn node_metadata(&self, builder: &str) -> Result<&NodeMetadata, DiagramErrorCode>;
 
     fn section_metadata(&self, builder: &str) -> Result<&SectionMetadata, DiagramErrorCode>;
@@ -176,6 +178,18 @@ impl MetadataAccess for DiagramElementRegistry {
             .ok_or_else(|| {
                 DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(
                     TypeInfo::of::<JsonMessage>().type_name,
+                )])
+            })
+    }
+
+    fn script_message_index(&self) -> Result<usize, DiagramErrorCode> {
+        self.messages
+            .registration
+            .reverse_lookup
+            .script_message
+            .ok_or_else(|| {
+                DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(
+                    TypeInfo::of::<ScriptMessage>().type_name,
                 )])
             })
     }
@@ -341,6 +355,14 @@ impl MetadataAccess for DiagramElementMetadata {
         self.reverse_message_lookup.json_message.ok_or_else(|| {
             DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(
                 TypeInfo::of::<JsonMessage>().type_name,
+            )])
+        })
+    }
+
+    fn script_message_index(&self) -> Result<usize, DiagramErrorCode> {
+        self.reverse_message_lookup.script_message.ok_or_else(|| {
+            DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(
+                TypeInfo::of::<ScriptMessage>().type_name,
             )])
         })
     }

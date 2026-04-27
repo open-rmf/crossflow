@@ -49,7 +49,7 @@ impl<S: StreamEffect> StreamEffect for DynamicallyNamedStream<S> {
 
 impl<S: StreamEffect> StreamPack for DynamicallyNamedStream<S> {
     type StreamInputPack = InputSlot<<Self as StreamEffect>::Input>;
-    type StreamOutputPack = DynamicallyNamedStreamOutput<<Self as StreamEffect>::Output>;
+    type StreamOutputPack = Output<<Self as StreamEffect>::Output>;
     type StreamReceivers = Receiver<<Self as StreamEffect>::Output>;
     type StreamChannels = DynamicallyNamedStreamChannel<S>;
     type StreamBuffers = DynamicallyNamedStreamBuffer<S::Input>;
@@ -228,11 +228,6 @@ impl<S: StreamEffect> StreamPack for DynamicallyNamedStream<S> {
     fn has_streams() -> bool {
         true
     }
-}
-
-pub struct DynamicallyNamedStreamOutput<T> {
-    TODO: Enable this struct to build outputs based on what stream names the
-    user wants to receive
 }
 
 pub struct DynamicallyNamedStreamChannel<S> {

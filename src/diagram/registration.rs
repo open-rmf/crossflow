@@ -32,7 +32,7 @@ use super::{
     BuilderId, DeserializeMessage, DiagramErrorCode, DynForkClone, DynForkResult, DynSplit,
     DynType, JsonRegistration, RegisterJson, RegisterSplit, Section, SectionInterface,
     SectionInterfaceDescription, SerializeMessage, SplitSchema, TypeInfo, OperationName, TransformError,
-    ScriptEnvironment, Script,
+    ScriptEnvironment, Script, ScriptMessage,
     buffer_schema::BufferAccessRequest,
     fork_clone_schema::RegisterClone,
     fork_result_schema::{ForkResultRegistration, RegisterForkResult},
@@ -240,7 +240,7 @@ impl DiagramElementRegistry {
                     .unwrap_or(&options.id)
                     .clone(),
                 interface: SectionT::interface_metadata(&mut self.messages.registration).clone(),
-                config_schema: self.messages.schema_generator.subschema_for::<()>(),
+                config_schema: self.messages.schema_generator.subschema_for::<Config>(),
                 description: options.description.clone(),
                 config_examples: options.config_examples.clone(),
             },
@@ -265,24 +265,30 @@ impl DiagramElementRegistry {
     pub fn register_script_environment_builder<Config, Env>(
         &mut self,
         options: ScriptEnvironmentBuilderOptions,
-        mut environment_builder: impl FnMut(Config) -> Result<Arc<Env>, Anyhow>,
+        mut environment_builder: impl FnMut(Config) -> Result<Arc<Env>, Anyhow> + 'static + Send + Sync,
     )
     where
         Config: DeserializeOwned + JsonSchema,
-        Env: ScriptEnvironment,
+        Env: ScriptEnvironment + 'static + Send + Sync,
     {
         let builder_id = Arc::clone(&options.id);
-        let builder = RefCell::new(Box::new(move |config: JsonMessage| {
-            let config = serde_json::from_value::<Config>(config)
-                .map_err(|err| DiagramErrorCode::ConfigError(Arc::new(err)))?;
-
-            environment_builder(config)
-                .map_err(|err|
-                    DiagramErrorCode::ScriptEnvironmentBuildingError {
-                        builder: builder_id,
-                        error: Arc::new(err),
-                    })
+        let create_environment_impl = RefCell::new(Box::new(move |config: JsonMessage| {
+            let config = serde_json::from_value::<Config>(config)?;
+            environment_builder(config).map(|env| env as ArcScriptEnvironment)
         }));
+
+        let registration = ScriptEnvironmentRegistration {
+            create_environment_impl,
+            metadata: ScriptEnvironmentMetadata {
+                language: options.language,
+                interpreter: options.interpreter,
+                config_schema: self.messages.schema_generator.subschema_for::<Config>(),
+                display_text: options.display_text,
+                description: options.description,
+                config_examples: options.config_examples,
+            },
+        };
+        self.scripting.insert(builder_id, registration);
     }
 
     /// In some cases the common operations of deserialization, serialization,
@@ -381,6 +387,9 @@ impl DiagramElementRegistry {
         self.register_message::<JsonMessage>()
             .with_join()
             .with_split();
+
+        self.register_message::<ScriptMessage>()
+            .with_join();
 
         self.opt_out()
             .no_cloning()
@@ -606,6 +615,7 @@ impl ScriptEnvironmentBuilderOptions {
 }
 
 /// An example of how to configure an environment
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ScriptConfigExample {
     /// The name of this example
     pub name: Arc<str>,

@@ -17,7 +17,7 @@
 
 use crate::{
     DiagramElementRegistry, ScriptEnvironmentBuilderOptions, Script, PythonAccessors, PythonMessage,
-    ScriptEnvironment, ScriptExecution, ScriptInput, ScriptMessage, ScriptConfigExample,
+    ScriptEnvironment, ScriptExecution, ArcScriptExecution, ScriptInput, ScriptMessage, ScriptConfigExample,
     JsonMessage,
 };
 use pyo3::{
@@ -245,7 +245,7 @@ impl ScriptEnvironment for PythonEnvironment {
         &self,
         run: &Script,
         config: &Arc<JsonMessage>,
-    ) -> Result<Arc<dyn ScriptExecution>, Anyhow> {
+    ) -> Result<ArcScriptExecution, Anyhow> {
         let execution = match self {
             Self::Shared(shared) => {
                 let exec = SharedPythonExecution::new(shared, run, &*config)?;

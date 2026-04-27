@@ -430,7 +430,7 @@ impl MessageRegistry {
         builder: &mut Builder,
     ) -> Result<Option<DynNode>, DiagramErrorCode> {
         let ops = self.get_operations(incoming_type)?;
-        Ok(ops.to_string_impl.map(|f| f(builder)))
+        Ok(ops.to_string.map(|f| f(builder)))
     }
 
     /// Register a serialize function if not already registered, returns true if the new
@@ -708,7 +708,7 @@ impl MessageRegistry {
     {
         let ops = &mut self.registration.get_or_insert_operations::<T>();
 
-        ops.to_string_impl =
+        ops.to_string =
             Some(|builder| builder.create_map_block(|msg: T| msg.to_string()).into());
     }
 
@@ -760,6 +760,10 @@ pub struct ReverseMessageLookup {
     #[serde_as(as = "_")]
     #[schemars(with = "Option<usize>")]
     pub(crate) json_message: Option<usize>,
+
+    #[serde_as(as = "_")]
+    #[schemars(with = "Option<usize>")]
+    pub(crate) script_message: Option<usize>,
 }
 
 impl MessageRegistrations {
@@ -873,12 +877,16 @@ impl MessageRegistrations {
         registration: MessageRegistration,
     ) -> usize {
         let index = self.messages.len();
-        self.indices.insert(message_info, index);
-        self.messages.push(registration);
-
         if message_info == TypeInfo::of::<JsonMessage>() {
             self.reverse_lookup.json_message = Some(index);
         }
+
+        if message_info == TypeInfo::of::<ScriptMessage>() {
+            self.reverse_lookup.script_message = Some(index);
+        }
+
+        self.indices.insert(message_info, index);
+        self.messages.push(registration);
 
         index
     }

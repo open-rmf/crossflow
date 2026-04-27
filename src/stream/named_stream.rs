@@ -30,7 +30,8 @@ use crate::{
     OperationRequest, OperationResult, OperationRoster, OperationSetup, OrBroken, Output, Push,
     Receiver, RedirectScopeStream, RedirectWorkflowStream, ReportUnhandled, RequestId,
     SingleInputStorage, StreamEffect, StreamRedirect, StreamRequest, StreamTarget, StreamTargetMap,
-    TakenStream, UnusedStreams, UnusedTarget, output_port,
+    TakenStream, UnusedStreams, UnusedTarget, output_port, Splittable, BasicIdentification,
+    SplitDispatcher, FromSpecific, ForRemaining,
 };
 
 pub struct NamedStream<S: StreamEffect>(std::marker::PhantomData<fn(S)>);
@@ -271,7 +272,7 @@ impl NamedStreamTargets {
             // If there is no specifically named connection, then use a target
             // that accepts all named streams
             .or_else(|| self.general.map(NamedTarget::NamedValue))
-            // If there is no target accepting all naemd streams then use one
+            // If there is no target accepting all named streams then use one
             // that accepts the output type without any name
             .or_else(|| self.anonymous.map(NamedTarget::Value))
     }
@@ -597,5 +598,79 @@ impl<T: 'static + Send + Sync> Clone for NamedStreamBuffer<T> {
 impl<T: 'static + Send + Sync> NamedStreamBuffer<T> {
     pub fn send(&self, input: T) {
         self.container.borrow_mut().push(input);
+    }
+}
+
+/// This enum allows users to key into a named value based on whether the name
+/// matches a certain value.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum NameSplitKey {
+    /// Key into a specific name
+    Specific(Cow<'static, str>),
+    /// Key into
+    Remaining,
+}
+
+impl NameSplitKey {
+    pub fn specific(self) -> Option<Cow<'static, str>> {
+        match self {
+            Self::Specific(name) => Some(name),
+            Self::Remaining => None,
+        }
+    }
+}
+
+impl<T: 'static + Send + Sync> Splittable for NamedValue<T> {
+    type Key = NameSplitKey;
+    type Label = Cow<'static, str>;
+    type Item = T;
+    type Id = BasicIdentification;
+
+    fn validate(_: &Self::Key) -> bool {
+        // We have no idea of knowing what the key bounds are for arbitrary names
+        true
+    }
+
+    fn next(_: &Option<Self::Key>) -> Option<Self::Key> {
+        // For arbitrary names we don't know what a next name would be, so just
+        // stop iterating.
+        None
+    }
+
+    fn split(
+        self,
+        mut dispatcher: SplitDispatcher<'_, Self::Key, Self::Label, Self::Item>,
+    ) -> OperationResult {
+        let NamedValue { name, value } = self;
+        let key = NameSplitKey::Specific(name);
+        match dispatcher.outputs_for(&key) {
+            Some(outputs) => {
+                outputs.push((key.specific().unwrap(), value));
+            }
+            None => {
+                // No connection to this specific name, so let's send it to the
+                // remaining connection.
+                let remaining = NameSplitKey::Remaining;
+                if let Some(outputs) = dispatcher.outputs_for(&remaining) {
+                    outputs.push((key.specific().unwrap(), value));
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl FromSpecific for NameSplitKey {
+    type SpecificKey = Cow<'static, str>;
+
+    fn from_specific(specific: Self::SpecificKey) -> Self {
+        Self::Specific(specific)
+    }
+}
+
+impl ForRemaining for NameSplitKey {
+    fn for_remaining() -> Self {
+        Self::Remaining
     }
 }

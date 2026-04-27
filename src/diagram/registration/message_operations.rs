@@ -51,7 +51,7 @@ pub struct MessageOperations {
     pub(crate) join: Option<JoinRegistration>,
     pub(crate) buffer_access: Option<BufferAccessRegistration>,
     pub(crate) listen: Option<ListenRegistration>,
-    pub(crate) to_string_impl: Option<ToStringFn>,
+    pub(crate) to_string: Option<ToStringFn>,
     pub(crate) create_buffer_impl: CreateBufferFn,
     pub(crate) create_trigger_impl: CreateTriggerFn,
     pub(crate) into_impls: HashMap<usize, CreateIntoFn>,
@@ -79,7 +79,7 @@ impl MessageOperations {
             join: None,
             buffer_access: None,
             listen: None,
-            to_string_impl: None,
+            to_string: None,
             create_buffer_impl: |settings, builder| {
                 builder.create_buffer::<T>(settings).as_any_buffer()
             },

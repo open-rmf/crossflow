@@ -430,6 +430,14 @@
             ]
           }
         },
+        "script_message": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0
+        },
         "split": {
           "description": "Map from the message type of the item that comes out of a split to all\nmessage types that can be split into it.",
           "type": "array",
@@ -491,6 +499,44 @@
         "boolean"
       ]
     },
+    "Script": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ]
+    },
+    "ScriptConfigExample": {
+      "description": "An example of how to configure an environment",
+      "type": "object",
+      "properties": {
+        "config": {
+          "description": "The example configuration"
+        },
+        "description": {
+          "description": "A description of this example",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name of this example",
+          "type": "string"
+        },
+        "run": {
+          "description": "How to run this example environment, i.e. what goes into the `run` field\nof the [`ScriptSchema`][1].\n\n[1]: crate::ScriptSchema",
+          "$ref": "#/$defs/Script"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "config",
+        "run"
+      ]
+    },
     "ScriptEnvironmentMetadata": {
       "type": "object",
       "properties": {
@@ -498,7 +544,7 @@
           "description": "Examples of valid configurations for this builder",
           "type": "array",
           "items": {
-            "$ref": "#/$defs/ConfigExample"
+            "$ref": "#/$defs/ScriptConfigExample"
           }
         },
         "config_schema": {

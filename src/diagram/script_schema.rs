@@ -21,6 +21,7 @@ use futures::future::BoxFuture;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{
+    borrow::Cow,
     collections::HashMap,
     sync::{Arc, Mutex},
 };
@@ -29,7 +30,7 @@ use crate::{
     Async, DynamicallyNamedStream, JsonMessage, JsonBufferKey, TraceSettings,
     NextOperation, OperationName, IdentifierRef, StreamOf, BuildDiagramOperation,
     Templates, Operations, DiagramErrorCode, BuilderContext, BuildStatus, IntoCallback,
-    Node, StreamPack, DynStreamOutputPack,
+    Node, TraceInfo, InferenceContext, Joined,
     is_default,
 };
 
@@ -73,7 +74,42 @@ impl BuildDiagramOperation for ScriptSchema {
 
         let Node { input, output, streams } = ctx.builder.create_node(callback.into_callback());
 
-        TODO: Build outputs based on the connected stream names
+        let trace = TraceInfo::new(self, self.trace_settings.trace)?;
+        ctx.set_input_for_target(id, input.into(), trace)?;
+        ctx.add_output_into_target(&self.next, output.into());
+
+        if !self.stream_out.is_empty() {
+            let mut outputs = Vec::new();
+            streams
+                .chain(ctx.builder)
+                .split(|mut split| {
+                    for (name, target) in &self.stream_out {
+                        let name: Cow<'static, str> = Cow::Owned(name.as_ref().to_owned());
+                        let output = split.specific_chain(
+                            name,
+                            |chain| chain.map_block(|(_, value)| value).output(),
+                        )?;
+
+                        outputs.push((target, output));
+                    }
+
+                    Ok::<_, DiagramErrorCode>(())
+                })?;
+
+            for (target, output) in outputs {
+                ctx.add_output_into_target(target, output.into());
+            }
+        }
+
+        Ok(BuildStatus::Finished)
+    }
+
+    fn apply_message_type_constraints(
+        &self,
+        id: &OperationName,
+        ctx: &mut InferenceContext,
+    ) -> Result<(), DiagramErrorCode> {
+        ctx.script(id, self)
     }
 
     fn child_operations(&self, _: &Templates) -> Result<Option<Operations>, DiagramErrorCode> {
@@ -81,9 +117,10 @@ impl BuildDiagramOperation for ScriptSchema {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Joined, Serialize, Deserialize, JsonSchema)]
 pub struct ScriptMessage {
     pub data: JsonMessage,
+    #[serde(skip)]
     pub accessors: HashMap<IdentifierRef<'static>, JsonBufferKey>,
 }
 
@@ -158,12 +195,14 @@ impl Default for Script {
     }
 }
 
+pub type ArcScriptExecution = Arc<dyn ScriptExecution + Send + Sync>;
+
 pub trait ScriptEnvironment {
     fn compile(
         &self,
         run: &Script,
         config: &Arc<JsonMessage>,
-    ) -> Result<Arc<dyn ScriptExecution>, Anyhow>;
+    ) -> Result<ArcScriptExecution, Anyhow>;
 }
 
 pub type ScriptInput = Async<ScriptMessage, DynamicallyNamedStream<StreamOf<ScriptMessage>>>;

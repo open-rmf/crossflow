@@ -19,7 +19,7 @@ use std::{borrow::Cow, hash::Hash, sync::Arc};
 
 pub use crossflow_derive::{Accessor, Joined};
 
-use crate::{ListSplitKey, MapSplitKey};
+use crate::{ListSplitKey, MapSplitKey, NameSplitKey};
 
 #[cfg(feature = "json")]
 use serde::{Deserialize, Serialize};
@@ -148,6 +148,15 @@ where
             MapSplitKey::Remaining => {
                 vec!["remaining".into()]
             }
+        }
+    }
+}
+
+impl Identification<NameSplitKey> for BasicIdentification {
+    fn to_identifier(value: NameSplitKey) -> Vec<Identifier> {
+        match value {
+            NameSplitKey::Specific(name) => vec!["specific".into(), name.into()],
+            NameSplitKey::Remaining => vec!["remaining".into()],
         }
     }
 }

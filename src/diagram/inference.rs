@@ -31,7 +31,7 @@ use crate::{
     DiagramElementRegistry, DiagramError, DiagramErrorCode, IdentifierRef, IncompatibleLayout,
     MetadataAccess, NamedOutputRef, NamespaceList, NamespacedOperation, NextOperation, NodeSchema,
     OperationName, OperationRef, Operations, OutputRef, ScopeSchema, SectionError, SectionProvider,
-    SectionSchema, StreamAvailability, StreamPack, WithContext, output_ref,
+    SectionSchema, StreamAvailability, StreamPack, WithContext, output_ref, ScriptSchema,
 };
 
 pub type InferredMessageTypes = HashMap<PortRef, usize>;
@@ -720,6 +720,32 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         }
 
         self.inference.constrain(split.clone(), SplitInput(split));
+    }
+
+    pub fn script(
+        &mut self,
+        operation_name: &OperationName,
+        schema: &ScriptSchema,
+    ) -> Result<(), DiagramErrorCode> {
+        let script_message_index = self.metadata.script_message_index()?;
+
+        let input = self.into_operation_ref(operation_name);
+        self.fixed(input.into(), script_message_index);
+
+        let output = self.into_output_ref(output_ref(operation_name).next());
+        let target = self.into_operation_ref(&schema.next);
+        self.fixed(output.clone().into(), script_message_index);
+        self.connect(output, target);
+
+        for (stream_id, stream_target) in &schema.stream_out {
+            let stream = self.into_output_ref(output_ref(operation_name).stream_out(stream_id));
+            self.fixed(stream.clone().into(), script_message_index);
+
+            let stream_target = self.into_operation_ref(stream_target);
+            self.connect(stream, stream_target);
+        }
+
+        Ok(())
     }
 
     /// Add an operation that exists as a child inside another operation.
