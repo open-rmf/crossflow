@@ -22,7 +22,7 @@ use crate::TraceSettings;
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, InferenceContext,
-    OperationName, OperationRef, RedirectConnection,
+    OperationName, OperationRef, RedirectConnection, Templates, Operations,
 };
 
 /// Declare a stream output for the current scope. Outputs that you connect
@@ -96,7 +96,7 @@ impl BuildDiagramOperation for StreamOutSchema {
         Ok(())
     }
 
-    fn child_operations(&self, templates: &super::Templates) -> Result<Option<super::Operations>, DiagramErrorCode> {
+    fn child_operations(&self, _: &Templates) -> Result<Option<Operations>, DiagramErrorCode> {
         Ok(None)
     }
 }

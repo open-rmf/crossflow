@@ -103,7 +103,7 @@ mod crossflow {
         pub fn access(&self, callback: Py<PyAny>) -> PythonReply {
             let mut accessors = HashMap::new();
             for (id, key) in &*self.accessors {
-                if let Some(json_key) = key.downcast_buffer_key::<JsonBufferKey>() {
+                if let Some(json_key) = key.clone().downcast_buffer_key::<JsonBufferKey>() {
                     accessors.insert(id.clone(), json_key);
                 }
             }
@@ -134,9 +134,10 @@ mod crossflow {
 
     #[pymethods]
     impl PythonAccessor {
-        pub fn access(&self, callback: Py<PyAny>) -> PythonReply {
+        pub fn access(&self, callback: Py<PyAny>) -> PyResult<PythonReply> {
             let key = self
                 .key
+                .clone()
                 .downcast_buffer_key::<JsonBufferKey>()
                 .ok_or_else(||
                     PyTypeError::new_err("buffer message type cannot serialize")
@@ -161,7 +162,7 @@ mod crossflow {
             let (future, detached) = reply.into_parts();
             let future = future.shared();
 
-            PythonReply { future, detached }
+            Ok(PythonReply { future, detached })
         }
     }
 

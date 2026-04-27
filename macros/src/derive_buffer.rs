@@ -98,6 +98,7 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
 
     let (field_ident, field_type, field_config) =
         get_fields_map(&input_struct.fields, FieldSettings::for_key())?;
+    let field_name: Vec<String> = field_ident.iter().map(|id| id.to_string()).collect();
     let buffer: Vec<&Type> = field_config.iter().map(|config| &config.buffer).collect();
     let noncopy = field_config.iter().any(|config| config.noncopy);
 
@@ -221,6 +222,18 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
     let tokens = quote! {
         impl #impl_generics ::crossflow::Accessor for #struct_ident #ty_generics #where_clause {
             type Buffers = #buffer_struct_ident #ty_generics;
+
+            fn to_any_keys(&self) -> ::std::collections::HashMap<::crossflow::IdentifierRef<'static>, ::crossflow::AnyBufferKey> {
+                let mut map = ::std::collections::HashMap::new();
+                #(
+                    map.insert(
+                        ::crossflow::IdentifierRef::name_str(#field_name),
+                        <#field_type as ::crossflow::AccessKey>::to_any_key(&self.#field_ident),
+                    );
+                )*
+
+                map
+            }
 
             async fn wait_for_change(&mut self) {
                 #wait_for_change_impl

@@ -1262,6 +1262,10 @@ impl Accessing for JsonBuffer {
 }
 
 impl AccessKey for JsonBufferKey {
+    fn to_any_key(&self) -> AnyBufferKey {
+        self.clone().into()
+    }
+
     fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool {
         let entry = included.entry(self.tag().instance()).or_default();
         *entry += 1;
@@ -1304,6 +1308,12 @@ impl AccessKey for JsonBufferKey {
 
 impl Accessor for JsonBufferKey {
     type Buffers = JsonBuffer;
+
+    fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
+        let mut map = HashMap::new();
+        map.insert(IdentifierRef::Index(0), self.clone().into());
+        map
+    }
 
     async fn wait_for_change(&mut self) {
         let _ = self.body.receiver.changed().await;

@@ -34,6 +34,7 @@ use crate::{
     Accessing, Buffer, BufferAccessMut, BufferError, BufferKey, BufferMap, BufferMapLayout,
     BufferMut, BufferView, BufferWorldAccess, Builder, Chain, IncompatibleLayout, IdentifierRef,
     ManageBufferSessions, Node, RequestId, Sendish, Seq, format_vertical_list, AnyBufferKey,
+    Identifiable,
 };
 
 use futures_concurrency::future::Race;
@@ -393,7 +394,7 @@ where
     fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
         let mut map = HashMap::new();
         for (i, key) in self.iter().enumerate() {
-            map.insert(IdentifierRef::Index(0), key.to_any_key());
+            map.insert(IdentifierRef::Index(i), key.to_any_key());
         }
 
         map
@@ -588,14 +589,14 @@ where
 
 impl<K, A: AccessKey> Accessor for HashMap<K, A>
 where
-    K: 'static + Send + Sync + Clone + Eq + Hash,
+    K: 'static + Send + Sync + Clone + Eq + Hash + Identifiable,
     HashMap<K, A::Buffers>:
         'static + BufferMapLayout + Accessing<Key = HashMap<K, A>> + Send + Sync,
 {
     type Buffers = HashMap<K, A::Buffers>;
 
     fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
-        self.iter().map(|(id, key)| (id.clone(), key.to_any_key())).collect()
+        self.iter().map(|(id, key)| (id.clone().into_id(), key.to_any_key())).collect()
     }
 
     async fn wait_for_change(&mut self) {
@@ -805,6 +806,18 @@ macro_rules! impl_accessor_for_tuple {
             ($($A::Buffers,)*): 'static + BufferMapLayout + Accessing<Key = Self> + Send + Sync,
         {
             type Buffers = ($($A::Buffers,)*);
+
+            fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
+                let mut map = HashMap::new();
+                let ($($A,)*) = self;
+                let mut _next = 0;
+                $(
+                    map.insert(IdentifierRef::Index(_next), $A.to_any_key());
+                    _next += 1;
+                )*
+
+                map
+            }
 
             async fn wait_for_change(&mut self) {
                 let ($($A,)*) = self;

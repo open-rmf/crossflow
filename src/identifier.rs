@@ -304,6 +304,7 @@ pub trait Identifiable {
         Self: Sized;
     fn indexable() -> bool;
     fn nameable() -> bool;
+    fn into_id(self) -> IdentifierRef<'static>;
 }
 
 impl<'a> Identifiable for IdentifierRef<'a> {
@@ -317,6 +318,10 @@ impl<'a> Identifiable for IdentifierRef<'a> {
 
     fn nameable() -> bool {
         true
+    }
+
+    fn into_id(self) -> IdentifierRef<'static> {
+        self.to_owned()
     }
 }
 
@@ -332,6 +337,10 @@ impl Identifiable for Identifier {
     fn nameable() -> bool {
         true
     }
+
+    fn into_id(self) -> IdentifierRef<'static> {
+        self.into()
+    }
 }
 
 impl Identifiable for usize {
@@ -345,6 +354,10 @@ impl Identifiable for usize {
 
     fn nameable() -> bool {
         false
+    }
+
+    fn into_id(self) -> IdentifierRef<'static> {
+        IdentifierRef::Index(self)
     }
 }
 
@@ -362,6 +375,10 @@ impl Identifiable for String {
 
     fn nameable() -> bool {
         true
+    }
+
+    fn into_id(self) -> IdentifierRef<'static> {
+        IdentifierRef::Name(Cow::Owned(self))
     }
 }
 

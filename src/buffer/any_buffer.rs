@@ -332,6 +332,10 @@ impl<T: 'static + Send + Sync + Any> From<BufferKey<T>> for AnyBufferKey {
 }
 
 impl AccessKey for AnyBufferKey {
+    fn to_any_key(&self) -> AnyBufferKey {
+        self.clone()
+    }
+
     fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool {
         let entry = included.entry(self.tag().instance()).or_default();
         *entry += 1;
@@ -374,6 +378,12 @@ impl AccessKey for AnyBufferKey {
 
 impl Accessor for AnyBufferKey {
     type Buffers = AnyBuffer;
+
+    fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
+        let mut map = HashMap::new();
+        map.insert(IdentifierRef::Index(0), self.clone());
+        map
+    }
 
     async fn wait_for_change(&mut self) {
         let _ = self.body.receiver.changed().await;
