@@ -998,6 +998,12 @@ pub enum DiagramErrorCode {
     #[error("{0}")]
     TypeMismatch(#[from] TypeMismatch),
 
+    #[error("Failed to perform a downcast to {to}. Original type was {from:?}.")]
+    InvalidDowncast {
+        from: std::any::TypeId,
+        to: TypeInfo,
+    },
+
     #[error("{0}")]
     MissingStream(#[from] MissingStream),
 

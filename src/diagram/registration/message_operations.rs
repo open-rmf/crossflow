@@ -40,6 +40,7 @@ pub(crate) type CreateIntoFn =
 pub(crate) type CreateTryIntoFn =
     Arc<dyn Fn(&mut Builder) -> DynForkResult + 'static + Send + Sync>;
 pub(crate) type ToStringFn = fn(&mut Builder) -> DynNode;
+pub(crate) type ToScriptMessageFn = fn(&dyn Any) -> Result<ScriptMessage, DiagramErrorCode>;
 
 pub struct MessageOperations {
     pub(crate) deserialize: Option<DeserializeFn>,

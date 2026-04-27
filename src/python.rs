@@ -18,7 +18,7 @@
 #[pyo3::pymodule]
 mod crossflow {
     use crate::{
-        Channel, JsonBufferKey, IdentifierRef, AccessError, BufferError, OverlapError,
+        AnyBufferKey, Channel, JsonBufferKey, IdentifierRef, AccessError, BufferError, OverlapError,
         JsonBufferMut, JsonMut, JsonRef, JsonMessage, format_vertical_list,
     };
     use std::{
@@ -34,7 +34,7 @@ mod crossflow {
     use pyo3::{
         prelude::*,
         types::{PySlice, PySliceIndices, PyNone, PyList},
-        exceptions::{PyValueError, PyKeyError, PyIndexError, PyRuntimeError},
+        exceptions::{PyValueError, PyTypeError, PyKeyError, PyIndexError, PyRuntimeError},
     };
     use pythonize::{depythonize, pythonize};
 
@@ -78,19 +78,19 @@ mod crossflow {
     #[derive(Clone)]
     #[pyclass(from_py_object, name = "Accessors")]
     pub struct PythonAccessors {
-        accessors: Arc<HashMap<IdentifierRef<'static>, JsonBufferKey>>,
+        accessors: Arc<HashMap<IdentifierRef<'static>, AnyBufferKey>>,
         channel: Arc<Channel>,
     }
 
     impl PythonAccessors {
         pub fn new(
-            accessors: Arc<HashMap<IdentifierRef<'static>, JsonBufferKey>>,
+            accessors: Arc<HashMap<IdentifierRef<'static>, AnyBufferKey>>,
             channel: Arc<Channel>,
         ) -> Self {
             Self { accessors, channel }
         }
 
-        pub fn depythonize(self) -> HashMap<IdentifierRef<'static>, JsonBufferKey> {
+        pub fn depythonize(self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
             match Arc::try_unwrap(self.accessors) {
                 Ok(accessors) => accessors,
                 Err(this) => (*this).clone(),
@@ -101,8 +101,14 @@ mod crossflow {
     #[pymethods]
     impl PythonAccessors {
         pub fn access(&self, callback: Py<PyAny>) -> PythonReply {
-            let accessor_map = self.accessors.as_ref().clone();
-            let reply = self.channel.access(accessor_map, move |mut access| {
+            let mut accessors = HashMap::new();
+            for (id, key) in &*self.accessors {
+                if let Some(json_key) = key.downcast_buffer_key::<JsonBufferKey>() {
+                    accessors.insert(id.clone(), json_key);
+                }
+            }
+
+            let reply = self.channel.access(accessors, move |mut access| {
                 let r = Python::attach(move |py| {
                     let mutex = BufferMutex::new();
                     let py_access = PythonBufferAccess::new(&mutex, &mut access);
@@ -119,18 +125,23 @@ mod crossflow {
         }
     }
 
-
     #[derive(Clone)]
     #[pyclass(from_py_object, name = "Accessor")]
     pub struct PythonAccessor {
-        key: JsonBufferKey,
+        key: AnyBufferKey,
         channel: Arc<Channel>,
     }
 
     #[pymethods]
     impl PythonAccessor {
         pub fn access(&self, callback: Py<PyAny>) -> PythonReply {
-            let reply = self.channel.access(self.key.clone(), move |access| {
+            let key = self
+                .key
+                .downcast_buffer_key::<JsonBufferKey>()
+                .ok_or_else(||
+                    PyTypeError::new_err("buffer message type cannot serialize")
+                )?;
+            let reply = self.channel.access(key, move |access| {
                 let r = Python::attach(move |py| {
                     let mutex = BufferMutex::new();
                     let buffer_ptr: *mut JsonBufferMut<'static, 'static, 'static> = unsafe {

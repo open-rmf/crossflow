@@ -32,8 +32,8 @@ use bevy_ecs::{
 
 use crate::{
     Accessing, Buffer, BufferAccessMut, BufferError, BufferKey, BufferMap, BufferMapLayout,
-    BufferMut, BufferView, BufferWorldAccess, Builder, Chain, IncompatibleLayout,
-    ManageBufferSessions, Node, RequestId, Sendish, Seq, format_vertical_list,
+    BufferMut, BufferView, BufferWorldAccess, Builder, Chain, IncompatibleLayout, IdentifierRef,
+    ManageBufferSessions, Node, RequestId, Sendish, Seq, format_vertical_list, AnyBufferKey,
 };
 
 use futures_concurrency::future::Race;
@@ -99,6 +99,8 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
         let buffers: Self::Buffers = Self::Buffers::try_from_buffer_map(buffers)?;
         Ok(buffers.access(builder))
     }
+
+    fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey>;
 
     /// Wait for a change to occur in any one of the buffer sessions that this
     /// accessor refers to.
@@ -219,6 +221,8 @@ pub trait AccessKey: Accessor {
     where
         'w: 's;
 
+    fn to_any_key(&self) -> AnyBufferKey;
+
     /// Get the SystemState used to access the buffer
     fn get_state(&self, world: &mut World) -> Self::State;
 
@@ -255,6 +259,10 @@ impl<T> AccessKey for BufferKey<T>
 where
     T: Send + Sync + 'static,
 {
+    fn to_any_key(&self) -> AnyBufferKey {
+        self.clone().into()
+    }
+
     fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool {
         let entry = included.entry(self.tag().instance()).or_default();
         *entry += 1;
@@ -300,6 +308,12 @@ where
     T: Send + Sync + 'static,
 {
     type Buffers = Buffer<T>;
+
+    fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
+        let mut map = HashMap::new();
+        map.insert(IdentifierRef::Index(0), self.clone().into());
+        map
+    }
 
     async fn wait_for_change(&mut self) {
         let _ = self.body.receiver.changed().await;
@@ -375,6 +389,15 @@ where
     Vec<A::Buffers>: 'static + BufferMapLayout + Accessing<Key = Vec<A>> + Send + Sync,
 {
     type Buffers = Vec<A::Buffers>;
+
+    fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
+        let mut map = HashMap::new();
+        for (i, key) in self.iter().enumerate() {
+            map.insert(IdentifierRef::Index(0), key.to_any_key());
+        }
+
+        map
+    }
 
     async fn wait_for_change(&mut self) {
         let futures: Vec<_> = self.iter_mut().map(|a| a.wait_for_change()).collect();
@@ -570,6 +593,10 @@ where
         'static + BufferMapLayout + Accessing<Key = HashMap<K, A>> + Send + Sync,
 {
     type Buffers = HashMap<K, A::Buffers>;
+
+    fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
+        self.iter().map(|(id, key)| (id.clone(), key.to_any_key())).collect()
+    }
 
     async fn wait_for_change(&mut self) {
         let futures: Vec<_> = self.values_mut().map(|a| a.wait_for_change()).collect();

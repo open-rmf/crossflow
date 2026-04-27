@@ -27,7 +27,7 @@ use std::{
 };
 
 use crate::{
-    Async, DynamicallyNamedStream, JsonMessage, JsonBufferKey, TraceSettings,
+    Async, DynamicallyNamedStream, JsonMessage, AnyBufferKey, TraceSettings,
     NextOperation, OperationName, IdentifierRef, StreamOf, BuildDiagramOperation,
     Templates, Operations, DiagramErrorCode, BuilderContext, BuildStatus, IntoCallback,
     Node, TraceInfo, InferenceContext, Joined,
@@ -121,7 +121,7 @@ impl BuildDiagramOperation for ScriptSchema {
 pub struct ScriptMessage {
     pub data: JsonMessage,
     #[serde(skip)]
-    pub accessors: HashMap<IdentifierRef<'static>, JsonBufferKey>,
+    pub accessors: HashMap<IdentifierRef<'static>, AnyBufferKey>,
 }
 
 /// Description of a scripting environment that a diagram uses to run scripts.

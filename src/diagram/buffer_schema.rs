@@ -20,13 +20,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Accessor, BufferMap, BufferMapLayout, BufferMapLayoutHints, BufferSettings, Builder, DynNode,
-    DynOutput, InferenceContext, JsonMessage, default_as_false, is_false,
+    DynOutput, InferenceContext, JsonMessage, default_as_false, is_false, TypeMismatch, JsonBufferKey,
 };
 
 use super::{
     BufferSelection, BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode,
     MessageRegistry, NextOperation, OperationName, TraceInfo, TraceSettings, TypeInfo,
+    ToScriptMessageFn, ScriptMessage,
 };
+
+use std::any::Any;
 
 /// Create a [`Buffer`][1] which can be used to store and pull data within
 /// a scope.
@@ -373,6 +376,7 @@ pub type ListenFn = fn(&BufferMap, &mut Builder) -> Result<DynOutput, DiagramErr
 
 pub struct ListenRegistration {
     pub create: ListenFn,
+    pub to_script_message: ToScriptMessageFn,
     pub layout: BufferMapLayoutHints<usize>,
 }
 
@@ -382,8 +386,22 @@ impl ListenRegistration {
             Ok(builder.try_listen::<T>(buffers)?.output().into())
         };
         let layout = <T::Buffers as BufferMapLayout>::get_layout_hints().export(messages);
+        let to_script_message = |accessor: &dyn Any| {
+            let message = accessor.downcast_ref::<T>().ok_or_else(||
+                DiagramErrorCode::InvalidDowncast {
+                    from: accessor.type_id(),
+                    to: TypeInfo::of::<T>(),
+                }
+            )?;
 
-        Self { create, layout }
+            let accessors = message.to_any_keys();
+            Ok(ScriptMessage {
+                data: JsonMessage::Null,
+                accessors,
+            })
+        };
+
+        Self { create, layout, to_script_message }
     }
 }
 
