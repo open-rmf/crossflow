@@ -22,7 +22,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{
     borrow::Cow,
-    collections::HashMap,
+    collections::{HashMap, hash_map::Entry},
     sync::{Arc, Mutex},
 };
 
@@ -30,7 +30,8 @@ use crate::{
     Async, DynamicallyNamedStream, JsonMessage, AnyBufferKey, TraceSettings,
     NextOperation, OperationName, IdentifierRef, StreamOf, BuildDiagramOperation,
     Templates, Operations, DiagramErrorCode, BuilderContext, BuildStatus, IntoCallback,
-    Node, TraceInfo, InferenceContext, Joined,
+    Node, TraceInfo, InferenceContext, Joined, TypeInfo, DynInputSlot, BasicConnect, TypeMismatch,
+    ConnectIntoTarget, DynOutput,
     is_default,
 };
 
@@ -209,4 +210,44 @@ pub type ScriptInput = Async<ScriptMessage, DynamicallyNamedStream<StreamOf<Scri
 
 pub trait ScriptExecution {
     fn run(&self, input: ScriptInput, world: &mut World) -> BoxFuture<'static, Result<ScriptMessage, Anyhow>>;
+}
+
+pub struct ImplicitScriptMessage {
+    incoming_types: HashMap<TypeInfo, DynInputSlot>,
+    script_message_input: BasicConnect,
+}
+
+impl ImplicitScriptMessage {
+    pub fn new(script_message_input: DynInputSlot) -> Result<Self, DiagramErrorCode> {
+        if script_message_input.message_info() != &TypeInfo::of::<ScriptMessage>() {
+            return Err(TypeMismatch {
+                source_type: TypeInfo::of::<ScriptMessage>(),
+                target_type: *script_message_input.message_info(),
+            }
+            .into());
+        }
+
+        Ok(Self {
+            script_message_input: BasicConnect::new(script_message_input),
+            incoming_types: Default::default(),
+        })
+    }
+
+    pub fn try_implicit_conversion(
+        &mut self,
+        incoming: DynOutput,
+        ctx: &mut BuilderContext,
+    ) -> Result<Result<(), DynOutput>, DiagramErrorCode> {
+        if self.script_message_input.is_compatible(incoming.message_info(), ctx)? {
+            self.script_message_input.connect_into_target(incoming, ctx)?;
+            return Ok(Ok(()));
+        }
+
+        let input = match self.incoming_types.entry(*incoming.message_info()) {
+            Entry::Occupied(input_slot) => input_slot.get().clone(),
+            Entry::Vacant(vacant) => {
+                let Some()
+            }
+        }
+    }
 }

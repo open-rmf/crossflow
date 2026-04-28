@@ -897,7 +897,7 @@ impl MessageRegistrations {
     pub fn metadata(&self) -> Vec<MessageMetadata> {
         let mut metadata = Vec::new();
         for message in &self.messages {
-            let operations = message.operations.as_ref().map(|ops| ops.metadata());
+            let operations = message.operations.as_ref().map(|ops| ops.metadata(self));
 
             metadata.push(MessageMetadata {
                 type_name: Cow::Borrowed(message.type_info.type_name),

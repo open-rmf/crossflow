@@ -155,6 +155,10 @@ pub trait MetadataAccess {
 
     fn can_deserialize(&self, message_index: usize) -> Result<bool, DiagramErrorCode>;
 
+    fn into_script_message(&self, message_index: usize) -> Result<bool, DiagramErrorCode>;
+
+    fn from_script_message(&self, message_index: usize) -> Result<bool, DiagramErrorCode>;
+
     fn fork_result_output_types(
         &self,
         message_index: usize,
@@ -300,6 +304,16 @@ impl MetadataAccess for DiagramElementRegistry {
             .get_message_operations_by_index(message_index)?
             .deserialize
             .is_some())
+    }
+
+    fn into_script_message(&self, message_index: usize) -> Result<bool, DiagramErrorCode> {
+        let ops = self.get_message_operations_by_index(message_index)?;
+        Ok(ops.supports_into_script_message(&self.messages.registration))
+    }
+
+    fn from_script_message(&self, message_index: usize) -> Result<bool, DiagramErrorCode> {
+        let ops = self.get_message_operations_by_index(message_index)?;
+        Ok(ops.supports_from_script_message(&self.messages.registration))
     }
 
     fn fork_result_output_types(
@@ -467,6 +481,14 @@ impl MetadataAccess for DiagramElementMetadata {
         Ok(self
             .message_operations_for(message_index)?
             .can_deserialize())
+    }
+
+    fn into_script_message(&self, message_index: usize) -> Result<bool, DiagramErrorCode> {
+        Ok(self.message_operations_for(message_index)?.into_script_message())
+    }
+
+    fn from_script_message(&self, message_index: usize) -> Result<bool, DiagramErrorCode> {
+        Ok(self.message_operations_for(message_index)?.from_script_message())
     }
 
     fn fork_result_output_types(

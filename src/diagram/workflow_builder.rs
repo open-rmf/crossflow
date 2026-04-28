@@ -35,7 +35,7 @@ use super::{
     DiagramErrorCode, DynInputSlot, DynOutput, FinishingErrors, ImplicitDeserialization,
     ImplicitSerialization, ImplicitStringify, InferenceBoundaryConditions, InferenceContext,
     NamedOperationRef, NamespaceList, NextOperation, OperationName, OperationRef, Operations,
-    TraceToggle, TypeInfo, TypeMismatch, Templates,
+    TraceToggle, TypeInfo, TypeMismatch, Templates, ScriptMessage, ImplicitScriptMessage,
 };
 
 use bevy_ecs::prelude::Entity;
@@ -946,6 +946,10 @@ pub fn standard_input_connection(
     input_slot: DynInputSlot,
     registry: &DiagramElementRegistry,
 ) -> Result<Box<dyn ConnectIntoTarget + 'static>, DiagramErrorCode> {
+    if input_slot.message_info() == &TypeInfo::of::<ScriptMessage>() {
+        return Ok(Box::new(ImplicitScriptMessage::new(input_slot)?));
+    }
+
     if input_slot.message_info() == &TypeInfo::of::<JsonMessage>() {
         return Ok(Box::new(ImplicitSerialization::new(input_slot)?));
     }

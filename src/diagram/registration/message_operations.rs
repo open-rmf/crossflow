@@ -108,8 +108,69 @@ impl MessageOperations {
         }
     }
 
-    pub fn metadata(&self) -> MessageOperationsMetadata {
-        MessageOperationsMetadata::new(self)
+    pub fn metadata(&self, registrations: &MessageRegistrations) -> MessageOperationsMetadata {
+        MessageOperationsMetadata::new(self, registrations)
+    }
+
+    pub fn supports_into_script_message(&self, registrations: &MessageRegistrations) -> bool {
+        if let Some(access) = &self.buffer_access {
+            let req = access.metadata.request_message;
+            if let Ok(req) = registrations.get_by_index(req) {
+                if let Some(req_ops) = &req.operations {
+                    if req_ops.serialize.is_some() {
+                        // This is a buffer accessing message and its incoming
+                        // request message type is serializable, so we can turn
+                        // this message into a script message.
+                        return true;
+                    }
+                }
+            }
+        }
+
+        if self.listen.is_some() {
+            // If this is a purely listening type then that means it's made
+            // entirely of buffer keys, so it can be turned into a script message.
+            return true;
+        }
+
+        if self.serialize.is_some() {
+            // If this message is serializable, then it can be turned into a
+            // script message.
+            return true;
+        }
+
+        false
+    }
+
+    pub fn supports_from_script_message(&self, registrations: &MessageRegistrations) -> bool {
+        if let Some(access) = &self.buffer_access {
+            let req = access.metadata.request_message;
+            if let Ok(req) = registrations.get_by_index(req) {
+                if let Some(req_ops) = &req.operations {
+                    if req_ops.deserialize.is_some() {
+                        // This is a buffer accessing message and its incoming
+                        // request message type is serializable, so we can turn
+                        // this message into a script message.
+                        return true;
+                    }
+                }
+            }
+        }
+
+        if self.listen.is_some() {
+            // If this is a purely listening type then that means it's made
+            // entirely of buffer keys, so we can attempt to create it from a
+            // script message.
+            return true;
+        }
+
+        if self.deserialize.is_some() {
+            // If this message is deserializable, then we can attempt to create
+            // it from a script message.
+            return true;
+        }
+
+        false
     }
 }
 
@@ -117,6 +178,8 @@ impl MessageOperations {
 pub struct MessageOperationsMetadata {
     deserialize: Option<JsEmptyObject>,
     serialize: Option<JsEmptyObject>,
+    into_script_message: Option<JsEmptyObject>,
+    from_script_message: Option<JsEmptyObject>,
     fork_clone: Option<JsEmptyObject>,
     unzip: Option<Vec<usize>>,
     fork_result: Option<[usize; 2]>,
@@ -131,10 +194,15 @@ pub struct MessageOperationsMetadata {
 }
 
 impl MessageOperationsMetadata {
-    fn new(ops: &MessageOperations) -> Self {
+    fn new(ops: &MessageOperations, registrations: &MessageRegistrations) -> Self {
+        let into_script_message = ops.supports_into_script_message(registrations).then(|| JsEmptyObject);
+        let from_script_message = ops.supports_from_script_message(registrations).then(|| JsEmptyObject);
+
         Self {
             deserialize: ops.deserialize.is_some().then(|| JsEmptyObject),
             serialize: ops.serialize.is_some().then(|| JsEmptyObject),
+            into_script_message,
+            from_script_message,
             fork_clone: ops.fork_clone.is_some().then(|| JsEmptyObject),
             unzip: ops.unzip.as_ref().map(|unzip| unzip.output_types.clone()),
             fork_result: ops.fork_result.as_ref().map(|r| r.output_types),
@@ -157,6 +225,14 @@ impl MessageOperationsMetadata {
 
     pub fn can_serialize(&self) -> bool {
         self.serialize.is_some()
+    }
+
+    pub fn into_script_message(&self) -> bool {
+        self.into_script_message.is_some()
+    }
+
+    pub fn from_script_message(&self) -> bool {
+        self.from_script_message.is_some()
     }
 
     pub fn can_fork_clone(&self) -> bool {

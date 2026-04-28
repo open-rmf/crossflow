@@ -227,6 +227,12 @@
           },
           "uniqueItems": true
         },
+        "from_script_message": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
         "into": {
           "type": "array",
           "items": {
@@ -235,6 +241,12 @@
             "minimum": 0
           },
           "uniqueItems": true
+        },
+        "into_script_message": {
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "join": {
           "anyOf": [

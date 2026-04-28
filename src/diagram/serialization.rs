@@ -251,7 +251,7 @@ impl ImplicitSerialization {
             .serialized_input
             .is_compatible(incoming.message_info(), ctx)?
         {
-            incoming.connect_to(&self.serialized_input.input_slot, ctx.builder)?;
+            self.serialized_input.connect_into_target(incoming, ctx)?;
             return Ok(Ok(()));
         }
 

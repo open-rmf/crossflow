@@ -966,18 +966,35 @@ impl<'a> ConstraintContext<'a> {
             return Ok(None);
         };
 
+        let script_index = self.metadata.script_message_index();
+
+        let mut deserializable = true;
+        let mut scriptable = true;
+        let mut has_script_message = false;
         for message_type in message_types {
             if !self.metadata.can_deserialize(message_type)? {
-                // Cannot deserialize all of the target messages, so we can't
-                // choose a clear outgoing message. This is only meant to be a
-                // hint, so we don't treat it as an error.
-                return Ok(None);
+                deserializable = false;
+            }
+
+            if !self.metadata.from_script_message(message_type)? {
+                scriptable = false;
+            }
+
+            if script_index.as_ref().is_ok_and(|index| *index == message_type) {
+                has_script_message = true;
             }
         }
 
-        // All target types are deserializable, so choose JsonMessage
-        Ok(Some(json_index))
+        if !has_script_message && deserializable {
+            // All target types are deserializable, and none of them are a script
+            // message, so choose JsonMessage.
+            return Ok(Some(json_index));
+        } else if scriptable && let Ok(script_index) = script_index {
+            // All messages can be created from a script message.
+            return Ok(Some(script_index))
+        }
 
+        Ok(None)
         // TODO(@mxgrey): We could consider finding a different single common
         // type that all target message types can be converted from, but there's
         // a signfiicant risk of ambiguity for that.
