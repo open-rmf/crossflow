@@ -390,7 +390,8 @@ impl MessageRegistry {
     ) -> Result<Option<DynForkResult>, DiagramErrorCode> {
         self.get_operations(target_type)?
             .deserialize
-            .map(|deserialize| deserialize(builder))
+            .as_ref()
+            .map(|deserialize| (deserialize.create_node)(builder))
             .transpose()
     }
 
@@ -420,7 +421,8 @@ impl MessageRegistry {
     ) -> Result<Option<DynForkResult>, DiagramErrorCode> {
         let ops = self.get_operations(incoming_type)?;
         ops.serialize
-            .map(|serialize| serialize(builder))
+            .as_ref()
+            .map(|serialize| (serialize.create_node)(builder))
             .transpose()
     }
 

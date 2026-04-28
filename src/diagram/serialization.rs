@@ -25,8 +25,9 @@ use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Serialize, de::DeserializeOwned};
 
 use super::{
-    BasicConnect, BuilderContext, ConnectIntoTarget, DiagramErrorCode, DynForkResult, DynInputSlot,
-    DynOutput, JsonMessage, MessageRegistrations, MessageRegistry, TypeInfo, TypeMismatch,
+    BasicConnect, BuilderContext, ConnectIntoTarget, DiagramErrorCode, DynForkResult, DynInputSlot, Builder,
+    DynOutput, JsonMessage, MessageRegistrations, MessageRegistry, TypeInfo, TypeMismatch, Serialization,
+    Deserialization,
     supported::*,
 };
 use crate::JsonBuffer;
@@ -71,7 +72,7 @@ where
     ) {
         let ops = messages.get_or_insert_operations::<T>();
 
-        ops.serialize = Some(|builder| {
+        let create_node = |builder: &mut Builder| {
             let serialize = builder.create_map_block(|message: T| {
                 serde_json::to_value(message).map_err(|err| err.to_string())
             });
@@ -85,7 +86,17 @@ where
                 ok: ok.into(),
                 err: err.into(),
             })
+        };
+
+        let serialize = |message: T| {
+            serde_json::to_value(message).map_err(|err| err.to_string())
+        };
+
+        ops.serialize = Some(Serialization {
+            create_node,
+            serialize: Arc::new(serialize),
         });
+
 
         #[cfg(feature = "trace")]
         {
@@ -117,7 +128,7 @@ where
         schema_generator: &mut SchemaGenerator,
     ) {
         let ops = messages.get_or_insert_operations::<T>();
-        ops.deserialize = Some(|builder| {
+        let create_node = |builder: &mut Builder| {
             let deserialize = builder.create_map_block(|message: JsonMessage| {
                 serde_json::from_value::<T>(message).map_err(|err| err.to_string())
             });
@@ -131,6 +142,15 @@ where
                 ok: ok.into(),
                 err: err.into(),
             })
+        };
+
+        let deserialize = |message: JsonMessage| {
+            serde_json::from_value::<T>(message).map_err(|err| err.to_string())
+        };
+
+        ops.deserialize = Some(Deserialization {
+            create_node,
+            deserialize: Arc::new(deserialize),
         });
 
         // Serialize and deserialize both generate the schema, so check before

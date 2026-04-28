@@ -103,6 +103,8 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
 
     fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey>;
 
+    fn try_from_any_keys(keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>) -> Result<Self, IncompatibleLayout>;
+
     /// Wait for a change to occur in any one of the buffer sessions that this
     /// accessor refers to.
     fn wait_for_change(&mut self) -> impl Future<Output = ()> + Sendish;
@@ -316,6 +318,15 @@ where
         map
     }
 
+    fn try_from_any_keys(keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>) -> Result<Self, IncompatibleLayout> {
+        let mut compatibility = IncompatibleLayout::default();
+        if let Ok(downcast_key) = compatibility.require_buffer_key_for_identifier::<BufferKey<T>>(0, keys) {
+            return Ok(downcast_key);
+        }
+
+        Err(compatibility)
+    }
+
     async fn wait_for_change(&mut self) {
         let _ = self.body.receiver.changed().await;
     }
@@ -390,6 +401,19 @@ where
     Vec<A::Buffers>: 'static + BufferMapLayout + Accessing<Key = Vec<A>> + Send + Sync,
 {
     type Buffers = Vec<A::Buffers>;
+
+    fn try_from_any_keys(keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>) -> Result<Self, IncompatibleLayout> {
+        let mut downcast_keys = Vec::new();
+        let mut compatibility = IncompatibleLayout::default();
+        for i in 0..keys.len() {
+            if let Ok(downcast) = compatibility.require_buffer_key_for_identifier::<A>(i, keys) {
+                downcast_keys.push(downcast);
+            }
+        }
+
+        compatibility.as_result()?;
+        Ok(downcast_keys)
+    }
 
     fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
         let mut map = HashMap::new();
@@ -597,6 +621,24 @@ where
 
     fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
         self.iter().map(|(id, key)| (id.clone().into_id(), key.to_any_key())).collect()
+    }
+
+    fn try_from_any_keys(keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>) -> Result<Self, IncompatibleLayout> {
+        let mut downcast_keys = HashMap::new();
+        let mut compatibility = IncompatibleLayout::default();
+        for identifier in keys.keys() {
+            let Some(key) = K::try_from_id(identifier) else {
+                compatibility.forbidden_buffers.push(identifier.clone());
+                continue;
+            };
+
+            if let Ok(downcast) = compatibility.require_buffer_key_for_identifier::<A>(identifier.clone(), keys) {
+                downcast_keys.insert(key, downcast);
+            }
+        }
+
+        compatibility.as_result()?;
+        Ok(downcast_keys)
     }
 
     async fn wait_for_change(&mut self) {
@@ -817,6 +859,27 @@ macro_rules! impl_accessor_for_tuple {
                 )*
 
                 map
+            }
+
+            fn try_from_any_keys(keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>) -> Result<Self, IncompatibleLayout> {
+                let mut compatibility = IncompatibleLayout::default();
+                let mut _index = 0;
+                let downcast_keys = ($(
+                    {
+                        let key = match compatibility.require_buffer_key_for_identifier::<$A>(_index, keys) {
+                            Ok(downcast) => Some(downcast),
+                            Err(_) => None,
+                        };
+                        _index += 1;
+                        key
+                    },
+                )*);
+
+                let ($(Some($a),)*) = downcast_keys else {
+                    return Err(compatibility);
+                };
+
+                Ok(($($a,)*))
             }
 
             async fn wait_for_change(&mut self) {

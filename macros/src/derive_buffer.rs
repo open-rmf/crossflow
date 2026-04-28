@@ -235,6 +235,27 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
                 map
             }
 
+            fn try_from_any_keys(
+                keys: &::std::collections::HashMap<::crossflow::IdentifierRef<'static>, ::crossflow::AnyBufferKey>,
+            ) -> ::std::result::Result<Self, ::crossflow::IncompatibleLayout> {
+                let mut compatibility = ::crossflow::IncompatibleLayout::default();
+                #(
+                    let #field_ident = compatibility.require_buffer_key_for_identifier::<#field_type>(#field_name, keys);
+                )*
+
+                #(
+                    let Ok(#field_ident) = #field_ident else {
+                        return Err(compatibility);
+                    };
+                )*
+
+                Ok(Self {
+                    #(
+                        #field_ident,
+                    )*
+                })
+            }
+
             async fn wait_for_change(&mut self) {
                 #wait_for_change_impl
             }

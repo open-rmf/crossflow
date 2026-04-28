@@ -1315,6 +1315,15 @@ impl Accessor for JsonBufferKey {
         map
     }
 
+    fn try_from_any_keys(keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>) -> Result<Self, IncompatibleLayout> {
+        let mut compatibility = IncompatibleLayout::default();
+        if let Ok(downcast_key) = compatibility.require_buffer_key_for_identifier::<JsonBufferKey>(0, keys) {
+            return Ok(downcast_key);
+        }
+
+        Err(compatibility)
+    }
+
     async fn wait_for_change(&mut self) {
         let _ = self.body.receiver.changed().await;
     }

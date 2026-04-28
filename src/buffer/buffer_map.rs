@@ -31,6 +31,7 @@ use crate::{
     Accessing, AddOperation, AnyBuffer, AsAnyBuffer, Buffer, BufferKeyBuilder, Bufferable,
     Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer, Gate, GateState, Identifiable,
     IdentifierRef, Join, Joining, OperationError, OperationResult, OperationRoster, Output,
+    AnyBufferKey,
     RequestId, TypeInfo, UnusedTarget, add_listener_to_source,
 };
 
@@ -128,6 +129,29 @@ impl IncompatibleLayout {
                     identifier,
                     expected_buffer: std::any::type_name::<BufferType>(),
                     received_message_type: buffer.message_type_name(),
+                });
+            }
+        } else {
+            self.missing_buffers.push(identifier);
+        }
+
+        Err(())
+    }
+
+    pub fn require_buffer_key_for_identifier<BufferKeyType: 'static>(
+        &mut self,
+        identifier: impl Into<IdentifierRef<'static>>,
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<BufferKeyType, ()> {
+        let identifier = identifier.into();
+        if let Some(key) = keys.get(&identifier) {
+            if let Some(key) = key.clone().downcast_buffer_key::<BufferKeyType>() {
+                return Ok(key);
+            } else {
+                self.incompatible_buffers.push(BufferIncompatibility {
+                    identifier,
+                    expected_buffer: std::any::type_name::<BufferKeyType>(),
+                    received_message_type: key.interface.message_type_name(),
                 });
             }
         } else {

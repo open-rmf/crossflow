@@ -30,8 +30,10 @@ use crate::{
 
 use super::*;
 
-pub(crate) type DeserializeFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
-pub(crate) type SerializeFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
+pub(crate) type DeserializeNodeFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
+pub(crate) type DeserializeFn<T> = fn(&JsonMessage) -> Result<T, String>;
+pub(crate) type SerializeNodeFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
+pub(crate) type SerializeFn<T> = fn(T) -> Result<JsonMessage, String>;
 pub(crate) type ForkCloneFn = fn(&mut Builder) -> Result<DynForkClone, DiagramErrorCode>;
 pub(crate) type CreateBufferFn = fn(BufferSettings, &mut Builder) -> AnyBuffer;
 pub(crate) type CreateTriggerFn = fn(&mut Builder) -> DynNode;
@@ -40,11 +42,21 @@ pub(crate) type CreateIntoFn =
 pub(crate) type CreateTryIntoFn =
     Arc<dyn Fn(&mut Builder) -> DynForkResult + 'static + Send + Sync>;
 pub(crate) type ToStringFn = fn(&mut Builder) -> DynNode;
-pub(crate) type ToScriptMessageFn = fn(&dyn Any) -> Result<ScriptMessage, DiagramErrorCode>;
+pub(crate) type ArcAny = Arc<dyn Any + 'static + Send + Sync>;
+
+pub(crate) struct Serialization {
+    pub(crate) create_node: SerializeNodeFn,
+    pub(crate) serialize: ArcAny,
+}
+
+pub(crate) struct Deserialization {
+    pub(crate) create_node: DeserializeNodeFn,
+    pub(crate) deserialize: ArcAny,
+}
 
 pub struct MessageOperations {
-    pub(crate) deserialize: Option<DeserializeFn>,
-    pub(crate) serialize: Option<SerializeFn>,
+    pub(crate) deserialize: Option<Deserialization>,
+    pub(crate) serialize: Option<Serialization>,
     pub(crate) fork_clone: Option<ForkCloneFn>,
     pub(crate) unzip: Option<UnzipRegistration>,
     pub(crate) fork_result: Option<ForkResultRegistration>,
