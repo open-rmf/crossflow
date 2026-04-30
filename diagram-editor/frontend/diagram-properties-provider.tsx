@@ -4,11 +4,12 @@ import {
   useContext,
   useState,
 } from 'react';
-import type { InputExample } from './types/api';
+import type { InputExample, ScriptEnvironmentSchema } from './types/api';
 
 export interface DiagramProperties {
   description?: string;
   input_examples?: InputExample[];
+  script_environments?: { [key: string]: ScriptEnvironmentSchema };
 }
 
 export type DiagramPropertiesContext = [

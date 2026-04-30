@@ -174,7 +174,12 @@
         },
         {
           "const": "cancel",
-          "description": "When triggered, cancel the current scope. If this is an inner scope of a\nworkflow then the parent scope will see a disposal happen. If this is\nthe root scope of a workflow then the whole workflow will cancel.",
+          "description": "When triggered, cancel the current scope. If this is an inner scope of a\nworkflow then the parent scope will see a disposal happen. If this is\nthe root scope of a workflow then the whole workflow will cancel.\n\nWhen there is a path within a scope that can reach a cancel operation,\nwe consider that scope to still be reachable. This allows you to safely\nand reliably perform cleanup actions along the path to a cancellation.\nHowever this also means that if any part of a scope can reach a cancel\noperation then the scope will keep running, even if that part of the\nworkflow far removed from the intended happy path of the workflow.\nConsider using implicit cancel if you do not want the cancellation to\naffect the lifespan of the scope.",
+          "type": "string"
+        },
+        {
+          "const": "implicit_cancel",
+          "description": "Same as cancel, except using this will not affect the lifespan of the\nscope.",
           "type": "string"
         }
       ]
@@ -309,6 +314,14 @@
           "description": "Operations that define the workflow",
           "type": "object"
         },
+        "script_environments": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ScriptEnvironmentSchema"
+          },
+          "default": {},
+          "description": "Custom script environments used by this diagram.\n\nTo run a script operation you will need to specify what its environment\nis. A script environment determines the language and interpreter for the\nscript, as well as any other factors specific to the environment.\n\nScript environment builders may have automatic configs, which you should\nconsider using before creating a custom environment.\n\n[1]: ScriptEnvironmentMetadata",
+          "type": "object"
+        },
         "start": {
           "$ref": "#/$defs/NextOperation"
         },
@@ -317,6 +330,7 @@
             "$ref": "#/$defs/SectionTemplate"
           },
           "default": {},
+          "description": "Section templates used by this diagram.",
           "type": "object"
         },
         "version": {
@@ -352,6 +366,12 @@
           "additionalProperties": true,
           "type": "object"
         },
+        "scripting": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ScriptEnvironmentMetadata"
+          },
+          "type": "object"
+        },
         "sections": {
           "additionalProperties": {
             "$ref": "#/$defs/SectionMetadata"
@@ -365,6 +385,7 @@
       "required": [
         "nodes",
         "sections",
+        "scripting",
         "messages",
         "schemas",
         "reverse_message_lookup",
@@ -611,6 +632,25 @@
               "properties": {
                 "type": {
                   "const": "listen",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ScriptSchema"
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "script",
                   "type": "string"
                 }
               },
@@ -1269,6 +1309,14 @@
           },
           "type": "array"
         },
+        "script_message": {
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "split": {
           "description": "Map from the message type of the item that comes out of a split to all\nmessage types that can be split into it.",
           "items": {
@@ -1409,6 +1457,154 @@
       },
       "required": [
         "uninterruptible"
+      ],
+      "type": "object"
+    },
+    "Script": {
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "ScriptConfigExample": {
+      "description": "An example of how to configure an environment",
+      "properties": {
+        "config": {
+          "description": "The example configuration"
+        },
+        "description": {
+          "description": "A description of this example",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name of this example",
+          "type": "string"
+        },
+        "run": {
+          "$ref": "#/$defs/Script"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "config",
+        "run"
+      ],
+      "type": "object"
+    },
+    "ScriptEnvironmentMetadata": {
+      "properties": {
+        "config_examples": {
+          "description": "Examples of valid configurations for this builder",
+          "items": {
+            "$ref": "#/$defs/ScriptConfigExample"
+          },
+          "type": "array"
+        },
+        "config_schema": {
+          "$ref": "#/$defs/Schema"
+        },
+        "description": {
+          "description": "A description of what kind of environments are made by this builder",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display_text": {
+          "description": "Human-friendly name for the script environment builder",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "interpreter": {
+          "description": "The interpreter that will be used to process the scripting language",
+          "type": "string"
+        },
+        "language": {
+          "description": "The scripting language that will be used for this environment",
+          "type": "string"
+        }
+      },
+      "required": [
+        "language",
+        "interpreter",
+        "config_schema",
+        "config_examples"
+      ],
+      "type": "object"
+    },
+    "ScriptEnvironmentSchema": {
+      "description": "Description of a scripting environment that a diagram uses to run scripts.",
+      "properties": {
+        "builder": {
+          "type": "string"
+        },
+        "config": true
+      },
+      "required": [
+        "builder",
+        "config"
+      ],
+      "type": "object"
+    },
+    "ScriptSchema": {
+      "description": "Settings that describe how an operation should be traced. It is recommended\nto add this to each operation with #[serde(flatten)].",
+      "properties": {
+        "config": {
+          "description": "Configured data to pass into the function that `run` refers to. This will\nbe passed in as a keyword argument named `config`."
+        },
+        "display_text": {
+          "description": "Override for text that should be displayed for an operation within an\neditor.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "environment": {
+          "description": "Name of the environment that will be used to execute this script operation.",
+          "type": "string"
+        },
+        "extensions": {
+          "additionalProperties": true,
+          "default": {},
+          "description": "Settings for each extension.",
+          "type": "object"
+        },
+        "next": {
+          "$ref": "#/$defs/NextOperation"
+        },
+        "run": {
+          "$ref": "#/$defs/Script"
+        },
+        "stream_out": {
+          "additionalProperties": {
+            "$ref": "#/$defs/NextOperation"
+          },
+          "description": "A map from the name of a stream to the operation that its outputs should\nbe passed to.",
+          "type": "object"
+        },
+        "trace": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TraceToggle"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "environment",
+        "run",
+        "next"
       ],
       "type": "object"
     },

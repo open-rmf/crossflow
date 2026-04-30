@@ -11,6 +11,7 @@ import {
   isSectionBufferNode,
   isSectionInputNode,
   isSectionOutputNode,
+  DEFAULT_PYTHON_OP_SCRIPT,
 } from '../nodes';
 import type { DiagramOperation, NextOperation } from '../types/api';
 import { getValidEdgeTypes } from './connection';
@@ -33,7 +34,8 @@ export type AddOperationKey =
   | 'listen'
   | 'stream_out'
   | 'scope'
-  | 'section';
+  | 'section'
+  | 'script';
 
 type AddOperationDefinition = {
   key: AddOperationKey;
@@ -418,6 +420,34 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
         template: '',
       }),
   },
+  {
+    key: 'script',
+    label: 'Script',
+    createPreviewNode: (namespace, parentId) =>
+      createOperationNode(
+        namespace,
+        parentId,
+        { x: 0, y: 0 },
+        {
+          type: 'script',
+          environment: '',
+          run: {
+            text: DEFAULT_PYTHON_OP_SCRIPT,
+          },
+          next: { builtin: 'dispose' },
+        },
+        'preview_script',
+      ),
+    createChanges: ({ namespace, parentId, newNodePosition }) =>
+      createNodeChange(namespace, parentId, newNodePosition, {
+        type: 'script',
+        environment: '',
+        run: {
+          text: DEFAULT_PYTHON_OP_SCRIPT,
+        },
+        next: { builtin: 'dispose' },
+      }),
+  }
 ];
 
 export function getVisibleAddOperations(options: {
