@@ -22,12 +22,17 @@
     "deploy-ghpages": "scripts/deploy-ghpages.sh"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.10.3",
+    "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/language": "^6.12.3",
+    "@codemirror/view": "^6.41.1",
     "@dagrejs/dagre": "^1.1.5",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
     "@fontsource/roboto": "^5.2.5",
     "@material-symbols/font-400": "^0.31.9",
     "@mui/material": "^7.1.0",
+    "@uiw/react-codemirror": "^4.25.9",
     "@xyflow/react": "^12.6.1",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",

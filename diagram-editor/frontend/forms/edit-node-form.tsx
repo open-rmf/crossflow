@@ -20,6 +20,7 @@ import {
 } from './section-form';
 import { StreamOutForm, type StreamOutFormProps } from './stream-out-form';
 import TransformForm, { type TransformFormProps } from './transform-form';
+import ScriptForm, { type ScriptFormProps } from './script-form';
 
 interface EditOperationNodeFormProps {
   node: OperationNode;
@@ -46,6 +47,9 @@ function EditOperationNodeForm(props: EditOperationNodeFormProps) {
     }
     case 'transform': {
       return <TransformForm {...(props as TransformFormProps)} />;
+    }
+    case 'script': {
+      return <ScriptForm {...(props as ScriptFormProps)} />;
     }
     case 'stream_out': {
       return <StreamOutForm {...(props as StreamOutFormProps)} />;

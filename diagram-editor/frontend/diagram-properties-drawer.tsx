@@ -20,6 +20,7 @@ import {
 } from '@mui/material';
 import { MaterialSymbol } from './nodes';
 import React from 'react';
+import { ScriptEnvironmentDialog } from './forms/script-environment-dialog';
 import { useDiagramProperties } from './diagram-properties-provider';
 import { useLoadContext } from './load-context-provider';
 import { RunButton } from './run-button';
@@ -50,10 +51,15 @@ function DiagramPropertiesDrawer({
   const [newInputExample, setNewInputExample] =
     React.useState<InputExample>(EmptyInputExample);
 
+  const [openAddEnvDialog, setOpenAddEnvDialog] = React.useState(false);
+  const [openEditEnvDialog, setOpenEditEnvDialog] = React.useState(false);
+  const [editingEnvBuilder, setEditingEnvBuilder] = React.useState('');
+
   React.useEffect(() => {
     setDiagramProperties({
       description: loadContext?.diagram.description ?? '',
-      input_examples: loadContext?.diagram.input_examples ?? []
+      input_examples: loadContext?.diagram.input_examples ?? [],
+      script_environments: loadContext?.diagram.script_environments ?? {},
     });
   }, [loadContext]);
 
@@ -112,6 +118,78 @@ function DiagramPropertiesDrawer({
             sx={{ backgroundColor: theme.palette.background.paper }}
           />
           <Divider />
+
+          {/* Script Environments Section */}
+          <Stack direction='row'>
+            <Stack direction='row' spacing={2} sx={{ alignItems: 'center' }}>
+              <Typography variant='h6'>Script Environments</Typography>
+              <Tooltip
+                title='Available script environments for this diagram'
+              >
+                <MaterialSymbol symbol='info' fontSize='large' />
+              </Tooltip>
+            </Stack>
+            <Stack direction='row' sx={{ marginLeft: 'auto' }}>
+              <Tooltip title='Add script environment'>
+                <IconButton onClick={() => {
+                  setOpenAddEnvDialog(true);
+                }}>
+                  <MaterialSymbol symbol='add' />
+                </IconButton>
+              </Tooltip>
+            </Stack>
+          </Stack>
+          <Paper>
+            <List>
+              {diagramProperties && diagramProperties.script_environments &&
+              Object.keys(diagramProperties.script_environments).length > 0 ? (
+                Object.keys(diagramProperties.script_environments).map((envBuilder) => (
+                  <ListItem key={envBuilder}>
+                    <ListItemText primary={envBuilder} />
+
+                    <Tooltip title='Edit script environment'>
+                      <IconButton
+                        onClick={() => {
+                          setEditingEnvBuilder(envBuilder);
+                          setOpenEditEnvDialog(true);
+                        }}
+                      >
+                        <MaterialSymbol symbol='edit' fontSize='large' />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title='Delete script environment'>
+                      <IconButton
+                        onClick={() => {
+                          setDiagramProperties((prev) => {
+                            const prevEnvs = prev.script_environments ?? {};
+                            const { [envBuilder]: _, ...rest } = prevEnvs;
+                            return {
+                              ...prev,
+                              script_environments: rest,
+                            };
+                          });
+                        }}
+                      >
+                        <MaterialSymbol symbol='delete' fontSize='large' />
+                      </IconButton>
+                    </Tooltip>
+                  </ListItem>
+                ))
+              ) : (
+                <ListItem sx={{ textAlign: 'center' }}>
+                  <ListItemText
+                    slotProps={{
+                      primary: { color: theme.palette.text.disabled },
+                    }}
+                    primary='No script environments available'
+                  />
+                </ListItem>
+              )}
+            </List>
+          </Paper>
+
+          <Divider />
+
           <Stack direction='row'>
             <Stack direction='row' spacing={2} sx={{ alignItems: 'center' }}>
               <Typography variant='h6'>Input Examples</Typography>
@@ -293,6 +371,53 @@ function DiagramPropertiesDrawer({
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Add Script Environment Dialog */}
+      <ScriptEnvironmentDialog
+        open={openAddEnvDialog}
+        onClose={() => setOpenAddEnvDialog(false)}
+        onSave={(builder, config) => {
+          setDiagramProperties((prev) => ({
+            ...prev,
+            script_environments: {
+              ...prev.script_environments,
+              [builder]: {
+                builder: builder,
+                config: config,
+              }
+            }
+          }));
+        }}
+        mode="create"
+        existingBuilders={Object.keys(diagramProperties.script_environments || {})}
+      />
+
+      {/* Edit Script Environment Dialog */}
+      <ScriptEnvironmentDialog
+        open={openEditEnvDialog}
+        onClose={() => setOpenEditEnvDialog(false)}
+        onSave={(builder, config) => {
+          setDiagramProperties((prev) => ({
+            ...prev,
+            script_environments: {
+              ...prev.script_environments,
+              [builder]: {
+                builder: builder,
+                config: config,
+              }
+            }
+          }));
+        }}
+        mode="edit"
+        initialData={
+          editingEnvBuilder
+            ? {
+                builder: editingEnvBuilder,
+                config: diagramProperties.script_environments?.[editingEnvBuilder]?.config || {},
+              }
+            : undefined
+        }
+      />
     </>
   );
 }

@@ -19,6 +19,7 @@ import StartNodeComp from './start-node';
 import StreamOutNodeComp from './stream-out-node';
 import TerminateNodeComp from './terminate-node';
 import TransformNodeComp from './transform-node';
+import ScriptNodeComp from './script-node';
 import UnzipNodeComp from './unzip-node';
 
 export * from './create-node';
@@ -52,12 +53,15 @@ export const NODE_TYPES = {
   split: SplitNodeComp,
   join: JoinNodeComp,
   transform: TransformNodeComp,
+  script: ScriptNodeComp,
   buffer: BufferNodeComp,
   buffer_access: BufferAccessNodeComp,
   listen: ListenNodeComp,
   scope: ScopeNodeComp,
   stream_out: StreamOutNodeComp,
 };
+
+export { DEFAULT_PYTHON_OP_BUILDER, DEFAULT_PYTHON_OP_SCRIPT } from './script-node';
 
 export type NodeTypes = keyof typeof NODE_TYPES;
 

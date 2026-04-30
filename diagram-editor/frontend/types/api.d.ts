@@ -56,17 +56,16 @@ export type NextOperation =
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "BuiltinTarget".
  */
-export type BuiltinTarget = 'terminate' | 'dispose' | 'cancel';
+export type BuiltinTarget =
+  | 'terminate'
+  | 'dispose'
+  | 'cancel'
+  | 'implicit_cancel';
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "TraceToggle".
  */
 export type TraceToggle = 'off' | 'on' | 'messages';
-/**
- * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "BufferIdentifier".
- */
-export type BufferIdentifier = string | number;
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "RetentionPolicy".
@@ -160,6 +159,10 @@ export type DiagramOperation =
   | (ListenSchema & {
       type: 'listen';
       [k: string]: unknown;
+    })
+  | (ScriptSchema & {
+      type: 'script';
+      [k: string]: unknown;
     });
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
@@ -195,6 +198,11 @@ export type SectionSchema = (
   trace?: TraceToggle | null;
   [k: string]: unknown;
 };
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "IdentifierRef".
+ */
+export type IdentifierRef = string | number;
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "InputRemapping".
@@ -470,7 +478,25 @@ export interface Diagram {
   ops: {
     [k: string]: DiagramOperation;
   };
+  /**
+   * Custom script environments used by this diagram.
+   *
+   * To run a script operation you will need to specify what its environment
+   * is. A script environment determines the language and interpreter for the
+   * script, as well as any other factors specific to the environment.
+   *
+   * Script environment builders may have automatic configs, which you should
+   * consider using before creating a custom environment.
+   *
+   * [1]: ScriptEnvironmentMetadata
+   */
+  script_environments?: {
+    [k: string]: ScriptEnvironmentSchema;
+  };
   start: NextOperation;
+  /**
+   * Section templates used by this diagram.
+   */
   templates?: {
     [k: string]: SectionTemplate;
   };
@@ -1073,7 +1099,7 @@ export interface JoinSchema {
    * the value will leave the buffer unchanged after the join operation takes
    * place.
    */
-  clone?: BufferIdentifier[];
+  clone?: IdentifierRef[];
   /**
    * Override for text that should be displayed for an operation within an
    * editor.
@@ -1214,6 +1240,67 @@ export interface ListenSchema {
   [k: string]: unknown;
 }
 /**
+ * Settings that describe how an operation should be traced. It is recommended
+ * to add this to each operation with #[serde(flatten)].
+ *
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "ScriptSchema".
+ */
+export interface ScriptSchema {
+  /**
+   * Configured data to pass into the function that `run` refers to. This will
+   * be passed in as a keyword argument named `config`.
+   */
+  config?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Override for text that should be displayed for an operation within an
+   * editor.
+   */
+  display_text?: string | null;
+  /**
+   * Name of the environment that will be used to execute this script operation.
+   */
+  environment: string;
+  /**
+   * Settings for each extension.
+   */
+  extensions?: {
+    [k: string]: unknown;
+  };
+  next: NextOperation;
+  run: Script;
+  /**
+   * A map from the name of a stream to the operation that its outputs should
+   * be passed to.
+   */
+  stream_out?: {
+    [k: string]: NextOperation;
+  };
+  trace?: TraceToggle | null;
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "Script".
+ */
+export interface Script {
+  text: string;
+  [k: string]: unknown;
+}
+/**
+ * Description of a scripting environment that a diagram uses to run scripts.
+ *
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "ScriptEnvironmentSchema".
+ */
+export interface ScriptEnvironmentSchema {
+  builder: string;
+  config: unknown;
+  [k: string]: unknown;
+}
+/**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "SectionTemplate".
  */
@@ -1245,6 +1332,9 @@ export interface DiagramElementMetadata {
   reverse_message_lookup: ReverseMessageLookup;
   schemas: {
     [k: string]: unknown;
+  };
+  scripting: {
+    [k: string]: ScriptEnvironmentMetadata;
   };
   sections: {
     [k: string]: SectionMetadata;
@@ -1325,6 +1415,7 @@ export interface ReverseMessageLookup {
    * Map from [T, E] output registrations to Result<T, E> registration.
    */
   result: [unknown, unknown][];
+  script_message?: number | null;
   /**
    * Map from the message type of the item that comes out of a split to all
    * message types that can be split into it.
@@ -1334,6 +1425,58 @@ export interface ReverseMessageLookup {
    * Map from the unzipped types to the original zipped type.
    */
   unzip: [unknown, unknown][];
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "ScriptEnvironmentMetadata".
+ */
+export interface ScriptEnvironmentMetadata {
+  /**
+   * Examples of valid configurations for this builder
+   */
+  config_examples: ScriptConfigExample[];
+  config_schema: Schema;
+  /**
+   * A description of what kind of environments are made by this builder
+   */
+  description?: string | null;
+  /**
+   * Human-friendly name for the script environment builder
+   */
+  display_text?: string | null;
+  /**
+   * The interpreter that will be used to process the scripting language
+   */
+  interpreter: string;
+  /**
+   * The scripting language that will be used for this environment
+   */
+  language: string;
+  [k: string]: unknown;
+}
+/**
+ * An example of how to configure an environment
+ *
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "ScriptConfigExample".
+ */
+export interface ScriptConfigExample {
+  /**
+   * The example configuration
+   */
+  config: {
+    [k: string]: unknown;
+  };
+  /**
+   * A description of this example
+   */
+  description: string;
+  /**
+   * The name of this example
+   */
+  name: string;
+  run: Script;
   [k: string]: unknown;
 }
 /**
