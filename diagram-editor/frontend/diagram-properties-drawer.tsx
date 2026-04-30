@@ -23,6 +23,7 @@ import React from 'react';
 import { ScriptEnvironmentDialog } from './forms/script-environment-dialog';
 import { useDiagramProperties } from './diagram-properties-provider';
 import { useLoadContext } from './load-context-provider';
+import { useNodeManager } from './node-manager';
 import { RunButton } from './run-button';
 import type { InputExample } from './types/api';
 
@@ -44,6 +45,13 @@ function DiagramPropertiesDrawer({
   const [diagramProperties, setDiagramProperties] = useDiagramProperties();
   const loadContext = useLoadContext();
   const theme = useTheme();
+  const nodeManager = useNodeManager();
+
+  const getEnvUsageCount = (envBuilder: string) => {
+    return nodeManager.nodes.filter(
+      (node) => node.type === 'script' && node.data.op.environment === envBuilder
+    ).length;
+  };
   const [copyTooltipText, setCopyTooltipText] =
     React.useState('Copy this input example into clipboard');
   const [openAddExampleDialog, setOpenAddExampleDialog] =
@@ -147,6 +155,22 @@ function DiagramPropertiesDrawer({
                   <ListItem key={envBuilder}>
                     <ListItemText primary={envBuilder} />
 
+                    <Tooltip title={diagramProperties.highlightedEnvironment === envBuilder ? 'Hide nodes' : 'Show nodes'}>
+                      <IconButton
+                        onClick={() => {
+                          setDiagramProperties((prev) => ({
+                            ...prev,
+                            highlightedEnvironment: prev.highlightedEnvironment === envBuilder ? undefined : envBuilder,
+                          }));
+                        }}
+                      >
+                        <MaterialSymbol
+                          symbol={diagramProperties.highlightedEnvironment === envBuilder ? 'visibility_off' : 'visibility'}
+                          fontSize='large'
+                        />
+                      </IconButton>
+                    </Tooltip>
+
                     <Tooltip title='Edit script environment'>
                       <IconButton
                         onClick={() => {
@@ -157,21 +181,25 @@ function DiagramPropertiesDrawer({
                         <MaterialSymbol symbol='edit' fontSize='large' />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title='Delete script environment'>
-                      <IconButton
-                        onClick={() => {
-                          setDiagramProperties((prev) => {
-                            const prevEnvs = prev.script_environments ?? {};
-                            const { [envBuilder]: _, ...rest } = prevEnvs;
-                            return {
-                              ...prev,
-                              script_environments: rest,
-                            };
-                          });
-                        }}
-                      >
-                        <MaterialSymbol symbol='delete' fontSize='large' />
-                      </IconButton>
+
+                    <Tooltip title={getEnvUsageCount(envBuilder) > 0 ? `Cannot delete: used by ${getEnvUsageCount(envBuilder)} nodes` : 'Delete script environment'}>
+                      <span>
+                        <IconButton
+                          disabled={getEnvUsageCount(envBuilder) > 0}
+                          onClick={() => {
+                            setDiagramProperties((prev) => {
+                              const prevEnvs = prev.script_environments ?? {};
+                              const { [envBuilder]: _, ...rest } = prevEnvs;
+                              return {
+                                ...prev,
+                                script_environments: rest,
+                              };
+                            });
+                          }}
+                        >
+                          <MaterialSymbol symbol='delete' fontSize='large' />
+                        </IconButton>
+                      </span>
                     </Tooltip>
                   </ListItem>
                 ))

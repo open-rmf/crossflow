@@ -13,7 +13,7 @@ import {
   createSectionBufferNode,
   createSectionInputNode,
   createSectionOutputNode,
-  DEFAULT_PYTHON_OP_SCRIPT,
+  DEFAULT_PYTHON_SCRIPT,
   ForkCloneIcon,
   ForkResultIcon,
   isOperationNode,
@@ -297,7 +297,7 @@ function AddOperation({ parentId, newNodePosition, onAdd }: AddOperationProps) {
               type: 'script',
               environment: '',
               run: {
-                text: DEFAULT_PYTHON_OP_SCRIPT,
+                text: DEFAULT_PYTHON_SCRIPT,
               },
               next: { builtin: 'dispose' },
             }),

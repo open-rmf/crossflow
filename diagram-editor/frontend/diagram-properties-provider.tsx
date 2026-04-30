@@ -5,6 +5,7 @@ export interface DiagramProperties {
   description?: string;
   input_examples?: InputExample[];
   script_environments?: { [key: string]: ScriptEnvironmentSchema };
+  highlightedEnvironment?: string;
 }
 
 export type DiagramPropertiesContext = [

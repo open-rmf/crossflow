@@ -49,6 +49,27 @@ export async function loadDiagram(diagram: Diagram): Promise<LoadedDiagram> {
   return { graph, isRestored: false };
 }
 
+function validateScriptEnvironments(diagram: Diagram) {
+  const envs = diagram.script_environments || {};
+  
+  function checkOps(ops: Record<string, DiagramOperation>) {
+    for (const [opId, op] of Object.entries(ops)) {
+      if (op.type === 'script') {
+        if (op.environment && !Object.keys(envs).includes(op.environment)) {
+          throw new Error(`Script node '${opId}' references unknown environment '${op.environment}'`);
+        }
+      }
+      if (op.type === 'scope' && op.ops) {
+        checkOps(op.ops);
+      }
+    }
+  }
+
+  if (diagram.ops) {
+    checkOps(diagram.ops);
+  }
+}
+
 export async function loadDiagramJson(
   jsonStr: string,
 ): Promise<[Diagram, LoadedDiagram]> {
@@ -61,6 +82,8 @@ export async function loadDiagramJson(
     }
     throw `${error.instancePath} ${error.message}`;
   }
+
+  validateScriptEnvironments(diagram);
 
   return [diagram, await loadDiagram(diagram)];
 }
@@ -160,6 +183,7 @@ export function loadTemplate(template: SectionTemplate): Graph {
     },
     schemas: {},
     sections: {},
+    scripting: {},
     trace_supported: false,
   };
   const stubDiagram = exportDiagram(stubRegistry, new NodeManager([]), [], {}, {});
