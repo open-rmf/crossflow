@@ -237,7 +237,8 @@ function syncEdge(
       case 'join':
       case 'transform':
       case 'buffer_access':
-      case 'listen': {
+      case 'listen':
+      case 'script': {
         if (edge.type !== 'default') {
           throw new Error('expected "default" edge');
         }
@@ -386,7 +387,8 @@ function clearConnections(nodeManager: NodeManager, root: SubOperations) {
         node.data.op.next = [];
         break;
       }
-      case 'transform': {
+      case 'transform':
+      case 'script': {
         node.data.op.next = { builtin: 'dispose' };
         break;
       }
@@ -525,6 +527,7 @@ export function exportDiagram(
 
   diagram.description = diagramProperties.description;
   diagram.input_examples = diagramProperties.input_examples;
+  diagram.script_environments = diagramProperties.script_environments;
   return diagram;
 }
 

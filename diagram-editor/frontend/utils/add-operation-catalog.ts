@@ -11,7 +11,7 @@ import {
   isSectionBufferNode,
   isSectionInputNode,
   isSectionOutputNode,
-  DEFAULT_PYTHON_OP_SCRIPT,
+  DEFAULT_PYTHON_SCRIPT,
 } from '../nodes';
 import type { DiagramOperation, NextOperation } from '../types/api';
 import { getValidEdgeTypes } from './connection';
@@ -432,7 +432,7 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
           type: 'script',
           environment: '',
           run: {
-            text: DEFAULT_PYTHON_OP_SCRIPT,
+            text: DEFAULT_PYTHON_SCRIPT,
           },
           next: { builtin: 'dispose' },
         },
@@ -443,7 +443,7 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
         type: 'script',
         environment: '',
         run: {
-          text: DEFAULT_PYTHON_OP_SCRIPT,
+          text: DEFAULT_PYTHON_SCRIPT,
         },
         next: { builtin: 'dispose' },
       }),

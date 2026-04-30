@@ -4,10 +4,10 @@ import { Handle, HandleType } from '../handles';
 import type { OperationNode } from '.';
 import BaseNode from './base-node';
 import { ScriptIcon } from './icons';
+import { useDiagramProperties } from '../diagram-properties-provider';
 
-// This default value is based on python_operation.rs. If you modify this function,
-// make sure to update python_operation.rs as well.
-export const DEFAULT_PYTHON_OP_SCRIPT = `from crossflow import *
+export const DEFAULT_SCRIPTS: Record<string, string> = {
+  python: `from crossflow import *
 
 def execute(data: object, accessors: Accessors, config: object):
     """Execute a node in a workflow
@@ -30,18 +30,21 @@ def execute(data: object, accessors: Accessors, config: object):
     """
 
     return Message(data = {}, accessors = None)
-`;
+`,
+};
 
-// This default value is based on python_operation.rs. If you modify this value,
-// make sure to update python_operation.rs as well.
-export const DEFAULT_PYTHON_OP_BUILDER = 'process-bound-python';
+export const DEFAULT_PYTHON_SCRIPT = DEFAULT_SCRIPTS.python;
 
 function ScriptNodeComp(props: NodeProps<OperationNode<'script'>>) {
+  const [diagramProperties] = useDiagramProperties();
+  const isHighlighted = props.data.op.environment === diagramProperties.highlightedEnvironment;
+
   return (
     <BaseNode
       {...props}
       icon={<ScriptIcon />}
       label="Script"
+      highlight={isHighlighted}
       handles={
         <>
           <Handle

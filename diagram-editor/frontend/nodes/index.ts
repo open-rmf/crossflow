@@ -61,7 +61,7 @@ export const NODE_TYPES = {
   stream_out: StreamOutNodeComp,
 };
 
-export { DEFAULT_PYTHON_OP_BUILDER, DEFAULT_PYTHON_OP_SCRIPT } from './script-node';
+export { DEFAULT_PYTHON_SCRIPT } from './script-node';
 
 export type NodeTypes = keyof typeof NODE_TYPES;
 
