@@ -41,7 +41,6 @@
     "fflate": "^0.8.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-draggable": "^4.5.0",
     "rxjs": "^7.8.2",
     "uuid": "^11.1.0"
   },

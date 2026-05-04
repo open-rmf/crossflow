@@ -8,7 +8,6 @@ import { EditorMode, useEditorMode } from './editor-mode';
 import type { DiagramEditorNode } from './nodes';
 import { MaterialSymbol } from './nodes';
 import { RunButton } from './run-button';
-
 import { ScriptEnvironmentManagerDialog } from './forms/script-environment-manager-dialog';
 
 export interface CommandPanelProps {
@@ -44,7 +43,6 @@ function CommandPanel({
   const [openScriptEnvManager, setOpenScriptEnvManager] =
     React.useState(false);
   const [editorMode] = useEditorMode();
-
 
   return (
     <>
@@ -119,7 +117,6 @@ function CommandPanel({
           )}
         </ButtonGroup>
       </Panel>
-
       <EditTemplatesDialog
         open={openEditTemplatesDialog}
         onClose={() => setOpenEditTemplatesDialog(false)}
@@ -128,7 +125,6 @@ function CommandPanel({
         open={openDiagramPropertiesDrawer}
         onClose={() => setOpenDiagramPropertiesDrawer(false)}
       />
-
       <ScriptEnvironmentManagerDialog
         open={openScriptEnvManager}
         onClose={() => setOpenScriptEnvManager(false)}

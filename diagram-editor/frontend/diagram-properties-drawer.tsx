@@ -44,7 +44,6 @@ function DiagramPropertiesDrawer({
   const [diagramProperties, setDiagramProperties] = useDiagramProperties();
   const loadContext = useLoadContext();
   const theme = useTheme();
-
   const [copyTooltipText, setCopyTooltipText] =
     React.useState('Copy this input example into clipboard');
   const [openAddExampleDialog, setOpenAddExampleDialog] =
@@ -331,8 +330,6 @@ function DiagramPropertiesDrawer({
           </Button>
         </DialogActions>
       </Dialog>
-
-
     </>
   );
 }
