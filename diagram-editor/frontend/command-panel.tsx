@@ -1,4 +1,4 @@
-import { Button, ButtonGroup, styled, Tooltip, useTheme } from '@mui/material';
+import { Button, ButtonGroup, styled, Tooltip, useTheme, Chip, Stack } from '@mui/material';
 import { type NodeChange, Panel } from '@xyflow/react';
 import React from 'react';
 import AutoLayoutButton from './auto-layout-button';
@@ -8,6 +8,7 @@ import { EditorMode, useEditorMode } from './editor-mode';
 import type { DiagramEditorNode } from './nodes';
 import { MaterialSymbol } from './nodes';
 import { RunButton } from './run-button';
+import { useDiagramProperties } from './diagram-properties-provider';
 import { ScriptEnvironmentManagerDialog } from './forms/script-environment-manager-dialog';
 
 export interface CommandPanelProps {
@@ -43,6 +44,7 @@ function CommandPanel({
   const [openScriptEnvManager, setOpenScriptEnvManager] =
     React.useState(false);
   const [editorMode] = useEditorMode();
+  const [diagramProperties, setDiagramProperties] = useDiagramProperties();
 
   return (
     <>
@@ -83,8 +85,9 @@ function CommandPanel({
           {editorMode.mode === EditorMode.Normal && (
             <Tooltip
               title={
-                enableExport ? 'Export Diagram' : 'Export Diagram (disabled)'
-              }
+                enableExport
+                ? 'Export Diagram'
+                : 'Export Diagram (disabled)'}
             >
               <Button onClick={onExportClick} disabled={!enableExport}>
                 <MaterialSymbol symbol="download" />
@@ -115,6 +118,15 @@ function CommandPanel({
             </Tooltip>
           )}
         </ButtonGroup>
+
+        {diagramProperties.highlightedEnvironment && (
+          <Chip
+            label={`Highlighting: ${diagramProperties.highlightedEnvironment}`}
+            onDelete={() => setDiagramProperties((prev) => ({ ...prev, highlightedEnvironment: undefined }))}
+            color="warning"
+            sx={{ mt: 1 }}
+          />
+        )}
       </Panel>
       <EditTemplatesDialog
         open={openEditTemplatesDialog}
