@@ -8,6 +8,7 @@ import type { DiagramEditorNode } from './nodes';
 import { MaterialSymbol } from './nodes';
 import { RunButton } from './run-button';
 import DiagramPropertiesDrawer from './diagram-properties-drawer';
+import { ScriptEnvironmentManagerDialog } from './forms/script-environment-manager-dialog';
 
 export interface CommandPanelProps {
   onNodeChanges: (changes: NodeChange<DiagramEditorNode>[]) => void;
@@ -39,6 +40,8 @@ function CommandPanel({
     React.useState(false);
   const [openDiagramPropertiesDrawer, setOpenDiagramPropertiesDrawer] =
     React.useState(true);
+  const [openScriptEnvManager, setOpenScriptEnvManager] =
+    React.useState(false);
   const [editorMode] = useEditorMode();
 
   return (
@@ -47,6 +50,13 @@ function CommandPanel({
         <ButtonGroup variant="contained">
           {editorMode.mode === EditorMode.Normal && (
             <RunButton requestJsonString=''/>
+          )}
+          {editorMode.mode === EditorMode.Normal && (
+            <Tooltip title="Script Environment Manager">
+              <Button onClick={() => setOpenScriptEnvManager(true)}>
+                <MaterialSymbol symbol="code" />
+              </Button>
+            </Tooltip>
           )}
           {editorMode.mode === EditorMode.Normal && (
             <Tooltip title="Diagram properties">
@@ -114,6 +124,10 @@ function CommandPanel({
       <DiagramPropertiesDrawer
         open={openDiagramPropertiesDrawer}
         onClose={() => setOpenDiagramPropertiesDrawer(false)}
+      />
+      <ScriptEnvironmentManagerDialog
+        open={openScriptEnvManager}
+        onClose={() => setOpenScriptEnvManager(false)}
       />
     </>
   );
