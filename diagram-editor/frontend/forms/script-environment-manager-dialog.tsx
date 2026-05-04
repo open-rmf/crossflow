@@ -198,6 +198,20 @@ export function ScriptEnvironmentManagerDialog({
                 </Tooltip>
                 {selectedEnvName && (
                   <>
+                    <Tooltip title={diagramProperties.highlightedEnvironment === selectedEnvName ? 'Hide nodes' : 'Show nodes'}>
+                      <IconButton
+                        onClick={() => {
+                          setDiagramProperties((prev) => ({
+                            ...prev,
+                            highlightedEnvironment: prev.highlightedEnvironment === selectedEnvName ? undefined : selectedEnvName,
+                          }));
+                        }}
+                      >
+                        <MaterialSymbol
+                          symbol={diagramProperties.highlightedEnvironment === selectedEnvName ? 'visibility_off' : 'visibility'}
+                        />
+                      </IconButton>
+                    </Tooltip>
                     <Tooltip title="Edit environment">
                       <IconButton onClick={() => setMode('edit')}>
                         <MaterialSymbol symbol="edit" />
