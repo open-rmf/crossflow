@@ -51,13 +51,11 @@ export async function loadDiagram(diagram: Diagram): Promise<LoadedDiagram> {
 
 function validateScriptEnvironments(diagram: Diagram) {
   const envs = diagram.script_environments || {};
-  
+
   function checkOps(ops: Record<string, DiagramOperation>) {
     for (const [opId, op] of Object.entries(ops)) {
-      if (op.type === 'script') {
-        if (op.environment && !Object.keys(envs).includes(op.environment)) {
-          throw new Error(`Script node '${opId}' references unknown environment '${op.environment}'`);
-        }
+      if (op.type === 'script' && op.environment && !Object.keys(envs).includes(op.environment)) {
+        throw new Error(`Script node '${opId}' references unknown environment '${op.environment}'`);
       }
       if (op.type === 'scope' && op.ops) {
         checkOps(op.ops);

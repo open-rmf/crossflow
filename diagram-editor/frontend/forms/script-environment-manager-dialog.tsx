@@ -144,6 +144,7 @@ export function ScriptEnvironmentManagerDialog({
       onClose={onClose}
       fullWidth
       maxWidth={isExpanded ? 'lg' : 'md'}
+      // Adding a border to the expanded dialog, as the low contrast makes it hard to distinguish the border
       sx={isExpanded ? {
         '& .MuiDialog-paper': {
           width: '90vw',
@@ -174,11 +175,19 @@ export function ScriptEnvironmentManagerDialog({
                 onChange={(e) => setSelectedEnvName(e.target.value)}
                 fullWidth
               >
-                {Object.keys(environments).map((name) => (
-                  <MenuItem key={name} value={name}>
-                    {name}
+                {Object.keys(environments).length === 0 ? (
+                  <MenuItem disabled value="">
+                    <Typography variant="caption" color="text.disabled">
+                      No environments available, please create one
+                    </Typography>
                   </MenuItem>
-                ))}
+                ) : (
+                  Object.keys(environments).map((name) => (
+                    <MenuItem key={name} value={name}>
+                      {name}
+                    </MenuItem>
+                  ))
+                )}
               </TextField>
             ) : (
               <TextField
