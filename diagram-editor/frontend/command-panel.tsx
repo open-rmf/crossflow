@@ -1,4 +1,4 @@
-import { Button, ButtonGroup, styled, Tooltip, useTheme, Chip, Stack } from '@mui/material';
+import { Button, ButtonGroup, styled, Tooltip, useTheme } from '@mui/material';
 import { type NodeChange, Panel } from '@xyflow/react';
 import React from 'react';
 import AutoLayoutButton from './auto-layout-button';
@@ -8,7 +8,7 @@ import type { DiagramEditorNode } from './nodes';
 import { MaterialSymbol } from './nodes';
 import { RunButton } from './run-button';
 import DiagramPropertiesDrawer from './diagram-properties-drawer';
-import { useDiagramProperties } from './diagram-properties-provider';
+
 import { ScriptEnvironmentManagerDialog } from './forms/script-environment-manager-dialog';
 
 export interface CommandPanelProps {
@@ -44,92 +44,82 @@ function CommandPanel({
   const [openScriptEnvManager, setOpenScriptEnvManager] =
     React.useState(false);
   const [editorMode] = useEditorMode();
-  const [diagramProperties, setDiagramProperties] = useDiagramProperties();
+
 
   return (
     <>
       <Panel position="top-center">
-        <Stack spacing={1} alignItems="center">
-          <ButtonGroup variant="contained">
-            {editorMode.mode === EditorMode.Normal && (
-              <RunButton requestJsonString=''/>
-            )}
-            {editorMode.mode === EditorMode.Normal && (
-              <Tooltip title="Script Environment Manager">
-                <Button onClick={() => setOpenScriptEnvManager(true)}>
-                  <MaterialSymbol symbol="code" />
-                </Button>
-              </Tooltip>
-            )}
-            {editorMode.mode === EditorMode.Normal && (
-              <Tooltip title="Diagram properties">
-                <Button
-                  onClick={() => setOpenDiagramPropertiesDrawer((prev) => !prev)}
-                  sx={
-                    openDiagramPropertiesDrawer
-                      ? { backgroundColor: theme.palette.primary.light }
-                      : undefined
-                  }
-                >
-                  <MaterialSymbol symbol="info" />
-                </Button>
-              </Tooltip>
-            )}
-            {editorMode.mode === EditorMode.Normal && (
-              <Tooltip title="Templates">
-                <Button onClick={() => setOpenEditTemplatesDialog(true)}>
-                  <MaterialSymbol symbol="architecture" />
-                </Button>
-              </Tooltip>
-            )}
-            <AutoLayoutButton onNodeChanges={onNodeChanges} />
-            {editorMode.mode === EditorMode.Normal && (
-              <Tooltip
-                title={
-                  enableExport
-                  ? 'Export Diagram'
-                  : 'Export Diagram (disabled)'}
-              >
-                <Button onClick={onExportClick} disabled={!enableExport}>
-                  <MaterialSymbol symbol="download" />
-                </Button>
-              </Tooltip>
-            )}
-            {editorMode.mode === EditorMode.Normal && (
-              <Tooltip title="Load Diagram">
-                {/* biome-ignore lint/a11y/useValidAriaRole: button used as a label, should have no role */}
-                <Button component="label" role={undefined}>
-                  <MaterialSymbol symbol="upload_file" />
-                  <VisuallyHiddenInput
-                    type="file"
-                    accept="application/json"
-                    aria-label="load diagram"
-                    onChange={async (ev) => {
-                      if (ev.target.files) {
-                        const json = await ev.target.files[0].text();
-                        onLoadDiagram(json, ev.target.files[0].name);
-                      }
-                    }}
-                    onClick={(ev) => {
-                      // Reset the input value so that the same file can be loaded multiple times
-                      (ev.target as HTMLInputElement).value = '';
-                    }}
-                  />
-                </Button>
-              </Tooltip>
-            )}
-          </ButtonGroup>
-          
-          {diagramProperties.highlightedEnvironment && (
-            <Chip
-              label={`Highlighting: ${diagramProperties.highlightedEnvironment}`}
-              onDelete={() => setDiagramProperties((prev) => ({ ...prev, highlightedEnvironment: undefined }))}
-              color="warning"
-              sx={{ mt: 1 }}
-            />
+        <ButtonGroup variant="contained">
+          {editorMode.mode === EditorMode.Normal && (
+            <RunButton requestJsonString=''/>
           )}
-        </Stack>
+          {editorMode.mode === EditorMode.Normal && (
+            <Tooltip title="Script Environment Manager">
+              <Button onClick={() => setOpenScriptEnvManager(true)}>
+                <MaterialSymbol symbol="code" />
+              </Button>
+            </Tooltip>
+          )}
+          {editorMode.mode === EditorMode.Normal && (
+            <Tooltip title="Diagram properties">
+              <Button
+                onClick={() => setOpenDiagramPropertiesDrawer((prev) => !prev)}
+                sx={
+                  openDiagramPropertiesDrawer
+                    ? { backgroundColor: theme.palette.primary.light }
+                    : undefined
+                }
+              >
+                <MaterialSymbol symbol="info" />
+              </Button>
+            </Tooltip>
+          )}
+          {editorMode.mode === EditorMode.Normal && (
+            <Tooltip title="Templates">
+              <Button onClick={() => setOpenEditTemplatesDialog(true)}>
+                <MaterialSymbol symbol="architecture" />
+              </Button>
+            </Tooltip>
+          )}
+          <AutoLayoutButton onNodeChanges={onNodeChanges} />
+          {editorMode.mode === EditorMode.Normal && (
+            <Tooltip
+              title={
+                enableExport
+                ? 'Export Diagram'
+                : 'Export Diagram (disabled)'}
+            >
+              <Button onClick={onExportClick} disabled={!enableExport}>
+                <MaterialSymbol symbol="download" />
+              </Button>
+            </Tooltip>
+          )}
+          {editorMode.mode === EditorMode.Normal && (
+            <Tooltip title="Load Diagram">
+              {/* biome-ignore lint/a11y/useValidAriaRole: button used as a label, should have no role */}
+              <Button component="label" role={undefined}>
+                <MaterialSymbol symbol="upload_file" />
+                <VisuallyHiddenInput
+                  type="file"
+                  accept="application/json"
+                  aria-label="load diagram"
+                  onChange={async (ev) => {
+                    if (ev.target.files) {
+                      const json = await ev.target.files[0].text();
+                      onLoadDiagram(json, ev.target.files[0].name);
+                    }
+                  }}
+                  onClick={(ev) => {
+                    // Reset the input value so that the same file can be loaded multiple times
+                    (ev.target as HTMLInputElement).value = '';
+                  }}
+                />
+              </Button>
+            </Tooltip>
+          )}
+        </ButtonGroup>
       </Panel>
+
       <EditTemplatesDialog
         open={openEditTemplatesDialog}
         onClose={() => setOpenEditTemplatesDialog(false)}
@@ -138,6 +128,7 @@ function CommandPanel({
         open={openDiagramPropertiesDrawer}
         onClose={() => setOpenDiagramPropertiesDrawer(false)}
       />
+
       <ScriptEnvironmentManagerDialog
         open={openScriptEnvManager}
         onClose={() => setOpenScriptEnvManager(false)}
