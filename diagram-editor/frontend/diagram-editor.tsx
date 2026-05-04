@@ -73,6 +73,7 @@ import { exhaustiveCheck } from './utils/exhaustive-check';
 import { exportTemplate } from './utils/export-diagram';
 import { calculateScopeBounds, LAYOUT_OPTIONS } from './utils/layout';
 import { loadDiagramJson, loadEmpty, loadTemplate } from './utils/load-diagram';
+import { NotificationProvider } from './notification-provider';
 
 const NonCapturingPopoverContainer = ({
   children,
@@ -139,7 +140,11 @@ function Providers({
       <LoadContextProvider value={loadContext}>
         <NodeManagerProvider value={nodeManager}>
           <EdgesProvider value={edges}>
-            <DiagramPropertiesProvider>{children}</DiagramPropertiesProvider>
+            <DiagramPropertiesProvider>
+              <NotificationProvider>
+                {children}
+              </NotificationProvider>
+            </DiagramPropertiesProvider>
           </EdgesProvider>
         </NodeManagerProvider>
       </LoadContextProvider>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Button,
   Dialog,
@@ -21,6 +21,7 @@ import { keymap } from '@codemirror/view';
 import { MaterialSymbol, DEFAULT_PYTHON_SCRIPT } from '../nodes';
 import { useDiagramProperties } from '../diagram-properties-provider';
 import { useNodeManager } from '../node-manager';
+import { useNotification } from '../notification-provider';
 
 export interface ScriptEnvironmentManagerDialogProps {
   open: boolean;
@@ -35,6 +36,7 @@ export function ScriptEnvironmentManagerDialog({
 }: ScriptEnvironmentManagerDialogProps) {
   const [diagramProperties, setDiagramProperties] = useDiagramProperties();
   const nodeManager = useNodeManager();
+  const showNotification = useNotification();
   const environments = diagramProperties.script_environments || {};
 
   const [selectedEnvName, setSelectedEnvName] = useState('');
@@ -49,15 +51,17 @@ export function ScriptEnvironmentManagerDialog({
 
   const [configError, setConfigError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
+  const wasOpen = useRef(false);
 
   useEffect(() => {
-    if (open) {
+    if (open && !wasOpen.current) {
       if (initialEnvName && environments[initialEnvName]) {
         setSelectedEnvName(initialEnvName);
       } else {
         setSelectedEnvName('');
       }
     }
+    wasOpen.current = open;
   }, [open, initialEnvName, environments]);
 
   useEffect(() => {
@@ -94,6 +98,11 @@ export function ScriptEnvironmentManagerDialog({
         },
       }));
       setSelectedEnvName(envName);
+      if (mode === 'create') {
+        showNotification(`Environment '${envName}' created successfully`, 'success');
+      } else if (mode === 'edit') {
+        showNotification(`Environment '${envName}' saved successfully`, 'success');
+      }
       setMode('view');
     } catch (err) {
       setConfigError('Invalid JSON');
@@ -104,8 +113,8 @@ export function ScriptEnvironmentManagerDialog({
     setEnvName('');
     setBuilder('');
     setConfig('{}');
-    setScriptText('');
-    setLanguage('');
+    setScriptText(DEFAULT_PYTHON_SCRIPT);
+    setLanguage('python');
     setMode('create');
   };
 
@@ -120,6 +129,7 @@ export function ScriptEnvironmentManagerDialog({
         script_environments: rest,
       };
     });
+    showNotification(`Environment '${selectedEnvName}' deleted successfully`, 'success');
     setSelectedEnvName('');
     setMode('view');
   };
@@ -262,16 +272,32 @@ export function ScriptEnvironmentManagerDialog({
 
           {(mode !== 'view' || selectedEnvName) && (
             <>
-              <TextField
-                label="Builder"
-                value={builder}
-                onChange={(e) => setBuilder(e.target.value)}
-                fullWidth
-                disabled={mode === 'view'}
-              />
+              <Stack direction="row" spacing={2}>
+                <TextField
+                  label="Builder"
+                  value={builder}
+                  onChange={(e) => setBuilder(e.target.value)}
+                  fullWidth
+                  disabled={mode === 'view'}
+                  sx={{ flex: 1 }}
+                />
+                <Tooltip title="Support for other languages will be added in the future">
+                  <span style={{ flex: 1 }}>
+                    <TextField
+                      select
+                      label="Scripting Language"
+                      value={language || 'python'}
+                      fullWidth
+                      disabled={true}
+                    >
+                      <MenuItem value="python">Python</MenuItem>
+                    </TextField>
+                  </span>
+                </Tooltip>
+              </Stack>
 
               <TextField
-                label="Config (JSON)"
+                label="Builder Config (JSON)"
                 multiline
                 rows={4}
                 value={config}
@@ -293,30 +319,6 @@ export function ScriptEnvironmentManagerDialog({
                 error={!!configError}
                 helperText={configError}
               />
-
-              <Stack direction="row" spacing={2} alignItems="center">
-                <TextField
-                  select
-                  label="Scripting Language"
-                  value={language}
-                  onChange={(e) => {
-                    const newLang = e.target.value;
-                    setLanguage(newLang);
-                    if (newLang === 'python' && !scriptText) {
-                      setScriptText(DEFAULT_PYTHON_SCRIPT);
-                    }
-                  }}
-                  fullWidth
-                  disabled={mode === 'view'}
-                >
-                  <MenuItem value="python">Python</MenuItem>
-                  <MenuItem disabled>
-                    <Typography variant="caption" color="text.disabled">
-                      Open an issue ticket for more languages
-                    </Typography>
-                  </MenuItem>
-                </TextField>
-              </Stack>
 
               {language === 'python' && (
                 <>
