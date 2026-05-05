@@ -22,7 +22,6 @@ import type {
   NextOperation,
   SectionTemplate,
 } from '../types/api';
-import { useEdges } from '../use-edges';
 import { exhaustiveCheck } from './exhaustive-check';
 import { ROOT_NAMESPACE, splitNamespaces } from './namespace';
 import { isArrayBufferSelection, isKeyedBufferSelection } from './operation';
@@ -105,6 +104,7 @@ function setBufferSelection(
 function syncBufferSelection(
   nodeManager: NodeManager,
   edge: DiagramEditorEdge,
+  edges: DiagramEditorEdge[],
 ) {
   if (edge.type === 'buffer') {
     const targetNode = nodeManager.getNode(edge.target);
@@ -143,7 +143,6 @@ function syncBufferSelection(
     // check that the buffer selection is compatible
     if (edge.type === 'buffer' && edge.data.input?.type === 'bufferSeq') {
       if (!isArrayBufferSelection(bufferSelection)) {
-        const edges = useEdges();
         getConnectedEdges([targetNode], edges)
           .filter(
             (edge) => edge.type === 'buffer' && edge.target === targetNode.id,
@@ -161,7 +160,6 @@ function syncBufferSelection(
     }
     if (edge.type === 'buffer' && edge.data.input?.type === 'bufferKey') {
       if (!isKeyedBufferSelection(bufferSelection)) {
-        const edges = useEdges();
         getConnectedEdges([targetNode], edges)
           .filter(
             (edge) => edge.type === 'buffer' && edge.target === targetNode.id,
@@ -215,9 +213,10 @@ function syncEdge(
   nodeManager: NodeManager,
   root: SubOperations,
   edge: DiagramEditorEdge,
+  edges: DiagramEditorEdge[],
 ): void {
   if (edge.type === 'buffer') {
-    syncBufferSelection(nodeManager, edge);
+    syncBufferSelection(nodeManager, edge, edges);
     return;
   }
 
@@ -474,7 +473,7 @@ function syncEdges(
   });
 
   for (const edge of validEdges) {
-    syncEdge(nodeManager, root, edge);
+    syncEdge(nodeManager, root, edge, edges);
   }
 }
 

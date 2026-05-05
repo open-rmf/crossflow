@@ -186,9 +186,7 @@ export function RunButton({ requestJsonString }: RunButtonProps) {
                   symbol="check_circle"
                   sx={{ color: theme.palette.success.main }}
                 />
-              ) : (
-                <></>
-              )}
+              ) : null}
             </Stack>
             <TextField
               fullWidth

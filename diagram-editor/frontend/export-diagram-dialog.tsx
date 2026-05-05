@@ -95,7 +95,15 @@ function ExportDiagramDialogInternal({
       });
       return null;
     }
-  }, [registry, nodeManager, edges, templates, loadContext, diagramProperties]);
+  }, [
+    registry,
+    nodeManager,
+    edges,
+    templates,
+    loadContext,
+    diagramProperties,
+    onValidDiagram,
+  ]);
 
   const dialogData = use(dialogDataPromise);
 
@@ -112,6 +120,8 @@ function ExportDiagramDialogInternal({
 
     if ('showSaveFilePicker' in window) {
       try {
+        // TODO(aaronchong): add proper types for showSaveFilePicker once it is no longer experimental upstream
+        // biome-ignore lint/suspicious/noExplicitAny: showSaveFilePicker is not in standard Window types
         const handle = await (window as any).showSaveFilePicker({
           suggestedName: suggestedFilename ?? 'diagram.json',
           types: [

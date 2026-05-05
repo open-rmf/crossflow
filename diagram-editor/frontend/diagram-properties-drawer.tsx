@@ -55,7 +55,7 @@ function DiagramPropertiesDrawer({
       description: loadContext?.diagram.description ?? '',
       input_examples: loadContext?.diagram.input_examples ?? [],
     });
-  }, [loadContext]);
+  }, [loadContext, setDiagramProperties]);
 
   const inputExampleInvalid = React.useMemo(() => {
     return (
@@ -135,13 +135,11 @@ function DiagramPropertiesDrawer({
           </Stack>
           <Paper>
             <List>
-              {diagramProperties &&
-              diagramProperties.input_examples &&
+              {diagramProperties?.input_examples &&
               diagramProperties.input_examples.length > 0 ? (
                 diagramProperties.input_examples.map((input, index) => (
-                  <ListItem key={index}>
+                  <ListItem key={input.value}>
                     <TextField
-                      id="input-with-icon-textfield"
                       fullWidth
                       multiline
                       variant="outlined"
