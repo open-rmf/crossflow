@@ -23,10 +23,7 @@
     },
     "initial_split": {
       "type": "split",
-      "sequential": [
-        "x100",
-        "x10"
-      ]
+      "sequential": ["x100", "x10"]
     },
     "x10": {
       "type": "node",
@@ -37,14 +34,9 @@
     },
     "join": {
       "type": "join",
-      "buffers": [
-        "x100-buffer",
-        "x10-buffer"
-      ],
+      "buffers": ["x100-buffer", "x10-buffer"],
       "next": "evaluate",
-      "clone": [
-        0
-      ]
+      "clone": [0]
     },
     "x100": {
       "type": "node",
@@ -169,10 +161,7 @@
               "opId": "initial_split",
               "op": {
                 "type": "split",
-                "sequential": [
-                  "x100",
-                  "x10"
-                ]
+                "sequential": ["x100", "x10"]
               }
             },
             "measured": {
@@ -218,14 +207,9 @@
               "opId": "join",
               "op": {
                 "type": "join",
-                "buffers": [
-                  "x100-buffer",
-                  "x10-buffer"
-                ],
+                "buffers": ["x100-buffer", "x10-buffer"],
                 "next": "evaluate",
-                "clone": [
-                  0
-                ]
+                "clone": [0]
               }
             },
             "measured": {

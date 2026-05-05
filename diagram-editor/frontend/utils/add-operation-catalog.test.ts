@@ -35,7 +35,9 @@ describe('add operation catalog', () => {
     expect(compatible.some((operation) => operation.key === 'node')).toBe(
       false,
     );
-    expect(new NodeManager([sourceNode]).getNode(sourceNode.id).type).toBe('buffer');
+    expect(new NodeManager([sourceNode]).getNode(sourceNode.id).type).toBe(
+      'buffer',
+    );
   });
 
   test('shows section interface operations only for template roots', () => {
@@ -48,12 +50,12 @@ describe('add operation catalog', () => {
       namespace: ROOT_NAMESPACE,
     });
 
-    expect(normalMode.some((operation) => operation.key === 'sectionInput')).toBe(
-      false,
-    );
-    expect(templateMode.some((operation) => operation.key === 'sectionInput')).toBe(
-      true,
-    );
+    expect(
+      normalMode.some((operation) => operation.key === 'sectionInput'),
+    ).toBe(false);
+    expect(
+      templateMode.some((operation) => operation.key === 'sectionInput'),
+    ).toBe(true);
   });
 
   test('filters add-operation suggestions for upstream sources when dragging from a target handle', () => {
@@ -78,10 +80,14 @@ describe('add operation catalog', () => {
       'target',
     );
 
-    expect(compatible.some((operation) => operation.key === 'buffer')).toBe(true);
-    expect(compatible.some((operation) => operation.key === 'fork_result')).toBe(
+    expect(compatible.some((operation) => operation.key === 'buffer')).toBe(
+      true,
+    );
+    expect(
+      compatible.some((operation) => operation.key === 'fork_result'),
+    ).toBe(false);
+    expect(compatible.some((operation) => operation.key === 'node')).toBe(
       false,
     );
-    expect(compatible.some((operation) => operation.key === 'node')).toBe(false);
   });
 });

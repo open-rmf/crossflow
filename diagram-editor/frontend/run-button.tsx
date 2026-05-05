@@ -13,13 +13,13 @@ import {
 } from '@mui/material';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApiClient } from './api-client-provider';
+import { useDiagramProperties } from './diagram-properties-provider';
 import { useNodeManager } from './node-manager';
 import { MaterialSymbol } from './nodes';
 import { useRegistry } from './registry-provider';
 import { useTemplates } from './templates-provider';
 import { useEdges } from './use-edges';
 import { exportDiagram } from './utils/export-diagram';
-import { useDiagramProperties } from './diagram-properties-provider';
 
 type ResponseContent = { raw: string } | { err: string };
 
@@ -37,7 +37,7 @@ export function RunButton({ requestJsonString }: RunButtonProps) {
   const theme = useTheme();
   const [requestJson, setRequestJson] = useState(requestJsonString);
   const [responseContent, setResponseContent] = useState<ResponseContent>(
-    DefaultResponseContent
+    DefaultResponseContent,
   );
   const apiClient = useApiClient();
   const [templates, _setTemplates] = useTemplates();
@@ -73,7 +73,13 @@ export function RunButton({ requestJsonString }: RunButtonProps) {
   const handleRunClick = () => {
     try {
       const request = JSON.parse(requestJson);
-      const diagram = exportDiagram(registry, nodeManager, edges, templates, diagramProperties);
+      const diagram = exportDiagram(
+        registry,
+        nodeManager,
+        edges,
+        templates,
+        diagramProperties,
+      );
       apiClient.postRunWorkflow(diagram, request).subscribe({
         next: (response) => {
           setResponseContent({ raw: JSON.stringify(response, null, 2) });
@@ -168,20 +174,16 @@ export function RunButton({ requestJsonString }: RunButtonProps) {
               error={requestError}
               sx={{ backgroundColor: theme.palette.background.paper }}
             />
-            <Stack
-              direction='row'
-              spacing={2}
-              sx={{ alignItems: 'center'}}
-            >
+            <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
               <Typography variant="body1">Response:</Typography>
               {'err' in responseContent ? (
                 <MaterialSymbol
-                  symbol='error'
+                  symbol="error"
                   sx={{ color: theme.palette.error.main }}
                 />
               ) : 'raw' in responseContent && responseContent.raw.length > 0 ? (
                 <MaterialSymbol
-                  symbol='check_circle'
+                  symbol="check_circle"
                   sx={{ color: theme.palette.success.main }}
                 />
               ) : (

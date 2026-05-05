@@ -18,10 +18,10 @@ import {
   Typography,
   useTheme,
 } from '@mui/material';
-import { MaterialSymbol } from './nodes';
 import React from 'react';
 import { useDiagramProperties } from './diagram-properties-provider';
 import { useLoadContext } from './load-context-provider';
+import { MaterialSymbol } from './nodes';
 import { RunButton } from './run-button';
 import type { InputExample } from './types/api';
 
@@ -38,29 +38,31 @@ export interface DiagramPropertiesDrawerProps {
 
 function DiagramPropertiesDrawer({
   open,
-  onClose
+  onClose,
 }: DiagramPropertiesDrawerProps) {
   const [diagramProperties, setDiagramProperties] = useDiagramProperties();
   const loadContext = useLoadContext();
   const theme = useTheme();
-  const [copyTooltipText, setCopyTooltipText] =
-    React.useState('Copy this input example into clipboard');
-  const [openAddExampleDialog, setOpenAddExampleDialog] =
-    React.useState(false);
+  const [copyTooltipText, setCopyTooltipText] = React.useState(
+    'Copy this input example into clipboard',
+  );
+  const [openAddExampleDialog, setOpenAddExampleDialog] = React.useState(false);
   const [newInputExample, setNewInputExample] =
     React.useState<InputExample>(EmptyInputExample);
 
   React.useEffect(() => {
     setDiagramProperties({
       description: loadContext?.diagram.description ?? '',
-      input_examples: loadContext?.diagram.input_examples ?? []
+      input_examples: loadContext?.diagram.input_examples ?? [],
     });
   }, [loadContext]);
 
   const inputExampleInvalid = React.useMemo(() => {
-    return newInputExample.description === '' ||
+    return (
+      newInputExample.description === '' ||
       newInputExample.value === undefined ||
-      newInputExample.value === '';
+      newInputExample.value === ''
+    );
   }, [newInputExample]);
 
   return (
@@ -73,26 +75,26 @@ function DiagramPropertiesDrawer({
             width: DrawerWidth,
           },
         }}
-        variant='persistent'
-        anchor='right'
+        variant="persistent"
+        anchor="right"
         open={open}
       >
         <Stack spacing={2} sx={{ m: 2 }}>
-          <Stack direction='row'>
-            <Stack direction='row' spacing={2} sx={{ alignItems: 'center' }}>
-              <Typography variant='h6'>Description</Typography>
+          <Stack direction="row">
+            <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+              <Typography variant="h6">Description</Typography>
               <Tooltip
-                title='General description of what this diagram achieves, as well as
+                title="General description of what this diagram achieves, as well as
                 any other relevant information that may help a user understand its
-                execution.'
+                execution."
               >
-                <MaterialSymbol symbol='info' fontSize='large' />
+                <MaterialSymbol symbol="info" fontSize="large" />
               </Tooltip>
             </Stack>
-            <Stack direction='row' sx={{ marginLeft: 'auto' }}>
-              <Tooltip title='Hide this panel'>
+            <Stack direction="row" sx={{ marginLeft: 'auto' }}>
+              <Tooltip title="Hide this panel">
                 <IconButton onClick={onClose}>
-                  <MaterialSymbol symbol='close' />
+                  <MaterialSymbol symbol="close" />
                 </IconButton>
               </Tooltip>
             </Stack>
@@ -102,83 +104,92 @@ function DiagramPropertiesDrawer({
             multiline
             rows={10}
             maxRows={10}
-            variant='outlined'
+            variant="outlined"
             value={diagramProperties?.description ?? ''}
             slotProps={{
               htmlInput: { sx: { fontFamily: 'monospace' } },
             }}
-            onChange={(d) => setDiagramProperties((prev) =>
-              ({ ...prev, description: d.target.value }))}
+            onChange={(d) =>
+              setDiagramProperties((prev) => ({
+                ...prev,
+                description: d.target.value,
+              }))
+            }
             sx={{ backgroundColor: theme.palette.background.paper }}
           />
           <Divider />
-          <Stack direction='row'>
-            <Stack direction='row' spacing={2} sx={{ alignItems: 'center' }}>
-              <Typography variant='h6'>Input Examples</Typography>
-              <Tooltip
-                title='Input examples that can be executed with this workflow'
-              >
-                <MaterialSymbol symbol='info' fontSize='large' />
+          <Stack direction="row">
+            <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+              <Typography variant="h6">Input Examples</Typography>
+              <Tooltip title="Input examples that can be executed with this workflow">
+                <MaterialSymbol symbol="info" fontSize="large" />
               </Tooltip>
             </Stack>
-            <Stack direction='row' sx={{ marginLeft: 'auto' }}>
-              <Tooltip title='Add input example'>
+            <Stack direction="row" sx={{ marginLeft: 'auto' }}>
+              <Tooltip title="Add input example">
                 <IconButton onClick={() => setOpenAddExampleDialog(true)}>
-                  <MaterialSymbol symbol='add' />
+                  <MaterialSymbol symbol="add" />
                 </IconButton>
               </Tooltip>
             </Stack>
           </Stack>
           <Paper>
             <List>
-              {diagramProperties && diagramProperties.input_examples &&
+              {diagramProperties &&
+              diagramProperties.input_examples &&
               diagramProperties.input_examples.length > 0 ? (
                 diagramProperties.input_examples.map((input, index) => (
                   <ListItem key={index}>
                     <TextField
-                      id='input-with-icon-textfield'
+                      id="input-with-icon-textfield"
                       fullWidth
                       multiline
-                      variant='outlined'
+                      variant="outlined"
                       value={input.value}
-                      rows='6'
+                      rows="6"
                       slotProps={{
                         htmlInput: {
                           sx: { fontFamily: 'monospace' },
                         },
                         input: {
                           endAdornment: (
-                            <InputAdornment position='end'>
-                              <Stack direction='column'>
+                            <InputAdornment position="end">
+                              <Stack direction="column">
                                 <Tooltip title={input.description}>
                                   <IconButton>
                                     <MaterialSymbol
-                                      symbol='info'
-                                      fontSize='large'
+                                      symbol="info"
+                                      fontSize="large"
                                     />
                                   </IconButton>
                                 </Tooltip>
-                                <Tooltip title='Delete input example'>
+                                <Tooltip title="Delete input example">
                                   <IconButton
                                     onClick={() => {
                                       setDiagramProperties((prev) => {
-                                        const prevInputExamples = prev.input_examples ?? [];
+                                        const prevInputExamples =
+                                          prev.input_examples ?? [];
                                         if (index >= prevInputExamples.length) {
                                           return prev;
                                         }
                                         return {
                                           ...prev,
                                           input_examples: [
-                                            ...prevInputExamples.slice(0, index),
-                                            ...prevInputExamples.slice(index + 1),
+                                            ...prevInputExamples.slice(
+                                              0,
+                                              index,
+                                            ),
+                                            ...prevInputExamples.slice(
+                                              index + 1,
+                                            ),
                                           ],
                                         };
                                       });
                                     }}
                                   >
                                     <MaterialSymbol
-                                      symbol='delete'
-                                      fontSize='large'
+                                      symbol="delete"
+                                      fontSize="large"
                                     />
                                   </IconButton>
                                 </Tooltip>
@@ -189,31 +200,37 @@ function DiagramPropertiesDrawer({
                                         typeof input.value === 'string'
                                           ? input.value
                                           : JSON.stringify(
-                                            input.value, null, 2) || '';
-                                      await navigator.clipboard.writeText(content);
-                                      setCopyTooltipText('Copied into clipboard!');
+                                              input.value,
+                                              null,
+                                              2,
+                                            ) || '';
+                                      await navigator.clipboard.writeText(
+                                        content,
+                                      );
+                                      setCopyTooltipText(
+                                        'Copied into clipboard!',
+                                      );
                                       setTimeout(() => {
                                         setCopyTooltipText(
-                                          'Copy this input example');
+                                          'Copy this input example',
+                                        );
                                       }, 3000);
                                     }}
                                   >
                                     <MaterialSymbol
-                                      symbol='content_copy'
-                                      fontSize='large'
+                                      symbol="content_copy"
+                                      fontSize="large"
                                     />
                                   </IconButton>
                                 </Tooltip>
-                                <Tooltip
-                                  title='Run diagram with this input example'
-                                >
+                                <Tooltip title="Run diagram with this input example">
                                   <RunButton
                                     requestJsonString={input.value as string}
                                   />
                                 </Tooltip>
                               </Stack>
                             </InputAdornment>
-                          )
+                          ),
                         },
                       }}
                     />
@@ -225,7 +242,7 @@ function DiagramPropertiesDrawer({
                     slotProps={{
                       primary: { color: theme.palette.text.disabled },
                     }}
-                    primary='No input examples available'
+                    primary="No input examples available"
                   />
                 </ListItem>
               )}
@@ -240,7 +257,7 @@ function DiagramPropertiesDrawer({
         }}
         open={openAddExampleDialog}
         fullWidth
-        maxWidth='sm'
+        maxWidth="sm"
         keepMounted={false}
       >
         <DialogTitle>Add input example</DialogTitle>
@@ -252,35 +269,40 @@ function DiagramPropertiesDrawer({
               fullWidth
               multiline
               rows={6}
-              variant='outlined'
+              variant="outlined"
               value={newInputExample.value}
-              onChange={(e) => setNewInputExample((prev) =>
-                ({ ...prev, value: e.target.value as string}))}
+              onChange={(e) =>
+                setNewInputExample((prev) => ({
+                  ...prev,
+                  value: e.target.value as string,
+                }))
+              }
             />
             <Typography variant="body1">Description</Typography>
             <TextField
               fullWidth
               multiline
               rows={3}
-              variant='outlined'
+              variant="outlined"
               value={newInputExample.description}
-              onChange={(e) => setNewInputExample((prev) =>
-                ({ ...prev, description: e.target.value}))}
+              onChange={(e) =>
+                setNewInputExample((prev) => ({
+                  ...prev,
+                  description: e.target.value,
+                }))
+              }
             />
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button
-            variant='contained'
+            variant="contained"
             onClick={() => {
               setDiagramProperties((prev) => {
                 const prevInputExamples = prev.input_examples ?? [];
                 return {
                   ...prev,
-                  input_examples: [
-                    ...prevInputExamples,
-                    newInputExample
-                  ],
+                  input_examples: [...prevInputExamples, newInputExample],
                 };
               });
               setOpenAddExampleDialog(false);
