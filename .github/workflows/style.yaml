@@ -33,3 +33,29 @@ jobs:
 
     - name: clippy
       run: cargo clippy
+
+  frontend-style:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+    - uses: actions/checkout@v3
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: latest
+
+    - name: Setup nodejs
+      run: pnpm env use --global lts
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    - name: Biome check
+      run: pnpm exec biome check
+
+    - name: TypeScript check
+      run: pnpm run check:ts
+      working-directory: diagram-editor
