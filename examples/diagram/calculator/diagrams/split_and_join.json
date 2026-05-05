@@ -23,7 +23,10 @@
     },
     "split": {
       "type": "split",
-      "sequential": ["x100", "x10"]
+      "sequential": [
+        "x100",
+        "x10"
+      ]
     },
     "x10": {
       "type": "node",
@@ -34,7 +37,10 @@
     },
     "join": {
       "type": "join",
-      "buffers": ["x100-buffer", "x10-buffer"],
+      "buffers": [
+        "x100-buffer",
+        "x10-buffer"
+      ],
       "next": "sum"
     },
     "sum": {

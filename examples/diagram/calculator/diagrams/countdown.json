@@ -17,7 +17,10 @@
   "ops": {
     "parallel": {
       "type": "fork_clone",
-      "next": ["print", "subtract"]
+      "next": [
+        "print",
+        "subtract"
+      ]
     },
     "print": {
       "type": "node",
@@ -98,7 +101,10 @@
               "opId": "parallel",
               "op": {
                 "type": "fork_clone",
-                "next": ["print", "subtract"]
+                "next": [
+                  "print",
+                  "subtract"
+                ]
               }
             },
             "measured": {

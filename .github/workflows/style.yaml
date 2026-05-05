@@ -55,6 +55,7 @@ jobs:
 
     - name: Biome check
       run: pnpm exec biome check
+      working-directory: diagram-editor
 
     - name: TypeScript check
       run: pnpm run check:ts
