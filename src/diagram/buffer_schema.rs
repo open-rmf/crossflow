@@ -273,7 +273,7 @@ pub type BufferAccessFn = fn(&BufferMap, &mut Builder) -> Result<DynNode, Diagra
 
 pub struct BufferAccessRegistration {
     pub create: BufferAccessFn,
-    pub to_script_message: AccessToScriptMessageFn,
+    pub into_script_message: AccessToScriptMessageFn,
     pub from_script_message: ScriptMessageToAccessFn,
     pub metadata: BufferAccessMetadata,
 }
@@ -296,7 +296,7 @@ impl BufferAccessRegistration {
         let layout = <<T::BufferKeys as Accessor>::Buffers as BufferMapLayout>::get_layout_hints()
             .export(messages);
 
-        let to_script_message = |builder: &mut Builder, serialize: ArcAny| {
+        let into_script_message = |builder: &mut Builder, serialize: ArcAny| {
             let serialize = *serialize.downcast_ref::<SerializeFn<T::Message>>()
                 .ok_or_else(|| DiagramErrorCode::InvalidDowncast {
                     from: serialize.type_id(),
@@ -349,7 +349,7 @@ impl BufferAccessRegistration {
 
         Self {
             create,
-            to_script_message,
+            into_script_message,
             from_script_message,
             metadata: BufferAccessMetadata {
                 request_message,
@@ -445,7 +445,7 @@ pub(crate) type ScriptMessageToAccessFn = fn(&mut Builder, ArcAny) -> Result<Dyn
 
 pub struct ListenRegistration {
     pub create: ListenFn,
-    pub to_script_message: ListenToScriptMessageFn,
+    pub into_script_message: ListenToScriptMessageFn,
     pub from_script_message: ScriptMessageToListenFn,
     pub layout: BufferMapLayoutHints<usize>,
 }
@@ -457,7 +457,7 @@ impl ListenRegistration {
         };
         let layout = <T::Buffers as BufferMapLayout>::get_layout_hints().export(messages);
 
-        let to_script_message = |builder: &mut Builder| {
+        let into_script_message = |builder: &mut Builder| {
             let node = builder.create_map_block(|message: T| {
                 let accessors = message.to_any_keys();
                 Ok::<_, String>(ScriptMessage {
@@ -493,7 +493,7 @@ impl ListenRegistration {
             })
         };
 
-        Self { create, layout, to_script_message, from_script_message }
+        Self { create, layout, into_script_message, from_script_message }
     }
 }
 

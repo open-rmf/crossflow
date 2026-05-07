@@ -45,7 +45,7 @@ pub(crate) type ToStringFn = fn(&mut Builder) -> DynNode;
 pub(crate) type ArcAny = Arc<dyn Any + 'static + Send + Sync>;
 
 pub(crate) struct Serialization {
-    pub(crate) create_node: SerializeNodeFn,
+    pub(crate) into_json_message: SerializeNodeFn,
     pub(crate) serialize: ArcAny,
 }
 
@@ -113,6 +113,16 @@ impl MessageOperations {
     }
 
     pub fn supports_into_script_message(&self, registrations: &MessageRegistrations) -> bool {
+        if let Ok(script_idx) = registrations.get_index_dyn(&TypeInfo::of::<ScriptMessage>()) {
+            if self.into_impls.contains_key(&script_idx) {
+                return true;
+            }
+
+            if self.try_into_impls.contains_key(&script_idx) {
+                return true;
+            }
+        }
+
         if let Some(access) = &self.buffer_access {
             let req = access.metadata.request_message;
             if let Ok(req) = registrations.get_by_index(req) {
@@ -143,6 +153,16 @@ impl MessageOperations {
     }
 
     pub fn supports_from_script_message(&self, registrations: &MessageRegistrations) -> bool {
+        if let Ok(script_idx) = registrations.get_index_dyn(&TypeInfo::of::<ScriptMessage>()) {
+            if self.from_impls.contains_key(&script_idx) {
+                return true;
+            }
+
+            if self.try_from_impls.contains_key(&script_idx) {
+                return true;
+            }
+        }
+
         if let Some(access) = &self.buffer_access {
             let req = access.metadata.request_message;
             if let Ok(req) = registrations.get_by_index(req) {

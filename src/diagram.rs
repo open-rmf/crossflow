@@ -1024,11 +1024,14 @@ pub enum DiagramErrorCode {
     #[error("Cannot select message type. Choices: {}", format_list(.0))]
     AmbiguousMessageType(Vec<Cow<'static, str>>),
 
-    #[error("Serialization was not registered for the target message type.")]
+    #[error("Serialization was not registered for the target message type: {0}")]
     NotSerializable(TypeInfo),
 
-    #[error("Deserialization was not registered for the target message type.")]
+    #[error("Deserialization was not registered for the target message type: {0}")]
     NotDeserializable(TypeInfo),
+
+    #[error("The message type has no known conversion to a ScriptMessage: {0}")]
+    NotScriptable(TypeInfo),
 
     #[error("Cloning was not registered for the target message type. Type: {0}")]
     NotCloneable(Cow<'static, str>),

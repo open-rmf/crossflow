@@ -974,6 +974,16 @@ impl ConnectIntoTarget for ImplicitSerialization {
     }
 }
 
+impl ConnectIntoTarget for ImplicitScriptMessage {
+    fn connect_into_target(
+        &mut self,
+        output: DynOutput,
+        ctx: &mut BuilderContext,
+    ) -> Result<(), DiagramErrorCode> {
+        self.implicit_conversion(output, ctx)
+    }
+}
+
 impl ConnectIntoTarget for ImplicitDeserialization {
     fn connect_into_target(
         &mut self,
@@ -995,6 +1005,10 @@ impl BasicConnect {
         incoming: &TypeInfo,
         ctx: &BuilderContext,
     ) -> Result<bool, DiagramErrorCode> {
+        if incoming == self.input_slot.message_info() {
+            return Ok(true);
+        }
+
         let incoming_index = ctx.registry.messages.registration.get_index_dyn(incoming)?;
         let r = ctx
             .registry

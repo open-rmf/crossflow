@@ -246,8 +246,35 @@ impl ImplicitScriptMessage {
         let input = match self.incoming_types.entry(*incoming.message_info()) {
             Entry::Occupied(input_slot) => input_slot.get().clone(),
             Entry::Vacant(vacant) => {
-                let Some()
+                let Some(into_script_message) = ctx
+                    .registry
+                    .messages
+                    .try_into_script_message(incoming.message_info(), ctx.builder)?
+                else {
+                    // We cannot turn this type into a script message.
+                    return Ok(Err(incoming));
+                };
+
+                self.script_message_input.connect_into_target(into_script_message.ok, ctx)?;
+
+                let error_target = ctx.get_implicit_error_target();
+                ctx.add_output_into_target(error_target, into_script_message.err);
+
+                vacant.insert(into_script_message.input).clone()
             }
-        }
+        };
+
+        incoming.connect_to(&input, ctx.builder)?;
+
+        Ok(Ok(()))
+    }
+
+    pub fn implicit_conversion(
+        &mut self,
+        incoming: DynOutput,
+        ctx: &mut BuilderContext,
+    ) -> Result<(), DiagramErrorCode> {
+        self.try_implicit_conversion(incoming, ctx)?
+            .map_err(|incoming| DiagramErrorCode::NotScriptable(*incoming.message_info()))
     }
 }
