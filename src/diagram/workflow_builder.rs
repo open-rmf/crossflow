@@ -36,6 +36,7 @@ use super::{
     ImplicitSerialization, ImplicitStringify, InferenceBoundaryConditions, InferenceContext,
     NamedOperationRef, NamespaceList, NextOperation, OperationName, OperationRef, Operations,
     TraceToggle, TypeInfo, TypeMismatch, Templates, ScriptMessage, ImplicitScriptMessage,
+    BuilderId,
 };
 
 use bevy_ecs::prelude::Entity;
@@ -53,7 +54,7 @@ struct DiagramConstruction {
     /// Operations that were spawned by another operation.
     generated_operations: Vec<UnfinishedOperation>,
     /// Scripting environments that have been built
-    script_environments: HashMap<Arc<str>, ArcScriptEnvironment>,
+    script_environments: HashMap<BuilderId, ArcScriptEnvironment>,
 }
 
 impl<'a> DiagramConstruction {
@@ -904,7 +905,7 @@ where
     for (name, input) in streams.named {
         // TODO(@mxgrey): The trace settings for stream_out are not properly
         // based on whatever the user sets in the StreamOutSchema.
-        let name: Arc<str> = name.as_ref().into();
+        let name: OperationName = name.as_ref().into();
         ctx.set_input_for_target(OperationRef::stream_out(&name), input, TraceInfo::default())?;
     }
 

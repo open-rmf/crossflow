@@ -21,7 +21,7 @@ use std::{
 };
 
 pub use crate::dyn_node::*;
-use crate::{Builder, ConfigExample, DisplayText};
+use crate::{Builder, ConfigExample, Text};
 
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
@@ -38,10 +38,10 @@ pub struct SectionRegistration {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SectionMetadata {
-    pub(crate) default_display_text: DisplayText,
+    pub(crate) default_display_text: Text,
     pub(crate) interface: SectionInterface,
     pub(crate) config_schema: Schema,
-    pub(crate) description: Option<Arc<str>>,
+    pub(crate) description: Option<Text>,
     pub(crate) config_examples: Vec<ConfigExample>,
 }
 

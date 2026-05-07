@@ -31,7 +31,7 @@ use crate::{
     NextOperation, OperationName, IdentifierRef, StreamOf, BuildDiagramOperation,
     Templates, Operations, DiagramErrorCode, BuilderContext, BuildStatus, IntoCallback,
     Node, TraceInfo, InferenceContext, Joined, TypeInfo, DynInputSlot, BasicConnect, TypeMismatch,
-    ConnectIntoTarget, DynOutput,
+    ConnectIntoTarget, DynOutput, Text,
     is_default,
 };
 
@@ -48,6 +48,16 @@ pub struct ScriptSchema {
     pub config: Arc<JsonMessage>,
     /// The operation that the final output of this Python operation will be passed to
     pub next: NextOperation,
+    /// Specify what happens if an error occurs during the script, such as an
+    /// exception or a serialization problem. If you specify a target for
+    /// on_error, then an error message will be sent to that target. You can set
+    /// this to `{ "builtin": "dispose" }` to simply ignore errors.
+    ///
+    /// If left unspecified, a failure will be treated like an implicit operation
+    /// failure and behave according to the `on_implicit_error` for this operation's
+    /// scope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_error: Option<NextOperation>,
     /// A map from the name of a stream to the operation that its outputs should
     /// be passed to.
     #[serde(default, skip_serializing_if = "is_default")]
@@ -70,14 +80,29 @@ impl BuildDiagramOperation for ScriptSchema {
             })?;
 
         let callback = move |input: ScriptInput, world: &mut World| {
-            script.run(input, world)
+            let running = script.run(input, world);
+            async move {
+                running.await.map_err(|err| format!("{err}"))
+            }
         };
 
         let Node { input, output, streams } = ctx.builder.create_node(callback.into_callback());
+        let (ok, err) = ctx.builder.chain(output).fork_result(|ok| ok.output(), |err| err.output());
 
         let trace = TraceInfo::new(self, self.trace_settings.trace)?;
         ctx.set_input_for_target(id, input.into(), trace)?;
-        ctx.add_output_into_target(&self.next, output.into());
+        ctx.add_output_into_target(&self.next, ok.into());
+
+        let error_target = self
+            .on_error
+            .as_ref()
+            .map(|on_error| ctx.into_operation_ref(on_error))
+            .unwrap_or(
+                // If no error target was explicitly given then treat this as an
+                // implicit error.
+                ctx.get_implicit_error_target(),
+            );
+        ctx.add_output_into_target(error_target, err.into());
 
         if !self.stream_out.is_empty() {
             let mut outputs = Vec::new();
@@ -134,21 +159,22 @@ pub struct ScriptEnvironmentSchema {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(transparent)]
 pub struct Script {
-    text: Arc<str>,
+    text: Text,
     #[serde(skip)]
     cache: Arc<Mutex<Option<Arc<std::ffi::CStr>>>>,
 }
 
 impl Script {
-    pub fn new(text: impl Into<Arc<str>>) -> Self {
+    pub fn new(text: impl Into<Text>) -> Self {
         Self {
             text: text.into(),
             cache: Default::default(),
         }
     }
 
-    pub fn set_text(&mut self, text: impl Into<Arc<str>>) {
+    pub fn set_text(&mut self, text: impl Into<Text>) {
         self.text = text.into();
         let mut guard = match self.cache.lock() {
             Ok(guard) => guard,
@@ -158,7 +184,7 @@ impl Script {
         self.cache.clear_poison();
     }
 
-    pub fn text(&self) -> &Arc<str> {
+    pub fn text(&self) -> &Text {
         &self.text
     }
 

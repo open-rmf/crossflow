@@ -20,7 +20,7 @@ use std::{any::Any, borrow::Borrow, cell::RefCell, collections::HashMap, sync::A
 use anyhow::Error as Anyhow;
 
 pub use crate::dyn_node::*;
-use crate::{AnyMessageBox, Builder, DisplayText, JsonBuffer, JsonMessage, Node, StreamPack};
+use crate::{AnyMessageBox, Builder, Text, JsonBuffer, JsonMessage, Node, StreamPack};
 
 #[cfg(feature = "trace")]
 use crate::Trace;
@@ -467,7 +467,7 @@ pub struct NodeBuilderOptions {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ConfigExample {
     /// A description of what this config is for
-    pub description: Arc<str>,
+    pub description: Text,
     /// The value of the config
     pub config: Arc<JsonMessage>,
 }
@@ -483,7 +483,7 @@ impl ConfigExample {
     ///
     /// To construct a [`ConfigExample`] with no risk of panicking, you can
     /// directly use normal structure initialization.
-    pub fn new(description: impl Into<Arc<str>>, config: impl Serialize) -> Self {
+    pub fn new(description: impl Into<Text>, config: impl Serialize) -> Self {
         Self {
             description: description.into(),
             config: Arc::new(serde_json::to_value(config).expect("failed to serialize example config")),
@@ -501,7 +501,7 @@ impl NodeBuilderOptions {
         }
     }
 
-    pub fn with_default_display_text(mut self, text: impl Into<DisplayText>) -> Self {
+    pub fn with_default_display_text(mut self, text: impl Into<Text>) -> Self {
         self.default_display_text = Some(text.into());
         self
     }
@@ -529,7 +529,7 @@ pub struct SectionBuilderOptions {
     /// display text.
     pub default_display_text: Option<BuilderId>,
     /// Optional text to describe the builder.
-    pub description: Option<Arc<str>>,
+    pub description: Option<Text>,
     /// Examples of configurations that can be used with this section builder.
     pub config_examples: Vec<ConfigExample>,
 }
@@ -544,12 +544,12 @@ impl SectionBuilderOptions {
         }
     }
 
-    pub fn with_default_display_text(mut self, text: impl Into<DisplayText>) -> Self {
+    pub fn with_default_display_text(mut self, text: impl Into<Text>) -> Self {
         self.default_display_text = Some(text.into());
         self
     }
 
-    pub fn with_description(mut self, text: impl Into<Arc<str>>) -> Self {
+    pub fn with_description(mut self, text: impl Into<Text>) -> Self {
         self.description = Some(text.into());
         self
     }
@@ -572,9 +572,9 @@ pub struct ScriptEnvironmentBuilderOptions {
     /// The interpreter that will be used to process the scripting language
     pub interpreter: OperationName,
     /// Human-friendly name for the script environment builder
-    pub display_text: Option<Arc<str>>,
+    pub display_text: Option<Text>,
     /// A description of what kind of environments are made by this builder
-    pub description: Option<Arc<str>>,
+    pub description: Option<Text>,
     /// Examples of valid configurations for this builder
     pub config_examples: Vec<ScriptConfigExample>,
 }
@@ -595,12 +595,12 @@ impl ScriptEnvironmentBuilderOptions {
         }
     }
 
-    pub fn with_display_text(mut self, text: impl Into<DisplayText>) -> Self {
+    pub fn with_display_text(mut self, text: impl Into<Text>) -> Self {
         self.display_text = Some(text.into());
         self
     }
 
-    pub fn with_description(mut self, text: impl Into<Arc<str>>) -> Self {
+    pub fn with_description(mut self, text: impl Into<Text>) -> Self {
         self.description = Some(text.into());
         self
     }
@@ -618,9 +618,9 @@ impl ScriptEnvironmentBuilderOptions {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ScriptConfigExample {
     /// The name of this example
-    pub name: Arc<str>,
+    pub name: Text,
     /// A description of this example
-    pub description: Arc<str>,
+    pub description: Text,
     /// The example configuration
     pub config: Arc<JsonMessage>,
     /// How to run this example environment, i.e. what goes into the `run` field
@@ -632,8 +632,8 @@ pub struct ScriptConfigExample {
 
 impl ScriptConfigExample {
     pub fn new(
-        name: impl Into<Arc<str>>,
-        description: impl Into<Arc<str>>,
+        name: impl Into<Text>,
+        description: impl Into<Text>,
         config: impl Serialize,
         run: Script,
     ) -> Self {

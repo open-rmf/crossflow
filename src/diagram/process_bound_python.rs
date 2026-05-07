@@ -48,7 +48,7 @@ pub enum PythonEnvironmentOwnership {
     Shared,
     /// Each node has its own copy of the environment, and each copy will be
     /// reused each time its node runs within the same session.
-    Reuse,
+    Persistent,
     /// Each time a script is run in this environment, it will get a fresh copy
     /// of the environment and all its variables.
     ///
@@ -61,7 +61,7 @@ pub enum PythonEnvironmentOwnership {
 
 impl Default for PythonEnvironmentOwnership {
     fn default() -> Self {
-        Self::Reuse
+        Self::Persistent
     }
 }
 
@@ -131,7 +131,7 @@ def execute(data: object, accessors: Accessors, config: object):
                 operation within the same workflow session, but each operation \
                 will have its own copy of the environment.",
                 PythonConfig {
-                    ownership: PythonEnvironmentOwnership::Reuse,
+                    ownership: PythonEnvironmentOwnership::Persistent,
                     script: script.clone(),
                 },
                 run.clone(),
@@ -165,7 +165,7 @@ def execute(data: object, accessors: Accessors, config: object):
                         let shared = SharedPythonEnvironment::new(&config.script)?;
                         Arc::new(PythonEnvironment::Shared(shared))
                     }
-                    PythonEnvironmentOwnership::Reuse => {
+                    PythonEnvironmentOwnership::Persistent => {
                         let reused = ReusedPythonEnvironment::new(config.script.clone());
                         Arc::new(PythonEnvironment::Reused(reused))
                     }
@@ -418,5 +418,47 @@ impl ScriptExecution for PythonExecution {
             Self::Shared(shared) => shared.run(input).boxed(),
             Self::Isolated(isolated) => isolated.run(input).boxed(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{prelude::*, diagram::testing::*};
+    use serde_json::json;
+
+    #[test]
+    fn test_script_conversion() {
+        let mut fixture = DiagramTestFixture::new();
+
+        let env_script =
+r###"
+def execute(data, accessors, config):
+    return data
+"###;
+
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "start": "script",
+            "script_environments": {
+                "test_env": {
+                    "builder": "process-bound-python",
+                    "config": {
+                        "script": env_script,
+                    }
+                }
+            },
+            "ops": {
+                "script": {
+                    "type": "script",
+                    "environment": "test_env",
+                    "run": "execute",
+                    "next": { "builtin": "terminate" }
+                }
+            }
+        }))
+        .unwrap();
+
+        let r: f32 = fixture.spawn_and_run(&diagram, 10.0).unwrap();
+        assert_eq!(r, 10.0);
     }
 }

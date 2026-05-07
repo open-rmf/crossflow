@@ -511,17 +511,6 @@
         "boolean"
       ]
     },
-    "Script": {
-      "type": "object",
-      "properties": {
-        "text": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "text"
-      ]
-    },
     "ScriptConfigExample": {
       "description": "An example of how to configure an environment",
       "type": "object",
@@ -539,7 +528,7 @@
         },
         "run": {
           "description": "How to run this example environment, i.e. what goes into the `run` field\nof the [`ScriptSchema`][1].\n\n[1]: crate::ScriptSchema",
-          "$ref": "#/$defs/Script"
+          "type": "string"
         }
       },
       "required": [

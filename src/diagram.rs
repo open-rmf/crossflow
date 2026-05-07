@@ -43,7 +43,7 @@ pub mod grpc;
 pub mod zenoh;
 
 #[cfg(feature = "python")]
-pub mod python_operation;
+pub mod process_bound_python;
 
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::system::Commands;
@@ -101,7 +101,7 @@ const RESERVED_OPERATION_NAMES: [&'static str; 2] = ["", "builtin"];
 
 pub type BuilderId = Arc<str>;
 pub type OperationName = Arc<str>;
-pub type DisplayText = Arc<str>;
+pub type Text = Arc<str>;
 
 #[derive(
     Debug, Clone, Serialize, Deserialize, JsonSchema, Hash, PartialEq, Eq, PartialOrd, Ord,
@@ -356,6 +356,7 @@ pub enum DiagramOperation {
     Buffer(BufferSchema),
     BufferAccess(BufferAccessSchema),
     Listen(ListenSchema),
+    Script(ScriptSchema),
 }
 
 impl BuildDiagramOperation for DiagramOperation {
@@ -378,6 +379,7 @@ impl BuildDiagramOperation for DiagramOperation {
             Self::StreamOut(op) => op.build_diagram_operation(id, ctx),
             Self::Transform(op) => op.build_diagram_operation(id, ctx),
             Self::Unzip(op) => op.build_diagram_operation(id, ctx),
+            Self::Script(op) => op.build_diagram_operation(id, ctx),
         }
     }
 
@@ -400,6 +402,7 @@ impl BuildDiagramOperation for DiagramOperation {
             Self::StreamOut(op) => op.apply_message_type_constraints(id, ctx),
             Self::Transform(op) => op.apply_message_type_constraints(id, ctx),
             Self::Unzip(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Script(op) => op.apply_message_type_constraints(id, ctx),
         }
     }
 
@@ -418,6 +421,7 @@ impl BuildDiagramOperation for DiagramOperation {
             Self::StreamOut(op) => op.child_operations(templates),
             Self::Transform(op) => op.child_operations(templates),
             Self::Unzip(op) => op.child_operations(templates),
+            Self::Script(op) => op.child_operations(templates),
         }
     }
 }
@@ -570,7 +574,7 @@ pub struct TraceSettings {
     /// Override for text that should be displayed for an operation within an
     /// editor.
     #[serde(default, skip_serializing_if = "is_default")]
-    pub display_text: Option<DisplayText>,
+    pub display_text: Option<Text>,
     /// Set what the tracing behavior should be for this operation. If this is
     /// left unspecified then the default trace setting of the diagram will be
     /// used.

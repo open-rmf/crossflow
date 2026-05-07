@@ -102,7 +102,7 @@ pub struct SectionSchema {
     #[serde(default)]
     pub config: Arc<JsonMessage>,
     #[serde(default)]
-    pub connect: HashMap<Arc<str>, NextOperation>,
+    pub connect: HashMap<OperationName, NextOperation>,
     #[serde(flatten)]
     pub trace_settings: TraceSettings,
 }

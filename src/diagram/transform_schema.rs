@@ -103,7 +103,8 @@ pub struct TransformSchema {
     /// ignore errors.
     ///
     /// If left unspecified, a failure will be treated like an implicit operation
-    /// failure and behave according to `on_implicit_error`.
+    /// failure and behave according to the `on_implicit_error` for this operation's
+    /// scope.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_error: Option<NextOperation>,
     #[serde(flatten)]
@@ -140,7 +141,7 @@ impl BuildDiagramOperation for TransformSchema {
 
         let (fork_input, ForkResultOutput { ok, err }) = ctx.builder.create_fork_result();
         ctx.builder.connect(node.output, fork_input);
-        ctx.add_output_into_target(error_target.clone(), err.into());
+        ctx.add_output_into_target(error_target, err.into());
 
         let trace = TraceInfo::new(self, self.trace_settings.trace)?;
         ctx.set_input_for_target(id, node.input.into(), trace)?;

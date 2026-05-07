@@ -26,8 +26,7 @@ use serde::{Deserialize, Serialize};
 use anyhow::Error as Anyhow;
 
 use crate::{
-    JsonMessage, ScriptEnvironment, OperationName, BuilderId,
-    ScriptEnvironmentSchema, ScriptConfigExample,
+    JsonMessage, ScriptEnvironment, OperationName, Text, ScriptConfigExample,
 };
 
 pub type ArcScriptEnvironment = Arc<dyn ScriptEnvironment + Send + Sync>;
@@ -49,9 +48,9 @@ pub struct ScriptEnvironmentMetadata {
     /// The schema for configuring an environment made by this builder
     pub(crate) config_schema: Schema,
     /// Human-friendly name for the script environment builder
-    pub(crate) display_text: Option<Arc<str>>,
+    pub(crate) display_text: Option<Text>,
     /// A description of what kind of environments are made by this builder
-    pub(crate) description: Option<Arc<str>>,
+    pub(crate) description: Option<Text>,
     /// Examples of valid configurations for this builder
     pub(crate) config_examples: Vec<ScriptConfigExample>,
 }

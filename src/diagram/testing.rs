@@ -160,6 +160,12 @@ fn opaque_response(_: i64) -> Unserializable {
 /// create a new node registry with some basic nodes registered
 fn new_registry_with_basic_nodes() -> DiagramElementRegistry {
     let mut registry = DiagramElementRegistry::new();
+
+    #[cfg(feature = "python")]
+    {
+        registry.enable_python();
+    }
+
     registry.opt_out().no_cloning().register_node_builder(
         NodeBuilderOptions::new("multiply3_uncloneable"),
         |builder: &mut Builder, _config: ()| builder.create_map_block(multiply3_uncloneable),
