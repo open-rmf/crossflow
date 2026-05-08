@@ -18,11 +18,11 @@
 use crate::{
     DiagramElementRegistry, ScriptEnvironmentBuilderOptions, Script, PythonAccessors, PythonMessage,
     ScriptEnvironment, ScriptExecution, ArcScriptExecution, ScriptInput, ScriptMessage, ScriptConfigExample,
-    JsonMessage,
+    JsonMessage, PythonInput,
 };
 use pyo3::{
     prelude::*,
-    types::PyDict,
+    types::{PyDict, PyAnyMethods},
 };
 use pythonize::{depythonize, pythonize};
 use futures::future::{BoxFuture, FutureExt};
@@ -321,7 +321,6 @@ impl SharedPythonExecution {
         let future = async move {
             Python::attach(|py| {
                 let run = run.bind(py);
-                let config = config.bind(py);
 
                 let ScriptMessage { data, accessors } = input.request;
 
@@ -332,13 +331,14 @@ impl SharedPythonExecution {
 
                 let accessors = PythonAccessors::new(Arc::new(accessors), Arc::new(input.channel));
 
-                let kwargs = PyDict::new(py);
-                kwargs.set_item("data", data)?;
-                kwargs.set_item("accessors", accessors)?;
-                kwargs.set_item("config", config)?;
+                let input = PythonInput {
+                    data: Arc::new(data.unbind()),
+                    accessors,
+                    config,
+                };
 
                 let result = run
-                    .call((), Some(&kwargs))
+                    .call((input,), None)
                     .map_err(|err| anyhow!("{err}"))?;
 
                 if let Ok(message) = result.extract::<PythonMessage>() {
@@ -432,8 +432,9 @@ mod tests {
 
         let env_script =
 r###"
-def execute(data, accessors, config):
-    return data
+def execute(input):
+    assert(len(input.accessors) == 0)
+    return input.data
 "###;
 
         let diagram = Diagram::from_json(json!({

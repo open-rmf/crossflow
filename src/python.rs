@@ -71,6 +71,44 @@ mod crossflow {
         }
     }
 
+    /// Input argument for a Python operation
+    #[derive(Clone)]
+    #[pyclass(from_py_object, name = "Input")]
+    pub struct PythonInput {
+        /// JSON data from the incoming request
+        pub data: Arc<Py<PyAny>>,
+        /// Accessors that have been connected to this operation
+        #[pyo3(get, set)]
+        pub accessors: PythonAccessors,
+        /// The configuration of this operation as set by the diagram layout
+        pub config: Arc<Py<PyAny>>,
+    }
+
+    #[pymethods]
+    impl PythonInput {
+        #[getter(data)]
+        pub fn data(&self, py: Python) -> PyResult<Py<PyAny>> {
+            Ok(self.data.clone_ref(py))
+        }
+
+        #[setter(data)]
+        pub fn set_data(&mut self, data: Py<PyAny>) -> PyResult<()> {
+            self.data = Arc::new(data);
+            Ok(())
+        }
+
+        #[getter(config)]
+        pub fn config(&self, py: Python) -> PyResult<Py<PyAny>> {
+            Ok(self.config.clone_ref(py))
+        }
+
+        #[setter(config)]
+        pub fn set_config(&mut self, config: Py<PyAny>) -> PyResult<()> {
+            self.config = Arc::new(config);
+            Ok(())
+        }
+    }
+
     /// A dictionary of buffer keys that grant access to buffers in the workflow.
     ///
     /// The key can be referenced by index or by name, depending on how the
@@ -80,6 +118,7 @@ mod crossflow {
     pub struct PythonAccessors {
         accessors: Arc<HashMap<IdentifierRef<'static>, AnyBufferKey>>,
         channel: Arc<Channel>,
+        len: Option<isize>,
     }
 
     impl PythonAccessors {
@@ -87,7 +126,8 @@ mod crossflow {
             accessors: Arc<HashMap<IdentifierRef<'static>, AnyBufferKey>>,
             channel: Arc<Channel>,
         ) -> Self {
-            Self { accessors, channel }
+            let len = get_len(accessors.keys());
+            Self { accessors, channel, len }
         }
 
         pub fn depythonize(self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
@@ -100,6 +140,73 @@ mod crossflow {
 
     #[pymethods]
     impl PythonAccessors {
+        fn __len__(&self) -> PyResult<usize> {
+            Ok(self.accessors.len())
+        }
+
+        /// What would len(_) produce for this dictionary if it were treated as
+        /// a list instead of a dictionary. Any indices that do not have an entry
+        /// associated with them will yield a None.
+        ///
+        /// The number given by this function is one-past-the-last index that
+        /// can be used. Trying to index into this number or higher will result
+        /// in an exception.
+        fn list_len(&self) -> PyResult<isize> {
+            Ok(self.len.unwrap_or(0))
+        }
+
+        fn __getitem__(&self, py: Python, key: Bound<PyAny>) -> PyResult<Py<PyAny>> {
+            let accessor = match indexing(key, self.len)? {
+                Indexing::Name(name) => {
+                    let identifier = IdentifierRef::Name(Cow::Owned(name));
+                    match self.accessors.get(&identifier) {
+                        Some(accessor) => accessor,
+                        None => {
+                            return Err(PyKeyError::new_err(
+                                format!("name \"{}\" does not refer to an accessor", identifier)
+                            ));
+                        }
+                    }
+                }
+                Indexing::Index(index) => {
+                    match self.accessors.get(&IdentifierRef::from_index(index)) {
+                        Some(accessor) => accessor,
+                        None => {
+                            // The index is within the valid range, but there is
+                            // no entry for this particular index. We will treat
+                            // it as a deliberate gap in the list and return a
+                            // None value.
+                            return Ok(py_none(py));
+                        }
+                    }
+                }
+                Indexing::Slice(slice) => {
+                    let mut accessors = HashMap::new();
+                    for s in slice {
+                        let id = IdentifierRef::from_index(s?.index);
+                        let Some(accessor) = self.accessors.get(&id) else {
+                            continue;
+                        };
+
+                        accessors.insert(id, accessor.clone());
+                    }
+
+                    let accessors = PythonAccessors::new(
+                        Arc::new(accessors),
+                        Arc::clone(&self.channel),
+                    );
+
+                    return Ok(Py::new(py, accessors)?.into());
+                }
+            };
+
+            let accessor = PythonAccessor {
+                key: accessor.clone(),
+                channel: Arc::clone(&self.channel),
+            };
+            Ok(Py::new(py, accessor)?.into())
+        }
+
         pub fn access(&self, callback: Py<PyAny>) -> PythonReply {
             let mut accessors = HashMap::new();
             for (id, key) in &*self.accessors {
@@ -233,8 +340,8 @@ mod crossflow {
             mutex: &BufferMutex,
             access_map: &mut HashMap<IdentifierRef<'static>, JsonBufferMut<'_, '_, '_>>,
         ) -> Self {
+            let len = get_len(access_map.keys());
             let mut access = HashMap::new();
-            let mut len = None;
             for (identifier, buffer) in access_map {
                 let buffer_ptr: *mut JsonBufferMut<'static, 'static, 'static> = unsafe {
                     std::mem::transmute(buffer)
@@ -243,24 +350,7 @@ mod crossflow {
                     mutex: mutex.clone(),
                     buffer_ptr,
                 };
-
                 access.insert(identifier.clone(), buffer_mut);
-                if let Some(index) = identifier.index() {
-                    let index = index as isize;
-                    if let Some(len) = &mut len {
-                        if index > *len {
-                            *len = index;
-                        }
-                    } else {
-                        len = Some(index);
-                    }
-                }
-            }
-
-            if let Some(len) = &mut len {
-                // Increment the highest index value by 1 to get the "length"
-                // of this pseudo-list.
-                *len += 1;
             }
 
             Self {
@@ -301,48 +391,56 @@ mod crossflow {
             Ok(self.access.lock()?.len())
         }
 
+        /// What would len(_) produce for this dictionary if it were treated as
+        /// a list instead of a dictionary. Any indices that do not have an entry
+        /// associated with them will yield a None.
+        ///
+        /// The number given by this function is one-past-the-last index that
+        /// can be used. Trying to index into this number or higher will result
+        /// in an exception.
+        fn list_len(&self) -> PyResult<isize> {
+            Ok(self.len.unwrap_or(0))
+        }
+
         fn __getitem__(&self, py: Python, key: Bound<PyAny>) -> PyResult<Py<PyAny>> {
-            if let Ok(name) = key.extract::<String>() {
-                let identifier = IdentifierRef::Name(Cow::Owned(name));
-                match self.get_item(&identifier)? {
-                    Some(buffer) => {
-                        return Ok(Py::new(py, buffer)?.into());
-                    }
-                    None => {
-                        return Err(PyKeyError::new_err(
-                            format!("name \"{}\" does not exist for this buffer access", identifier)
-                        ))
+            match indexing(key, self.len)? {
+                Indexing::Name(name) => {
+                    let identifier = IdentifierRef::Name(Cow::Owned(name));
+                    match self.get_item(&identifier)? {
+                        Some(buffer) => {
+                            return Ok(Py::new(py, buffer)?.into());
+                        }
+                        None => {
+                            return Err(PyKeyError::new_err(
+                                format!("name \"{}\" does not exist for this buffer access", identifier)
+                            ));
+                        }
                     }
                 }
-            }
-
-            if let Ok(original_index) = key.extract::<isize>() {
-                if let Some(len) = self.len {
-                    return self.get_item_at_index(py, original_index, len);
+                Indexing::Index(index) => {
+                    match self.get_item(&IdentifierRef::from_index(index))? {
+                        Some(buffer) => {
+                            return Ok(Py::new(py, buffer)?.into());
+                        }
+                        None => {
+                            // The index is within the valid range, but there is
+                            // no entry for this particular index. We will treat
+                            // it as a deliberate gap in the list and return a
+                            // None value.
+                            return Ok(py_none(py));
+                        }
+                    }
                 }
-
-                Err(PyKeyError::new_err(
-                    format!("cannot use index for buffer access that is not a list")
-                ))?;
-            }
-
-            if let Ok(slice) = key.extract::<Bound<PySlice>>() {
-                if let Some(len) = self.len {
+                Indexing::Slice(slice) => {
                     let mut buffers = Vec::new();
-                    for index in PySliceIterator::create(&slice, len)? {
-                        buffers.push(self.get_item_at_index(py, index, len)?);
+                    for s in slice {
+                        buffers.push(self.get_item(&IdentifierRef::Index(s?.index))?);
                     }
 
                     // Return a list when the user requests a slice of accessors.
                     return Ok(PyList::new(py, buffers)?.unbind().into());
                 }
-
-                Err(PyKeyError::new_err(
-                    format!("cannot use slice for buffer access that is not a list")
-                ))?;
             }
-
-            Err(PyKeyError::new_err("unsupported key type - must provide a name, index, or slice").into())
         }
 
         fn __setitem__(&self, key: Bound<PyAny>, value: PythonBufferMut) -> PyResult<()> {
@@ -367,7 +465,7 @@ mod crossflow {
                     }
 
                     Err(PyKeyError::new_err(
-                        format!("cannot use negative index for an buffer access that is not a list")
+                        format!("cannot use negative index for a buffer access that is not a list")
                     ))?;
                 }
 
@@ -382,22 +480,6 @@ mod crossflow {
     }
 
     impl PythonBufferAccess {
-        fn get_item_at_index(&self, py: Python, original_index: isize, len: isize) -> PyResult<Py<PyAny>> {
-            let index = get_index(original_index, len)?;
-            match self.get_item(&IdentifierRef::from_index(index as usize))? {
-                Some(buffer) => {
-                    return Ok(Py::new(py, buffer)?.into());
-                }
-                None => {
-                    // The index is within the valid range, but there is
-                    // no entry for this particular index. We will treat
-                    // it as a deliberate gap in the list and return a
-                    // None value.
-                    return Ok(py_none(py));
-                }
-            }
-        }
-
         fn get_item(&self, identifier: &IdentifierRef<'static>) -> PyResult<Option<PythonBufferMut>> {
             let access = self.access.lock()?;
             Ok(access.get(identifier).cloned())
@@ -439,6 +521,30 @@ mod crossflow {
         Ok(index)
     }
 
+    fn get_len<'a>(identifiers: impl Iterator<Item = &'a IdentifierRef<'static>>) -> Option<isize> {
+        let mut len = None;
+        for identifier in identifiers {
+            if let Some(index) = identifier.index() {
+                let index = index as isize;
+                if let Some(len) = &mut len {
+                    if index > *len {
+                        *len = index;
+                    }
+                } else {
+                    len = Some(index);
+                }
+            }
+        }
+
+        if let Some(len) = &mut len {
+            // Increment the highest index value by 1 to get the "length"
+            // of this pseudo-list.
+            *len += 1;
+        }
+
+        len
+    }
+
     #[derive(Clone)]
     #[pyclass(from_py_object, name = "BufferMut")]
     struct PythonBufferMut {
@@ -465,13 +571,15 @@ mod crossflow {
             let len = buffer.len() as isize;
 
             if let Ok(original_index) = key.extract::<isize>() {
-                return self.get_item(py, original_index);
+                let index = get_index(original_index, len)? as usize;
+                return self.get_item(py, index, original_index, len);
             }
 
             if let Ok(slice) = key.extract::<Bound<PySlice>>() {
                 let mut list = Vec::new();
-                for index in PySliceIterator::create(&slice, len)? {
-                    list.push(self.get_item(py, index)?);
+                for s in PySliceIterator::create(&slice, len)? {
+                    let SliceEntry { index, original_index } = s?;
+                    list.push(self.get_item(py, index, original_index, len)?);
                 }
 
                 return Ok(PyList::new(py, list)?.unbind().into());
@@ -732,11 +840,8 @@ mod crossflow {
     }
 
     impl PythonBufferMut {
-        fn get_item(&self, py: Python, original_index: isize) -> PyResult<Py<PyAny>> {
+        fn get_item(&self, py: Python, index: usize, original_index: isize, len: isize) -> PyResult<Py<PyAny>> {
             let buffer = unsafe { &*self.buffer_ptr };
-            let len = buffer.len() as isize;
-
-            let index = get_index(original_index, len)? as usize;
             let Some(json) = buffer.get(index) else {
                 return Err(PyIndexError::new_err(
                     format!("index {original_index} is outside the range of the buffer, len={len}")
@@ -815,6 +920,7 @@ mod crossflow {
     struct PySliceIterator {
         next: isize,
         indices: PySliceIndices,
+        len: isize,
     }
 
     impl PySliceIterator {
@@ -825,12 +931,12 @@ mod crossflow {
             }
 
             let next = get_index(indices.start, len)?;
-            Ok(Self { next, indices })
+            Ok(Self { next, indices, len })
         }
     }
 
     impl Iterator for PySliceIterator {
-        type Item = isize;
+        type Item = PyResult<SliceEntry>;
         fn next(&mut self) -> Option<Self::Item> {
             if self.indices.step > 0 && self.next >= self.indices.stop {
                 return None;
@@ -840,10 +946,56 @@ mod crossflow {
                 return None;
             }
 
-            let next = self.next;
+            let original_index = self.next;
             self.next += self.indices.step;
-            Some(next)
+            Some(
+                get_index(original_index, self.len)
+                .map(|i| SliceEntry {
+                    index: i as usize,
+                    original_index,
+                })
+            )
         }
+    }
+
+    struct SliceEntry {
+        index: usize,
+        original_index: isize,
+    }
+
+    enum Indexing {
+        Name(String),
+        Index(usize),
+        Slice(PySliceIterator),
+    }
+
+    fn indexing(key: Bound<PyAny>, len: Option<isize>) -> PyResult<Indexing> {
+        if let Ok(name) = key.extract::<String>() {
+            return Ok(Indexing::Name(name));
+        }
+
+        if let Ok(original_index) = key.extract::<isize>() {
+            if let Some(len) = len {
+                let index = get_index(original_index, len)?;
+                return Ok(Indexing::Index(index as usize));
+            }
+
+            Err(PyKeyError::new_err(
+                format!("cannot use index for buffer access that is not a list")
+            ))?;
+        }
+
+        if let Ok(slice) = key.extract::<Bound<PySlice>>() {
+            if let Some(len) = len {
+                return Ok(Indexing::Slice(PySliceIterator::create(&slice, len)?));
+            }
+
+            Err(PyKeyError::new_err(
+                format!("cannot use slice for buffer access that is not a list")
+            ))?;
+        }
+
+        Err(PyKeyError::new_err("unsupported key type - must provide a name, index, or slice").into())
     }
 
     #[cfg(test)]
