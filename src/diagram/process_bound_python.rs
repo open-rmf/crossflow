@@ -232,16 +232,14 @@ def execute(input: Input):
 
 #[derive(Clone)]
 pub struct SharedPythonEnvironment {
-    globals: Arc<Py<PyDict>>,
-    locals: Arc<Py<PyDict>>,
+    py_vars: Arc<Py<PyDict>>,
     task_locals: Arc<PyTaskLocals>,
 }
 
 impl SharedPythonEnvironment {
     pub fn new(script: &Script, task_locals: &Arc<PyTaskLocals>) -> Result<Self, Anyhow> {
         Python::attach(|py| {
-            let globals = PyDict::new(py);
-            let locals = PyDict::new(py);
+            let py_vars = PyDict::new(py);
 
             let c_script = script
                 .get_cstr()
@@ -249,12 +247,11 @@ impl SharedPythonEnvironment {
                     anyhow!("unable to convert script: {err}")
                 })?;
 
-            py.run(&*c_script, Some(&globals), Some(&locals))
+            py.run(&*c_script, Some(&py_vars), None)
                 .map_err(|err| anyhow!("exception while running script: {err}"))?;
 
             Ok(Self {
-                globals: Arc::new(globals.unbind()),
-                locals: Arc::new(locals.unbind()),
+                py_vars: Arc::new(py_vars.unbind()),
                 task_locals: Arc::clone(&task_locals),
             })
         })
@@ -343,14 +340,13 @@ impl SharedPythonExecution {
         })?;
 
         let run = Python::attach(|py| {
-            let globals = env.globals.bind(py);
-            let locals = env.locals.bind(py);
+            let py_vars = env.py_vars.bind(py);
 
             let c_run = run
                 .get_cstr()
                 .with_context(|| format!("Failed to bind the run script [{}]", run.text()))?;
 
-            let callable = py.eval(&*c_run, Some(globals), Some(locals))
+            let callable = py.eval(&*c_run, Some(py_vars), None)
                 .with_context(|| format!("Exception while evaluating [{}]", run.text()))?;
 
             if !callable.is_callable() {
@@ -505,7 +501,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn test_script_conversion() {
+    fn test_script_message_conversion() {
         let mut fixture = DiagramTestFixture::new();
         let py_event_loop = PythonEventLoop::new().unwrap();
         fixture.registry.enable_python(&py_event_loop);
@@ -516,12 +512,18 @@ mod tests {
 
         let env_script =
 r###"
+def run_config_test(input):
+    if input.config is not None:
+        num_accessors = input.config.get('test_num_accessors')
+        if num_accessors is not None:
+            assert(len(input.accessors) == num_accessors)
+
 def execute_blocking(input):
-    assert(len(input.accessors) == 0)
+    run_config_test(input)
     return input.data
 
 async def execute_async(input):
-    assert(len(input.accessors) == 0)
+    run_config_test(input)
     return input.data
 "###;
 
@@ -541,12 +543,18 @@ async def execute_async(input):
                     "type": "script",
                     "environment": "test_env",
                     "run": "execute_blocking",
+                    "config": {
+                        "test_num_accessors": 0
+                    },
                     "next": "script_async"
                 },
                 "script_async": {
                     "type": "script",
                     "environment": "test_env",
                     "run": "execute_async",
+                    "config": {
+                        "test_num_accessors": 0
+                    },
                     "next": { "builtin": "terminate" }
                 }
             }
@@ -556,4 +564,5 @@ async def execute_async(input):
         let r: f32 = fixture.spawn_and_run(&diagram, 10.0).unwrap();
         assert_eq!(r, 10.0);
     }
+
 }

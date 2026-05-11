@@ -1015,50 +1015,38 @@ c = 2
 
 s = slice(2, -1, -1)
 
-def foo(b, c):
-    return b + c
+def foo(a, b, c):
+    return bar(a, b) + bar(b, c)
+
+def bar(a, b):
+    return a*b
 "###;
 
             Python::attach(|py| {
-                let globals = PyDict::new(py);
-                let locals = PyDict::new(py);
-                py.run(python_script, Some(&globals), Some(&locals)).unwrap();
+                let ns = PyDict::new(py);
+                py.run(python_script, Some(&ns), None).unwrap();
 
-                let a_py = locals.get_item("a").unwrap().unwrap();
+                let a_py = ns.get_item("a").unwrap().unwrap();
                 let a: i64 = a_py.extract().unwrap();
                 assert_eq!(a, 0);
 
-                let b_py = locals.get_item("b").unwrap().unwrap();
+                let b_py = ns.get_item("b").unwrap().unwrap();
                 let b: i64 = b_py.extract().unwrap();
                 assert_eq!(b, 1);
 
-                let c_py = locals.get_item("c").unwrap().unwrap();
+                let c_py = ns.get_item("c").unwrap().unwrap();
                 let c: i64 = c_py.extract().unwrap();
                 assert_eq!(c, 2);
 
-                let s_py = locals.get_item("s").unwrap().unwrap();
+                let s_py = ns.get_item("s").unwrap().unwrap();
                 let s: Py<PySlice> = s_py.extract().unwrap();
                 let indices = s.bind(py).indices(10).unwrap();
                 assert_eq!(indices.start, 2);
                 assert_eq!(indices.stop, 9);
 
-                let foo_py = py.eval(c"foo", Some(&globals), Some(&locals)).unwrap();
-                let r: i64 = foo_py.call1((b, c)).unwrap().extract().unwrap();
-                assert_eq!(r, 3);
-
-                let run_script =
-cr###"
-def bar(a, b):
-    return a * b;
-"###;
-                py.run(run_script, Some(&globals), Some(&locals)).unwrap();
-                let (_, bar_py) = locals.iter().last().unwrap();
-                let r: i64 = bar_py.call1((2, 3)).unwrap().extract().unwrap();
-                assert_eq!(r, 6);
-
-                let foo_py = py.eval(c"foo", Some(&globals), Some(&locals)).unwrap();
-                let r: i64 = foo_py.call1((5, 6)).unwrap().extract().unwrap();
-                assert_eq!(r, 11);
+                let foo_py = py.eval(c"foo", Some(&ns), None).unwrap();
+                let r: i64 = foo_py.call1((1, 2, 3)).unwrap().extract().unwrap();
+                assert_eq!(r, 8);
             });
         }
     }
