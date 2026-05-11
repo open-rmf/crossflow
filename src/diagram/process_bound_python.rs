@@ -38,6 +38,7 @@ use std::{
 
 use anyhow::{anyhow, Context, Error as Anyhow};
 
+#[derive(Clone)]
 pub struct PythonEventLoop {
     asyncio_event_loop: Arc<Py<PyAny>>,
 }
@@ -64,10 +65,22 @@ impl PythonEventLoop {
         })
     }
 
-    pub fn run_forever(self) -> PyResult<Py<PyAny>> {
+    /// Run the event loop indefinitely. This is a blocking function, so it must
+    /// be run on a separate thread from the main thread of the Bevy app.
+    pub fn run(&self) -> Result<(), PyErr> {
         Python::attach(|py| {
             self.asyncio_event_loop.call_method0(py, "run_forever")
         })
+        .map(|_| ())
+    }
+
+    /// Tell the event loop to stop running. This does not block, so the event
+    /// loop could still run for some time after this function returns.
+    pub fn stop(&self) -> Result<(), PyErr> {
+        Python::attach(|py| {
+            self.asyncio_event_loop.call_method0(py, "stop")
+        })
+        .map(|_| ())
     }
 }
 
@@ -496,8 +509,9 @@ mod tests {
         let mut fixture = DiagramTestFixture::new();
         let py_event_loop = PythonEventLoop::new().unwrap();
         fixture.registry.enable_python(&py_event_loop);
+
         std::thread::spawn(move || {
-            py_event_loop.run_forever().unwrap();
+            py_event_loop.run().unwrap();
         });
 
         let env_script =
