@@ -528,6 +528,9 @@ pub mod prelude {
     #[cfg(feature = "trace")]
     pub use crate::{Debug, DebugStepExt, UniversalTraceToggle};
 
+    #[cfg(all(feature = "python", feature = "diagram"))]
+    pub use crate::diagram::process_bound_python::PythonEventLoop;
+
     pub use futures::FutureExt;
 }
 

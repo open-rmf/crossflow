@@ -24,6 +24,7 @@ use pyo3::{
     prelude::*,
     types::{PyDict, PyAnyMethods},
 };
+use pyo3_async_runtimes::TaskLocals as PyTaskLocals;
 use pythonize::{depythonize, pythonize};
 use futures::future::{BoxFuture, FutureExt};
 use serde::{Serialize, Deserialize};
@@ -37,6 +38,39 @@ use std::{
 
 use anyhow::{anyhow, Context, Error as Anyhow};
 
+pub struct PythonEventLoop {
+    asyncio_event_loop: Arc<Py<PyAny>>,
+}
+
+impl PythonEventLoop {
+    pub fn from_any(asyncio_event_loop: Arc<Py<PyAny>>) -> Self {
+        Self { asyncio_event_loop }
+    }
+
+    /// Create a new Python asyncio event loop instance
+    pub fn new() -> Result<Self, PyErr> {
+        let asyncio_event_loop = Python::attach(|py| {
+            let asyncio = py.import("asyncio")?;
+            Ok::<_, PyErr>(asyncio.call_method0("new_event_loop")?.unbind())
+        })?;
+
+        Ok(Self { asyncio_event_loop: Arc::new(asyncio_event_loop) })
+    }
+
+    fn get_task_locals(&self) -> PyTaskLocals {
+        Python::attach(|py| {
+            let event_loop = self.asyncio_event_loop.clone_ref(py).into_bound(py);
+            pyo3_async_runtimes::TaskLocals::new(event_loop)
+        })
+    }
+
+    pub fn run_forever(self) -> PyResult<Py<PyAny>> {
+        Python::attach(|py| {
+            self.asyncio_event_loop.call_method0(py, "run_forever")
+        })
+    }
+}
+
 /// When a node uses a certain Python environment, should the environment and
 /// all its variables be reused each time a script is run in the environment,
 /// or should the environment be rebuilt each time a script is run?
@@ -47,15 +81,16 @@ pub enum PythonEnvironmentOwnership {
     /// environment and reused with each run of each node.
     Shared,
     /// Each node has its own copy of the environment, and each copy will be
-    /// reused each time its node runs within the same session.
+    /// reused across all calls to its node, so changes to nonlocal variables
+    /// will persist across runs.
     Persistent,
     /// Each time a script is run in this environment, it will get a fresh copy
     /// of the environment and all its variables.
     ///
     /// Note that if you have a base environment script this setting will rerun
     /// that base script from scratch each time a script operation is run. This
-    /// could have consequences on performance, so you may want to consider `Reuse`
-    /// instead.
+    /// could have consequences on performance, so you may want to consider
+    /// [`Self::Persistent`] instead.
     Isolated,
 }
 
@@ -76,7 +111,7 @@ pub struct PythonConfig {
 impl DiagramElementRegistry {
     /// Enable script environment support for Python using pyo3 and the CPython
     /// interpreter.
-    pub fn enable_python(&mut self) {
+    pub fn enable_python(&mut self, event_loop: &PythonEventLoop) {
         let interpreter = Python::attach(|py| {
             let sys = py.import("sys")?;
             let version: String = sys.getattr("version")?.extract()?;
@@ -89,13 +124,13 @@ impl DiagramElementRegistry {
 r###"
 from crossflow import *
 
-def execute(data: object, accessors: Accessors, config: object):
+def execute(input: Input):
     """Execute a node in a workflow
 
-    Keyword arguments:
-    :param data: JSON-style data sent into this node as a request
-    :param accessors: A collection of buffers that this node has access to
-    :param config: JSON-style data set for this node in the original JSON diagram
+    Arguments:
+    :param input.data: JSON-style data sent into this node as a request
+    :param input.accessors: A collection of buffers that this node has access to
+    :param input.config: JSON-style data set for this node in the original JSON diagram
     :return: either a JSON-style value or a crossflow.Message
 
     The incoming request will be split into `data` for JSON-style data and
@@ -150,6 +185,7 @@ def execute(data: object, accessors: Accessors, config: object):
             ),
         ];
 
+        let task_locals = Arc::new(event_loop.get_task_locals());
         self.register_script_environment_builder(
             ScriptEnvironmentBuilderOptions::new(
                 "process-bound-python",
@@ -159,18 +195,18 @@ def execute(data: object, accessors: Accessors, config: object):
                 .with_description(builder_description)
                 .with_display_text("Python")
                 .with_config_examples(config_examples),
-            |config: PythonConfig| {
+            move |config: PythonConfig| {
                 let env = match config.ownership {
                     PythonEnvironmentOwnership::Shared => {
-                        let shared = SharedPythonEnvironment::new(&config.script)?;
+                        let shared = SharedPythonEnvironment::new(&config.script, &task_locals)?;
                         Arc::new(PythonEnvironment::Shared(shared))
                     }
                     PythonEnvironmentOwnership::Persistent => {
-                        let reused = ReusedPythonEnvironment::new(config.script.clone());
-                        Arc::new(PythonEnvironment::Reused(reused))
+                        let reused = PersistentPythonEnvironment::new(config.script.clone(), Arc::clone(&task_locals));
+                        Arc::new(PythonEnvironment::Persistent(reused))
                     }
                     PythonEnvironmentOwnership::Isolated => {
-                        let isolated = IsolatedPythonEnvironment::new(config.script.clone());
+                        let isolated = IsolatedPythonEnvironment::new(config.script.clone(), Arc::clone(&task_locals));
                         Arc::new(PythonEnvironment::Isolated(isolated))
                     }
                 };
@@ -185,10 +221,11 @@ def execute(data: object, accessors: Accessors, config: object):
 pub struct SharedPythonEnvironment {
     globals: Arc<Py<PyDict>>,
     locals: Arc<Py<PyDict>>,
+    task_locals: Arc<PyTaskLocals>,
 }
 
 impl SharedPythonEnvironment {
-    pub fn new(script: &Script) -> Result<Self, Anyhow> {
+    pub fn new(script: &Script, task_locals: &Arc<PyTaskLocals>) -> Result<Self, Anyhow> {
         Python::attach(|py| {
             let globals = PyDict::new(py);
             let locals = PyDict::new(py);
@@ -205,6 +242,7 @@ impl SharedPythonEnvironment {
             Ok(Self {
                 globals: Arc::new(globals.unbind()),
                 locals: Arc::new(locals.unbind()),
+                task_locals: Arc::clone(&task_locals),
             })
         })
     }
@@ -212,31 +250,33 @@ impl SharedPythonEnvironment {
 }
 
 #[derive(Clone)]
-pub struct ReusedPythonEnvironment {
+pub struct PersistentPythonEnvironment {
     script: Script,
+    task_locals: Arc<PyTaskLocals>,
 }
 
-impl ReusedPythonEnvironment {
-    pub fn new(script: Script) -> Self {
-        Self { script }
+impl PersistentPythonEnvironment {
+    pub fn new(script: Script, task_locals: Arc<PyTaskLocals>) -> Self {
+        Self { script, task_locals }
     }
 }
 
 #[derive(Clone)]
 pub struct IsolatedPythonEnvironment {
     environment: Script,
+    task_locals: Arc<PyTaskLocals>,
 }
 
 impl IsolatedPythonEnvironment {
-    pub fn new(script: Script) -> Self {
-        Self { environment: script }
+    pub fn new(script: Script, task_locals: Arc<PyTaskLocals>) -> Self {
+        Self { environment: script, task_locals }
     }
 }
 
 #[derive(Clone)]
 pub enum PythonEnvironment {
     Shared(SharedPythonEnvironment),
-    Reused(ReusedPythonEnvironment),
+    Persistent(PersistentPythonEnvironment),
     Isolated(IsolatedPythonEnvironment),
 }
 
@@ -251,8 +291,8 @@ impl ScriptEnvironment for PythonEnvironment {
                 let exec = SharedPythonExecution::new(shared, run, &*config)?;
                 PythonExecution::Shared(exec)
             },
-            Self::Reused(reused) => {
-                let env = SharedPythonEnvironment::new(&reused.script)?;
+            Self::Persistent(persistent) => {
+                let env = SharedPythonEnvironment::new(&persistent.script, &persistent.task_locals)?;
                 let exec = SharedPythonExecution::new(&env, run, &*config)?;
                 PythonExecution::Shared(exec)
             },
@@ -261,6 +301,7 @@ impl ScriptEnvironment for PythonEnvironment {
                     isolated.environment.clone(),
                     run.clone(),
                     Arc::clone(config),
+                    Arc::clone(&isolated.task_locals),
                 )?;
                 PythonExecution::Isolated(exec)
             }
@@ -273,6 +314,7 @@ impl ScriptEnvironment for PythonEnvironment {
 pub struct SharedPythonExecution {
     run: Arc<Py<PyAny>>,
     config: Arc<Py<PyAny>>,
+    task_locals: Arc<PyTaskLocals>,
 }
 
 impl SharedPythonExecution {
@@ -308,6 +350,7 @@ impl SharedPythonExecution {
         Ok(Self {
             run: Arc::new(run),
             config: Arc::new(config),
+            task_locals: Arc::clone(&env.task_locals),
         })
     }
 
@@ -317,9 +360,10 @@ impl SharedPythonExecution {
     ) -> impl Future<Output = Result<ScriptMessage, Anyhow>> + 'static {
         let run = Arc::clone(&self.run);
         let config = Arc::clone(&self.config);
+        let task_locals = Arc::clone(&self.task_locals);
 
         let future = async move {
-            Python::attach(|py| {
+            let (result, is_async) = Python::attach(|py| {
                 let run = run.bind(py);
 
                 let ScriptMessage { data, accessors } = input.request;
@@ -338,9 +382,26 @@ impl SharedPythonExecution {
                 };
 
                 let result = run
-                    .call((input,), None)
-                    .map_err(|err| anyhow!("{err}"))?;
+                    .call((input,), None)?;
 
+                let is_async = result.hasattr("__await__")?;
+                Ok::<_, Anyhow>((result.unbind(), is_async))
+            })?;
+
+            let result = if is_async {
+                let result = Python::attach(move |py| {
+                    let result = result.into_bound(py);
+                    pyo3_async_runtimes::into_future_with_locals(&task_locals, result)
+                        .map_err(|err| anyhow!("{err}"))
+                });
+
+                result?.await.map_err(|err| anyhow!("{err}"))?
+            } else {
+                result
+            };
+
+            Python::attach(|py| {
+                let result = result.into_bound(py);
                 if let Ok(message) = result.extract::<PythonMessage>() {
                     return Ok(ScriptMessage {
                         data: message.data,
@@ -367,6 +428,7 @@ pub struct IsolatedPythonExecution {
     environment: Script,
     run: Script,
     config: Arc<JsonMessage>,
+    task_locals: Arc<PyTaskLocals>,
 }
 
 impl IsolatedPythonExecution {
@@ -374,10 +436,11 @@ impl IsolatedPythonExecution {
         environment: Script,
         run: Script,
         config: Arc<JsonMessage>,
+        task_locals: Arc<PyTaskLocals>,
     ) -> Result<Self, Anyhow> {
         // Test that the overall configuration is valid while we compile the
         // environment to be run
-        let env = SharedPythonEnvironment::new(&environment)?;
+        let env = SharedPythonEnvironment::new(&environment, &task_locals)?;
         SharedPythonExecution::new(&env, &run, &*config)?;
 
         // If the above worked okay then we'll assume that the compilation is valid
@@ -385,6 +448,7 @@ impl IsolatedPythonExecution {
             environment,
             run,
             config,
+            task_locals,
         })
     }
 
@@ -395,8 +459,9 @@ impl IsolatedPythonExecution {
         let environment = self.environment.clone();
         let run = self.run.clone();
         let config = Arc::clone(&self.config);
+        let task_locals = Arc::clone(&self.task_locals);
         async move {
-            let env = SharedPythonEnvironment::new(&environment)?;
+            let env = SharedPythonEnvironment::new(&environment, &task_locals)?;
             let exec = SharedPythonExecution::new(&env, &run, &*config)?;
             exec.run(input).await
         }
@@ -429,17 +494,25 @@ mod tests {
     #[test]
     fn test_script_conversion() {
         let mut fixture = DiagramTestFixture::new();
+        let py_event_loop = PythonEventLoop::new().unwrap();
+        fixture.registry.enable_python(&py_event_loop);
+        std::thread::spawn(move || {
+            py_event_loop.run_forever().unwrap();
+        });
 
         let env_script =
 r###"
-def execute(input):
+def execute_blocking(input):
+    assert(len(input.accessors) == 0)
+    return input.data
+
+async def execute_async(input):
     assert(len(input.accessors) == 0)
     return input.data
 "###;
 
         let diagram = Diagram::from_json(json!({
             "version": "0.1.0",
-            "start": "script",
             "script_environments": {
                 "test_env": {
                     "builder": "process-bound-python",
@@ -448,11 +521,18 @@ def execute(input):
                     }
                 }
             },
+            "start": "script_basic",
             "ops": {
-                "script": {
+                "script_basic": {
                     "type": "script",
                     "environment": "test_env",
-                    "run": "execute",
+                    "run": "execute_blocking",
+                    "next": "script_async"
+                },
+                "script_async": {
+                    "type": "script",
+                    "environment": "test_env",
+                    "run": "execute_async",
                     "next": { "builtin": "terminate" }
                 }
             }
