@@ -635,4 +635,111 @@ def filter_values(input):
 
         py_event_loop.stop().unwrap();
     }
+
+    #[test]
+    fn test_python_buffer_listen() {
+        let mut fixture = DiagramTestFixture::new();
+
+        let py_event_loop = PythonEventLoop::new().unwrap();
+        fixture.registry.enable_python(&py_event_loop);
+        py_event_loop.spawn_thread_and_run();
+
+        let env_script =
+r###"
+import asyncio
+
+async def slow_stream(input):
+    delay = input.config['delay']
+    for value in input.data:
+        input.stream_out('value', value)
+        await asyncio.sleep(delay)
+
+async def success_when_equal(input):
+    equal_value = await input.accessors.access(check_equal)
+    if equal_value is not None:
+        input.stream_out('equal', equal_value)
+
+def check_equal(access):
+    a = access[0].get_oldest()
+    b = access[1].get_oldest()
+    if a is not None and b is not None:
+        if a == b:
+            return a
+
+    # When the values are not equal, return None
+    return None
+"###;
+
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "script_environments": {
+                "test_env": {
+                    "builder": "process-bound-python",
+                    "config": {
+                        "script": env_script
+                    }
+                }
+            },
+            "start": "split",
+            "ops": {
+                "split": {
+                    "type": "split",
+                    "sequential": [
+                        "left_stream",
+                        "right_stream",
+                    ]
+                },
+                "left_stream": {
+                    "type": "script",
+                    "environment": "test_env",
+                    "run": "slow_stream",
+                    "config": {
+                        "delay": 0.002
+                    },
+                    "stream_out": {
+                        "value": "left_buffer"
+                    },
+                    "next": { "builtin": "dispose" }
+                },
+                "left_buffer": { "type": "buffer" },
+                "right_stream": {
+                    "type": "script",
+                    "environment": "test_env",
+                    "run": "slow_stream",
+                    "config": {
+                        "delay": 0.002
+                    },
+                    "stream_out": {
+                        "value": "right_buffer"
+                    },
+                    "next": { "builtin": "dispose" }
+                },
+                "right_buffer": { "type": "buffer" },
+                "listen": {
+                    "type": "listen",
+                    "buffers": ["left_buffer", "right_buffer"],
+                    "next": "success_when_equal"
+                },
+                "success_when_equal": {
+                    "type": "script",
+                    "environment": "test_env",
+                    "run": "success_when_equal",
+                    "stream_out": {
+                        "equal": { "builtin": "terminate" }
+                    },
+                    "next": { "builtin": "dispose" }
+                }
+            }
+        }))
+        .unwrap();
+
+        let input = json!([
+            [0, 1, 2, 3, 4, 5],
+            [10, 9, 8, 7, 6, 5],
+        ]);
+        let r: i32 = fixture.spawn_and_run(&diagram, input).unwrap();
+        assert_eq!(r, 5);
+
+        py_event_loop.stop().unwrap();
+    }
 }

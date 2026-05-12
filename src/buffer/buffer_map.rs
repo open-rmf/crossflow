@@ -47,6 +47,7 @@ use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 
 pub type BufferMap = HashMap<IdentifierRef<'static>, AnyBuffer>;
+pub type BufferKeyMap = HashMap<IdentifierRef<'static>, AnyBufferKey>;
 
 /// Extension trait that makes it more convenient to insert buffers into a [`BufferMap`].
 pub trait AddBufferToMap {

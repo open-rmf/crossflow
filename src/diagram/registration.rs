@@ -389,7 +389,8 @@ impl DiagramElementRegistry {
             .with_split();
 
         self.register_message::<ScriptMessage>()
-            .with_join();
+            .with_join()
+            .with_listen();
 
         self.opt_out()
             .no_cloning()

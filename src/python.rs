@@ -20,7 +20,7 @@ mod crossflow {
     use crate::{
         AnyBufferKey, Channel, JsonBufferKey, IdentifierRef, AccessError, BufferError, OverlapError,
         JsonBufferMut, JsonMut, JsonRef, JsonMessage, format_vertical_list, DynamicallyNamedStreamChannel, StreamOf,
-        ScriptMessage, NamedValue,
+        ScriptMessage, NamedValue, BufferKeyMap,
     };
     use std::{
         borrow::Cow,
@@ -132,21 +132,21 @@ mod crossflow {
     #[derive(Clone)]
     #[pyclass(from_py_object, name = "Accessors")]
     pub struct PythonAccessors {
-        accessors: Arc<HashMap<IdentifierRef<'static>, AnyBufferKey>>,
+        accessors: Arc<BufferKeyMap>,
         channel: Arc<Channel>,
         len: Option<isize>,
     }
 
     impl PythonAccessors {
         pub fn new(
-            accessors: Arc<HashMap<IdentifierRef<'static>, AnyBufferKey>>,
+            accessors: Arc<BufferKeyMap>,
             channel: Arc<Channel>,
         ) -> Self {
             let len = get_len(accessors.keys());
             Self { accessors, channel, len }
         }
 
-        pub fn depythonize(self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
+        pub fn depythonize(self) -> BufferKeyMap {
             match Arc::try_unwrap(self.accessors) {
                 Ok(accessors) => accessors,
                 Err(this) => (*this).clone(),
@@ -307,7 +307,7 @@ mod crossflow {
     impl PythonReply {
         fn __await__(&self, py: Python) -> PyResult<Py<PyAny>> {
             let future = self.future.clone();
-            pyo3_async_runtimes::async_std::future_into_py(py, async move {
+            let py_future = pyo3_async_runtimes::async_std::future_into_py(py, async move {
                 match future.await {
                     Ok(Ok(result)) => {
                         match result.as_ref() {
@@ -334,8 +334,9 @@ mod crossflow {
                         ));
                     }
                 }
-            })
-            .map(|bound| bound.unbind())
+            })?;
+
+            Ok(py_future.call_method0("__await__")?.unbind())
         }
 
         fn detach(&self) -> PyResult<()> {
