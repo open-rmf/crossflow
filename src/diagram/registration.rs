@@ -20,7 +20,7 @@ use std::{any::Any, borrow::Borrow, cell::RefCell, collections::HashMap, sync::A
 use anyhow::Error as Anyhow;
 
 pub use crate::dyn_node::*;
-use crate::{AnyMessageBox, Builder, Text, JsonBuffer, JsonMessage, Node, StreamPack};
+use crate::{AnyMessageBox, Builder, Text, JsonBuffer, JsonMessage, Node, StreamPack, ScriptMessage};
 
 #[cfg(feature = "trace")]
 use crate::Trace;
@@ -32,7 +32,7 @@ use super::{
     BuilderId, DeserializeMessage, DiagramErrorCode, DynForkClone, DynForkResult, DynSplit,
     DynType, JsonRegistration, RegisterJson, RegisterSplit, Section, SectionInterface,
     SectionInterfaceDescription, SerializeMessage, SplitSchema, TypeInfo, OperationName, TransformError,
-    ScriptEnvironment, Script, ScriptMessage,
+    ScriptEnvironment, Script,
     buffer_schema::BufferAccessRequest,
     fork_clone_schema::RegisterClone,
     fork_result_schema::{ForkResultRegistration, RegisterForkResult},

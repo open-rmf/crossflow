@@ -31,10 +31,7 @@ use serde::{Serialize, Deserialize};
 use schemars::JsonSchema;
 use bevy_ecs::prelude::World;
 
-use std::{
-    collections::HashMap,
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Error as Anyhow};
 
@@ -72,6 +69,14 @@ impl PythonEventLoop {
             self.asyncio_event_loop.call_method0(py, "run_forever")
         })
         .map(|_| ())
+    }
+
+    /// Spawn a thread for running this event loop.
+    pub fn spawn_thread_and_run(&self) -> std::thread::JoinHandle<Result<(), PyErr>> {
+        let py_event_loop = self.clone();
+        std::thread::spawn(move || {
+            py_event_loop.run()
+        })
     }
 
     /// Tell the event loop to stop running. This does not block, so the event
@@ -137,7 +142,7 @@ impl DiagramElementRegistry {
 r###"
 from crossflow import *
 
-def execute(input: Input):
+async def execute(input: Input):
     """Execute a node in a workflow
 
     Arguments:
@@ -376,6 +381,7 @@ impl SharedPythonExecution {
                 let run = run.bind(py);
 
                 let ScriptMessage { data, accessors } = input.request;
+                // input.streams.send(data);
 
                 let data = pythonize(py, &data)
                     .map_err(|err| {
@@ -386,6 +392,7 @@ impl SharedPythonExecution {
 
                 let input = PythonInput {
                     data: Arc::new(data.unbind()),
+                    streams: input.streams,
                     accessors,
                     config,
                 };
@@ -412,10 +419,7 @@ impl SharedPythonExecution {
             Python::attach(|py| {
                 let result = result.into_bound(py);
                 if let Ok(message) = result.extract::<PythonMessage>() {
-                    return Ok(ScriptMessage {
-                        data: message.data,
-                        accessors: message.accessors.map(|a| a.depythonize()).unwrap_or(HashMap::new()),
-                    });
+                    return Ok(ScriptMessage::from(message));
                 }
 
                 // The user didn't return a PythonMessge, so let's try to
@@ -425,7 +429,7 @@ impl SharedPythonExecution {
                         anyhow!("failed to depythonize return value: {err}")
                     })?;
 
-                Ok(ScriptMessage { data, accessors: Default::default() })
+                Ok(ScriptMessage::from(data))
             })
         };
 
@@ -503,12 +507,10 @@ mod tests {
     #[test]
     fn test_script_message_conversion() {
         let mut fixture = DiagramTestFixture::new();
+
         let py_event_loop = PythonEventLoop::new().unwrap();
         fixture.registry.enable_python(&py_event_loop);
-
-        std::thread::spawn(move || {
-            py_event_loop.run().unwrap();
-        });
+        py_event_loop.spawn_thread_and_run();
 
         let env_script =
 r###"
@@ -563,6 +565,74 @@ async def execute_async(input):
 
         let r: f32 = fixture.spawn_and_run(&diagram, 10.0).unwrap();
         assert_eq!(r, 10.0);
+
+        py_event_loop.stop().unwrap();
     }
 
+    #[test]
+    fn test_python_script_streams() {
+        let mut fixture = DiagramTestFixture::new();
+
+        let py_event_loop = PythonEventLoop::new().unwrap();
+        fixture.registry.enable_python(&py_event_loop);
+        py_event_loop.spawn_thread_and_run();
+
+        let env_script =
+r###"
+def stream_out_values(input):
+    for value in input.data:
+        input.stream_out('values', value)
+
+def filter_values(input):
+    value = input.data
+    limit = input.config
+    if value > limit:
+        input.stream_out('high', value)
+    else:
+        input.stream_out('low', value)
+"###;
+
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "script_environments": {
+                "test_env": {
+                    "builder": "process-bound-python",
+                    "config": {
+                        "script": env_script,
+                    }
+                }
+            },
+            "start": "streaming_script",
+            "ops": {
+                "streaming_script": {
+                    "type": "script",
+                    "environment": "test_env",
+                    "run": "stream_out_values",
+                    "stream_out": {
+                        "values": "filter"
+                    },
+                    "next": { "builtin": "dispose" }
+                },
+                "filter": {
+                    "type": "script",
+                    "environment": "test_env",
+                    "run": "filter_values",
+                    "config": 4,
+                    "stream_out": {
+                        "high": { "builtin": "terminate" }
+                    },
+                    "next": { "builtin" : "dispose" }
+                }
+            }
+        }))
+        .unwrap();
+
+        fixture.registry.register_message::<Vec<i32>>();
+
+        let values = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let r: i32 = fixture.spawn_and_run(&diagram, values).unwrap();
+        assert_eq!(r, 5);
+
+        py_event_loop.stop().unwrap();
+    }
 }

@@ -174,6 +174,11 @@ pub(crate) mod utils;
 #[allow(unused)]
 pub(crate) use utils::*;
 
+#[cfg(any(feature = "python", feature = "diagram"))]
+pub mod scripting;
+#[cfg(any(feature = "python", feature = "diagram"))]
+pub use scripting::*;
+
 #[cfg(feature = "trace")]
 pub mod trace;
 #[cfg(feature = "trace")]

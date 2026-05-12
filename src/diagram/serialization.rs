@@ -27,10 +27,10 @@ use serde::{Serialize, de::DeserializeOwned};
 use super::{
     BasicConnect, BuilderContext, ConnectIntoTarget, DiagramErrorCode, DynForkResult, DynInputSlot, Builder,
     DynOutput, JsonMessage, MessageRegistrations, MessageRegistry, TypeInfo, TypeMismatch, Serialization,
-    Deserialization, ScriptMessage,
+    Deserialization,
     supported::*,
 };
-use crate::JsonBuffer;
+use crate::{JsonBuffer, ScriptMessage};
 
 #[cfg(feature = "trace")]
 use crate::Trace;

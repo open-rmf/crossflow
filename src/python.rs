@@ -19,7 +19,8 @@
 mod crossflow {
     use crate::{
         AnyBufferKey, Channel, JsonBufferKey, IdentifierRef, AccessError, BufferError, OverlapError,
-        JsonBufferMut, JsonMut, JsonRef, JsonMessage, format_vertical_list,
+        JsonBufferMut, JsonMut, JsonRef, JsonMessage, format_vertical_list, DynamicallyNamedStreamChannel, StreamOf,
+        ScriptMessage, NamedValue,
     };
     use std::{
         borrow::Cow,
@@ -80,6 +81,8 @@ mod crossflow {
         /// Accessors that have been connected to this operation
         #[pyo3(get, set)]
         pub accessors: PythonAccessors,
+        /// Stream out messages from the operation
+        pub streams: DynamicallyNamedStreamChannel<StreamOf<ScriptMessage>>,
         /// The configuration of this operation as set by the diagram layout
         pub config: Arc<Py<PyAny>>,
     }
@@ -105,6 +108,19 @@ mod crossflow {
         #[setter(config)]
         pub fn set_config(&mut self, config: Py<PyAny>) -> PyResult<()> {
             self.config = Arc::new(config);
+            Ok(())
+        }
+
+        pub fn stream_out(&self, name: String, message: Bound<PyAny>) -> PyResult<()> {
+            let message = if let Ok(message) = message.extract::<PythonMessage>() {
+                ScriptMessage::from(message)
+            } else {
+                let data: JsonMessage = depythonize(&message)?;
+                ScriptMessage::from(data)
+            };
+
+            self.streams.send(NamedValue::new(name, message));
+
             Ok(())
         }
     }
@@ -379,6 +395,15 @@ mod crossflow {
             };
 
             Ok(Self { data, accessors })
+        }
+    }
+
+    impl From<PythonMessage> for ScriptMessage {
+        fn from(message: PythonMessage) -> Self {
+            Self {
+                data: message.data,
+                accessors: message.accessors.map(|a| a.depythonize()).unwrap_or(HashMap::default()),
+            }
         }
     }
 

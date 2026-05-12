@@ -236,6 +236,16 @@ pub struct DynamicallyNamedStreamChannel<S> {
     _ignore: std::marker::PhantomData<fn(S)>,
 }
 
+impl<S> Clone for DynamicallyNamedStreamChannel<S> {
+    fn clone(&self) -> Self {
+        Self {
+            targets: Arc::clone(&self.targets),
+            inner: Arc::clone(&self.inner),
+            _ignore: Default::default(),
+        }
+    }
+}
+
 impl<S: StreamEffect> DynamicallyNamedStreamChannel<S> {
     pub fn send(&self, data: NamedValue<S::Input>) {
         let NamedValue { name, value } = data;

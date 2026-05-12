@@ -23,7 +23,7 @@ use std::{
 
 use crate::{
     AnyBuffer, BufferMap, Builder, BuilderScopeContext, IdentifierRef, JsonMessage, PortRef, Scope,
-    StreamPack, dyn_node::DynStreamInputPack,
+    StreamPack, dyn_node::DynStreamInputPack, ScriptMessage,
     diagram::script_environment_registration::ArcScriptEnvironment,
 };
 
@@ -35,7 +35,7 @@ use super::{
     DiagramErrorCode, DynInputSlot, DynOutput, FinishingErrors, ImplicitDeserialization,
     ImplicitSerialization, ImplicitStringify, InferenceBoundaryConditions, InferenceContext,
     NamedOperationRef, NamespaceList, NextOperation, OperationName, OperationRef, Operations,
-    TraceToggle, TypeInfo, TypeMismatch, Templates, ScriptMessage, ImplicitScriptMessage,
+    TraceToggle, TypeInfo, TypeMismatch, Templates, ImplicitScriptMessage,
     BuilderId,
 };
 

@@ -31,7 +31,7 @@ use crate::{
     NextOperation, OperationName, IdentifierRef, StreamOf, BuildDiagramOperation,
     Templates, Operations, DiagramErrorCode, BuilderContext, BuildStatus, IntoCallback,
     Node, TraceInfo, InferenceContext, Joined, TypeInfo, DynInputSlot, BasicConnect, TypeMismatch,
-    ConnectIntoTarget, DynOutput, Text,
+    ConnectIntoTarget, DynOutput, Text, ScriptMessage,
     is_default,
 };
 
@@ -141,13 +141,6 @@ impl BuildDiagramOperation for ScriptSchema {
     fn child_operations(&self, _: &Templates) -> Result<Option<Operations>, DiagramErrorCode> {
         Ok(None)
     }
-}
-
-#[derive(Debug, Default, Clone, Joined, Serialize, Deserialize, JsonSchema)]
-pub struct ScriptMessage {
-    pub data: JsonMessage,
-    #[serde(skip)]
-    pub accessors: HashMap<IdentifierRef<'static>, AnyBufferKey>,
 }
 
 /// Description of a scripting environment that a diagram uses to run scripts.

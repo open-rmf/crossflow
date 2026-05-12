@@ -20,13 +20,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     ArcAny, Accessor, BufferMap, BufferMapLayout, BufferMapLayoutHints, BufferSettings, Builder, DynNode,
-    DynOutput, InferenceContext, JsonMessage, default_as_false, is_false,
+    ScriptMessage, DynOutput, InferenceContext, JsonMessage, default_as_false, is_false,
 };
 
 use super::{
     BufferSelection, BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode,
     MessageRegistry, NextOperation, OperationName, TraceInfo, TraceSettings, TypeInfo,
-    ScriptMessage, DynForkResult, SerializeFn, DeserializeFn,
+    DynForkResult, SerializeFn, DeserializeFn,
 };
 
 use std::any::Any;
