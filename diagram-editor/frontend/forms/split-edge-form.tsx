@@ -37,7 +37,7 @@ function SplitEdgeForm({ edge, onChange }: SplitEdgeFormProps) {
       {edge.type === 'splitKey' && (
         <TextField
           label="Key"
-          value={edge.data.output.key ?? ''}
+          value={edge.data.output.key ?? 'unnamed_key'}
           onChange={handleDataChange}
           fullWidth
         />

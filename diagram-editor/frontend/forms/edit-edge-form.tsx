@@ -48,7 +48,7 @@ const EDGE_DEFAULT_OUTPUT_DATA = {
   buffer: { output: {}, input: { type: 'bufferSeq', seq: 0 } },
   forkResultOk: { output: {}, input: { type: 'default' } },
   forkResultErr: { output: {}, input: { type: 'default' } },
-  splitKey: { output: { key: '' }, input: { type: 'default' } },
+  splitKey: { output: { key: 'unnamed_key' }, input: { type: 'default' } },
   splitSeq: { output: { seq: 0 }, input: { type: 'default' } },
   splitRemaining: { output: {}, input: { type: 'default' } },
   streamOut: {
