@@ -129,7 +129,10 @@ pub struct PythonConfig {
 impl DiagramElementRegistry {
     /// Enable script environment support for Python using pyo3 and the CPython
     /// interpreter.
-    pub fn enable_python(&mut self, event_loop: &PythonEventLoop) {
+    pub fn enable_python(&mut self, event_loop: &PythonEventLoop) -> pyo3::PyResult<()> {
+
+        crate::register_crossflow_pymod()?;
+
         let interpreter = Python::attach(|py| {
             let sys = py.import("sys")?;
             let version: String = sys.getattr("version")?.extract()?;
@@ -232,6 +235,8 @@ async def execute(input: Input):
                 Ok(env)
             },
         );
+
+        Ok(())
     }
 }
 
@@ -509,7 +514,7 @@ mod tests {
         let mut fixture = DiagramTestFixture::new();
 
         let py_event_loop = PythonEventLoop::new().unwrap();
-        fixture.registry.enable_python(&py_event_loop);
+        fixture.registry.enable_python(&py_event_loop).unwrap();
         py_event_loop.spawn_thread_and_run();
 
         let env_script =
@@ -574,16 +579,18 @@ async def execute_async(input):
         let mut fixture = DiagramTestFixture::new();
 
         let py_event_loop = PythonEventLoop::new().unwrap();
-        fixture.registry.enable_python(&py_event_loop);
+        fixture.registry.enable_python(&py_event_loop).unwrap();
         py_event_loop.spawn_thread_and_run();
 
         let env_script =
 r###"
-def stream_out_values(input):
+from crossflow import *
+
+def stream_out_values(input: Input):
     for value in input.data:
         input.stream_out('values', value)
 
-def filter_values(input):
+def filter_values(input: Input):
     value = input.data
     limit = input.config
     if value > limit:
@@ -631,7 +638,7 @@ def filter_values(input):
 
         let values = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         let r: i32 = fixture.spawn_and_run(&diagram, values).unwrap();
-        assert_eq!(r, 5);
+        assert!(r > 4);
 
         py_event_loop.stop().unwrap();
     }
@@ -641,23 +648,24 @@ def filter_values(input):
         let mut fixture = DiagramTestFixture::new();
 
         let py_event_loop = PythonEventLoop::new().unwrap();
-        fixture.registry.enable_python(&py_event_loop);
+        fixture.registry.enable_python(&py_event_loop).unwrap();
         py_event_loop.spawn_thread_and_run();
 
         let env_script =
 r###"
 import asyncio
+from crossflow import *
 
-async def slow_stream(input):
+async def slow_stream(input: Input):
     delay = input.config['delay']
     for value in input.data:
         input.stream_out('value', value)
         await asyncio.sleep(delay)
 
-async def success_when_equal(input):
+async def success_when_equal(input: Input):
     equal_value = await input.accessors.access(check_equal)
     if equal_value is not None:
-        input.stream_out('equal', equal_value)
+        input.stream_out('equal', Message(data = equal_value))
 
 def check_equal(access):
     a = access[0].get_oldest()

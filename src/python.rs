@@ -39,6 +39,20 @@ mod crossflow {
     };
     use pythonize::{depythonize, pythonize};
 
+    /// Enable the native Python crossflow module to be imported by
+    /// user-defined scripts without needing to install the module.
+    pub fn register_crossflow_pymod() -> PyResult<()> {
+        Python::attach(|py| {
+            let crossflow_pymod = _PYO3_DEF.make_module(py)?;
+
+            py.import("sys")?
+                .getattr("modules")?
+                .set_item("crossflow", crossflow_pymod)?;
+
+            PyResult::Ok(())
+        })
+    }
+
     impl From<BufferError> for PyErr {
         fn from(value: BufferError) -> Self {
             PyKeyError::new_err(format!("{value}"))
