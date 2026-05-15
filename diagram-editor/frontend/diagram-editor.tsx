@@ -31,6 +31,10 @@ import React, { Suspense } from 'react';
 import AddOperation from './add-operation';
 import CommandPanel from './command-panel';
 import { ConnectionHintPanel } from './connection-hint-panel';
+import {
+  type DebugVisualizationContext,
+  DebugVisualizationProvider,
+} from './debug-visualization-provider';
 import type { DiagramEditorEdge } from './edges';
 import {
   createBaseEdge,
@@ -56,6 +60,7 @@ import {
   MaterialSymbol,
   NODE_TYPES,
   type OperationNode,
+  TERMINATE_ID,
 } from './nodes';
 import { useRegistry } from './registry-provider';
 import { useTemplates } from './templates-provider';
@@ -73,6 +78,7 @@ import { exhaustiveCheck } from './utils/exhaustive-check';
 import { exportTemplate } from './utils/export-diagram';
 import { calculateScopeBounds, LAYOUT_OPTIONS } from './utils/layout';
 import { loadDiagramJson, loadEmpty, loadTemplate } from './utils/load-diagram';
+import { joinNamespaces, ROOT_NAMESPACE } from './utils/namespace';
 
 const NonCapturingPopoverContainer = ({
   children,
@@ -122,6 +128,7 @@ export type MaybeValid = { ok: true } | { ok: false, errorMessage: string };
 
 interface ProvidersProps {
   editorModeContext: UseEditorModeContext;
+  debugVisualizationContext: DebugVisualizationContext;
   loadContext: LoadContext | null;
   nodeManager: NodeManager;
   edges: DiagramEditorEdge[];
@@ -129,6 +136,7 @@ interface ProvidersProps {
 
 function Providers({
   editorModeContext,
+  debugVisualizationContext,
   loadContext,
   nodeManager,
   edges,
@@ -139,14 +147,58 @@ function Providers({
       <LoadContextProvider value={loadContext}>
         <NodeManagerProvider value={nodeManager}>
           <EdgesProvider value={edges}>
-            <DiagramPropertiesProvider>
-              {children}
-            </DiagramPropertiesProvider>
+            <DebugVisualizationProvider value={debugVisualizationContext}>
+              <DiagramPropertiesProvider>{children}</DiagramPropertiesProvider>
+            </DebugVisualizationProvider>
           </EdgesProvider>
         </NodeManagerProvider>
       </LoadContextProvider>
     </EditorModeProvider>
   );
+}
+
+function getDebugNodeId(
+  operationId: string,
+  nodeManager: NodeManager,
+): string | null {
+  const normalizedId = operationId.startsWith(':')
+    ? operationId.slice(1)
+    : operationId;
+
+  if (normalizedId === '(terminate)') {
+    return (
+      nodeManager.tryGetNode(joinNamespaces(ROOT_NAMESPACE, TERMINATE_ID))
+        ?.id ?? null
+    );
+  }
+
+  if (normalizedId.endsWith(':(terminate)')) {
+    const namespace = normalizedId.slice(0, -':(terminate)'.length);
+    return (
+      nodeManager.tryGetNode(
+        joinNamespaces(ROOT_NAMESPACE, namespace, TERMINATE_ID),
+      )?.id ?? null
+    );
+  }
+
+  if (normalizedId.startsWith('(') || normalizedId.includes(':(exposed):')) {
+    return null;
+  }
+
+  const parts = normalizedId.split(':');
+  const opId = parts.at(-1);
+  if (!opId) {
+    return null;
+  }
+
+  try {
+    return nodeManager.getNodeFromNamespaceOpId(
+      joinNamespaces(ROOT_NAMESPACE, ...parts.slice(0, -1)),
+      opId,
+    ).id;
+  } catch {
+    return null;
+  }
 }
 
 function DiagramEditor() {
@@ -164,6 +216,52 @@ function DiagramEditor() {
     () => loadEmpty().nodes,
   );
   const nodeManager = React.useMemo(() => new NodeManager(nodes), [nodes]);
+  const [debugActiveNodeIds, setDebugActiveNodeIds] = React.useState(
+    () => new Set<string>(),
+  );
+  const [debugLatestNodeId, setDebugLatestNodeId] = React.useState<
+    string | null
+  >(null);
+  const clearDebugVisualization = React.useCallback(() => {
+    setDebugActiveNodeIds(new Set());
+    setDebugLatestNodeId(null);
+  }, []);
+  const markDebugFinished = React.useCallback(() => {
+    setDebugLatestNodeId(null);
+  }, []);
+  const markDebugOperationStarted = React.useCallback(
+    (operationId: string) => {
+      const nodeId = getDebugNodeId(operationId, nodeManager);
+      if (!nodeId) {
+        return;
+      }
+
+      setDebugActiveNodeIds((prev) => {
+        const next = new Set(prev);
+        next.add(nodeId);
+        return next;
+      });
+      setDebugLatestNodeId(nodeId);
+    },
+    [nodeManager],
+  );
+  const debugVisualizationContext =
+    React.useMemo<DebugVisualizationContext>(
+      () => ({
+        activeNodeIds: debugActiveNodeIds,
+        latestNodeId: debugLatestNodeId,
+        clearDebugVisualization,
+        markDebugFinished,
+        markDebugOperationStarted,
+      }),
+      [
+        clearDebugVisualization,
+        debugActiveNodeIds,
+        debugLatestNodeId,
+        markDebugFinished,
+        markDebugOperationStarted,
+      ],
+    );
   const savedNodes = React.useRef<DiagramEditorNode[]>([]);
 
   const [edges, setEdges] = React.useState<DiagramEditorEdge[]>([]);
@@ -539,6 +637,7 @@ function DiagramEditor() {
     async (jsonStr: string, filename: string | null) => {
       try {
         const [diagram, { graph, isRestored }] = await loadDiagramJson(jsonStr);
+        clearDebugVisualization();
         setLoadContext({ diagram });
         // do not perform auto layout if the diagram is restored from previous state.
         if (!isRestored) {
@@ -556,7 +655,7 @@ function DiagramEditor() {
         showErrorToast(`failed to load diagram: ${e}`);
       }
     },
-    [closeAllPopovers, showErrorToast],
+    [clearDebugVisualization, closeAllPopovers, showErrorToast],
   );
 
   const [openExportDiagramDialog, setOpenExportDiagramDialog] =
@@ -665,6 +764,7 @@ function DiagramEditor() {
   return (
     <Providers
       editorModeContext={[editorMode, updateEditorModeAction]}
+      debugVisualizationContext={debugVisualizationContext}
       loadContext={loadContext}
       nodeManager={nodeManager}
       edges={edges}

@@ -2,12 +2,14 @@ import {
   Box,
   Button,
   type ButtonProps,
+  alpha,
   Paper,
   Stack,
   Typography,
 } from '@mui/material';
 import type { NodeProps } from '@xyflow/react';
 import { type JSX, memo } from 'react';
+import { useDebugVisualization } from '../debug-visualization-provider';
 import { LAYOUT_OPTIONS } from '../utils/layout';
 
 export interface BaseNodeProps extends NodeProps {
@@ -25,7 +27,11 @@ function BaseNode({
   caption,
   handles,
   selected,
+  id,
 }: BaseNodeProps) {
+  const { activeNodeIds, latestNodeId } = useDebugVisualization();
+  const debugLatest = latestNodeId === id;
+  const debugVisited = activeNodeIds.has(id) && !debugLatest;
   const icon =
     typeof materialIconOrSymbol === 'string' ? (
       <span className={`material-symbols-${materialIconOrSymbol}`} />
@@ -34,7 +40,24 @@ function BaseNode({
     );
 
   return (
-    <Paper>
+    <Paper
+      sx={(theme) => ({
+        outline: debugLatest
+          ? `2px solid ${theme.palette.success.main}`
+          : debugVisited
+            ? `1px solid ${alpha(theme.palette.info.main, 0.35)}`
+            : undefined,
+        boxShadow: debugLatest
+          ? [
+              `0 0 0 4px ${alpha(theme.palette.success.main, 0.28)}`,
+              `0 0 18px 6px ${alpha(theme.palette.success.main, 0.35)}`,
+            ].join(', ')
+          : undefined,
+        transition: theme.transitions.create(['box-shadow', 'outline-color'], {
+          duration: theme.transitions.duration.shortest,
+        }),
+      })}
+    >
       <Button
         title={label}
         color={color}
