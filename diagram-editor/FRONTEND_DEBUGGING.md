@@ -72,8 +72,8 @@ Frontend support:
   the WASM client remains out of scope and does not provide the method.
 - `RunButton` now has both Run and Debug actions. Debug uses the existing
   request/response UI, sends a trace-enabled copy of the exported diagram, shows
-  a compact timeline, keeps the debug session running when the popover is
-  hidden, and keeps normal Run behavior unchanged.
+  a compact timeline, keeps the debug session running when the side panel is
+  hidden or switched to Properties, and keeps normal Run behavior unchanged.
 - `DebugVisualizationProvider` holds transient debug highlight state. Nodes use
   that context for visual highlighting without writing debug state into diagram
   data. The latest executing node now uses the primary green progress glow; older
@@ -131,6 +131,23 @@ backend protocol.
 - Breakpoints and stepping remain out of scope for this slice because the
   WebSocket protocol still has no client command messages.
 
+## Implemented Slice 3
+
+The third deliverable slice moves run/debug controls out of the graph-blocking
+popover and into the persistent right side panel.
+
+- The right drawer is now a tabbed side panel with `Run` and `Properties` tabs.
+- The command bar play button opens the side panel on the `Run` tab; the info
+  button opens the same panel on the `Properties` tab.
+- The `Run` tab owns the existing request editor, response viewer, Run and
+  Debug buttons, and bounded debug timeline.
+- The run/debug component remains mounted while switching tabs, so active debug
+  sessions and runtime state are preserved while viewing diagram properties.
+- Input example play actions copy the example request into the shared `Run` tab
+  instead of opening a separate run popover.
+- The old run popover has been removed, so runtime status no longer hides the
+  diagram canvas.
+
 Verification performed:
 
 - `pnpm --dir diagram-editor check:ts`
@@ -167,6 +184,8 @@ Verification performed:
      final response/error rendering.
    - Current graph progress is now emphasized with a green glow on the latest
      executing node.
+   - Run/debug controls and status now live in a persistent side panel instead
+     of a popover.
 
 3. Preserve trace settings through diagram export.
    - Confirm whether `exportDiagram` currently retains `default_trace` and
@@ -218,10 +237,11 @@ Verification performed:
 The next slice should be one of these, depending on desired product direction:
 
 1. Frontend polish without protocol changes:
-   - Add bounded timeline retention.
    - Add clearer debug status labels: connecting, running, finished, errored.
    - Add visible unsupported-backend affordance before the user clicks Debug.
    - Improve operation ID display for builtins such as `(terminate)`.
+   - Add a latency-focused example workflow so progress visualization is easy
+     to see manually.
 
 2. Progress visualization polish:
    - Add an explicit clear/reset control for completed debug visualization.
