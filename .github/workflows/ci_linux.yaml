@@ -37,7 +37,7 @@ jobs:
     - name: Setup pnpm
       uses: pnpm/action-setup@v4
       with:
-        version: latest
+        version: 10.31.0
 
     - name: Setup nodejs
       run: pnpm env use --global lts
@@ -68,4 +68,3 @@ jobs:
 
     - name: Build docs
       run: cargo doc --no-deps --all-features
-
