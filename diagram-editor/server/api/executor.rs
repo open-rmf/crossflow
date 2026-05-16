@@ -203,6 +203,8 @@ where
                     error!("Failed to request workflow despawn: {err}");
                 }
 
+                // Brief yield so already-queued feedback reaches the socket
+                // before the finish message; drain_debug_feedback handles the rest.
                 tokio::time::sleep(Duration::from_millis(100)).await;
 
                 match result {
