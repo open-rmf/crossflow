@@ -1,6 +1,6 @@
 # Frontend Debugging Coordination Memory
 
-Last updated: 2026-05-13
+Last updated: 2026-05-16
 
 This file is the working memory and coordination point for adding frontend
 debugging support to the diagram editor. Keep it current when backend debug APIs,
@@ -148,6 +148,22 @@ popover and into the persistent right side panel.
 - The old run popover has been removed, so runtime status no longer hides the
   diagram canvas.
 
+## Implemented Slice 4
+
+The fourth deliverable slice makes the existing progress visualization easy to
+observe without expanding the debug protocol.
+
+- The calculator operation catalog now includes a `delay_ms` node builder that
+  waits for a configured number of milliseconds and then passes the request
+  through unchanged.
+- The calculator example now includes `diagrams/carry_object_progress.json`,
+  which runs `Pick object -> Move to A -> Drop object` with visible latency on
+  each operation.
+- This slice intentionally does not add breakpoint or step controls. Those
+  still require client-to-server debug commands over the WebSocket protocol.
+- Verification performed: calculator tests, calculator operation catalog tests,
+  and a CLI smoke run of `carry_object_progress.json`.
+
 Verification performed:
 
 - `pnpm --dir diagram-editor check:ts`
@@ -186,6 +202,8 @@ Verification performed:
      executing node.
    - Run/debug controls and status now live in a persistent side panel instead
      of a popover.
+   - The calculator example now has a latency-focused workflow for manually
+     seeing the progress effect.
 
 3. Preserve trace settings through diagram export.
    - Confirm whether `exportDiagram` currently retains `default_trace` and
@@ -240,8 +258,6 @@ The next slice should be one of these, depending on desired product direction:
    - Add clearer debug status labels: connecting, running, finished, errored.
    - Add visible unsupported-backend affordance before the user clicks Debug.
    - Improve operation ID display for builtins such as `(terminate)`.
-   - Add a latency-focused example workflow so progress visualization is easy
-     to see manually.
 
 2. Progress visualization polish:
    - Add an explicit clear/reset control for completed debug visualization.

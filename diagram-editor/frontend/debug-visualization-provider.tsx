@@ -1,8 +1,4 @@
-import {
-  createContext,
-  type PropsWithChildren,
-  useContext,
-} from 'react';
+import { createContext, type PropsWithChildren, useContext } from 'react';
 
 export interface DebugVisualizationContext {
   activeNodeIds: Set<string>;
@@ -20,10 +16,9 @@ const DefaultDebugVisualizationContext: DebugVisualizationContext = {
   markDebugOperationStarted: () => {},
 };
 
-const DebugVisualizationContextComp =
-  createContext<DebugVisualizationContext>(
-    DefaultDebugVisualizationContext,
-  );
+const DebugVisualizationContextComp = createContext<DebugVisualizationContext>(
+  DefaultDebugVisualizationContext,
+);
 
 export function DebugVisualizationProvider({
   value,

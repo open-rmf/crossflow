@@ -213,7 +213,7 @@ function DiagramSidePanel({
                         fullWidth
                         multiline
                         variant="outlined"
-                        value={input.value}
+                        value={getInputExampleRequestJson(input)}
                         rows="6"
                         slotProps={{
                           htmlInput: {

@@ -604,27 +604,37 @@ mod tests {
 
     #[cfg(feature = "debug")]
     fn setup_ws_test() -> WsTestFixture<impl FnOnce()> {
-        let mut app = bevy_app::App::new();
-        app.add_plugins(CrossflowExecutorApp::default());
         let (send_stop, mut recv_stop) = tokio::sync::oneshot::channel::<()>();
-        app.add_systems(
-            bevy_app::Update,
-            move |mut app_exit: bevy_ecs::event::EventWriter<bevy_app::AppExit>| {
-                if let Ok(_) = recv_stop.try_recv() {
-                    app_exit.send_default();
-                }
-            },
-        );
-
-        let mut registry = DiagramElementRegistry::new();
-        registry.register_node_builder(NodeBuilderOptions::new("add7"), |builder, _config: ()| {
-            builder.create_map_block(|req: i32| req + 7)
-        });
-        let executor_state = setup_bevy_app(&mut app, registry, &ExecutorOptions::default());
+        let (state_sender, state_receiver) = std::sync::mpsc::channel();
 
         let join_handle = thread::spawn(move || {
+            let mut app = bevy_app::App::new();
+            app.add_plugins(CrossflowExecutorApp::default());
+            app.add_systems(
+                bevy_app::Update,
+                move |mut app_exit: bevy_ecs::event::EventWriter<bevy_app::AppExit>| {
+                    if let Ok(_) = recv_stop.try_recv() {
+                        app_exit.write_default();
+                    }
+                },
+            );
+
+            let mut registry = DiagramElementRegistry::new();
+            registry
+                .register_node_builder(NodeBuilderOptions::new("add7"), |builder, _config: ()| {
+                    builder.create_map_block(|req: i32| req + 7)
+                });
+            let executor_state = setup_bevy_app(
+                &mut app.sub_apps_mut().main,
+                registry,
+                &ExecutorOptions::default(),
+            );
+            state_sender.send(executor_state).unwrap();
+
             app.run();
         });
+
+        let executor_state = state_receiver.recv().unwrap();
 
         WsTestFixture {
             executor_state,
@@ -688,9 +698,9 @@ mod tests {
 
         let resp_msg = test_rx.next().await.unwrap();
         let resp_text = resp_msg.into_text().unwrap();
-        let resp: DebugSessionEnd = serde_json::from_slice(resp_text.as_bytes()).unwrap();
-        let resp = match resp {
-            DebugSessionEnd::Ok(resp) => resp,
+        let resp_msg: DebugSessionMessage = serde_json::from_slice(resp_text.as_bytes()).unwrap();
+        let resp = match resp_msg {
+            DebugSessionMessage::Finish(DebugSessionEnd::Ok(resp)) => resp,
             _ => {
                 panic!("expected response to be Ok");
             }
