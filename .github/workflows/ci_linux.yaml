@@ -35,12 +35,15 @@ jobs:
       run: rustup default ${{ matrix.rust-version }}
 
     - name: Setup pnpm
-      uses: pnpm/action-setup@v4
+      uses: pnpm/action-setup@v6
       with:
-        version: 10.31.0
+        version: latest
 
     - name: Setup nodejs
-      run: pnpm env use --global lts
+      uses: actions/setup-node@v4
+      with:
+        node-version: lts/*
+        cache: pnpm
 
     - name: Test default features
       run: |
