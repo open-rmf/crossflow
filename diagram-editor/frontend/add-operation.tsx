@@ -1,4 +1,11 @@
-import { Button, ButtonGroup, Stack, TextField, Typography, styled } from '@mui/material';
+import {
+  Button,
+  ButtonGroup,
+  Stack,
+  styled,
+  TextField,
+  Typography,
+} from '@mui/material';
 import type { NodeAddChange, XYPosition } from '@xyflow/react';
 import React from 'react';
 import { EditorMode, useEditorMode } from './editor-mode';
@@ -191,11 +198,7 @@ function AddOperation({
           ))}
         </ButtonGroup>
       )}
-      {emptyMessage && (
-        <Typography variant="body2">
-          {emptyMessage}
-        </Typography>
-      )}
+      {emptyMessage && <Typography variant="body2">{emptyMessage}</Typography>}
     </Stack>
   );
 }
