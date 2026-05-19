@@ -119,7 +119,11 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
     label: 'Section Input',
     templateOnlyRoot: true,
     createPreviewNode: () =>
-      createSectionInputNode('preview_input', { builtin: 'dispose' }, { x: 0, y: 0 }),
+      createSectionInputNode(
+        'preview_input',
+        { builtin: 'dispose' },
+        { x: 0, y: 0 },
+      ),
     createChanges: ({ newNodePosition, nodeManager }) => {
       const remappedId = addUniqueSuffix(
         'new_input',
@@ -140,7 +144,8 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
     key: 'sectionOutput',
     label: 'Section Output',
     templateOnlyRoot: true,
-    createPreviewNode: () => createSectionOutputNode('preview_output', { x: 0, y: 0 }),
+    createPreviewNode: () =>
+      createSectionOutputNode('preview_output', { x: 0, y: 0 }),
     createChanges: ({ newNodePosition, nodeManager }) => {
       const outputId = addUniqueSuffix(
         'new_output',
@@ -156,7 +161,11 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
     label: 'Section Buffer',
     templateOnlyRoot: true,
     createPreviewNode: () =>
-      createSectionBufferNode('preview_buffer', { builtin: 'dispose' }, { x: 0, y: 0 }),
+      createSectionBufferNode(
+        'preview_buffer',
+        { builtin: 'dispose' },
+        { x: 0, y: 0 },
+      ),
     createChanges: ({ newNodePosition, nodeManager }) => {
       const remappedId = addUniqueSuffix(
         'new_buffer',
@@ -436,24 +445,13 @@ export function filterCompatibleAddOperations(
       options.namespace,
       options.parentId,
     );
-    if (
-      anchorHandleType === 'target' &&
-      previewNode.type === 'fork_result'
-    ) {
+    if (anchorHandleType === 'target' && previewNode.type === 'fork_result') {
       return false;
     }
     return anchorHandleType === 'source'
-      ? getValidEdgeTypes(
-          anchorNode,
-          anchorHandle,
-          previewNode,
-          null,
-        ).length > 0
-      : getValidEdgeTypes(
-          previewNode,
-          null,
-          anchorNode,
-          anchorHandle,
-        ).length > 0;
+      ? getValidEdgeTypes(anchorNode, anchorHandle, previewNode, null).length >
+          0
+      : getValidEdgeTypes(previewNode, null, anchorNode, anchorHandle).length >
+          0;
   });
 }

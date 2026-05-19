@@ -12,6 +12,8 @@ import {
 } from '@mui/material';
 import { deflateSync, strToU8 } from 'fflate';
 import React, { Suspense, use, useMemo } from 'react';
+import type { MaybeValid } from './diagram-editor';
+import { useDiagramProperties } from './diagram-properties-provider';
 import { useLoadContext } from './load-context-provider';
 import { useNodeManager } from './node-manager';
 import { MaterialSymbol } from './nodes';
@@ -20,8 +22,6 @@ import { useRegistry } from './registry-provider';
 import { useTemplates } from './templates-provider';
 import { useEdges } from './use-edges';
 import { exportDiagram } from './utils/export-diagram';
-import { MaybeValid } from './diagram-editor';
-import { useDiagramProperties } from './diagram-properties-provider';
 
 export interface ExportDiagramDialogProps {
   open: boolean;
@@ -53,7 +53,13 @@ function ExportDiagramDialogInternal({
 
   const dialogDataPromise = useMemo(async () => {
     try {
-      const diagram = exportDiagram(registry, nodeManager, edges, templates, diagramProperties ?? {});
+      const diagram = exportDiagram(
+        registry,
+        nodeManager,
+        edges,
+        templates,
+        diagramProperties ?? {},
+      );
       if (loadContext?.diagram.extensions) {
         diagram.extensions = loadContext.diagram.extensions;
       }
@@ -80,15 +86,24 @@ function ExportDiagramDialogInternal({
         diagramJson: diagramJsonPretty,
       } satisfies DialogData;
 
-      onValidDiagram({ok: true});
+      onValidDiagram({ ok: true });
       return dialogData;
     } catch (e) {
-      onValidDiagram(
-        {ok: false, errorMessage: `failed to export diagram: ${e}`}
-      );
+      onValidDiagram({
+        ok: false,
+        errorMessage: `failed to export diagram: ${e}`,
+      });
       return null;
     }
-  }, [registry, nodeManager, edges, templates, loadContext, diagramProperties]);
+  }, [
+    registry,
+    nodeManager,
+    edges,
+    templates,
+    loadContext,
+    diagramProperties,
+    onValidDiagram,
+  ]);
 
   const dialogData = use(dialogDataPromise);
 
@@ -105,6 +120,8 @@ function ExportDiagramDialogInternal({
 
     if ('showSaveFilePicker' in window) {
       try {
+        // TODO(aaronchong): add proper types for showSaveFilePicker once it is no longer experimental upstream
+        // biome-ignore lint/suspicious/noExplicitAny: showSaveFilePicker is not in standard Window types
         const handle = await (window as any).showSaveFilePicker({
           suggestedName: suggestedFilename ?? 'diagram.json',
           types: [
@@ -147,8 +164,10 @@ function ExportDiagramDialogInternal({
       return;
     }
     onExportedFilename(downloaded);
-    setTimeout(() => { setDownloaded(null); }, 5000);
-  }, [downloaded, onExportedFilename])
+    setTimeout(() => {
+      setDownloaded(null);
+    }, 5000);
+  }, [downloaded, onExportedFilename]);
 
   const [copiedShareLink, setCopiedShareLink] = React.useState(false);
 
@@ -197,11 +216,13 @@ function ExportDiagramDialogInternal({
             <Button
               variant="contained"
               onClick={handleDownload}
-              startIcon={downloaded ? (
-                <MaterialSymbol symbol="check_circle" />
-              ) : (
-                <MaterialSymbol symbol="download" />
-              )}
+              startIcon={
+                downloaded ? (
+                  <MaterialSymbol symbol="check_circle" />
+                ) : (
+                  <MaterialSymbol symbol="download" />
+                )
+              }
               sx={{
                 backgroundColor: downloaded ? theme.palette.success.main : null,
               }}

@@ -31,6 +31,7 @@ import React, { Suspense } from 'react';
 import AddOperation from './add-operation';
 import CommandPanel from './command-panel';
 import { ConnectionHintPanel } from './connection-hint-panel';
+import { DiagramPropertiesProvider } from './diagram-properties-provider';
 import type { DiagramEditorEdge } from './edges';
 import {
   createBaseEdge,
@@ -48,7 +49,6 @@ import { ExportDiagramDialog } from './export-diagram-dialog';
 import { defaultEdgeData, EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
 import { type LoadContext, LoadContextProvider } from './load-context-provider';
-import { DiagramPropertiesProvider } from './diagram-properties-provider';
 import { NodeManager, NodeManagerProvider } from './node-manager';
 import {
   type DiagramEditorNode,
@@ -118,7 +118,7 @@ function getChangeParentIdAndPosition(
   }
 }
 
-export type MaybeValid = { ok: true } | { ok: false, errorMessage: string };
+export type MaybeValid = { ok: true } | { ok: false; errorMessage: string };
 
 interface ProvidersProps {
   editorModeContext: UseEditorModeContext;
@@ -139,9 +139,7 @@ function Providers({
       <LoadContextProvider value={loadContext}>
         <NodeManagerProvider value={nodeManager}>
           <EdgesProvider value={edges}>
-            <DiagramPropertiesProvider>
-              {children}
-            </DiagramPropertiesProvider>
+            <DiagramPropertiesProvider>{children}</DiagramPropertiesProvider>
           </EdgesProvider>
         </NodeManagerProvider>
       </LoadContextProvider>
@@ -532,8 +530,9 @@ function DiagramEditor() {
   const [loadContext, setLoadContext] = React.useState<LoadContext | null>(
     null,
   );
-  const [recentlyUsedFilename, setRecentlyUsedFilename] =
-    React.useState<string | null>(null);
+  const [recentlyUsedFilename, setRecentlyUsedFilename] = React.useState<
+    string | null
+  >(null);
 
   const loadDiagram = React.useCallback(
     async (jsonStr: string, filename: string | null) => {
@@ -755,7 +754,9 @@ function DiagramEditor() {
             return;
           }
 
-          const sourceNode = nodeManager.tryGetNode(connectionState.fromHandle.nodeId);
+          const sourceNode = nodeManager.tryGetNode(
+            connectionState.fromHandle.nodeId,
+          );
           const clientPosition = getClientPosition(event);
           if (!sourceNode || !clientPosition) {
             return;
@@ -903,22 +904,27 @@ function DiagramEditor() {
               handleNodeChanges(changes);
               if (addOperationPopover.sourceConnection) {
                 const targetNode =
-                  changes.find((change) => change.item.id === primaryNodeId)?.item ||
-                  null;
+                  changes.find((change) => change.item.id === primaryNodeId)
+                    ?.item || null;
                 if (targetNode) {
                   const newEdge = tryCreateEdge(
-                    addOperationPopover.sourceConnection.sourceHandleType === 'source'
+                    addOperationPopover.sourceConnection.sourceHandleType ===
+                      'source'
                       ? {
-                          source: addOperationPopover.sourceConnection.sourceNodeId,
-                          sourceHandle: addOperationPopover.sourceConnection.sourceHandle,
+                          source:
+                            addOperationPopover.sourceConnection.sourceNodeId,
+                          sourceHandle:
+                            addOperationPopover.sourceConnection.sourceHandle,
                           target: targetNode.id,
                           targetHandle: null,
                         }
                       : {
                           source: targetNode.id,
                           sourceHandle: null,
-                          target: addOperationPopover.sourceConnection.sourceNodeId,
-                          targetHandle: addOperationPopover.sourceConnection.sourceHandle,
+                          target:
+                            addOperationPopover.sourceConnection.sourceNodeId,
+                          targetHandle:
+                            addOperationPopover.sourceConnection.sourceHandle,
                         },
                     undefined,
                     targetNode,
@@ -977,8 +983,8 @@ function DiagramEditor() {
           <ExportDiagramDialog
             open={openExportDiagramDialog}
             suggestedFilename={recentlyUsedFilename}
-            onExportedFilename={
-              (filename: string) => setRecentlyUsedFilename(filename)
+            onExportedFilename={(filename: string) =>
+              setRecentlyUsedFilename(filename)
             }
             onClose={() => setOpenExportDiagramDialog(false)}
             onValidDiagram={(maybeValid: MaybeValid) => {

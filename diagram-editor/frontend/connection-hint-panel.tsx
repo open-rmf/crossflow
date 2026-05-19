@@ -1,6 +1,7 @@
 import { Paper, Stack, Typography } from '@mui/material';
 import { Panel, useConnection } from '@xyflow/react';
 import type { NodeManager } from './node-manager';
+import { useEdges } from './use-edges';
 import {
   filterCompatibleAddOperations,
   getVisibleAddOperations,
@@ -11,7 +12,6 @@ import {
   validateSourceOutputCapacity,
 } from './utils/connection';
 import { ROOT_NAMESPACE } from './utils/namespace';
-import { useEdges } from './use-edges';
 
 export interface ConnectionHintPanelProps {
   nodeManager: NodeManager;
@@ -32,7 +32,11 @@ export function ConnectionHintPanel({ nodeManager }: ConnectionHintPanelProps) {
 
   const sourceOutputCapacity =
     connection.fromHandle.type === 'source'
-      ? validateSourceOutputCapacity(sourceNode, connection.fromHandle.id, edges)
+      ? validateSourceOutputCapacity(
+          sourceNode,
+          connection.fromHandle.id,
+          edges,
+        )
       : { valid: true as const };
   const compatibleOperations = sourceOutputCapacity.valid
     ? filterCompatibleAddOperations(
@@ -50,12 +54,11 @@ export function ConnectionHintPanel({ nodeManager }: ConnectionHintPanelProps) {
       )
     : [];
 
-  let message =
-    !sourceOutputCapacity.valid
-      ? sourceOutputCapacity.error
-      : connection.fromHandle.type === 'target'
-        ? 'Drop on a compatible output, or release on empty space to add a compatible previous operation.'
-        : 'Drop on a compatible input, or release on empty space to add a compatible next operation.';
+  let message = !sourceOutputCapacity.valid
+    ? sourceOutputCapacity.error
+    : connection.fromHandle.type === 'target'
+      ? 'Drop on a compatible output, or release on empty space to add a compatible previous operation.'
+      : 'Drop on a compatible input, or release on empty space to add a compatible next operation.';
   let tone: 'info' | 'success' | 'error' = sourceOutputCapacity.valid
     ? 'info'
     : 'error';
