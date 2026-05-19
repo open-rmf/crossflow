@@ -40,15 +40,18 @@ jobs:
 
     steps:
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6
 
     - name: Setup pnpm
-      uses: pnpm/action-setup@v4
+      uses: pnpm/action-setup@v6
       with:
         version: latest
 
     - name: Setup nodejs
-      run: pnpm env use --global lts
+      uses: actions/setup-node@v6
+      with:
+        node-version: lts/*
+        cache: pnpm
 
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
