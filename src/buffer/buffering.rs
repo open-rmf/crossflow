@@ -127,12 +127,20 @@ pub trait Accessing: Buffering {
     }
 
     fn access<T: 'static + Send + Sync>(self, builder: &mut Builder) -> Node<T, (T, Self::Key)> {
+        self.access_into(builder)
+    }
+
+    fn access_into<InputMessage, OutputMessage>(self, builder: &mut Builder) -> Node<InputMessage, OutputMessage>
+    where
+        InputMessage: 'static + Send + Sync,
+        OutputMessage: 'static + Send + Sync + From<(InputMessage, Self::Key)>,
+    {
         let source = builder.commands.spawn(()).id();
         let target = builder.commands.spawn(UnusedTarget).id();
         builder.commands.queue(AddOperation::new(
             Some(builder.scope()),
             source,
-            OperateBufferAccess::<T, Self>::new(self, target),
+            OperateBufferAccess::<InputMessage, Self, OutputMessage>::new(self, target),
         ));
 
         Node {

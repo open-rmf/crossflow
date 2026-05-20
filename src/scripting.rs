@@ -54,6 +54,12 @@ impl From<BufferKeyMap> for ScriptMessage {
     }
 }
 
+impl From<(JsonMessage, BufferKeyMap)> for ScriptMessage {
+    fn from((data, accessors): (JsonMessage, BufferKeyMap)) -> Self {
+        Self { data, accessors }
+    }
+}
+
 impl Accessor for ScriptMessage {
     type Buffers = ScriptBuffers;
 

@@ -390,6 +390,7 @@ impl DiagramElementRegistry {
 
         self.register_message::<ScriptMessage>()
             .with_join()
+            .with_buffer_access()
             .with_listen();
 
         self.opt_out()

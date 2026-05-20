@@ -34,22 +34,22 @@ use crate::{
     ReachabilityResult, Seq, SingleInputStorage, SingleTargetStorage, output_port,
 };
 
-pub(crate) struct OperateBufferAccess<T, B>
+pub(crate) struct OperateBufferAccess<Input, Buffers, Output>
 where
-    T: 'static + Send + Sync,
-    B: Accessing,
+    Input: 'static + Send + Sync,
+    Buffers: Accessing,
 {
-    buffers: B,
+    buffers: Buffers,
     target: Entity,
-    _ignore: std::marker::PhantomData<fn(T, B)>,
+    _ignore: std::marker::PhantomData<fn(Input, Buffers, Output)>,
 }
 
-impl<T, B> OperateBufferAccess<T, B>
+impl<Input, Buffers, Output> OperateBufferAccess<Input, Buffers, Output>
 where
-    T: 'static + Send + Sync,
-    B: Accessing,
+    Input: 'static + Send + Sync,
+    Buffers: Accessing,
 {
-    pub(crate) fn new(buffers: B, target: Entity) -> Self {
+    pub(crate) fn new(buffers: Buffers, target: Entity) -> Self {
         Self {
             buffers,
             target,
@@ -76,11 +76,12 @@ impl<B: Accessing> BufferAccessStorage<B> {
     }
 }
 
-impl<T, B> Operation for OperateBufferAccess<T, B>
+impl<InputMessage, Buffers, Output> Operation for OperateBufferAccess<InputMessage, Buffers, Output>
 where
-    T: 'static + Send + Sync,
-    B: Accessing + 'static + Send + Sync,
-    B::Key: 'static + Send + Sync,
+    InputMessage: 'static + Send + Sync,
+    Buffers: Accessing + 'static + Send + Sync,
+    Buffers::Key: 'static + Send + Sync,
+    Output: From<(InputMessage, Buffers::Key)> + 'static + Send + Sync,
 {
     fn setup(self, OperationSetup { source, world }: OperationSetup) -> OperationResult {
         world
@@ -90,10 +91,10 @@ where
 
         self.buffers.add_accessor(source, world)?;
         world.entity_mut(source).insert((
-            InputBundle::<T>::new(),
+            InputBundle::<InputMessage>::new(),
             BufferAccessStorage::new(self.buffers),
             SingleTargetStorage::new(self.target),
-            BufferKeyUsage(buffer_key_usage::<B>),
+            BufferKeyUsage(buffer_key_usage::<Buffers>),
         ));
 
         Ok(())
@@ -106,8 +107,8 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let Input { session, data, seq } = world.take_input::<T>(source)?;
-        let keys = get_access_keys::<B>(source, session, seq, world)?;
+        let Input { session, data, seq } = world.take_input::<InputMessage>(source)?;
+        let keys = get_access_keys::<Buffers>(source, session, seq, world)?;
 
         let target = world.get::<SingleTargetStorage>(source).or_broken()?.get();
 
@@ -119,17 +120,19 @@ where
             port: &port,
             target,
         };
-        world.give_input(route, (data, keys), roster)
+
+        let output = Output::from((data, keys));
+        world.give_input(route, output, roster)
     }
 
     fn cleanup(mut clean: OperationCleanup) -> OperationResult {
-        clean.cleanup_inputs::<T>()?;
-        clean.cleanup_buffer_access::<B>()?;
+        clean.cleanup_inputs::<InputMessage>()?;
+        clean.cleanup_buffer_access::<Buffers>()?;
         clean.notify_cleaned()
     }
 
     fn is_reachable(mut r: OperationReachability) -> ReachabilityResult {
-        if r.has_input::<T>()? {
+        if r.has_input::<InputMessage>()? {
             return Ok(true);
         }
 

@@ -20,7 +20,7 @@ mod crossflow {
     use crate::{
         AnyBufferKey, Channel, JsonBufferKey, IdentifierRef, AccessError, BufferError, OverlapError,
         JsonBufferMut, JsonMut, JsonRef, JsonMessage, format_vertical_list, DynamicallyNamedStreamChannel, StreamOf,
-        ScriptMessage, NamedValue, BufferKeyMap,
+        ScriptMessage, NamedValue, BufferKeyMap, Accessor, Reply,
     };
     use std::{
         borrow::Cow,
@@ -255,10 +255,7 @@ mod crossflow {
                 });
                 Arc::new(r)
             });
-            let (future, detached) = reply.into_parts();
-            let future = future.shared();
-
-            PythonReply { future, detached }
+            reply.into()
         }
     }
 
@@ -272,13 +269,7 @@ mod crossflow {
     #[pymethods]
     impl PythonAccessor {
         pub fn access(&self, callback: Py<PyAny>) -> PyResult<PythonReply> {
-            let key = self
-                .key
-                .clone()
-                .downcast_buffer_key::<JsonBufferKey>()
-                .ok_or_else(||
-                    PyTypeError::new_err("buffer message type cannot serialize")
-                )?;
+            let key = self.try_json()?;
             let reply = self.channel.access(key, move |access| {
                 let r = Python::attach(move |py| {
                     let mutex = BufferMutex::new();
@@ -296,10 +287,56 @@ mod crossflow {
                 Arc::new(r)
             });
 
-            let (future, detached) = reply.into_parts();
-            let future = future.shared();
+            Ok(reply.into())
+        }
 
-            Ok(PythonReply { future, detached })
+        pub fn try_fetch(&self) -> PyResult<PythonReply> {
+            let key = self.try_json()?;
+            let req = self.channel.request_id();
+            let reply = self.channel.world(move |world| {
+                let value = key.join(req, world)?;
+                let py_obj = if let Some(value) = value {
+                    pythonize_value(&value)
+                } else {
+                    Python::attach(|py| {
+                        Ok(py_none(py))
+                    })
+                };
+
+                Ok(Arc::new(py_obj))
+            });
+
+            Ok(reply.into())
+        }
+
+        pub fn wait_for_fetch(&self) -> PyResult<PythonReply> {
+            let key = self.try_json()?;
+            let req = self.channel.request_id();
+            let reply = self.channel.wait_for(key.clone(), move |world| {
+                let value = match key.join(req, world) {
+                    Ok(value) => value?,
+                    Err(err) => {
+                        return Some(Err(err));
+                    }
+                };
+
+                Some(Ok(Arc::new(pythonize_value(&value))))
+            });
+
+            Ok(reply.into())
+        }
+    }
+
+    impl PythonAccessor {
+        pub fn try_json(&self) -> PyResult<JsonBufferKey> {
+            let key = self
+                .key
+                .clone()
+                .downcast_buffer_key::<JsonBufferKey>()
+                .ok_or_else(||
+                    PyTypeError::new_err("buffer message type cannot serialize")
+                )?;
+            Ok(key)
         }
     }
 
@@ -315,6 +352,14 @@ mod crossflow {
     pub struct PythonReply {
         future: Shared<oneshot::Receiver<Result<Arc<PyResult<Py<PyAny>>>, AccessError>>>,
         detached: Arc<AtomicBool>,
+    }
+
+    impl From<Reply<Result<Arc<PyResult<Py<PyAny>>>, AccessError>>> for PythonReply {
+        fn from(reply: Reply<Result<Arc<PyResult<Py<PyAny>>>, AccessError>>) -> Self {
+            let (future, detached) = reply.into_parts();
+            let future = future.shared();
+            Self { future, detached }
+        }
     }
 
     #[pymethods]
@@ -1036,6 +1081,18 @@ mod crossflow {
         }
 
         Err(PyKeyError::new_err("unsupported key type - must provide a name, index, or slice").into())
+    }
+
+    fn pythonize_value(value: &JsonMessage) -> PyResult<Py<PyAny>> {
+        Python::attach(|py| {
+            pythonize(py, value)
+            .map(|v| v.unbind())
+            .map_err(|err| {
+                PyRuntimeError::new_err(
+                    format!("failed to Pythonize data: {err}\n{value:#?}")
+                )
+            })
+        })
     }
 
     #[cfg(test)]

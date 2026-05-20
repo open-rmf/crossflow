@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     ArcAny, Accessor, BufferMap, BufferMapLayout, BufferMapLayoutHints, BufferSettings, Builder, DynNode,
-    ScriptMessage, DynOutput, InferenceContext, JsonMessage, default_as_false, is_false,
+    ScriptMessage, DynOutput, InferenceContext, JsonMessage, BufferKeyMap, default_as_false, is_false,
 };
 
 use super::{
@@ -245,12 +245,11 @@ impl BuildDiagramOperation for BufferAccessSchema {
     }
 }
 
-pub trait BufferAccessRequest: 'static + Send + Sync {
+pub trait BufferAccessRequest: 'static + Send + Sync + From<(Self::Message, Self::BufferKeys)> {
     type Message: Send + Sync + 'static;
     type BufferKeys: Accessor;
 
-    fn split(self) -> (Self::Message, Self::BufferKeys);
-    fn combine(message: Self::Message, keys: Self::BufferKeys) -> Self;
+    fn split_access(self) -> (Self::Message, Self::BufferKeys);
 }
 
 impl<T, B> BufferAccessRequest for (T, B)
@@ -261,11 +260,17 @@ where
     type Message = T;
     type BufferKeys = B;
 
-    fn split(self) -> (T, B) {
+    fn split_access(self) -> (T, B) {
         self
     }
-    fn combine(message: Self::Message, keys: Self::BufferKeys) -> Self {
-        (message, keys)
+}
+
+impl BufferAccessRequest for ScriptMessage {
+    type Message = JsonMessage;
+    type BufferKeys = BufferKeyMap;
+
+    fn split_access(self) -> (Self::Message, Self::BufferKeys) {
+        (self.data, self.accessors)
     }
 }
 
@@ -289,7 +294,7 @@ impl BufferAccessRegistration {
     pub fn new<T: BufferAccessRequest>(messages: &mut MessageRegistry) -> Self {
         let create = |buffers: &BufferMap, builder: &mut Builder| {
             let buffer_access =
-                builder.try_create_buffer_access::<T::Message, T::BufferKeys>(buffers)?;
+                builder.try_create_buffer_access::<T::Message, T::BufferKeys, T>(buffers)?;
             Ok(buffer_access.into())
         };
         let request_message = messages.registration.get_index_or_insert::<T::Message>();
@@ -304,7 +309,7 @@ impl BufferAccessRegistration {
                 })?;
 
             let node = builder.create_map_block(move |input: T| {
-                let (data, accessors) = input.split();
+                let (data, accessors) = input.split_access();
                 let data = serialize(data).map_err(|err| err.to_string())?;
                 let accessors = accessors.to_any_keys();
                 Ok::<_, String>(ScriptMessage { data, accessors })
@@ -333,7 +338,7 @@ impl BufferAccessRegistration {
                 let accessors = <T::BufferKeys as Accessor>::try_from_any_keys(&input.accessors)
                     .map_err(|err| err.to_string())?;
 
-                Ok::<_, String>(T::combine(data, accessors))
+                Ok::<_, String>(T::from((data, accessors)))
             });
 
             let (ok, err) = builder

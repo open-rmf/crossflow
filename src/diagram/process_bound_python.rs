@@ -750,4 +750,79 @@ def check_equal(access):
 
         py_event_loop.stop().unwrap();
     }
+
+    #[test]
+    fn test_python_buffer_access() {
+        let mut fixture = DiagramTestFixture::new();
+
+        let py_event_loop = PythonEventLoop::new().unwrap();
+        fixture.registry.enable_python(&py_event_loop).unwrap();
+        py_event_loop.spawn_thread_and_run();
+
+        let env_script =
+r###"
+from crossflow import *
+
+async def fetch_by_name(input: Input):
+    name = input.data
+    return await input.accessors[name].wait_for_fetch()
+"###;
+
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "script_environments": {
+                "test_env": {
+                    "builder": "process-bound-python",
+                    "config": {
+                        "script": env_script
+                    }
+                }
+            },
+            "start": "split_input",
+            "ops": {
+                "split_input": {
+                    "type": "split",
+                    "keyed": {
+                        "name": "fetcher_access",
+                        "values": "split_values"
+                    }
+                },
+                "alice_buffer": { "type": "buffer" },
+                "bob_buffer": { "type": "buffer" },
+                "fetcher_access": {
+                    "type": "buffer_access",
+                    "buffers": {
+                        "alice": "alice_buffer",
+                        "bob": "bob_buffer"
+                    },
+                    "next": "fetcher"
+                },
+                "fetcher": {
+                    "type": "script",
+                    "environment": "test_env",
+                    "run": "fetch_by_name",
+                    "next": { "builtin": "terminate" }
+                },
+                "split_values": {
+                    "type": "split",
+                    "keyed": {
+                        "alice": "alice_buffer",
+                        "bob": "bob_buffer"
+                    }
+                }
+            }
+        }))
+        .unwrap();
+
+        let input = json!({
+            "name": "bob",
+            "values": {
+                "alice": 2,
+                "bob": 5,
+            }
+        });
+
+        let r: i32 = fixture.spawn_and_run(&diagram, input).unwrap();
+        assert_eq!(r, 5);
+    }
 }

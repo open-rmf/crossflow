@@ -276,6 +276,12 @@ impl Channel {
         wait_for(self.inner.clone(), dependencies, f)
     }
 
+    /// Get the [`RequestId`] that this channel is serving.
+    #[must_use = "No reason to call this if you are not using it"]
+    pub fn request_id(&self) -> RequestId {
+        self.inner.request_id()
+    }
+
     pub(crate) fn for_streams<Streams: StreamPack>(
         &self,
         world: &World,

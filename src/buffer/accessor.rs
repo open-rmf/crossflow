@@ -93,12 +93,16 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
         Ok(buffers.listen(builder))
     }
 
-    fn try_buffer_access<T: 'static + Send + Sync>(
+    fn try_buffer_access<InputMessage, OutputMessage>(
         buffers: &BufferMap,
         builder: &mut Builder,
-    ) -> Result<Node<T, (T, Self)>, IncompatibleLayout> {
+    ) -> Result<Node<InputMessage, OutputMessage>, IncompatibleLayout>
+    where
+        InputMessage: 'static + Send + Sync,
+        OutputMessage: 'static + Send + Sync + From<(InputMessage, Self)>,
+    {
         let buffers: Self::Buffers = Self::Buffers::try_from_buffer_map(buffers)?;
-        Ok(buffers.access(builder))
+        Ok(buffers.access_into(builder))
     }
 
     fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey>;
