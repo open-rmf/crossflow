@@ -1,4 +1,7 @@
+import { useTheme } from '@mui/material';
+import { getConnectedEdges } from '@xyflow/react';
 import equal from 'fast-deep-equal';
+import type { DiagramProperties } from '../diagram-properties-provider';
 import {
   BufferFetchType,
   type DiagramEditorEdge,
@@ -11,7 +14,6 @@ import {
   isOperationNode,
   isScopeNode,
 } from '../nodes';
-import { useTheme } from '@mui/material';
 import type {
   BufferSelection,
   Diagram,
@@ -23,9 +25,6 @@ import type {
 import { exhaustiveCheck } from './exhaustive-check';
 import { ROOT_NAMESPACE, splitNamespaces } from './namespace';
 import { isArrayBufferSelection, isKeyedBufferSelection } from './operation';
-import type { DiagramProperties } from '../diagram-properties-provider';
-import { useEdges } from '../use-edges';
-import { getConnectedEdges } from '@xyflow/react';
 
 /**
  * Marks a diagram editor edge visibly to signify that there is an error. This
@@ -105,6 +104,7 @@ function setBufferSelection(
 function syncBufferSelection(
   nodeManager: NodeManager,
   edge: DiagramEditorEdge,
+  edges: DiagramEditorEdge[],
 ) {
   if (edge.type === 'buffer') {
     const targetNode = nodeManager.getNode(edge.target);
@@ -143,10 +143,9 @@ function syncBufferSelection(
     // check that the buffer selection is compatible
     if (edge.type === 'buffer' && edge.data.input?.type === 'bufferSeq') {
       if (!isArrayBufferSelection(bufferSelection)) {
-        const edges = useEdges();
         getConnectedEdges([targetNode], edges)
           .filter(
-            (edge) => edge.type === 'buffer' && edge.target === targetNode.id
+            (edge) => edge.type === 'buffer' && edge.target === targetNode.id,
           )
           .forEach((edge) => {
             markEdgeError(edge);
@@ -161,10 +160,9 @@ function syncBufferSelection(
     }
     if (edge.type === 'buffer' && edge.data.input?.type === 'bufferKey') {
       if (!isKeyedBufferSelection(bufferSelection)) {
-        const edges = useEdges();
         getConnectedEdges([targetNode], edges)
           .filter(
-            (edge) => edge.type === 'buffer' && edge.target === targetNode.id
+            (edge) => edge.type === 'buffer' && edge.target === targetNode.id,
           )
           .forEach((edge) => {
             markEdgeError(edge);
@@ -215,9 +213,10 @@ function syncEdge(
   nodeManager: NodeManager,
   root: SubOperations,
   edge: DiagramEditorEdge,
+  edges: DiagramEditorEdge[],
 ): void {
   if (edge.type === 'buffer') {
-    syncBufferSelection(nodeManager, edge);
+    syncBufferSelection(nodeManager, edge, edges);
     return;
   }
 
@@ -474,7 +473,7 @@ function syncEdges(
   });
 
   for (const edge of validEdges) {
-    syncEdge(nodeManager, root, edge);
+    syncEdge(nodeManager, root, edge, edges);
   }
 }
 

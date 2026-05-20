@@ -5,8 +5,5 @@ import type { DebugSession } from './debug-session';
 export interface BaseApiClient {
   getRegistry(): Observable<DiagramElementMetadata>;
   postRunWorkflow(diagram: Diagram, request: unknown): Observable<unknown>;
-  wsDebugWorkflow?(
-    diagram: Diagram,
-    request: unknown,
-  ): Promise<DebugSession>;
+  wsDebugWorkflow?(diagram: Diagram, request: unknown): Promise<DebugSession>;
 }

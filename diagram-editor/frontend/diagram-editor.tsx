@@ -35,6 +35,7 @@ import {
   type DebugVisualizationContext,
   DebugVisualizationProvider,
 } from './debug-visualization-provider';
+import { DiagramPropertiesProvider } from './diagram-properties-provider';
 import type { DiagramEditorEdge } from './edges';
 import {
   createBaseEdge,
@@ -52,7 +53,6 @@ import { ExportDiagramDialog } from './export-diagram-dialog';
 import { defaultEdgeData, EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
 import { type LoadContext, LoadContextProvider } from './load-context-provider';
-import { DiagramPropertiesProvider } from './diagram-properties-provider';
 import { NodeManager, NodeManagerProvider } from './node-manager';
 import {
   type DiagramEditorNode,
@@ -124,7 +124,7 @@ function getChangeParentIdAndPosition(
   }
 }
 
-export type MaybeValid = { ok: true } | { ok: false, errorMessage: string };
+export type MaybeValid = { ok: true } | { ok: false; errorMessage: string };
 
 interface ProvidersProps {
   editorModeContext: UseEditorModeContext;
@@ -245,23 +245,22 @@ function DiagramEditor() {
     },
     [nodeManager],
   );
-  const debugVisualizationContext =
-    React.useMemo<DebugVisualizationContext>(
-      () => ({
-        activeNodeIds: debugActiveNodeIds,
-        latestNodeId: debugLatestNodeId,
-        clearDebugVisualization,
-        markDebugFinished,
-        markDebugOperationStarted,
-      }),
-      [
-        clearDebugVisualization,
-        debugActiveNodeIds,
-        debugLatestNodeId,
-        markDebugFinished,
-        markDebugOperationStarted,
-      ],
-    );
+  const debugVisualizationContext = React.useMemo<DebugVisualizationContext>(
+    () => ({
+      activeNodeIds: debugActiveNodeIds,
+      latestNodeId: debugLatestNodeId,
+      clearDebugVisualization,
+      markDebugFinished,
+      markDebugOperationStarted,
+    }),
+    [
+      clearDebugVisualization,
+      debugActiveNodeIds,
+      debugLatestNodeId,
+      markDebugFinished,
+      markDebugOperationStarted,
+    ],
+  );
   const savedNodes = React.useRef<DiagramEditorNode[]>([]);
 
   const [edges, setEdges] = React.useState<DiagramEditorEdge[]>([]);
@@ -630,8 +629,9 @@ function DiagramEditor() {
   const [loadContext, setLoadContext] = React.useState<LoadContext | null>(
     null,
   );
-  const [recentlyUsedFilename, setRecentlyUsedFilename] =
-    React.useState<string | null>(null);
+  const [recentlyUsedFilename, setRecentlyUsedFilename] = React.useState<
+    string | null
+  >(null);
 
   const loadDiagram = React.useCallback(
     async (jsonStr: string, filename: string | null) => {
@@ -855,7 +855,9 @@ function DiagramEditor() {
             return;
           }
 
-          const sourceNode = nodeManager.tryGetNode(connectionState.fromHandle.nodeId);
+          const sourceNode = nodeManager.tryGetNode(
+            connectionState.fromHandle.nodeId,
+          );
           const clientPosition = getClientPosition(event);
           if (!sourceNode || !clientPosition) {
             return;
@@ -1003,22 +1005,27 @@ function DiagramEditor() {
               handleNodeChanges(changes);
               if (addOperationPopover.sourceConnection) {
                 const targetNode =
-                  changes.find((change) => change.item.id === primaryNodeId)?.item ||
-                  null;
+                  changes.find((change) => change.item.id === primaryNodeId)
+                    ?.item || null;
                 if (targetNode) {
                   const newEdge = tryCreateEdge(
-                    addOperationPopover.sourceConnection.sourceHandleType === 'source'
+                    addOperationPopover.sourceConnection.sourceHandleType ===
+                      'source'
                       ? {
-                          source: addOperationPopover.sourceConnection.sourceNodeId,
-                          sourceHandle: addOperationPopover.sourceConnection.sourceHandle,
+                          source:
+                            addOperationPopover.sourceConnection.sourceNodeId,
+                          sourceHandle:
+                            addOperationPopover.sourceConnection.sourceHandle,
                           target: targetNode.id,
                           targetHandle: null,
                         }
                       : {
                           source: targetNode.id,
                           sourceHandle: null,
-                          target: addOperationPopover.sourceConnection.sourceNodeId,
-                          targetHandle: addOperationPopover.sourceConnection.sourceHandle,
+                          target:
+                            addOperationPopover.sourceConnection.sourceNodeId,
+                          targetHandle:
+                            addOperationPopover.sourceConnection.sourceHandle,
                         },
                     undefined,
                     targetNode,
@@ -1077,8 +1084,8 @@ function DiagramEditor() {
           <ExportDiagramDialog
             open={openExportDiagramDialog}
             suggestedFilename={recentlyUsedFilename}
-            onExportedFilename={
-              (filename: string) => setRecentlyUsedFilename(filename)
+            onExportedFilename={(filename: string) =>
+              setRecentlyUsedFilename(filename)
             }
             onClose={() => setOpenExportDiagramDialog(false)}
             onValidDiagram={(maybeValid: MaybeValid) => {

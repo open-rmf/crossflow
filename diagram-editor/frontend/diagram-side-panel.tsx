@@ -22,6 +22,7 @@ import {
   useTheme,
 } from '@mui/material';
 import React from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import { useDiagramProperties } from './diagram-properties-provider';
 import { useLoadContext } from './load-context-provider';
 import { MaterialSymbol } from './nodes';
@@ -53,10 +54,6 @@ function getInputExampleRequestJson(input: InputExample): string {
   return JSON.stringify(input.value, null, 2) || '';
 }
 
-function getInputExampleKey(input: InputExample, index: number): string {
-  return `${input.description}:${getInputExampleRequestJson(input)}:${index}`;
-}
-
 function DiagramSidePanel({
   open,
   tab,
@@ -74,11 +71,16 @@ function DiagramSidePanel({
   const [openAddExampleDialog, setOpenAddExampleDialog] = React.useState(false);
   const [newInputExample, setNewInputExample] =
     React.useState<InputExample>(EmptyInputExample);
+  const [localExamples, setLocalExamples] = React.useState<
+    (InputExample & { id: string })[]
+  >([]);
 
   React.useEffect(() => {
+    const examples = loadContext?.diagram.input_examples ?? [];
+    setLocalExamples(examples.map((ex) => ({ ...ex, id: uuidv4() })));
     setDiagramProperties({
       description: loadContext?.diagram.description ?? '',
-      input_examples: loadContext?.diagram.input_examples ?? [],
+      input_examples: examples,
     });
   }, [loadContext, setDiagramProperties]);
 
@@ -205,10 +207,9 @@ function DiagramSidePanel({
             </Stack>
             <Paper>
               <List>
-                {diagramProperties?.input_examples &&
-                diagramProperties.input_examples.length > 0 ? (
-                  diagramProperties.input_examples.map((input, index) => (
-                    <ListItem key={getInputExampleKey(input, index)}>
+                {localExamples.length > 0 ? (
+                  localExamples.map((input, index) => (
+                    <ListItem key={input.id}>
                       <TextField
                         fullWidth
                         multiline
@@ -234,6 +235,10 @@ function DiagramSidePanel({
                                   <Tooltip title="Delete input example">
                                     <IconButton
                                       onClick={() => {
+                                        setLocalExamples((prev) => [
+                                          ...prev.slice(0, index),
+                                          ...prev.slice(index + 1),
+                                        ]);
                                         setDiagramProperties((prev) => {
                                           const prevInputExamples =
                                             prev.input_examples ?? [];
@@ -373,6 +378,8 @@ function DiagramSidePanel({
           <Button
             variant="contained"
             onClick={() => {
+              const newLocalExample = { ...newInputExample, id: uuidv4() };
+              setLocalExamples((prev) => [...prev, newLocalExample]);
               setDiagramProperties((prev) => {
                 const prevInputExamples = prev.input_examples ?? [];
                 return {
