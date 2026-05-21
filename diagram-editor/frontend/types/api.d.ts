@@ -1270,7 +1270,11 @@ export interface ScriptSchema {
     [k: string]: unknown;
   };
   next: NextOperation;
-  run: Script;
+  on_error?: NextOperation | null;
+  /**
+   * What to run in the environment
+   */
+  run: string;
   /**
    * A map from the name of a stream to the operation that its outputs should
    * be passed to.
@@ -1279,14 +1283,6 @@ export interface ScriptSchema {
     [k: string]: NextOperation;
   };
   trace?: TraceToggle | null;
-  [k: string]: unknown;
-}
-/**
- * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "Script".
- */
-export interface Script {
-  text: string;
   [k: string]: unknown;
 }
 /**
@@ -1370,7 +1366,13 @@ export interface MessageOperationsMetadata {
    */
   fork_result?: [number, number] | null;
   from: number[];
+  from_script_message?: {
+    [k: string]: unknown;
+  } | null;
   into: number[];
+  into_script_message?: {
+    [k: string]: unknown;
+  } | null;
   join?: BufferMapLayoutHints | null;
   listen?: BufferMapLayoutHints | null;
   serialize?: {
@@ -1476,7 +1478,13 @@ export interface ScriptConfigExample {
    * The name of this example
    */
   name: string;
-  run: Script;
+  /**
+   * How to run this example environment, i.e. what goes into the `run` field
+   * of the [`ScriptSchema`][1].
+   *
+   * [1]: crate::ScriptSchema
+   */
+  run: string;
   [k: string]: unknown;
 }
 /**
