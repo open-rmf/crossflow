@@ -1,0 +1,33 @@
+name: ci_frontend
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+
+    - uses: actions/checkout@v6
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v6
+      with:
+        version: latest
+
+    - name: Setup nodejs
+      uses: actions/setup-node@v6
+      with:
+        node-version: lts/*
+        cache: pnpm
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    - name: Run tests
+      run: pnpm exec jest
+      working-directory: diagram-editor

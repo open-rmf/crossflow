@@ -304,10 +304,7 @@ export function validateSourceOutputCapacity(
 ): ConnectionValidationResult {
   // Check if the source supports emitting multiple outputs.
   // NOTE: All nodes supports "Many" inputs so we don't need to check that.
-  const outputCardinality = getOutputCardinality(
-    sourceNode.type,
-    sourceHandle,
-  );
+  const outputCardinality = getOutputCardinality(sourceNode.type, sourceHandle);
   switch (outputCardinality) {
     case CardinalityType.Single: {
       if (
