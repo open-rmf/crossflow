@@ -67,7 +67,7 @@ jobs:
     - name: Test all capabilities combined
       run: |
         rm -rf target/
-        cargo test --workspace -F=maximal
+        BUILD_FRONTEND=1 cargo test --workspace -F=maximal
 
     - name: Build docs
       run: cargo doc --no-deps --all-features
