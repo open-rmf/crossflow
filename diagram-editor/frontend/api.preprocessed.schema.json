@@ -978,6 +978,12 @@
           "type": "array",
           "uniqueItems": true
         },
+        "from_script_message": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
         "into": {
           "items": {
             "format": "uint",
@@ -986,6 +992,12 @@
           },
           "type": "array",
           "uniqueItems": true
+        },
+        "into_script_message": {
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "join": {
           "anyOf": [
@@ -1460,17 +1472,6 @@
       ],
       "type": "object"
     },
-    "Script": {
-      "properties": {
-        "text": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "text"
-      ],
-      "type": "object"
-    },
     "ScriptConfigExample": {
       "description": "An example of how to configure an environment",
       "properties": {
@@ -1486,7 +1487,8 @@
           "type": "string"
         },
         "run": {
-          "$ref": "#/$defs/Script"
+          "description": "How to run this example environment, i.e. what goes into the `run` field\nof the [`ScriptSchema`][1].\n\n[1]: crate::ScriptSchema",
+          "type": "string"
         }
       },
       "required": [
@@ -1580,8 +1582,19 @@
         "next": {
           "$ref": "#/$defs/NextOperation"
         },
+        "on_error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NextOperation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "run": {
-          "$ref": "#/$defs/Script"
+          "description": "What to run in the environment",
+          "type": "string"
         },
         "stream_out": {
           "additionalProperties": {
