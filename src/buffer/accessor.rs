@@ -34,7 +34,7 @@ use crate::{
     Accessing, Buffer, BufferAccessMut, BufferError, BufferKey, BufferMap, BufferMapLayout,
     BufferMut, BufferView, BufferWorldAccess, Builder, Chain, IncompatibleLayout, IdentifierRef,
     ManageBufferSessions, Node, RequestId, Sendish, Seq, format_vertical_list, AnyBufferKey,
-    Identifiable,
+    Identifiable, CloneError,
 };
 
 use futures_concurrency::future::Race;
@@ -183,6 +183,8 @@ pub enum AccessError {
     NotDisjoint(#[from] OverlapError),
     #[error("Failed to access one of the buffers: {0}")]
     Inaccessible(#[from] BufferError),
+    #[error("{0}")]
+    NotCloneable(#[from] CloneError),
     #[error("Multiple access errors occurred:{}", format_vertical_list(.0))]
     Multiple(Vec<AccessError>),
 }
@@ -360,7 +362,8 @@ where
 
     type Joined = T;
     fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
-        Ok(world.buffer_mut(req, self, |mut buffer| buffer.pull())?)
+        let fetch = self.fetch_settings.fetch;
+        Ok(world.buffer_mut(req, self, fetch)?)
     }
 
     fn distribute(

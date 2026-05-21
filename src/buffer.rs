@@ -202,6 +202,8 @@ impl<T: Clone + Send + Sync + 'static> CloneFromBuffer<T> {
             interface.register_cloning(
                 clone_for_any_join::<T>,
                 &(clone_for_join::<T> as FetchFromBufferFn<T>),
+                &(clone_from_buffer::<T> as FetchFn<T>),
+                clone_any::<T>,
             );
             interface.register_buffer_downcast(
                 TypeId::of::<CloneFromBuffer<T>>(),
@@ -240,6 +242,12 @@ fn clone_for_any_join<T: 'static + Send + Sync + Clone>(
         .or_broken()
         .cloned()
         .map(to_any_message)
+}
+
+fn clone_any<T: Clone + 'static + Send + Sync>(value: AnyMessageRef) -> AnyMessageBox {
+    // SAFETY: The API prevents the user from passing any value into this
+    // which isn't the underlying type T.
+    Box::new(value.downcast_ref::<T>().unwrap().clone())
 }
 
 impl<T: Clone + Send + Sync> From<CloneFromBuffer<T>> for Buffer<T> {
@@ -330,21 +338,43 @@ impl Default for RetentionPolicy {
 ///
 /// [1]: crate::Chain::with_access
 /// [2]: crate::Accessible::listen
-pub struct BufferKey<T> {
+pub struct BufferKey<T: 'static + Send + Sync> {
     body: BufferKeyBody,
-    _ignore: std::marker::PhantomData<fn(T)>,
+    pub fetch_settings: FetchSettings<T>,
 }
 
-impl<T> Clone for BufferKey<T> {
+impl<T: 'static + Send + Sync> Clone for BufferKey<T> {
     fn clone(&self) -> Self {
         Self {
             body: self.body.clone(),
-            _ignore: Default::default(),
+            fetch_settings: self.fetch_settings.clone(),
         }
     }
 }
 
-impl<T> BufferKey<T> {
+impl<T: 'static + Send + Sync> BufferKey<T> {
+    /// Make a copy of this key that will fetch values from a buffer by pulling
+    /// a value out.
+    #[must_use = "This creates a new key. The original key is unchanged."]
+    pub fn fetch_by_pull(&self) -> Self {
+        let mut key = self.clone();
+        key.fetch_settings.fetch_by_pull();
+        key
+    }
+
+    /// Make a copy of this key that will fetch values from a buffer by cloning
+    /// a value. The contents of the buffer will be unchanged by any fetch or
+    /// join done using this key.
+    #[must_use = "This creates a new key. The original key is unchanged."]
+    pub fn fetch_by_clone(&self) -> Self
+    where
+        T: Clone,
+    {
+        let mut key = self.clone();
+        key.fetch_settings.fetch_by_clone();
+        key
+    }
+
     /// The buffer ID of this key.
     pub fn buffer(&self) -> Entity {
         self.body.tag.buffer
@@ -369,7 +399,7 @@ impl<T: 'static + Send + Sync> BufferKeyLifecycle for BufferKey<T> {
     ) -> OperationResult<Self> {
         Ok(BufferKey {
             body: builder.make_body(buffer.id())?,
-            _ignore: Default::default(),
+            fetch_settings: Default::default(),
         })
     }
 
@@ -380,18 +410,80 @@ impl<T: 'static + Send + Sync> BufferKeyLifecycle for BufferKey<T> {
     fn deep_clone(&self) -> Self {
         Self {
             body: self.body.deep_clone(),
-            _ignore: Default::default(),
+            fetch_settings: self.fetch_settings.clone(),
         }
     }
 }
 
-impl<T> std::fmt::Debug for BufferKey<T> {
+impl<T: 'static + Send + Sync> std::fmt::Debug for BufferKey<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BufferKey")
             .field("message_type_name", &std::any::type_name::<T>())
             .field("tag", &self.body)
+            .field("fetch_settings", &self.fetch_settings)
             .finish()
     }
+}
+
+pub(crate) type FetchFn<T> = fn(BufferMut<T>) -> Option<T>;
+
+pub struct FetchSettings<T: 'static + Send + Sync> {
+    behavior: FetchBehavior,
+    fetch: FetchFn<T>,
+}
+
+impl<T: 'static + Send + Sync> FetchSettings<T> {
+    /// Change the fetch settings of the key so that it fetches value by pulling
+    /// them out of the buffer.
+    pub fn fetch_by_pull(&mut self) {
+        self.behavior = FetchBehavior::Pull;
+        self.fetch = pull_from_buffer::<T>;
+    }
+
+    /// Change the fetch settings of the key so that it fetches values by cloning
+    /// them. The buffer will be left unchanged by the fetch.
+    pub fn fetch_by_clone(&mut self)
+    where
+        T: Clone,
+    {
+        CloneFromBuffer::<T>::register_clone_for_join();
+        self.behavior = FetchBehavior::Clone;
+        self.fetch = clone_from_buffer::<T>;
+    }
+}
+
+impl<T: 'static + Send + Sync> Clone for FetchSettings<T> {
+    fn clone(&self) -> Self {
+        Self {
+            behavior: self.behavior,
+            fetch: self.fetch,
+        }
+    }
+}
+
+impl<T: 'static + Send + Sync> Default for FetchSettings<T> {
+    fn default() -> Self {
+        Self {
+            behavior: FetchBehavior::Pull,
+            fetch: pull_from_buffer::<T>,
+        }
+    }
+}
+
+impl<T: 'static + Send + Sync> std::fmt::Debug for FetchSettings<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FetchSettings")
+            .field("behavior", &self.behavior)
+            .finish()
+    }
+}
+
+fn pull_from_buffer<T: 'static + Send + Sync>(mut buffer: BufferMut<T>) -> Option<T> {
+    buffer.pull()
+}
+
+fn clone_from_buffer<T: 'static + Send + Sync + Clone>(buffer: BufferMut<T>) -> Option<T> {
+    buffer.oldest().map(|v| v.clone())
 }
 
 #[derive(Clone)]
@@ -1707,5 +1799,113 @@ mod tests {
 
         let r = context.resolve_request(vec![-3, 2, 10], workflow);
         assert_eq!(r.unwrap(), 10);
+    }
+
+    #[test]
+    fn test_fetch_by_clone() {
+        let mut context = TestingContext::minimal_plugins();
+
+        // ----- Test explicit behavior conversion via .fetch_by_clone
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffer = builder.create_buffer(BufferSettings::keep_last(1));
+            builder
+                .chain(scope.start)
+                .then_push(buffer)
+                .with_access(buffer)
+                .map(|input: Async<((), BufferKey<i32>)>| {
+                    let key = input.request.1.fetch_by_clone();
+                    let channel = input.channel;
+
+                    async move {
+                        let mut x = None;
+                        for _ in 0..10 {
+                            x = channel.try_join(key.clone()).await.unwrap();
+                        }
+                        x
+                    }
+                })
+                .connect(scope.terminate);
+        });
+
+        let r = context.resolve_request(5, workflow).unwrap();
+        assert_eq!(r, 5);
+
+        // ----- Test using CloneFromBuffer to implicitly make the fetch_by_clone behavior
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffer = builder.create_buffer(BufferSettings::keep_last(1));
+            builder
+                .chain(scope.start)
+                .then_push(buffer)
+                .with_access(buffer.join_by_cloning())
+                .map(|input: Async<((), BufferKey<i32>)>| {
+                    let key = input.request.1;
+                    let channel = input.channel;
+
+                    async move {
+                        let mut x = None;
+                        for _ in 0..10 {
+                            x = channel.try_join(key.clone()).await.unwrap();
+                        }
+                        x
+                    }
+                })
+                .connect(scope.terminate);
+        });
+
+        let r = context.resolve_request(5, workflow).unwrap();
+        assert_eq!(r, 5);
+
+        // ----- Test fetch by clone with AnyBufferKey
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffer = builder.create_buffer(BufferSettings::keep_last(1));
+            builder
+                .chain(scope.start)
+                .then_push(buffer)
+                .with_access(buffer.join_by_cloning())
+                .map(|input: Async<((), BufferKey<i32>)>| {
+                    let key: AnyBufferKey = input.request.1.into();
+                    let channel = input.channel;
+
+                    async move {
+                        let mut x = None;
+                        for _ in 0..10 {
+                            x = channel.try_join(key.clone()).await.unwrap();
+                        }
+                        x
+                    }
+                })
+                .connect(scope.terminate);
+        });
+
+        let r = context.resolve_request(5, workflow).unwrap();
+        assert_eq!(*r.downcast::<i32>().unwrap(), 5);
+
+        // ----- Test fetch by clone with JsonBufferKey
+        #[cfg(feature = "json")]
+        {
+            let workflow = context.spawn_io_workflow(|scope, builder| {
+                let buffer = builder.create_buffer(BufferSettings::keep_last(1));
+                builder
+                    .chain(scope.start)
+                    .then_push(buffer)
+                    .with_access(buffer.join_by_cloning())
+                    .map(|input: Async<((), BufferKey<i32>)>| {
+                        let key: JsonBufferKey = input.request.1.into();
+                        let channel = input.channel;
+
+                        async move {
+                            let mut x = None;
+                            for _ in 0..10 {
+                                x = channel.try_join(key.clone()).await.unwrap();
+                            }
+                            x
+                        }
+                    })
+                    .connect(scope.terminate);
+            });
+
+            let r = context.resolve_request(5, workflow).unwrap();
+            assert_eq!(r.as_number().unwrap().as_i64().unwrap(), 5);
+        }
     }
 }

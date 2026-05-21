@@ -410,7 +410,7 @@ impl<T: 'static + Send + Sync + Clone> Accessing for CloneFromBuffer<T> {
     }
 
     fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key> {
-        Self::Key::create_key(&(*self).into(), builder)
+        Self::Key::create_key(&(*self).into(), builder).map(|k| k.fetch_by_clone())
     }
 
     fn deep_clone_key(key: &Self::Key) -> Self::Key {

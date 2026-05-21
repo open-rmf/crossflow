@@ -20,7 +20,7 @@ mod crossflow {
     use crate::{
         AnyBufferKey, Channel, JsonBufferKey, IdentifierRef, AccessError, BufferError, OverlapError,
         JsonBufferMut, JsonMut, JsonRef, JsonMessage, format_vertical_list, DynamicallyNamedStreamChannel, StreamOf,
-        ScriptMessage, NamedValue, BufferKeyMap, Accessor, Reply,
+        ScriptMessage, NamedValue, BufferKeyMap, Accessor, Reply, CloneError,
     };
     use std::{
         borrow::Cow,
@@ -65,6 +65,12 @@ mod crossflow {
         }
     }
 
+    impl From<CloneError> for PyErr {
+        fn from(value: CloneError) -> Self {
+            PyTypeError::new_err(format!("{value}"))
+        }
+    }
+
     impl From<AccessError> for PyErr {
         fn from(value: AccessError) -> Self {
             match value {
@@ -72,6 +78,9 @@ mod crossflow {
                     overlap.into()
                 }
                 AccessError::Inaccessible(error) => {
+                    error.into()
+                }
+                AccessError::NotCloneable(error) => {
                     error.into()
                 }
                 AccessError::Multiple(multiple) => {

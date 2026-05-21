@@ -195,13 +195,14 @@ impl AsAnyBuffer for JsonBuffer {
 pub struct JsonBufferKey {
     body: BufferKeyBody,
     interface: &'static (dyn JsonBufferAccessInterface + Send + Sync),
+    fetch_behavior: FetchBehavior,
 }
 
 impl JsonBufferKey {
     /// Downcast this into a concrete [`BufferKey`] for the specified message type.
     ///
     /// To downcast to a specialized kind of key, use [`Self::downcast_buffer_key`] instead.
-    pub fn downcast_for_message<T: 'static>(self) -> Option<BufferKey<T>> {
+    pub fn downcast_for_message<T: 'static + Send + Sync>(self) -> Option<BufferKey<T>> {
         self.as_any_buffer_key().downcast_for_message()
     }
 
@@ -229,6 +230,7 @@ impl BufferKeyLifecycle for JsonBufferKey {
         Ok(Self {
             body: builder.make_body(buffer.id())?,
             interface: buffer.interface,
+            fetch_behavior: buffer.join_behavior,
         })
     }
 
@@ -240,6 +242,7 @@ impl BufferKeyLifecycle for JsonBufferKey {
         Self {
             body: self.body.deep_clone(),
             interface: self.interface,
+            fetch_behavior: self.fetch_behavior,
         }
     }
 }
@@ -262,6 +265,7 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> From<BufferKey<T>>
         JsonBufferKey {
             body: value.body,
             interface,
+            fetch_behavior: value.fetch_settings.behavior,
         }
     }
 }
@@ -271,6 +275,7 @@ impl From<JsonBufferKey> for AnyBufferKey {
         AnyBufferKey {
             body: value.body,
             interface: value.interface.any_access_interface(),
+            fetch_behavior: value.fetch_behavior,
         }
     }
 }
@@ -960,10 +965,11 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonBufferAccessIm
 
             any_interface.register_key_downcast(
                 TypeId::of::<JsonBufferKey>(),
-                Box::new(|body| {
+                Box::new(|body, fetch_behavior| {
                     Box::new(JsonBufferKey {
                         body,
                         interface: Self::get_interface(),
+                        fetch_behavior,
                     })
                 }),
             );
@@ -1249,6 +1255,7 @@ impl Accessing for JsonBuffer {
         Ok(JsonBufferKey {
             body: builder.make_body(self.id())?,
             interface: self.interface,
+            fetch_behavior: self.join_behavior,
         })
     }
 
@@ -1356,13 +1363,28 @@ impl Accessor for JsonBufferKey {
     type Joined = JsonMessage;
     fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
         Ok(world.json_buffer_mut(req, self, |mut buffer| {
-            loop {
-                match buffer.pull() {
-                    Some(Ok(value)) => return Some(value),
-                    Some(Err(_)) => continue,
-                    None => return None,
+            match self.fetch_behavior {
+                FetchBehavior::Pull => {
+                    loop {
+                        match buffer.pull() {
+                            Some(Ok(value)) => return Some(value),
+                            Some(Err(_)) => continue,
+                            None => return None,
+                        }
+                    }
+                }
+                FetchBehavior::Clone => {
+                    for i in 0..buffer.len() {
+                        if let Some(entry) = buffer.get(i) {
+                            if let Ok(value) = entry.serialize() {
+                                return Some(value);
+                            }
+                        }
+                    }
                 }
             }
+
+            None
         })?)
     }
 
