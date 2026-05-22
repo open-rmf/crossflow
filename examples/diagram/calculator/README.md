@@ -32,14 +32,3 @@ cargo run -- serve
 ```
 
 Then open http://localhost:3000 to run the diagram editor app from your web browser.
-
-To see live progress highlights in the editor, run the server with debugging
-enabled:
-
-```bash
-cargo run --manifest-path diagram/calculator/Cargo.toml --features crossflow_diagram_editor/debug -- serve --port 3000
-```
-
-Open `diagrams/carry_object_progress.json`, use its input example, and click
-`Debug` in the Run side panel. The three delayed operations should highlight in
-sequence while the timeline updates.

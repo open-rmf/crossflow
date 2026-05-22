@@ -6,13 +6,13 @@ use axum::{
 };
 #[cfg(feature = "router")]
 use axum::{Router, routing::post};
-#[cfg(feature = "debug")]
+#[cfg(feature = "router")]
 use axum::{
     extract::ws,
     routing::{self},
 };
 use bevy_ecs::{prelude::Entity, schedule::IntoScheduleConfigs};
-#[cfg(feature = "debug")]
+#[cfg(feature = "router")]
 use crossflow::TracedEventKind;
 use crossflow::{Diagram, DiagramElementRegistry, Outcome, RequestExt, TracedEvent, trace};
 use serde::{Deserialize, Serialize};
@@ -23,14 +23,14 @@ use std::{
 };
 use tokio::sync::mpsc::error::TryRecvError;
 use tracing::error;
-#[cfg(feature = "debug")]
+#[cfg(feature = "router")]
 use tracing::warn;
 
-#[cfg(feature = "debug")]
+#[cfg(feature = "router")]
 use super::websocket::{WebsocketSinkExt, WebsocketStreamExt};
 use crate::api::error_responses::WorkflowCancelledResponse;
 
-#[cfg(feature = "debug")]
+#[cfg(feature = "router")]
 type BroadcastRecvError = tokio::sync::broadcast::error::RecvError;
 
 type WorkflowResponseResult =
@@ -125,7 +125,7 @@ pub enum DebugSessionEnd {
     Err(String),
 }
 
-#[cfg(feature = "debug")]
+#[cfg(feature = "router")]
 impl DebugSessionEnd {
     fn err_from_status_code(status_code: StatusCode) -> Self {
         Self::Err(status_code.to_string())
@@ -150,7 +150,7 @@ pub enum DebugSessionMessage {
 }
 
 /// Start a debug session.
-#[cfg(feature = "debug")]
+#[cfg(feature = "router")]
 async fn ws_debug<W, R, Text>(mut write: W, mut read: R, state: State<ExecutorState>)
 where
     W: WebsocketSinkExt<DebugSessionMessage>,
@@ -253,7 +253,7 @@ where
     }
 }
 
-#[cfg(feature = "debug")]
+#[cfg(feature = "router")]
 async fn drain_debug_feedback<W>(
     write: &mut W,
     feedback_rx: &mut tokio::sync::broadcast::Receiver<WorkflowFeedback>,
@@ -272,7 +272,7 @@ async fn drain_debug_feedback<W>(
     }
 }
 
-#[cfg(feature = "debug")]
+#[cfg(feature = "router")]
 async fn send_debug_feedback<W>(write: &mut W, feedback: &TracedEvent)
 where
     W: WebsocketSinkExt<DebugSessionMessage>,
@@ -288,7 +288,7 @@ where
         .await;
 }
 
-#[cfg(feature = "debug")]
+#[cfg(feature = "router")]
 fn operation_started_id(feedback: &TracedEvent) -> Option<String> {
     match &feedback.event {
         TracedEventKind::MessageSent(message) => message
@@ -457,7 +457,6 @@ pub(super) fn new_router(
 
     let router = Router::new().route("/run", post(post_run));
 
-    #[cfg(feature = "debug")]
     let router = router.route(
         "/debug",
         routing::any(
@@ -479,14 +478,12 @@ pub(super) fn new_router(
 #[cfg(feature = "router")]
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "debug")]
     use axum::extract::ws;
     use axum::{
         body,
         http::{Request, header},
     };
     use crossflow::{CrossflowExecutorApp, NodeBuilderOptions};
-    #[cfg(feature = "debug")]
     use futures_util::SinkExt;
     use mime_guess::mime;
     use serde_json::json;
@@ -598,13 +595,11 @@ mod tests {
         cleanup_test();
     }
 
-    #[cfg(feature = "debug")]
     struct WsTestFixture<CleanupFn> {
         executor_state: ExecutorState,
         cleanup_test: CleanupFn,
     }
 
-    #[cfg(feature = "debug")]
     fn setup_ws_test() -> WsTestFixture<impl FnOnce()> {
         let (send_stop, mut recv_stop) = tokio::sync::oneshot::channel::<()>();
         let (state_sender, state_receiver) = std::sync::mpsc::channel();
@@ -647,7 +642,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "debug")]
     #[ignore = "tracing events in `crossflow` is delayed"]
     #[tokio::test]
     #[test_log::test]

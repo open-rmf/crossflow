@@ -1,7 +1,9 @@
 import {
   Box,
   Button,
+  Checkbox,
   Divider,
+  FormControlLabel,
   Stack,
   TextField,
   Typography,
@@ -21,15 +23,15 @@ import { useEdges } from './use-edges';
 import { exportDiagram } from './utils/export-diagram';
 
 type ResponseContent = { raw: string } | { err: string };
-type RunningMode = 'run' | 'debug' | null;
+type RunningMode = 'run' | null;
 
-interface DebugTimelineEntry {
+interface ExecutionTimelineEntry {
   seq: number;
   operationId: string;
 }
 
 const DefaultResponseContent: ResponseContent = { raw: '' };
-const MaxDebugTimelineEntries = 200;
+const MaxExecutionTimelineEntries = 200;
 
 function enableDebugTraceForOps(ops: Record<string, DiagramOperation>) {
   for (const op of Object.values(ops)) {
@@ -71,7 +73,11 @@ export function RunPanel({
   const [templates] = useTemplates();
   const registry = useRegistry();
   const [runningMode, setRunningMode] = useState<RunningMode>(null);
-  const [debugTimeline, setDebugTimeline] = useState<DebugTimelineEntry[]>([]);
+  const [showProgress, setShowProgress] = useState(true);
+  const showProgressRef = useRef(showProgress);
+  const [executionTimeline, setExecutionTimeline] = useState<
+    ExecutionTimelineEntry[]
+  >([]);
   const debugEventCounter = useRef(0);
   const debugSessionRef = useRef<Awaited<
     ReturnType<NonNullable<typeof apiClient.wsDebugWorkflow>>
@@ -89,6 +95,14 @@ export function RunPanel({
   useEffect(() => {
     return closeDebugSession;
   }, [closeDebugSession]);
+
+  useEffect(() => {
+    showProgressRef.current = showProgress;
+    if (!showProgress) {
+      clearDebugVisualization();
+      setExecutionTimeline([]);
+    }
+  }, [clearDebugVisualization, showProgress]);
 
   const requestError = useMemo(() => {
     try {
@@ -114,47 +128,24 @@ export function RunPanel({
     onRequestJsonStringChange(value);
   };
 
-  const handleRunClick = () => {
-    closeDebugSession();
-    clearDebugVisualization();
-    setDebugTimeline([]);
-    try {
-      const request = JSON.parse(requestJsonString);
-      const diagram = exportDiagram(
-        registry,
-        nodeManager,
-        edges,
-        templates,
-        diagramProperties,
-      );
-      apiClient.postRunWorkflow(diagram, request).subscribe({
-        next: (response) => {
-          setResponseContent({ raw: JSON.stringify(response, null, 2) });
-          setRunningMode(null);
-        },
-        error: (err) => {
-          setResponseContent({ err: (err as Error).message });
-          setRunningMode(null);
-        },
-      });
-      setRunningMode('run');
-    } catch (e) {
-      setResponseContent({ err: (e as Error).message });
-    }
+  const runWithPost = (diagram: Diagram, request: unknown) => {
+    apiClient.postRunWorkflow(diagram, request).subscribe({
+      next: (response) => {
+        setResponseContent({ raw: JSON.stringify(response, null, 2) });
+        setRunningMode(null);
+      },
+      error: (err) => {
+        setResponseContent({ err: (err as Error).message });
+        setRunningMode(null);
+      },
+    });
   };
 
-  const handleDebugClick = async () => {
+  const handleRunClick = async () => {
     closeDebugSession();
     clearDebugVisualization();
-    setDebugTimeline([]);
+    setExecutionTimeline([]);
     debugEventCounter.current = 0;
-
-    if (!apiClient.wsDebugWorkflow) {
-      setResponseContent({
-        err: 'Debug sessions are not supported by this backend.',
-      });
-      return;
-    }
 
     try {
       const request = JSON.parse(requestJsonString);
@@ -166,7 +157,12 @@ export function RunPanel({
         diagramProperties,
       );
       setResponseContent(DefaultResponseContent);
-      setRunningMode('debug');
+      setRunningMode('run');
+
+      if (!showProgress || !apiClient.wsDebugWorkflow) {
+        runWithPost(diagram, request);
+        return;
+      }
 
       const debugSession = await apiClient.wsDebugWorkflow(
         enableDebugTrace(diagram),
@@ -176,14 +172,17 @@ export function RunPanel({
       debugSubscriptionRef.current = debugSession.debugFeedback$.subscribe({
         next: (msg) => {
           if (msg.type === 'feedback' && 'operationStarted' in msg) {
+            if (!showProgressRef.current) {
+              return;
+            }
             const operationId = msg.operationStarted;
             markDebugOperationStarted(operationId);
             const entry = {
               seq: ++debugEventCounter.current,
               operationId,
             };
-            setDebugTimeline((prev) =>
-              [...prev, entry].slice(-MaxDebugTimelineEntries),
+            setExecutionTimeline((prev) =>
+              [...prev, entry].slice(-MaxExecutionTimelineEntries),
             );
             return;
           }
@@ -249,15 +248,6 @@ export function RunPanel({
       </Stack>
       <Stack direction="row" spacing={1}>
         <Button
-          variant="outlined"
-          onClick={handleDebugClick}
-          disabled={runningMode !== null}
-          loading={runningMode === 'debug'}
-          startIcon={<MaterialSymbol symbol="bug_report" />}
-        >
-          Debug
-        </Button>
-        <Button
           variant="contained"
           onClick={handleRunClick}
           disabled={runningMode !== null}
@@ -266,6 +256,15 @@ export function RunPanel({
         >
           Run
         </Button>
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={showProgress}
+              onChange={(event) => setShowProgress(event.target.checked)}
+            />
+          }
+          label="Show progress"
+        />
       </Stack>
       <Divider />
       <Stack spacing={1}>
@@ -298,9 +297,9 @@ export function RunPanel({
           error={responseError}
         />
       </Stack>
-      {debugTimeline.length > 0 && (
+      {showProgress && executionTimeline.length > 0 && (
         <Stack spacing={1}>
-          <Typography variant="body1">Debug timeline</Typography>
+          <Typography variant="body1">Execution timeline</Typography>
           <Box
             sx={{
               border: `1px solid ${theme.palette.divider}`,
@@ -311,7 +310,7 @@ export function RunPanel({
               py: 0.5,
             }}
           >
-            {debugTimeline.map((entry) => (
+            {executionTimeline.map((entry) => (
               <Stack
                 key={entry.seq}
                 direction="row"
