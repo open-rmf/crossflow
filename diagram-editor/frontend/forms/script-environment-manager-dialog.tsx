@@ -527,7 +527,7 @@ export function ScriptEnvironmentManagerDialog({
                     ))
                   )}
                 </TextField>
-                <Tooltip title="Python is the only supported scripting language on the frontend for now (since CodeMirror support for each language needs new dependencies)">
+                <Tooltip title="Python is the only supported scripting language on the frontend for now (since CodeMirror support for each language needs new dependencies). If a new script environment builder with a different scripting language is added, a corresponding CodeMirror language dependency must be added to the frontend.">
                   <TextField
                     label="Scripting Language"
                     value={language || 'python'}
