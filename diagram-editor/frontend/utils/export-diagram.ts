@@ -22,6 +22,7 @@ import type {
   NextOperation,
   SectionTemplate,
 } from '../types/api';
+import { useEdges } from '../use-edges';
 import { exhaustiveCheck } from './exhaustive-check';
 import { ROOT_NAMESPACE, splitNamespaces } from './namespace';
 import { isArrayBufferSelection, isKeyedBufferSelection } from './operation';
@@ -223,7 +224,7 @@ function syncEdge(
   const sourceNode = nodeManager.getNode(edge.source);
 
   if (isOperationNode(sourceNode)) {
-    const sourceOp = sourceNode.data.op;
+    const sourceOp = sourceNode.data.op as DiagramOperation;
 
     switch (sourceOp.type) {
       case 'node': {

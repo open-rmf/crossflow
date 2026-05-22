@@ -32,7 +32,7 @@ const ALLOWED_OUTPUT_EDGES: Record<NodeTypes, EdgeTypes[]> = {
   listen: ['default'],
   node: ['default', 'streamOut'],
   scope: ['default', 'streamOut'],
-  script: ['default'],
+  script: ['default', 'streamOut'],
   section: ['section'],
   sectionInput: ['default'],
   sectionOutput: [],
@@ -108,7 +108,8 @@ export function getValidEdgeTypes(
   targetNode: DiagramEditorNode,
   targetHandle: string | null | undefined,
 ): EdgeTypes[] {
-  let allowedOutputEdges: EdgeTypes[] = ALLOWED_OUTPUT_EDGES[sourceNode.type as NodeTypes];
+  let allowedOutputEdges: EdgeTypes[] =
+    ALLOWED_OUTPUT_EDGES[sourceNode.type as NodeTypes];
   if (sourceHandle) {
     const allowedHandleOutput = ALLOWED_HANDLE_OUTPUT_EDGES[sourceHandle];
     if (allowedHandleOutput) {

@@ -57,6 +57,7 @@ import {
   NODE_TYPES,
   type OperationNode,
 } from './nodes';
+import { NotificationProvider } from './notification-provider';
 import { useRegistry } from './registry-provider';
 import { useTemplates } from './templates-provider';
 import { EdgesProvider } from './use-edges';
@@ -73,7 +74,6 @@ import { exhaustiveCheck } from './utils/exhaustive-check';
 import { exportTemplate } from './utils/export-diagram';
 import { calculateScopeBounds, LAYOUT_OPTIONS } from './utils/layout';
 import { loadDiagramJson, loadEmpty, loadTemplate } from './utils/load-diagram';
-import { NotificationProvider } from './notification-provider';
 
 const NonCapturingPopoverContainer = ({
   children,
@@ -141,9 +141,7 @@ function Providers({
         <NodeManagerProvider value={nodeManager}>
           <EdgesProvider value={edges}>
             <DiagramPropertiesProvider>
-              <NotificationProvider>
-                {children}
-              </NotificationProvider>
+              <NotificationProvider>{children}</NotificationProvider>
             </DiagramPropertiesProvider>
           </EdgesProvider>
         </NodeManagerProvider>

@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import {
   Button,
   Dialog,
@@ -9,6 +8,7 @@ import {
   Stack,
   TextField,
 } from '@mui/material';
+import { useEffect, useState } from 'react';
 import { MaterialSymbol } from '../nodes';
 
 export interface ScriptEnvironmentDialogProps {
@@ -60,7 +60,9 @@ export function ScriptEnvironmentDialog({
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle>
-        {mode === 'create' ? 'Add Script Environment' : 'Edit Script Environment'}
+        {mode === 'create'
+          ? 'Add Script Environment'
+          : 'Edit Script Environment'}
       </DialogTitle>
       <Divider />
       <DialogContent>
@@ -114,7 +116,9 @@ export function ScriptEnvironmentDialog({
         <Button
           variant="contained"
           onClick={handleSave}
-          startIcon={<MaterialSymbol symbol={mode === 'create' ? 'add' : 'save'} />}
+          startIcon={
+            <MaterialSymbol symbol={mode === 'create' ? 'add' : 'save'} />
+          }
           disabled={!!configError || !!builderError || !builder}
         >
           {mode === 'create' ? 'Add' : 'Save'}

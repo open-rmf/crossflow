@@ -8,6 +8,7 @@ import JoinNodeComp from './join-node';
 import ListenNodeComp from './listen-node';
 import NodeNodeComp from './node-node';
 import ScopeNodeComp from './scope-node';
+import ScriptNodeComp from './script-node';
 import SectionNodeComp, {
   SectionBufferNodeComp,
   SectionInputNodeComp,
@@ -19,7 +20,6 @@ import StartNodeComp from './start-node';
 import StreamOutNodeComp from './stream-out-node';
 import TerminateNodeComp from './terminate-node';
 import TransformNodeComp from './transform-node';
-import ScriptNodeComp from './script-node';
 import UnzipNodeComp from './unzip-node';
 
 export * from './create-node';

@@ -11,7 +11,6 @@ import {
   isSectionBufferNode,
   isSectionInputNode,
   isSectionOutputNode,
-  DEFAULT_PYTHON_SCRIPT,
 } from '../nodes';
 import type { DiagramOperation, NextOperation } from '../types/api';
 import { getValidEdgeTypes } from './connection';
@@ -431,9 +430,7 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
         {
           type: 'script',
           environment: '',
-          run: {
-            text: DEFAULT_PYTHON_SCRIPT,
-          },
+          run: '',
           next: { builtin: 'dispose' },
         },
         'preview_script',
@@ -442,9 +439,7 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
       createNodeChange(namespace, parentId, newNodePosition, {
         type: 'script',
         environment: '',
-        run: {
-          text: DEFAULT_PYTHON_SCRIPT,
-        },
+        run: '',
         next: { builtin: 'dispose' },
       }),
   }

@@ -44,10 +44,10 @@ function DiagramPropertiesDrawer({
   const [diagramProperties, setDiagramProperties] = useDiagramProperties();
   const loadContext = useLoadContext();
   const theme = useTheme();
-  const [copyTooltipText, setCopyTooltipText] =
-    React.useState('Copy this input example into clipboard');
-  const [openAddExampleDialog, setOpenAddExampleDialog] =
-    React.useState(false);
+  const [copyTooltipText, setCopyTooltipText] = React.useState(
+    'Copy this input example into clipboard',
+  );
+  const [openAddExampleDialog, setOpenAddExampleDialog] = React.useState(false);
   const [newInputExample, setNewInputExample] =
     React.useState<InputExample>(EmptyInputExample);
 
@@ -127,13 +127,11 @@ function DiagramPropertiesDrawer({
           />
           <Divider />
 
-          <Stack direction='row'>
-            <Stack direction='row' spacing={2} sx={{ alignItems: 'center' }}>
-              <Typography variant='h6'>Input Examples</Typography>
-              <Tooltip
-                title='Input examples that can be executed with this workflow'
-              >
-                <MaterialSymbol symbol='info' fontSize='large' />
+          <Stack direction="row">
+            <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+              <Typography variant="h6">Input Examples</Typography>
+              <Tooltip title="Input examples that can be executed with this workflow">
+                <MaterialSymbol symbol="info" fontSize="large" />
               </Tooltip>
             </Stack>
             <Stack direction="row" sx={{ marginLeft: 'auto' }}>
@@ -146,11 +144,13 @@ function DiagramPropertiesDrawer({
           </Stack>
           <Paper>
             <List>
-              {diagramProperties?.input_examples &&
+              {diagramProperties &&
+              diagramProperties.input_examples &&
               diagramProperties.input_examples.length > 0 ? (
                 localExamples.map((input, index) => (
                   <ListItem key={input.id}>
                     <TextField
+                      id="input-with-icon-textfield"
                       fullWidth
                       multiline
                       variant="outlined"

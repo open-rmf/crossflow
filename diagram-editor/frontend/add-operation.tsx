@@ -21,6 +21,7 @@ import {
   ListenIcon,
   NodeIcon,
   ScopeIcon,
+  ScriptIcon,
   SectionBufferIcon,
   SectionIcon,
   SectionInputIcon,
@@ -28,7 +29,6 @@ import {
   SplitIcon,
   StreamOutIcon,
   TransformIcon,
-  ScriptIcon,
   UnzipIcon,
 } from './nodes';
 import {
