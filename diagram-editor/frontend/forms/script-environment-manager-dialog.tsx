@@ -23,6 +23,8 @@ import { useDiagramProperties } from '../diagram-properties-provider';
 import { useNodeManager } from '../node-manager';
 import { MaterialSymbol } from '../nodes';
 import { useNotification } from '../notification-provider';
+import { useRegistry } from '../registry-provider';
+import type { DiagramElementMetadata } from '../types/api';
 
 export interface ScriptEnvironmentManagerDialogProps {
   open: boolean;
@@ -38,6 +40,8 @@ export function ScriptEnvironmentManagerDialog({
   const [diagramProperties, setDiagramProperties] = useDiagramProperties();
   const nodeManager = useNodeManager();
   const showNotification = useNotification();
+  const rawRegistry = useRegistry();
+  const registry = rawRegistry as unknown as DiagramElementMetadata;
   const environments = diagramProperties.script_environments || {};
 
   const [selectedEnvName, setSelectedEnvName] = useState('');
@@ -54,6 +58,13 @@ export function ScriptEnvironmentManagerDialog({
   const [configError, setConfigError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
   const wasOpen = useRef(false);
+
+  // Dynamically discover registered environment builders on the backend
+  const registeredBuilders = useMemo(() => {
+    return registry?.scripting ? Object.keys(registry.scripting) : [];
+  }, [registry]);
+
+
 
   useEffect(() => {
     if (open && !wasOpen.current) {
@@ -202,7 +213,7 @@ export function ScriptEnvironmentManagerDialog({
     setConfig('{}');
     setScriptText('');
     setSelectedCodeField('');
-    setLanguage('python');
+    setLanguage('');
     setMode('create');
   };
 
@@ -427,13 +438,72 @@ export function ScriptEnvironmentManagerDialog({
             <>
               <Stack direction="row" spacing={2}>
                 <TextField
+                  select={mode !== 'view'}
                   label="Builder"
                   value={builder}
-                  onChange={(e) => setBuilder(e.target.value)}
+                  onChange={(e) => {
+                    const selectedBuilder = e.target.value;
+                    setBuilder(selectedBuilder);
+
+                    const builderMeta = registry?.scripting?.[selectedBuilder];
+                    if (builderMeta) {
+                      setLanguage(builderMeta.language || 'python');
+
+                      // Auto-bootstrap template if creating or starting with empty config
+                      if (
+                        mode === 'create' ||
+                        config === '{}' ||
+                        !config.trim()
+                      ) {
+                        if (
+                          builderMeta.config_examples &&
+                          builderMeta.config_examples.length > 0
+                        ) {
+                          const exampleConfig =
+                            builderMeta.config_examples[0].config;
+                          if (
+                            exampleConfig &&
+                            typeof exampleConfig === 'object'
+                          ) {
+                            const configObj = { ...exampleConfig };
+                            if (
+                              'script' in configObj &&
+                              typeof configObj.script === 'string'
+                            ) {
+                              setScriptText(configObj.script);
+                              setSelectedCodeField('script');
+                            } else {
+                              setScriptText('');
+                              setSelectedCodeField('');
+                            }
+                            setConfig(JSON.stringify(configObj, null, 2));
+                          }
+                        } else {
+                          setConfig('{}');
+                        }
+                      }
+                    }
+                  }}
                   fullWidth
                   disabled={mode === 'view'}
                   sx={{ flex: 1 }}
-                />
+                >
+                  {mode === 'view' ? (
+                    <MenuItem value={builder}>{builder}</MenuItem>
+                  ) : registeredBuilders.length === 0 ? (
+                    <MenuItem disabled value="">
+                      <Typography variant="caption" color="text.disabled">
+                        No active builders registered on server
+                      </Typography>
+                    </MenuItem>
+                  ) : (
+                    registeredBuilders.map((b) => (
+                      <MenuItem key={b} value={b}>
+                        {b}
+                      </MenuItem>
+                    ))
+                  )}
+                </TextField>
                 <TextField
                   select
                   label="Code Field"
@@ -457,18 +527,19 @@ export function ScriptEnvironmentManagerDialog({
                     ))
                   )}
                 </TextField>
-                <Tooltip title="Support for other languages will be added in the future">
-                  <span style={{ flex: 1 }}>
-                    <TextField
-                      select
-                      label="Scripting Language"
-                      value={language || 'python'}
-                      fullWidth
-                      disabled={true}
-                    >
-                      <MenuItem value="python">Python</MenuItem>
-                    </TextField>
-                  </span>
+                <Tooltip title="Python is the only supported scripting language on the frontend for now (since CodeMirror support for each language needs new dependencies)">
+                  <TextField
+                    label="Scripting Language"
+                    value={language || 'python'}
+                    fullWidth
+                    disabled
+                    slotProps={{
+                      input: {
+                        readOnly: true,
+                      },
+                    }}
+                    sx={{ flex: 1 }}
+                  />
                 </Tooltip>
               </Stack>
 
