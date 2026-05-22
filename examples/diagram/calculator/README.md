@@ -37,7 +37,7 @@ To see live progress highlights in the editor, run the server with debugging
 enabled:
 
 ```bash
-CI=true cargo run --features crossflow_diagram_editor/debug -- serve --port 3000
+cargo run --manifest-path diagram/calculator/Cargo.toml --features crossflow_diagram_editor/debug -- serve --port 3000
 ```
 
 Open `diagrams/carry_object_progress.json`, use its input example, and click
