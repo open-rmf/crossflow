@@ -1,4 +1,7 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { indentWithTab } from '@codemirror/commands';
+import { python } from '@codemirror/lang-python';
+import { indentUnit } from '@codemirror/language';
+import { keymap } from '@codemirror/view';
 import {
   Button,
   Dialog,
@@ -6,21 +9,19 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  IconButton,
+  MenuItem,
+  Paper,
   Stack,
   TextField,
-  MenuItem,
   Tooltip,
-  IconButton,
   Typography,
 } from '@mui/material';
 import CodeMirror from '@uiw/react-codemirror';
-import { python } from '@codemirror/lang-python';
-import { indentUnit } from '@codemirror/language';
-import { indentWithTab } from '@codemirror/commands';
-import { keymap } from '@codemirror/view';
-import { MaterialSymbol, DEFAULT_PYTHON_SCRIPT } from '../nodes';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDiagramProperties } from '../diagram-properties-provider';
 import { useNodeManager } from '../node-manager';
+import { MaterialSymbol } from '../nodes';
 import { useNotification } from '../notification-provider';
 
 export interface ScriptEnvironmentManagerDialogProps {
@@ -47,6 +48,7 @@ export function ScriptEnvironmentManagerDialog({
   const [builder, setBuilder] = useState('');
   const [config, setConfig] = useState('{}');
   const [scriptText, setScriptText] = useState('');
+  const [selectedCodeField, setSelectedCodeField] = useState('');
   const [language, setLanguage] = useState('');
 
   const [configError, setConfigError] = useState<string | null>(null);
@@ -69,8 +71,23 @@ export function ScriptEnvironmentManagerDialog({
       const env = environments[selectedEnvName];
       setEnvName(selectedEnvName);
       setBuilder(env.builder);
-      setConfig(JSON.stringify(env.config || {}, null, 2));
-      setScriptText((env as any).script || '');
+
+      const configVal = env.config || {};
+      setConfig(JSON.stringify(configVal, null, 2));
+
+      const configObj = configVal as Record<string, unknown>;
+      if (
+        configObj &&
+        'script' in configObj &&
+        typeof configObj.script === 'string'
+      ) {
+        setSelectedCodeField('script');
+        setScriptText(configObj.script);
+      } else {
+        setSelectedCodeField('');
+        setScriptText('');
+      }
+
       setLanguage((env as any).language || 'python');
       setMode('view');
     }
@@ -78,13 +95,79 @@ export function ScriptEnvironmentManagerDialog({
 
   const getEnvUsageCount = (name: string) => {
     return nodeManager.nodes.filter(
-      (node) => node.type === 'script' && node.data.op.environment === name
+      (node) => node.type === 'script' && node.data.op.environment === name,
     ).length;
+  };
+
+  const configKeys = useMemo(() => {
+    try {
+      const obj = JSON.parse(config);
+      if (obj && typeof obj === 'object') {
+        return Object.keys(obj).filter((key) => typeof obj[key] === 'string');
+      }
+    } catch {}
+    return [];
+  }, [config]);
+
+  const handleScriptTextChange = (newVal: string) => {
+    setScriptText(newVal);
+    if (!selectedCodeField) return;
+    try {
+      const obj = JSON.parse(config);
+      if (obj && typeof obj === 'object') {
+        obj[selectedCodeField] = newVal;
+        setConfig(JSON.stringify(obj, null, 2));
+      }
+    } catch {}
+  };
+
+  const handleConfigChange = (newVal: string) => {
+    setConfig(newVal);
+    try {
+      const obj = JSON.parse(newVal);
+      if (obj && typeof obj === 'object') {
+        setConfigError(null);
+        if (selectedCodeField) {
+          const currentCodeVal = obj[selectedCodeField];
+          if (typeof currentCodeVal === 'string') {
+            setScriptText(currentCodeVal);
+          } else if (currentCodeVal === undefined || currentCodeVal === null) {
+            setScriptText('');
+          } else {
+            setScriptText(JSON.stringify(currentCodeVal));
+          }
+        }
+      }
+    } catch (err) {
+      if (err instanceof Error) {
+        setConfigError(err.message);
+      } else {
+        setConfigError('Invalid JSON');
+      }
+    }
+  };
+
+  const handleCodeFieldChange = (newField: string) => {
+    setSelectedCodeField(newField);
+    if (!newField) {
+      setScriptText('');
+      return;
+    }
+    try {
+      const obj = JSON.parse(config);
+      if (obj && typeof obj === 'object') {
+        const val = obj[newField];
+        setScriptText(
+          typeof val === 'string' ? val : JSON.stringify(val || ''),
+        );
+      }
+    } catch {}
   };
 
   const handleSave = () => {
     try {
       const parsedConfig = JSON.parse(config);
+
       setDiagramProperties((prev) => ({
         ...prev,
         script_environments: {
@@ -92,16 +175,20 @@ export function ScriptEnvironmentManagerDialog({
           [envName]: {
             builder,
             config: parsedConfig,
-            script: scriptText,
-            language,
           },
         },
       }));
       setSelectedEnvName(envName);
       if (mode === 'create') {
-        showNotification(`Environment '${envName}' created successfully`, 'success');
+        showNotification(
+          `Environment '${envName}' created successfully`,
+          'success',
+        );
       } else if (mode === 'edit') {
-        showNotification(`Environment '${envName}' saved successfully`, 'success');
+        showNotification(
+          `Environment '${envName}' saved successfully`,
+          'success',
+        );
       }
       setMode('view');
     } catch (err) {
@@ -113,7 +200,8 @@ export function ScriptEnvironmentManagerDialog({
     setEnvName('');
     setBuilder('');
     setConfig('{}');
-    setScriptText(DEFAULT_PYTHON_SCRIPT);
+    setScriptText('');
+    setSelectedCodeField('');
     setLanguage('python');
     setMode('create');
   };
@@ -129,7 +217,10 @@ export function ScriptEnvironmentManagerDialog({
         script_environments: rest,
       };
     });
-    showNotification(`Environment '${selectedEnvName}' deleted successfully`, 'success');
+    showNotification(
+      `Environment '${selectedEnvName}' deleted successfully`,
+      'success',
+    );
     setSelectedEnvName('');
     setMode('view');
   };
@@ -144,22 +235,31 @@ export function ScriptEnvironmentManagerDialog({
       onClose={onClose}
       fullWidth
       maxWidth={isExpanded ? 'lg' : 'md'}
-      // Adding a border to the expanded dialog, as the low contrast makes it hard to distinguish the border
-      sx={isExpanded ? {
-        '& .MuiDialog-paper': {
-          width: '90vw',
-          height: '90vh',
-          maxWidth: 'none',
-          border: '2px solid',
-          borderColor: 'primary.main',
-        }
-      } : {}}
+      sx={
+        isExpanded
+          ? {
+              '& .MuiDialog-paper': {
+                width: '90vw',
+                height: '90vh',
+                maxWidth: 'none',
+                border: '2px solid',
+                borderColor: 'primary.main',
+              },
+            }
+          : {}
+      }
     >
       <DialogTitle>
-        <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Stack
+          direction="row"
+          justifyContent="space-between"
+          alignItems="center"
+        >
           <Typography variant="h6">Script Environment Manager</Typography>
           <IconButton onClick={() => setIsExpanded(!isExpanded)}>
-            <MaterialSymbol symbol={isExpanded ? 'fullscreen_exit' : 'fullscreen'} />
+            <MaterialSymbol
+              symbol={isExpanded ? 'fullscreen_exit' : 'fullscreen'}
+            />
           </IconButton>
         </Stack>
       </DialogTitle>
@@ -195,7 +295,10 @@ export function ScriptEnvironmentManagerDialog({
                 value={envName}
                 onChange={(e) => {
                   setEnvName(e.target.value);
-                  if (mode === 'create' && Object.keys(environments).includes(e.target.value)) {
+                  if (
+                    mode === 'create' &&
+                    Object.keys(environments).includes(e.target.value)
+                  ) {
                     setNameError('Duplicated name');
                   } else {
                     setNameError(null);
@@ -217,17 +320,32 @@ export function ScriptEnvironmentManagerDialog({
                 </Tooltip>
                 {selectedEnvName && (
                   <>
-                    <Tooltip title={diagramProperties.highlightedEnvironment === selectedEnvName ? 'Hide nodes' : 'Show nodes'}>
+                    <Tooltip
+                      title={
+                        diagramProperties.highlightedEnvironment ===
+                        selectedEnvName
+                          ? 'Hide nodes'
+                          : 'Show nodes'
+                      }
+                    >
                       <IconButton
                         onClick={() => {
                           setDiagramProperties((prev) => ({
                             ...prev,
-                            highlightedEnvironment: prev.highlightedEnvironment === selectedEnvName ? undefined : selectedEnvName,
+                            highlightedEnvironment:
+                              prev.highlightedEnvironment === selectedEnvName
+                                ? undefined
+                                : selectedEnvName,
                           }));
                         }}
                       >
                         <MaterialSymbol
-                          symbol={diagramProperties.highlightedEnvironment === selectedEnvName ? 'visibility_off' : 'visibility'}
+                          symbol={
+                            diagramProperties.highlightedEnvironment ===
+                            selectedEnvName
+                              ? 'visibility_off'
+                              : 'visibility'
+                          }
                         />
                       </IconButton>
                     </Tooltip>
@@ -236,7 +354,13 @@ export function ScriptEnvironmentManagerDialog({
                         <MaterialSymbol symbol="edit" />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title={getEnvUsageCount(selectedEnvName) > 0 ? `Cannot delete: used by ${getEnvUsageCount(selectedEnvName)} nodes` : 'Delete environment'}>
+                    <Tooltip
+                      title={
+                        getEnvUsageCount(selectedEnvName) > 0
+                          ? `Cannot delete: used by ${getEnvUsageCount(selectedEnvName)} nodes`
+                          : 'Delete environment'
+                      }
+                    >
                       <span>
                         <IconButton
                           disabled={getEnvUsageCount(selectedEnvName) > 0}
@@ -253,26 +377,46 @@ export function ScriptEnvironmentManagerDialog({
 
             {mode !== 'view' && (
               <>
-                <Button onClick={handleSave} variant="contained" disabled={isSaveDisabled}>
+                <Button
+                  onClick={handleSave}
+                  variant="contained"
+                  disabled={isSaveDisabled}
+                >
                   Save
                 </Button>
-                <Button onClick={() => {
-                  if (mode === 'create') {
-                    setSelectedEnvName('');
-                    setMode('view');
-                  } else {
-                    setMode('view');
-                    // Reset fields to selected env
-                    if (selectedEnvName && environments[selectedEnvName]) {
-                      const env = environments[selectedEnvName];
-                      setEnvName(selectedEnvName);
-                      setBuilder(env.builder);
-                      setConfig(JSON.stringify(env.config || {}, null, 2));
-                      setScriptText((env as any).script || '');
-                      setLanguage((env as any).language || 'python');
+                <Button
+                  onClick={() => {
+                    if (mode === 'create') {
+                      setSelectedEnvName('');
+                      setMode('view');
+                    } else {
+                      setMode('view');
+                      if (selectedEnvName && environments[selectedEnvName]) {
+                        const env = environments[selectedEnvName];
+                        setEnvName(selectedEnvName);
+                        setBuilder(env.builder);
+
+                        const configVal = env.config || {};
+                        setConfig(JSON.stringify(configVal, null, 2));
+
+                        const configObj = configVal as Record<string, unknown>;
+                        if (
+                          configObj &&
+                          'script' in configObj &&
+                          typeof configObj.script === 'string'
+                        ) {
+                          setSelectedCodeField('script');
+                          setScriptText(configObj.script);
+                        } else {
+                          setSelectedCodeField('');
+                          setScriptText('');
+                        }
+
+                        setLanguage((env as any).language || 'python');
+                      }
                     }
-                  }
-                }}>
+                  }}
+                >
                   Cancel
                 </Button>
               </>
@@ -290,6 +434,29 @@ export function ScriptEnvironmentManagerDialog({
                   disabled={mode === 'view'}
                   sx={{ flex: 1 }}
                 />
+                <TextField
+                  select
+                  label="Code Field"
+                  value={selectedCodeField}
+                  onChange={(e) => handleCodeFieldChange(e.target.value)}
+                  fullWidth
+                  disabled={mode === 'view'}
+                  sx={{ flex: 1 }}
+                >
+                  {configKeys.length === 0 ? (
+                    <MenuItem disabled value="">
+                      <Typography variant="caption" color="text.disabled">
+                        No string fields defined
+                      </Typography>
+                    </MenuItem>
+                  ) : (
+                    configKeys.map((key) => (
+                      <MenuItem key={key} value={key}>
+                        {key}
+                      </MenuItem>
+                    ))
+                  )}
+                </TextField>
                 <Tooltip title="Support for other languages will be added in the future">
                   <span style={{ flex: 1 }}>
                     <TextField
@@ -310,43 +477,66 @@ export function ScriptEnvironmentManagerDialog({
                 multiline
                 rows={4}
                 value={config}
-                onChange={(e) => {
-                  setConfig(e.target.value);
-                  try {
-                    JSON.parse(e.target.value);
-                    setConfigError(null);
-                  } catch (err) {
-                    if (err instanceof Error) {
-                      setConfigError(err.message);
-                    } else {
-                      setConfigError('Invalid JSON');
-                    }
-                  }
-                }}
+                onChange={(e) => handleConfigChange(e.target.value)}
                 fullWidth
                 disabled={mode === 'view'}
                 error={!!configError}
                 helperText={configError}
+                slotProps={{
+                  htmlInput: {
+                    sx: { fontFamily: 'monospace' },
+                  },
+                }}
               />
 
-              {language === 'python' && (
+              {selectedCodeField && configKeys.includes(selectedCodeField) ? (
                 <>
-                  <Typography variant="caption" color="text.secondary">
-                    Script
-                  </Typography>
+                  <Stack
+                    direction="row"
+                    justifyContent="space-between"
+                    alignItems="center"
+                  >
+                    <Typography variant="caption" color="text.secondary">
+                      Script ({selectedCodeField})
+                    </Typography>
+                    <IconButton
+                      size="small"
+                      onClick={() => setIsExpanded(!isExpanded)}
+                    >
+                      <MaterialSymbol
+                        symbol={isExpanded ? 'fullscreen_exit' : 'fullscreen'}
+                      />
+                    </IconButton>
+                  </Stack>
                   <CodeMirror
                     value={scriptText}
-                    height={isExpanded ? "50vh" : "300px"}
+                    height={isExpanded ? '50vh' : '300px'}
                     extensions={[
                       python(),
-                      indentUnit.of("    "),
+                      indentUnit.of('    '),
                       keymap.of([indentWithTab]),
                     ]}
-                    onChange={(value) => setScriptText(value)}
+                    onChange={handleScriptTextChange}
                     theme="dark"
                     readOnly={mode === 'view'}
                   />
                 </>
+              ) : (
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    p: 4,
+                    textAlign: 'center',
+                    backgroundColor: 'action.hover',
+                    borderStyle: 'dashed',
+                  }}
+                >
+                  <Typography color="text.secondary">
+                    {configKeys.length === 0
+                      ? "Define string fields (like 'script') inside the JSON config above to enable the code editor."
+                      : "Select a string field from the 'Code Field' dropdown to open the code editor."}
+                  </Typography>
+                </Paper>
               )}
             </>
           )}

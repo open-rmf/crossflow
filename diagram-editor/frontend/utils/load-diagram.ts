@@ -54,8 +54,14 @@ function validateScriptEnvironments(diagram: Diagram) {
 
   function checkOps(ops: Record<string, DiagramOperation>) {
     for (const [opId, op] of Object.entries(ops)) {
-      if (op.type === 'script' && op.environment && !Object.keys(envs).includes(op.environment)) {
-        throw new Error(`Script node '${opId}' references unknown environment '${op.environment}'`);
+      if (
+        op.type === 'script' &&
+        op.environment &&
+        !Object.keys(envs).includes(op.environment)
+      ) {
+        throw new Error(
+          `Script node '${opId}' references unknown environment '${op.environment}'`,
+        );
       }
       if (op.type === 'scope' && op.ops) {
         checkOps(op.ops);
@@ -184,7 +190,13 @@ export function loadTemplate(template: SectionTemplate): Graph {
     scripting: {},
     trace_supported: false,
   };
-  const stubDiagram = exportDiagram(stubRegistry, new NodeManager([]), [], {}, {});
+  const stubDiagram = exportDiagram(
+    stubRegistry,
+    new NodeManager([]),
+    [],
+    {},
+    {},
+  );
   stubDiagram.ops = template.ops;
   const initialNodes: DiagramEditorNode[] = [];
 

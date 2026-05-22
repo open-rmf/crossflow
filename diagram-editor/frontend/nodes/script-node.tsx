@@ -1,10 +1,10 @@
 import type { NodeProps } from '@xyflow/react';
 import { Position } from '@xyflow/react';
-import { Handle, HandleType } from '../handles';
+import { useDiagramProperties } from '../diagram-properties-provider';
+import { Handle, HandleId, HandleType } from '../handles';
 import type { OperationNode } from '.';
 import BaseNode from './base-node';
 import { ScriptIcon } from './icons';
-import { useDiagramProperties } from '../diagram-properties-provider';
 
 export const DEFAULT_SCRIPTS: Record<string, string> = {
   python: `from crossflow import *
@@ -37,13 +37,17 @@ export const DEFAULT_PYTHON_SCRIPT = DEFAULT_SCRIPTS.python;
 
 function ScriptNodeComp(props: NodeProps<OperationNode<'script'>>) {
   const [diagramProperties] = useDiagramProperties();
-  const isHighlighted = props.data.op.environment === diagramProperties.highlightedEnvironment;
+  const isHighlighted =
+    props.data.op.environment === diagramProperties.highlightedEnvironment;
+
+  const label = props.data.op.display_text || props.data.op.run || 'Script';
 
   return (
     <BaseNode
       {...props}
       icon={<ScriptIcon />}
-      label="Script"
+      label={label}
+      caption={props.data.op.environment}
       highlight={isHighlighted}
       handles={
         <>
@@ -58,6 +62,13 @@ function ScriptNodeComp(props: NodeProps<OperationNode<'script'>>) {
             position={Position.Bottom}
             isConnectable={props.isConnectable}
             variant={HandleType.Data}
+          />
+          <Handle
+            id={HandleId.DataStream}
+            type="source"
+            position={Position.Right}
+            isConnectable={props.isConnectable}
+            variant={HandleType.DataStream}
           />
         </>
       }

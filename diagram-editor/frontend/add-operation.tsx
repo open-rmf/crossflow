@@ -13,7 +13,6 @@ import {
   createSectionBufferNode,
   createSectionInputNode,
   createSectionOutputNode,
-  DEFAULT_PYTHON_SCRIPT,
   ForkCloneIcon,
   ForkResultIcon,
   isOperationNode,
@@ -24,6 +23,7 @@ import {
   ListenIcon,
   NodeIcon,
   ScopeIcon,
+  ScriptIcon,
   SectionBufferIcon,
   type SectionBufferNode,
   SectionIcon,
@@ -34,7 +34,6 @@ import {
   SplitIcon,
   StreamOutIcon,
   TransformIcon,
-  ScriptIcon,
   UnzipIcon,
 } from './nodes';
 import type { DiagramOperation, NextOperation } from './types/api';
@@ -296,9 +295,7 @@ function AddOperation({ parentId, newNodePosition, onAdd }: AddOperationProps) {
             createNodeChange(namespace, parentId, newNodePosition, {
               type: 'script',
               environment: '',
-              run: {
-                text: DEFAULT_PYTHON_SCRIPT,
-              },
+              run: '',
               next: { builtin: 'dispose' },
             }),
           );

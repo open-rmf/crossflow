@@ -11,6 +11,7 @@ import BufferForm, { type BufferFormProps } from './buffer-form';
 import EditScopeForm, { type ScopeFormProps } from './edit-scope-form';
 import JoinForm, { type JoinFormProps } from './join-form';
 import NodeForm, { type NodeFormProps } from './node-form';
+import ScriptForm, { type ScriptFormProps } from './script-form';
 import {
   SectionBufferForm,
   SectionForm,
@@ -20,7 +21,6 @@ import {
 } from './section-form';
 import { StreamOutForm, type StreamOutFormProps } from './stream-out-form';
 import TransformForm, { type TransformFormProps } from './transform-form';
-import ScriptForm, { type ScriptFormProps } from './script-form';
 
 interface EditOperationNodeFormProps {
   node: OperationNode;

@@ -36,7 +36,9 @@ function BaseNode({
     );
 
   return (
-    <Paper sx={highlight ? { border: '2px solid', borderColor: 'warning.main' } : {}}>
+    <Paper
+      sx={highlight ? { border: '2px solid', borderColor: 'warning.main' } : {}}
+    >
       <Button
         title={label}
         color={color}

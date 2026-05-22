@@ -1,5 +1,12 @@
-import { createContext, PropsWithChildren, useContext, useState, useEffect, useCallback } from 'react';
 import { Alert, Stack } from '@mui/material';
+import {
+  createContext,
+  type PropsWithChildren,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from 'react';
 import { useDiagramProperties } from './diagram-properties-provider';
 
 interface Notification {
@@ -9,32 +16,46 @@ interface Notification {
   autoHide?: boolean;
 }
 
-export type NotificationContextType = (message: string, severity?: 'success' | 'info' | 'warning' | 'error', autoHide?: boolean) => void;
+export type NotificationContextType = (
+  message: string,
+  severity?: 'success' | 'info' | 'warning' | 'error',
+  autoHide?: boolean,
+) => void;
 
 const NotificationContext = createContext<NotificationContextType | null>(null);
 
 export function NotificationProvider({ children }: PropsWithChildren) {
-  const [state, setState] = useState<{ active: Notification[]; queue: Notification[] }>({
+  const [state, setState] = useState<{
+    active: Notification[];
+    queue: Notification[];
+  }>({
     active: [],
     queue: [],
   });
   const [diagramProperties, setDiagramProperties] = useDiagramProperties();
 
-  const showNotification = useCallback((message: string, severity: 'success' | 'info' | 'warning' | 'error' = 'info', autoHide = true) => {
-    const id = Math.random().toString(36).substring(2, 9);
-    setState((prev) => {
-      const newQueue = [...prev.queue, { id, message, severity, autoHide }];
-      if (prev.active.length < 5) {
-        const numToAdd = 5 - prev.active.length;
-        const itemsToAdd = newQueue.slice(0, numToAdd);
-        return {
-          active: [...prev.active, ...itemsToAdd],
-          queue: newQueue.slice(numToAdd),
-        };
-      }
-      return { ...prev, queue: newQueue };
-    });
-  }, []);
+  const showNotification = useCallback(
+    (
+      message: string,
+      severity: 'success' | 'info' | 'warning' | 'error' = 'info',
+      autoHide = true,
+    ) => {
+      const id = Math.random().toString(36).substring(2, 9);
+      setState((prev) => {
+        const newQueue = [...prev.queue, { id, message, severity, autoHide }];
+        if (prev.active.length < 5) {
+          const numToAdd = 5 - prev.active.length;
+          const itemsToAdd = newQueue.slice(0, numToAdd);
+          return {
+            active: [...prev.active, ...itemsToAdd],
+            queue: newQueue.slice(numToAdd),
+          };
+        }
+        return { ...prev, queue: newQueue };
+      });
+    },
+    [],
+  );
 
   const dismissNotification = useCallback((id: string) => {
     setState((prev) => {
@@ -55,7 +76,8 @@ export function NotificationProvider({ children }: PropsWithChildren) {
     <NotificationContext.Provider value={showNotification}>
       {children}
 
-      {(state.active.length > 0 || !!diagramProperties.highlightedEnvironment) && (
+      {(state.active.length > 0 ||
+        !!diagramProperties.highlightedEnvironment) && (
         <Stack
           spacing={1}
           sx={{
@@ -73,7 +95,12 @@ export function NotificationProvider({ children }: PropsWithChildren) {
         >
           {diagramProperties.highlightedEnvironment && (
             <Alert
-              onClose={() => setDiagramProperties((prev) => ({ ...prev, highlightedEnvironment: undefined }))}
+              onClose={() =>
+                setDiagramProperties((prev) => ({
+                  ...prev,
+                  highlightedEnvironment: undefined,
+                }))
+              }
               severity="info"
               sx={{ width: '100%', boxShadow: 3 }}
             >
@@ -93,7 +120,13 @@ export function NotificationProvider({ children }: PropsWithChildren) {
   );
 }
 
-function NotificationItem({ notification, onDismiss }: { notification: Notification; onDismiss: (id: string) => void }) {
+function NotificationItem({
+  notification,
+  onDismiss,
+}: {
+  notification: Notification;
+  onDismiss: (id: string) => void;
+}) {
   useEffect(() => {
     if (notification.autoHide !== false) {
       const timer = setTimeout(() => {
@@ -117,7 +150,9 @@ function NotificationItem({ notification, onDismiss }: { notification: Notificat
 export const useNotification = (): NotificationContextType => {
   const context = useContext(NotificationContext);
   if (!context) {
-    throw new Error('useNotification must be used within a NotificationProvider');
+    throw new Error(
+      'useNotification must be used within a NotificationProvider',
+    );
   }
   return context;
 };

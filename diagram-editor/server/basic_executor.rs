@@ -167,7 +167,14 @@ pub struct BasicExecutorSetup {
 
 impl BasicExecutorSetup {
     /// Use a minimal setup.
-    pub fn minimal(registry: DiagramElementRegistry) -> Self {
+    pub fn minimal(mut registry: DiagramElementRegistry) -> Self {
+        #[cfg(feature = "python")]
+        {
+            let py_event_loop = crossflow::process_bound_python::PythonEventLoop::new().unwrap();
+            registry.enable_python(&py_event_loop).unwrap();
+            py_event_loop.spawn_thread_and_run();
+        }
+
         Self {
             app: App::new(),
             registry,
