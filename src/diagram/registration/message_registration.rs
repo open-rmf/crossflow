@@ -411,7 +411,9 @@ impl MessageRegistry {
     ) -> Result<Option<DynForkResult>, DiagramErrorCode> {
         let ops = self.get_operations(target_type)?;
 
-        let script_msg_idx = self.registration.get_index_dyn(&TypeInfo::of::<ScriptMessage>())?;
+        let script_msg_idx = self
+            .registration
+            .get_index_dyn(&TypeInfo::of::<ScriptMessage>())?;
         if let Some(try_from_impl) = ops.try_from_impls.get(&script_msg_idx) {
             let fork = (try_from_impl)(builder);
             return Ok(Some(fork));
@@ -422,7 +424,10 @@ impl MessageRegistry {
             let req_ops = self.registration.get_by_index(req)?.get_operations()?;
             if let Some(req_deserialization) = &req_ops.deserialize {
                 let req_deserialize = req_deserialization.deserialize.clone();
-                return Ok(Some((access.from_script_message)(builder, req_deserialize)?));
+                return Ok(Some((access.from_script_message)(
+                    builder,
+                    req_deserialize,
+                )?));
             }
         }
 
@@ -431,9 +436,7 @@ impl MessageRegistry {
         }
 
         if let Some(deserialization) = &ops.deserialize {
-            let script_to_json = builder.create_map_block(|script: ScriptMessage| {
-                script.data
-            });
+            let script_to_json = builder.create_map_block(|script: ScriptMessage| script.data);
             let json_output: DynOutput = script_to_json.output.into();
 
             let deserialize = (deserialization.create_node)(builder)?;
@@ -496,7 +499,9 @@ impl MessageRegistry {
     ) -> Result<Option<DynForkResult>, DiagramErrorCode> {
         let ops = self.get_operations(incoming_type)?;
 
-        let script_msg_idx = self.registration.get_index_dyn(&TypeInfo::of::<ScriptMessage>())?;
+        let script_msg_idx = self
+            .registration
+            .get_index_dyn(&TypeInfo::of::<ScriptMessage>())?;
         if let Some(try_into_impl) = ops.try_into_impls.get(&script_msg_idx) {
             let fork = (try_into_impl)(builder);
             return Ok(Some(fork));
@@ -519,11 +524,9 @@ impl MessageRegistry {
 
         if let Some(serialization) = &ops.serialize {
             let serialize = (serialization.into_json_message)(builder)?;
-            let json_to_script = builder.create_map_block(|data: JsonMessage| {
-                ScriptMessage {
-                    data,
-                    accessors: Default::default(),
-                }
+            let json_to_script = builder.create_map_block(|data: JsonMessage| ScriptMessage {
+                data,
+                accessors: Default::default(),
             });
 
             let json_input: DynInputSlot = json_to_script.input.into();
@@ -814,8 +817,7 @@ impl MessageRegistry {
     {
         let ops = &mut self.registration.get_or_insert_operations::<T>();
 
-        ops.to_string =
-            Some(|builder| builder.create_map_block(|msg: T| msg.to_string()).into());
+        ops.to_string = Some(|builder| builder.create_map_block(|msg: T| msg.to_string()).into());
     }
 
     pub(crate) fn get_operations(

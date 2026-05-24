@@ -17,11 +17,7 @@
 
 use variadics_please::all_tuples;
 
-use std::{
-    collections::HashMap,
-    hash::Hash,
-    sync::Arc,
-};
+use std::{collections::HashMap, hash::Hash, sync::Arc};
 
 use thiserror::Error as ThisError;
 
@@ -31,10 +27,10 @@ use bevy_ecs::{
 };
 
 use crate::{
-    Accessing, Buffer, BufferAccessMut, BufferError, BufferKey, BufferMap, BufferMapLayout,
-    BufferMut, BufferView, BufferWorldAccess, Builder, Chain, IncompatibleLayout, IdentifierRef,
-    ManageBufferSessions, Node, RequestId, Sendish, Seq, format_vertical_list, AnyBufferKey,
-    Identifiable, CloneError, is_buffer_reachable, AwaitingHandle, NotifyAwaitingBuffer,
+    Accessing, AnyBufferKey, AwaitingHandle, Buffer, BufferAccessMut, BufferError, BufferKey,
+    BufferMap, BufferMapLayout, BufferMut, BufferView, BufferWorldAccess, Builder, Chain,
+    CloneError, Identifiable, IdentifierRef, IncompatibleLayout, ManageBufferSessions, Node,
+    NotifyAwaitingBuffer, RequestId, Sendish, Seq, format_vertical_list, is_buffer_reachable,
 };
 
 use futures_concurrency::future::Race;
@@ -107,7 +103,9 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
 
     fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey>;
 
-    fn try_from_any_keys(keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>) -> Result<Self, IncompatibleLayout>;
+    fn try_from_any_keys(
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<Self, IncompatibleLayout>;
 
     /// Wait for a change to occur in any one of the buffer sessions that this
     /// accessor refers to.
@@ -334,9 +332,13 @@ where
         map
     }
 
-    fn try_from_any_keys(keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>) -> Result<Self, IncompatibleLayout> {
+    fn try_from_any_keys(
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<Self, IncompatibleLayout> {
         let mut compatibility = IncompatibleLayout::default();
-        if let Ok(downcast_key) = compatibility.require_buffer_key_for_identifier::<BufferKey<T>>(0, keys) {
+        if let Ok(downcast_key) =
+            compatibility.require_buffer_key_for_identifier::<BufferKey<T>>(0, keys)
+        {
             return Ok(downcast_key);
         }
 
@@ -381,7 +383,12 @@ where
         Ok(can_join)
     }
 
-    fn notify_awaiting(&self, req: RequestId, handles: &mut Vec<Arc<AwaitingHandle>>, world: &mut World) {
+    fn notify_awaiting(
+        &self,
+        req: RequestId,
+        handles: &mut Vec<Arc<AwaitingHandle>>,
+        world: &mut World,
+    ) {
         if let Some(handle) = world.awaiting_buffer(self.tag(), req) {
             handles.push(handle);
         }
@@ -440,7 +447,9 @@ where
 {
     type Buffers = Vec<A::Buffers>;
 
-    fn try_from_any_keys(keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>) -> Result<Self, IncompatibleLayout> {
+    fn try_from_any_keys(
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<Self, IncompatibleLayout> {
         let mut downcast_keys = Vec::new();
         let mut compatibility = IncompatibleLayout::default();
         for i in 0..keys.len() {
@@ -670,10 +679,14 @@ where
     type Buffers = HashMap<K, A::Buffers>;
 
     fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
-        self.iter().map(|(id, key)| (id.clone().into_id(), key.to_any_key())).collect()
+        self.iter()
+            .map(|(id, key)| (id.clone().into_id(), key.to_any_key()))
+            .collect()
     }
 
-    fn try_from_any_keys(keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>) -> Result<Self, IncompatibleLayout> {
+    fn try_from_any_keys(
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<Self, IncompatibleLayout> {
         let mut downcast_keys = HashMap::new();
         let mut compatibility = IncompatibleLayout::default();
         for identifier in keys.keys() {
@@ -682,7 +695,9 @@ where
                 continue;
             };
 
-            if let Ok(downcast) = compatibility.require_buffer_key_for_identifier::<A>(identifier.clone(), keys) {
+            if let Ok(downcast) =
+                compatibility.require_buffer_key_for_identifier::<A>(identifier.clone(), keys)
+            {
                 downcast_keys.insert(key, downcast);
             }
         }

@@ -130,7 +130,10 @@ pub trait Accessing: Buffering {
         self.access_into(builder)
     }
 
-    fn access_into<InputMessage, OutputMessage>(self, builder: &mut Builder) -> Node<InputMessage, OutputMessage>
+    fn access_into<InputMessage, OutputMessage>(
+        self,
+        builder: &mut Builder,
+    ) -> Node<InputMessage, OutputMessage>
     where
         InputMessage: 'static + Send + Sync,
         OutputMessage: 'static + Send + Sync + From<(InputMessage, Self::Key)>,

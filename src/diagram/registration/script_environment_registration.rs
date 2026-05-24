@@ -15,19 +15,13 @@
  *
 */
 
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{cell::RefCell, sync::Arc};
 
+use anyhow::Error as Anyhow;
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
-use anyhow::Error as Anyhow;
 
-use crate::{
-    JsonMessage, ScriptEnvironment, OperationName, Text, ScriptConfigExample,
-};
+use crate::{JsonMessage, OperationName, ScriptConfigExample, ScriptEnvironment, Text};
 
 pub type ArcScriptEnvironment = Arc<dyn ScriptEnvironment + Send + Sync>;
 

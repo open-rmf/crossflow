@@ -34,16 +34,16 @@ use thiserror::Error as ThisError;
 use smallvec::SmallVec;
 
 use crate::{
-    AccessError, AccessKey, Accessing, Accessor, BMut, BMutTracer, Buffer, BufferAccessMut,
-    BufferAccessors, BufferEntry, BufferError, BufferInstanceId, BufferKey, BufferKeyBody,
-    BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferManager, BufferMap,
-    BufferMapLayout, BufferMapLayoutHints, BufferStorage, BufferView, BufferWorldAccess,
-    Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer, FetchFromBuffer, Gate, GateState,
-    IdentifierRef, IncompatibleLayout, InspectBufferSessions, IterBufferView, Joining,
-    ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
-    NotifyBufferUpdate, OperationError, OperationResult, OperationRoster, OrBroken, RequestId, Seq,
-    TypeInfo, FetchSettings, FetchFn, add_listener_to_source, AwaitingHandle, NotifyAwaitingBuffer,
-    is_buffer_reachable,
+    AccessError, AccessKey, Accessing, Accessor, AwaitingHandle, BMut, BMutTracer, Buffer,
+    BufferAccessMut, BufferAccessors, BufferEntry, BufferError, BufferInstanceId, BufferKey,
+    BufferKeyBody, BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation,
+    BufferManager, BufferMap, BufferMapLayout, BufferMapLayoutHints, BufferStorage, BufferView,
+    BufferWorldAccess, Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer, FetchFn,
+    FetchFromBuffer, FetchSettings, Gate, GateState, IdentifierRef, IncompatibleLayout,
+    InspectBufferSessions, IterBufferView, Joining, ManageBufferSessions, MessageTypeHint,
+    MessageTypeHintEvaluation, MessageTypeHintMap, NotifyAwaitingBuffer, NotifyBufferUpdate,
+    OperationError, OperationResult, OperationRoster, OrBroken, RequestId, Seq, TypeInfo,
+    add_listener_to_source, is_buffer_reachable,
 };
 
 #[cfg(feature = "trace")]
@@ -257,23 +257,22 @@ impl AnyBufferKey {
     /// Downcast this into a concrete [`BufferKey`] for the specified message type.
     ///
     /// To downcast to a specialized kind of key, use [`Self::downcast_buffer_key`] instead.
-    pub fn downcast_for_message<Message: 'static + Send + Sync>(self) -> Option<BufferKey<Message>> {
+    pub fn downcast_for_message<Message: 'static + Send + Sync>(
+        self,
+    ) -> Option<BufferKey<Message>> {
         if TypeId::of::<Message>() == self.interface.message_type_id() {
             let fetch_settings = match self.fetch_behavior {
                 FetchBehavior::Pull => FetchSettings::<Message>::default(),
-                FetchBehavior::Clone => {
-                    self.interface
-                        .fetch_by_clone_fn()
-                        .and_then(|f| f.downcast_ref::<FetchFn<Message>>())
-                        .copied()
-                        .map(|fetch| {
-                            FetchSettings {
-                                behavior: FetchBehavior::Clone,
-                                fetch,
-                            }
-                        })
-                        .unwrap_or_else(|| FetchSettings::<Message>::default())
-                }
+                FetchBehavior::Clone => self
+                    .interface
+                    .fetch_by_clone_fn()
+                    .and_then(|f| f.downcast_ref::<FetchFn<Message>>())
+                    .copied()
+                    .map(|fetch| FetchSettings {
+                        behavior: FetchBehavior::Clone,
+                        fetch,
+                    })
+                    .unwrap_or_else(|| FetchSettings::<Message>::default()),
             };
 
             Some(BufferKey {
@@ -432,9 +431,13 @@ impl Accessor for AnyBufferKey {
         map
     }
 
-    fn try_from_any_keys(keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>) -> Result<Self, IncompatibleLayout> {
+    fn try_from_any_keys(
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<Self, IncompatibleLayout> {
         let mut compatibility = IncompatibleLayout::default();
-        if let Ok(downcast_key) = compatibility.require_buffer_key_for_identifier::<AnyBufferKey>(0, keys) {
+        if let Ok(downcast_key) =
+            compatibility.require_buffer_key_for_identifier::<AnyBufferKey>(0, keys)
+        {
             return Ok(downcast_key);
         }
 
@@ -496,15 +499,9 @@ impl Accessor for AnyBufferKey {
             return Ok(None);
         }
 
-        let r = world.any_buffer_mut(req, self, |mut buffer| {
-            match self.fetch_behavior {
-                FetchBehavior::Pull => {
-                    Ok(buffer.pull())
-                }
-                FetchBehavior::Clone => {
-                    buffer.get_clone(0)
-                }
-            }
+        let r = world.any_buffer_mut(req, self, |mut buffer| match self.fetch_behavior {
+            FetchBehavior::Pull => Ok(buffer.pull()),
+            FetchBehavior::Clone => buffer.get_clone(0),
         })??;
 
         Ok(r)
@@ -1064,7 +1061,9 @@ impl<'a, T: 'static + Send + Sync + Any> AnyBufferViewing<'a> for BufferView<'a,
 
         let interface = AnyBuffer::interface_for::<T>();
         let Some(output) = interface.clone_any(message) else {
-            return Err(CloneError { message_type: TypeInfo::of::<T>() });
+            return Err(CloneError {
+                message_type: TypeInfo::of::<T>(),
+            });
         };
 
         Ok(Some(output))
@@ -1153,7 +1152,9 @@ impl<T: 'static + Send + Sync + Any> AnyBufferManagement for BufferManager<'_, '
 
         let interface = AnyBuffer::interface_for::<T>();
         let Some(output) = interface.clone_any(message) else {
-            return Err(CloneError { message_type: TypeInfo::of::<T>() });
+            return Err(CloneError {
+                message_type: TypeInfo::of::<T>(),
+            });
         };
 
         Ok(Some(output))
@@ -1366,7 +1367,8 @@ pub type AnyMessageResult = Result<AnyMessageBox, OperationError>;
 pub type BufferDowncastBox = Box<dyn Fn(AnyBuffer) -> AnyMessageResult + Send + Sync>;
 pub type BufferDowncastRef = &'static (dyn Fn(AnyBuffer) -> AnyMessageResult + Send + Sync);
 pub type KeyDowncastBox = Box<dyn Fn(BufferKeyBody, FetchBehavior) -> AnyMessageBox + Send + Sync>;
-pub type KeyDowncastRef = &'static (dyn Fn(BufferKeyBody, FetchBehavior) -> AnyMessageBox + Send + Sync);
+pub type KeyDowncastRef =
+    &'static (dyn Fn(BufferKeyBody, FetchBehavior) -> AnyMessageBox + Send + Sync);
 pub type CloneForAnyFn = fn(RequestId, &BufferKeyTag, &mut World) -> AnyMessageResult;
 
 struct AnyBufferAccessImpl<T> {

@@ -43,8 +43,8 @@ use crate::{
     BufferStorage, BufferView, BufferWorldAccess, Bufferable, Buffering, Builder, CloneFromBuffer,
     DrainBuffer, FetchBehavior, Gate, GateState, IdentifierRef, IncompatibleLayout,
     InspectBufferSessions, Joined, Joining, ManageBufferSessions, MessageTypeHint,
-    MessageTypeHintEvaluation, NotifyBufferUpdate, OperationError, OperationResult, OrBroken,
-    OverlapError, RequestId, Seq, TypeInfo, add_listener_to_source, NotifyAwaitingBuffer,
+    MessageTypeHintEvaluation, NotifyAwaitingBuffer, NotifyBufferUpdate, OperationError,
+    OperationResult, OrBroken, OverlapError, RequestId, Seq, TypeInfo, add_listener_to_source,
     is_buffer_reachable,
 };
 
@@ -1323,9 +1323,13 @@ impl Accessor for JsonBufferKey {
         map
     }
 
-    fn try_from_any_keys(keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>) -> Result<Self, IncompatibleLayout> {
+    fn try_from_any_keys(
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<Self, IncompatibleLayout> {
         let mut compatibility = IncompatibleLayout::default();
-        if let Ok(downcast_key) = compatibility.require_buffer_key_for_identifier::<JsonBufferKey>(0, keys) {
+        if let Ok(downcast_key) =
+            compatibility.require_buffer_key_for_identifier::<JsonBufferKey>(0, keys)
+        {
             return Ok(downcast_key);
         }
 
@@ -1391,15 +1395,13 @@ impl Accessor for JsonBufferKey {
 
         Ok(world.json_buffer_mut(req, self, |mut buffer| {
             match self.fetch_behavior {
-                FetchBehavior::Pull => {
-                    loop {
-                        match buffer.pull() {
-                            Some(Ok(value)) => return Some(value),
-                            Some(Err(_)) => continue,
-                            None => return None,
-                        }
+                FetchBehavior::Pull => loop {
+                    match buffer.pull() {
+                        Some(Ok(value)) => return Some(value),
+                        Some(Err(_)) => continue,
+                        None => return None,
                     }
-                }
+                },
                 FetchBehavior::Clone => {
                     for i in 0..buffer.len() {
                         if let Some(entry) = buffer.get(i) {

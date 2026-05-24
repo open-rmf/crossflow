@@ -16,24 +16,24 @@
 */
 
 use crate::{
-    DiagramElementRegistry, ScriptEnvironmentBuilderOptions, Script, PythonAccessors, PythonMessage,
-    ScriptEnvironment, ScriptExecution, ArcScriptExecution, ScriptInput, ScriptMessage, ScriptConfigExample,
-    JsonMessage, PythonInput,
+    ArcScriptExecution, DiagramElementRegistry, JsonMessage, PythonAccessors, PythonInput,
+    PythonMessage, Script, ScriptConfigExample, ScriptEnvironment, ScriptEnvironmentBuilderOptions,
+    ScriptExecution, ScriptInput, ScriptMessage,
 };
+use bevy_ecs::prelude::World;
+use futures::future::{BoxFuture, FutureExt};
 use pyo3::{
     prelude::*,
-    types::{PyDict, PyAnyMethods},
+    types::{PyAnyMethods, PyDict},
 };
 use pyo3_async_runtimes::TaskLocals as PyTaskLocals;
 use pythonize::{depythonize, pythonize};
-use futures::future::{BoxFuture, FutureExt};
-use serde::{Serialize, Deserialize};
 use schemars::JsonSchema;
-use bevy_ecs::prelude::World;
+use serde::{Deserialize, Serialize};
 
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Error as Anyhow};
+use anyhow::{Context, Error as Anyhow, anyhow};
 
 #[derive(Clone)]
 pub struct PythonEventLoop {
@@ -52,7 +52,9 @@ impl PythonEventLoop {
             Ok::<_, PyErr>(asyncio.call_method0("new_event_loop")?.unbind())
         })?;
 
-        Ok(Self { asyncio_event_loop: Arc::new(asyncio_event_loop) })
+        Ok(Self {
+            asyncio_event_loop: Arc::new(asyncio_event_loop),
+        })
     }
 
     fn get_task_locals(&self) -> PyTaskLocals {
@@ -65,27 +67,19 @@ impl PythonEventLoop {
     /// Run the event loop indefinitely. This is a blocking function, so it must
     /// be run on a separate thread from the main thread of the Bevy app.
     pub fn run(&self) -> Result<(), PyErr> {
-        Python::attach(|py| {
-            self.asyncio_event_loop.call_method0(py, "run_forever")
-        })
-        .map(|_| ())
+        Python::attach(|py| self.asyncio_event_loop.call_method0(py, "run_forever")).map(|_| ())
     }
 
     /// Spawn a thread for running this event loop.
     pub fn spawn_thread_and_run(&self) -> std::thread::JoinHandle<Result<(), PyErr>> {
         let py_event_loop = self.clone();
-        std::thread::spawn(move || {
-            py_event_loop.run()
-        })
+        std::thread::spawn(move || py_event_loop.run())
     }
 
     /// Tell the event loop to stop running. This does not block, so the event
     /// loop could still run for some time after this function returns.
     pub fn stop(&self) -> Result<(), PyErr> {
-        Python::attach(|py| {
-            self.asyncio_event_loop.call_method0(py, "stop")
-        })
-        .map(|_| ())
+        Python::attach(|py| self.asyncio_event_loop.call_method0(py, "stop")).map(|_| ())
     }
 }
 
@@ -130,7 +124,6 @@ impl DiagramElementRegistry {
     /// Enable script environment support for Python using pyo3 and the CPython
     /// interpreter.
     pub fn enable_python(&mut self, event_loop: &PythonEventLoop) -> pyo3::PyResult<()> {
-
         crate::register_crossflow_pymod()?;
 
         let interpreter = Python::attach(|py| {
@@ -142,7 +135,7 @@ impl DiagramElementRegistry {
 
         let builder_description = "Run a Python interpreter directly inside the executor";
         let script = Script::new(
-r###"
+            r###"
 from crossflow import *
 
 async def execute(input: Input):
@@ -166,7 +159,7 @@ async def execute(input: Input):
     """
 
     return Message(data = {}, accessors = None)
-"###
+"###,
         );
         let run = Script::new("execute");
 
@@ -208,11 +201,7 @@ async def execute(input: Input):
 
         let task_locals = Arc::new(event_loop.get_task_locals());
         self.register_script_environment_builder(
-            ScriptEnvironmentBuilderOptions::new(
-                "process-bound-python",
-                "python",
-                interpreter,
-            )
+            ScriptEnvironmentBuilderOptions::new("process-bound-python", "python", interpreter)
                 .with_description(builder_description)
                 .with_display_text("Python")
                 .with_config_examples(config_examples),
@@ -223,11 +212,17 @@ async def execute(input: Input):
                         Arc::new(PythonEnvironment::Shared(shared))
                     }
                     PythonEnvironmentOwnership::Persistent => {
-                        let reused = PersistentPythonEnvironment::new(config.script.clone(), Arc::clone(&task_locals));
+                        let reused = PersistentPythonEnvironment::new(
+                            config.script.clone(),
+                            Arc::clone(&task_locals),
+                        );
                         Arc::new(PythonEnvironment::Persistent(reused))
                     }
                     PythonEnvironmentOwnership::Isolated => {
-                        let isolated = IsolatedPythonEnvironment::new(config.script.clone(), Arc::clone(&task_locals));
+                        let isolated = IsolatedPythonEnvironment::new(
+                            config.script.clone(),
+                            Arc::clone(&task_locals),
+                        );
                         Arc::new(PythonEnvironment::Isolated(isolated))
                     }
                 };
@@ -253,9 +248,7 @@ impl SharedPythonEnvironment {
 
             let c_script = script
                 .get_cstr()
-                .map_err(|err| {
-                    anyhow!("unable to convert script: {err}")
-                })?;
+                .map_err(|err| anyhow!("unable to convert script: {err}"))?;
 
             py.run(&*c_script, Some(&py_vars), None)
                 .map_err(|err| anyhow!("exception while running script: {err}"))?;
@@ -266,7 +259,6 @@ impl SharedPythonEnvironment {
             })
         })
     }
-
 }
 
 #[derive(Clone)]
@@ -277,7 +269,10 @@ pub struct PersistentPythonEnvironment {
 
 impl PersistentPythonEnvironment {
     pub fn new(script: Script, task_locals: Arc<PyTaskLocals>) -> Self {
-        Self { script, task_locals }
+        Self {
+            script,
+            task_locals,
+        }
     }
 }
 
@@ -289,7 +284,10 @@ pub struct IsolatedPythonEnvironment {
 
 impl IsolatedPythonEnvironment {
     pub fn new(script: Script, task_locals: Arc<PyTaskLocals>) -> Self {
-        Self { environment: script, task_locals }
+        Self {
+            environment: script,
+            task_locals,
+        }
     }
 }
 
@@ -310,12 +308,13 @@ impl ScriptEnvironment for PythonEnvironment {
             Self::Shared(shared) => {
                 let exec = SharedPythonExecution::new(shared, run, &*config)?;
                 PythonExecution::Shared(exec)
-            },
+            }
             Self::Persistent(persistent) => {
-                let env = SharedPythonEnvironment::new(&persistent.script, &persistent.task_locals)?;
+                let env =
+                    SharedPythonEnvironment::new(&persistent.script, &persistent.task_locals)?;
                 let exec = SharedPythonExecution::new(&env, run, &*config)?;
                 PythonExecution::Shared(exec)
-            },
+            }
             Self::Isolated(isolated) => {
                 let exec = IsolatedPythonExecution::new(
                     isolated.environment.clone(),
@@ -356,11 +355,15 @@ impl SharedPythonExecution {
                 .get_cstr()
                 .with_context(|| format!("Failed to bind the run script [{}]", run.text()))?;
 
-            let callable = py.eval(&*c_run, Some(py_vars), None)
+            let callable = py
+                .eval(&*c_run, Some(py_vars), None)
                 .with_context(|| format!("Exception while evaluating [{}]", run.text()))?;
 
             if !callable.is_callable() {
-                return Err(anyhow!("Run script [{}] did not refer to a callable", run.text()));
+                return Err(anyhow!(
+                    "Run script [{}] did not refer to a callable",
+                    run.text()
+                ));
             }
 
             Ok(callable.unbind())
@@ -389,9 +392,7 @@ impl SharedPythonExecution {
                 // input.streams.send(data);
 
                 let data = pythonize(py, &data)
-                    .map_err(|err| {
-                        anyhow!("failed to pythonize input data: {err}")
-                    })?;
+                    .map_err(|err| anyhow!("failed to pythonize input data: {err}"))?;
 
                 let accessors = PythonAccessors::new(Arc::new(accessors), Arc::new(input.channel));
 
@@ -402,8 +403,7 @@ impl SharedPythonExecution {
                     config,
                 };
 
-                let result = run
-                    .call((input,), None)?;
+                let result = run.call((input,), None)?;
 
                 let is_async = result.hasattr("__await__")?;
                 Ok::<_, Anyhow>((result.unbind(), is_async))
@@ -430,9 +430,7 @@ impl SharedPythonExecution {
                 // The user didn't return a PythonMessge, so let's try to
                 // depythonize their return value.
                 let data: JsonMessage = depythonize(&result)
-                    .map_err(|err| {
-                        anyhow!("failed to depythonize return value: {err}")
-                    })?;
+                    .map_err(|err| anyhow!("failed to depythonize return value: {err}"))?;
 
                 Ok(ScriptMessage::from(data))
             })
@@ -506,7 +504,7 @@ impl ScriptExecution for PythonExecution {
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::*, diagram::testing::*};
+    use crate::{diagram::testing::*, prelude::*};
     use serde_json::json;
 
     #[test]
@@ -517,8 +515,7 @@ mod tests {
         fixture.registry.enable_python(&py_event_loop).unwrap();
         py_event_loop.spawn_thread_and_run();
 
-        let env_script =
-r###"
+        let env_script = r###"
 def run_config_test(input):
     if input.config is not None:
         num_accessors = input.config.get('test_num_accessors')
@@ -582,8 +579,7 @@ async def execute_async(input):
         fixture.registry.enable_python(&py_event_loop).unwrap();
         py_event_loop.spawn_thread_and_run();
 
-        let env_script =
-r###"
+        let env_script = r###"
 from crossflow import *
 
 def stream_out_values(input: Input):
@@ -651,8 +647,7 @@ def filter_values(input: Input):
         fixture.registry.enable_python(&py_event_loop).unwrap();
         py_event_loop.spawn_thread_and_run();
 
-        let env_script =
-r###"
+        let env_script = r###"
 import asyncio
 from crossflow import *
 
@@ -741,10 +736,7 @@ def check_equal(access):
         }))
         .unwrap();
 
-        let input = json!([
-            [0, 1, 2, 3, 4, 5],
-            [10, 9, 8, 7, 6, 5],
-        ]);
+        let input = json!([[0, 1, 2, 3, 4, 5], [10, 9, 8, 7, 6, 5],]);
         let r: i32 = fixture.spawn_and_run(&diagram, input).unwrap();
         assert_eq!(r, 5);
 
@@ -759,8 +751,7 @@ def check_equal(access):
         fixture.registry.enable_python(&py_event_loop).unwrap();
         py_event_loop.spawn_thread_and_run();
 
-        let env_script =
-r###"
+        let env_script = r###"
 from crossflow import *
 
 async def fetch_by_name(input: Input):
@@ -792,8 +783,7 @@ async def fetch_by_name(input: Input):
         fixture.registry.enable_python(&py_event_loop).unwrap();
         py_event_loop.spawn_thread_and_run();
 
-        let env_script =
-r###"
+        let env_script = r###"
 from crossflow import *
 
 async def test_python_buffer_apis(input: Input):
@@ -926,10 +916,7 @@ async def test_python_buffer_apis(input: Input):
         py_event_loop.stop().unwrap();
     }
 
-    fn named_split_buffer_diagram(
-        env_script: &str,
-        run: &str,
-    ) -> Diagram {
+    fn named_split_buffer_diagram(env_script: &str, run: &str) -> Diagram {
         Diagram::from_json(json!({
             "version": "0.1.0",
             "script_environments": {

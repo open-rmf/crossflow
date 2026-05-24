@@ -16,8 +16,8 @@
 */
 
 use crate::{
-    Broken, DeliveryLabelId, Disposal, InspectInput, ManageCancellation, RequestId,
-    RouteSourceOwned, SetupFailure, StreamTargetMap, UnhandledErrors, BufferKeyTag,
+    Broken, BufferKeyTag, DeliveryLabelId, Disposal, InspectInput, ManageCancellation, RequestId,
+    RouteSourceOwned, SetupFailure, StreamTargetMap, UnhandledErrors,
 };
 
 use bevy_derive::Deref;
@@ -502,10 +502,7 @@ pub fn check_reachability(
     r.check_upstream(source)
 }
 
-pub fn is_buffer_reachable(
-    tag: &BufferKeyTag,
-    world: &World,
-) -> ReachabilityResult {
+pub fn is_buffer_reachable(tag: &BufferKeyTag, world: &World) -> ReachabilityResult {
     let mut visited = HashMap::new();
     let mut r = OperationReachability {
         source: tag.buffer,

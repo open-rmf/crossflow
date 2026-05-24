@@ -215,8 +215,12 @@ pub struct MessageOperationsMetadata {
 
 impl MessageOperationsMetadata {
     fn new(ops: &MessageOperations, registrations: &MessageRegistrations) -> Self {
-        let into_script_message = ops.supports_into_script_message(registrations).then(|| JsEmptyObject);
-        let from_script_message = ops.supports_from_script_message(registrations).then(|| JsEmptyObject);
+        let into_script_message = ops
+            .supports_into_script_message(registrations)
+            .then(|| JsEmptyObject);
+        let from_script_message = ops
+            .supports_from_script_message(registrations)
+            .then(|| JsEmptyObject);
 
         Self {
             deserialize: ops.deserialize.is_some().then(|| JsEmptyObject),

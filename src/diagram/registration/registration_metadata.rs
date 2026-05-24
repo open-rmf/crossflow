@@ -484,11 +484,15 @@ impl MetadataAccess for DiagramElementMetadata {
     }
 
     fn into_script_message(&self, message_index: usize) -> Result<bool, DiagramErrorCode> {
-        Ok(self.message_operations_for(message_index)?.into_script_message())
+        Ok(self
+            .message_operations_for(message_index)?
+            .into_script_message())
     }
 
     fn from_script_message(&self, message_index: usize) -> Result<bool, DiagramErrorCode> {
-        Ok(self.message_operations_for(message_index)?.from_script_message())
+        Ok(self
+            .message_operations_for(message_index)?
+            .from_script_message())
     }
 
     fn fork_result_output_types(

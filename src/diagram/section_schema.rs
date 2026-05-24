@@ -27,8 +27,8 @@ use crate::{
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, BuilderId, DiagramElementRegistry,
     DiagramErrorCode, DynInputSlot, DynOutput, MessageRegistrations, NamespacedOperation,
-    NextOperation, OperationName, OperationRef, Operations, RedirectConnection, TraceInfo,
-    TraceSettings, Templates,
+    NextOperation, OperationName, OperationRef, Operations, RedirectConnection, Templates,
+    TraceInfo, TraceSettings,
 };
 
 pub use crossflow_derive::Section;
@@ -211,15 +211,16 @@ impl BuildDiagramOperation for SectionSchema {
         Ok(())
     }
 
-    fn child_operations(&self, templates: &Templates) -> Result<Option<Operations>, DiagramErrorCode> {
+    fn child_operations(
+        &self,
+        templates: &Templates,
+    ) -> Result<Option<Operations>, DiagramErrorCode> {
         match &self.provider {
             SectionProvider::Template(template) => {
                 let template = templates.get_template(&template)?;
                 Ok(Some(template.ops.clone()))
             }
-            SectionProvider::Builder(_) => {
-                Ok(None)
-            }
+            SectionProvider::Builder(_) => Ok(None),
         }
     }
 }

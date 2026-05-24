@@ -15,11 +15,11 @@
  *
 */
 
+use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{
     prelude::{Component, Entity, Query, World},
     system::SystemState,
 };
-use bevy_derive::{Deref, DerefMut};
 
 use std::{
     collections::{HashMap, hash_map::Entry},
@@ -29,11 +29,10 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::{
-    Accessing, BufferChangeBroadcasters, BufferKeyBuilder, ChannelQueue, InScope, Input,
-    InputBundle, ManageInput, MessageRoute, Operation, OperationCleanup, OperationError,
+    Accessing, BufferChangeBroadcasters, BufferKeyBuilder, BufferKeyTag, ChannelQueue, InScope,
+    Input, InputBundle, ManageInput, MessageRoute, Operation, OperationCleanup, OperationError,
     OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ReachabilityResult, Seq, SingleInputStorage, SingleTargetStorage, output_port,
-    BufferKeyTag, RequestId,
+    ReachabilityResult, RequestId, Seq, SingleInputStorage, SingleTargetStorage, output_port,
 };
 
 #[derive(Default, Component, Deref, DerefMut)]
@@ -42,11 +41,19 @@ struct AwaitingFetch(HashMap<Entity, HashMap<RequestId, Weak<AwaitingHandle>>>);
 pub struct AwaitingHandle;
 
 pub trait NotifyAwaitingBuffer {
-    fn awaiting_buffer(&mut self, tag: &BufferKeyTag, req: RequestId) -> Option<Arc<AwaitingHandle>>;
+    fn awaiting_buffer(
+        &mut self,
+        tag: &BufferKeyTag,
+        req: RequestId,
+    ) -> Option<Arc<AwaitingHandle>>;
 }
 
 impl NotifyAwaitingBuffer for World {
-    fn awaiting_buffer(&mut self, tag: &BufferKeyTag, req: RequestId) -> Option<Arc<AwaitingHandle>> {
+    fn awaiting_buffer(
+        &mut self,
+        tag: &BufferKeyTag,
+        req: RequestId,
+    ) -> Option<Arc<AwaitingHandle>> {
         let mut awaiting = self.get_mut::<AwaitingFetch>(tag.accessor)?;
         let map = awaiting.entry(tag.session).or_default();
 
@@ -66,7 +73,6 @@ impl NotifyAwaitingBuffer for World {
                 return Some(handle);
             }
         }
-
     }
 }
 
@@ -166,7 +172,10 @@ where
         clean.cleanup_inputs::<InputMessage>()?;
         clean.cleanup_buffer_access::<Buffers>()?;
 
-        let mut awaiting = clean.world.get_mut::<AwaitingFetch>(clean.source).or_broken()?;
+        let mut awaiting = clean
+            .world
+            .get_mut::<AwaitingFetch>(clean.source)
+            .or_broken()?;
         awaiting.remove(&clean.cleanup.session);
 
         clean.notify_cleaned()

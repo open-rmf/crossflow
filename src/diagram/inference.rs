@@ -30,8 +30,8 @@ use crate::{
     BufferMapLayoutHints, BufferSelection, BuildDiagramOperation, Diagram, DiagramContext,
     DiagramElementRegistry, DiagramError, DiagramErrorCode, IdentifierRef, IncompatibleLayout,
     MetadataAccess, NamedOutputRef, NamespaceList, NamespacedOperation, NextOperation, NodeSchema,
-    OperationName, OperationRef, Operations, OutputRef, ScopeSchema, SectionError, SectionProvider,
-    SectionSchema, StreamAvailability, StreamPack, WithContext, output_ref, ScriptSchema,
+    OperationName, OperationRef, Operations, OutputRef, ScopeSchema, ScriptSchema, SectionError,
+    SectionProvider, SectionSchema, StreamAvailability, StreamPack, WithContext, output_ref,
 };
 
 pub type InferredMessageTypes = HashMap<PortRef, usize>;
@@ -980,7 +980,10 @@ impl<'a> ConstraintContext<'a> {
                 scriptable = false;
             }
 
-            if script_index.as_ref().is_ok_and(|index| *index == message_type) {
+            if script_index
+                .as_ref()
+                .is_ok_and(|index| *index == message_type)
+            {
                 has_script_message = true;
             }
         }
@@ -991,7 +994,7 @@ impl<'a> ConstraintContext<'a> {
             return Ok(Some(json_index));
         } else if scriptable && let Ok(script_index) = script_index {
             // All messages can be created from a script message.
-            return Ok(Some(script_index))
+            return Ok(Some(script_index));
         }
 
         Ok(None)

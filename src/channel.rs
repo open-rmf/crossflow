@@ -199,9 +199,7 @@ impl Channel {
     /// able to give it a value, then this will return [`AccessError::Unreachable`].
     #[must_use = "This method does not affect anything. Await the Reply to find out if the accessors can be joined."]
     pub fn can_join<A: Accessor>(&self, accessor: A) -> Reply<Result<bool, AccessError>> {
-        self.world(move |world| {
-            accessor.can_join(world)
-        })
+        self.world(move |world| accessor.can_join(world))
     }
 
     /// Get access to a [`Commands`] for the [`World`].
@@ -476,7 +474,7 @@ fn wait_for<A: Accessor, U: 'static + Send>(
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::*, AccessError, testing::*};
+    use crate::{AccessError, prelude::*, testing::*};
     use bevy_ecs::system::EntityCommands;
     use std::{collections::HashMap, time::Duration};
 
