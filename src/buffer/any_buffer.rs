@@ -293,6 +293,26 @@ impl AnyBufferKey {
             .map(|x| *x)
     }
 
+    /// Create a copy of this key that fetches from its buffer by cloning.
+    pub fn fetch_by_clone(&self) -> Self {
+        let mut key = self.clone();
+        key.fetch_behavior = FetchBehavior::Clone;
+        key
+    }
+
+    /// Create a copy of this key that fetches from its buffer by pulling values
+    /// out of it.
+    pub fn fetch_by_pull(&self) -> Self {
+        let mut key = self.clone();
+        key.fetch_behavior = FetchBehavior::Pull;
+        key
+    }
+
+    /// Change the way this key fetches from its buffer.
+    pub fn set_fetch_behavior(&mut self, behavior: FetchBehavior) {
+        self.fetch_behavior = behavior;
+    }
+
     /// The buffer ID of this key.
     pub fn id(&self) -> Entity {
         self.body.tag.buffer

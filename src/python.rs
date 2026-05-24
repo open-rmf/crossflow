@@ -20,7 +20,7 @@ mod crossflow {
     use crate::{
         AnyBufferKey, Channel, JsonBufferKey, IdentifierRef, AccessError, BufferError, OverlapError,
         JsonBufferMut, JsonMut, JsonRef, JsonMessage, format_vertical_list, DynamicallyNamedStreamChannel, StreamOf,
-        ScriptMessage, NamedValue, BufferKeyMap, Accessor, Reply, CloneError,
+        ScriptMessage, NamedValue, BufferKeyMap, Accessor, Reply, CloneError, FetchBehavior,
     };
     use std::{
         borrow::Cow,
@@ -333,6 +333,18 @@ mod crossflow {
             });
 
             Ok(reply.into())
+        }
+
+        pub fn fetch_by_pull(&self) -> Self {
+            let mut accessor = self.clone();
+            accessor.key = accessor.key.fetch_by_pull();
+            accessor
+        }
+
+        pub fn fetch_by_clone(&self) -> Self {
+            let mut accessor = self.clone();
+            accessor.key = accessor.key.fetch_by_clone();
+            accessor
         }
     }
 

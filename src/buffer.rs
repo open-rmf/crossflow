@@ -450,6 +450,11 @@ impl<T: 'static + Send + Sync> FetchSettings<T> {
         self.behavior = FetchBehavior::Clone;
         self.fetch = clone_from_buffer::<T>;
     }
+
+    /// What is the current fetching behavior
+    pub fn behavior(&self) -> &FetchBehavior {
+        &self.behavior
+    }
 }
 
 impl<T: 'static + Send + Sync> Clone for FetchSettings<T> {
