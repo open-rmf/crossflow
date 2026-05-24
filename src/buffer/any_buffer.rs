@@ -43,6 +43,7 @@ use crate::{
     ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
     NotifyBufferUpdate, OperationError, OperationResult, OperationRoster, OrBroken, RequestId, Seq,
     TypeInfo, FetchSettings, FetchFn, add_listener_to_source, AwaitingHandle, NotifyAwaitingBuffer,
+    is_buffer_reachable,
 };
 
 #[cfg(feature = "trace")]
@@ -464,7 +465,18 @@ impl Accessor for AnyBufferKey {
 
     fn can_join(&self, world: &World) -> Result<bool, AccessError> {
         let view = world.any_buffer_view_untraced(self)?;
-        Ok(view.oldest().is_some())
+        let can_join = view.oldest().is_some();
+        if !can_join {
+            // Check if this will ever be reachable
+            let r = is_buffer_reachable(self.tag(), world);
+            if r.is_err() || r.is_ok_and(|ok| !ok) {
+                // We cannot ensure that the buffer is reachable anymore, so we
+                // should return an error here.
+                return Err(AccessError::Unreachable);
+            }
+        }
+
+        Ok(can_join)
     }
 
     fn notify_awaiting(

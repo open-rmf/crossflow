@@ -45,6 +45,7 @@ use crate::{
     InspectBufferSessions, Joined, Joining, ManageBufferSessions, MessageTypeHint,
     MessageTypeHintEvaluation, NotifyBufferUpdate, OperationError, OperationResult, OrBroken,
     OverlapError, RequestId, Seq, TypeInfo, add_listener_to_source, NotifyAwaitingBuffer,
+    is_buffer_reachable,
 };
 
 #[cfg(feature = "trace")]
@@ -1357,7 +1358,18 @@ impl Accessor for JsonBufferKey {
         // TODO(@mxgrey): It would be good if we can cache these serializations
         // to avoid redundant effort. We would have to add a caching field to
         // BufferEntry when the diagram feature is enabled.
-        Ok(view.iter().any(|json| json.serialize().is_ok()))
+        let can_join = view.iter().any(|json| json.serialize().is_ok());
+        if !can_join {
+            // Check if this will ever be reachable
+            let r = is_buffer_reachable(self.tag(), world);
+            if r.is_err() || r.is_ok_and(|ok| !ok) {
+                // We cannot ensure that the buffer is reachable anymore, so we
+                // should return an error here.
+                return Err(AccessError::Unreachable);
+            }
+        }
+
+        Ok(can_join)
     }
 
     fn notify_awaiting(

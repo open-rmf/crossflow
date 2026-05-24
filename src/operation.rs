@@ -502,7 +502,7 @@ pub fn check_reachability(
     r.check_upstream(source)
 }
 
-pub fn check_buffer_reachability(
+pub fn is_buffer_reachable(
     tag: &BufferKeyTag,
     world: &World,
 ) -> ReachabilityResult {

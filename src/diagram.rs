@@ -72,7 +72,7 @@ use anyhow::Error as Anyhow;
 
 use std::{
     borrow::Cow,
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt::Display,
     io::Read,
     sync::Arc,

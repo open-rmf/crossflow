@@ -804,26 +804,66 @@ async def test_python_buffer_apis(input: Input):
         if fetch_by_clone_args is not None:
             accessors = accessors.fetch_by_clone(*fetch_by_clone_args)
 
+        expect_exception = test.get('expect_exception', False)
+
         api = test['api']
         if api == 'try_fetch':
-            value = await accessors.try_fetch()
-            assert value == test['expect']
+            try:
+                value = await accessors.try_fetch()
+                assert value == test['expect']
+                assert not expect_exception
+            except:
+                assert expect_exception
 
         if api == 'try_join':
-            value = await accessors.try_join()
-            assert value == test['expect']
+            try:
+                value = await accessors.try_join()
+                assert value == test['expect']
+                assert not expect_exception
+            except:
+                assert expect_exception
 
         if api == 'wait_for_join':
-            value = await accessors.wait_for_join()
-            assert value == test['expect']
+            try:
+                value = await accessors.wait_for_join()
+                assert value == test['expect']
+                assert not expect_exception
+            except:
+                assert expect_exception
 
 "###;
         let diagram = named_split_buffer_diagram(env_script, "test_python_buffer_apis");
 
         let input = json!({
+            "buffer_values": {
+                "alice": 1,
+                "bob": 2,
+                "chris": 3,
+                "dee": 4
+            },
             "input": [
                 {
                     "api": "try_fetch",
+                    "fetch_by_clone": [],
+                    "expect": {
+                        "alice": 1,
+                        "bob": 2,
+                        "chris": 3,
+                        "dee": 4,
+                    }
+                },
+                {
+                    "api": "try_join",
+                    "fetch_by_clone": [],
+                    "expect": {
+                        "alice": 1,
+                        "bob": 2,
+                        "chris": 3,
+                        "dee": 4,
+                    }
+                },
+                {
+                    "api": "wait_for_join",
                     "fetch_by_clone": [],
                     "expect": {
                         "alice": 1,
@@ -844,20 +884,41 @@ async def test_python_buffer_apis(input: Input):
                 },
                 {
                     "api": "try_fetch",
+                    "fetch_by_clone": [],
                     "expect": {
                         "alice": 1,
-                        "bob": JsonMessage::Null,
-                        "chris": JsonMessage::Null,
+                        "bob": null,
+                        "chris": null,
                         "dee": 4,
                     }
+                },
+                {
+                    "api": "try_join",
+                    "expect_exception": true,
+                },
+                {
+                    "api": "wait_for_join",
+                    "expect_exception": true,
+                },
+                {
+                    "api": "try_fetch",
+                    "expect": {
+                        "alice": 1,
+                        "bob": null,
+                        "chris": null,
+                        "dee": 4,
+                    }
+                },
+                {
+                    "api": "try_fetch",
+                    "expect": {
+                        "alice": null,
+                        "bob": null,
+                        "chris": null,
+                        "dee": null,
+                    }
                 }
-            ],
-            "buffer_values": {
-                "alice": 1,
-                "bob": 2,
-                "chris": 3,
-                "dee": 4
-            }
+            ]
         });
 
         let _: () = fixture.spawn_and_run(&diagram, input).unwrap();

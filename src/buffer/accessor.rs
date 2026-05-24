@@ -34,7 +34,7 @@ use crate::{
     Accessing, Buffer, BufferAccessMut, BufferError, BufferKey, BufferMap, BufferMapLayout,
     BufferMut, BufferView, BufferWorldAccess, Builder, Chain, IncompatibleLayout, IdentifierRef,
     ManageBufferSessions, Node, RequestId, Sendish, Seq, format_vertical_list, AnyBufferKey,
-    Identifiable, CloneError, check_buffer_reachability, AwaitingHandle, NotifyAwaitingBuffer,
+    Identifiable, CloneError, is_buffer_reachable, AwaitingHandle, NotifyAwaitingBuffer,
 };
 
 use futures_concurrency::future::Race;
@@ -370,7 +370,7 @@ where
         let can_join = view.oldest().is_some();
         if !can_join {
             // Check if this will ever be reachable
-            let r = check_buffer_reachability(self.tag(), world);
+            let r = is_buffer_reachable(self.tag(), world);
             if r.is_err() || r.is_ok_and(|ok| !ok) {
                 // We cannot ensure that the buffer is reachable anymore, so we
                 // should return an error here.
@@ -500,13 +500,14 @@ where
 
     fn can_join(&self, world: &World) -> Result<bool, AccessError> {
         self.is_disjoint()?;
+        let mut can_join = true;
         for key in self {
             if !key.can_join(world)? {
-                return Ok(false);
+                can_join = false;
             }
         }
 
-        Ok(true)
+        Ok(can_join)
     }
 
     fn notify_awaiting(
@@ -662,7 +663,7 @@ where
 
 impl<K, A: AccessKey> Accessor for HashMap<K, A>
 where
-    K: 'static + Send + Sync + Clone + Eq + Hash + Identifiable,
+    K: 'static + Send + Sync + Clone + Eq + Hash + Identifiable + std::fmt::Debug,
     HashMap<K, A::Buffers>:
         'static + BufferMapLayout + Accessing<Key = HashMap<K, A>> + Send + Sync,
 {
@@ -730,13 +731,14 @@ where
 
     fn can_join(&self, world: &World) -> Result<bool, AccessError> {
         self.is_disjoint()?;
+        let mut can_join = true;
         for key in self.values() {
             if !key.can_join(world)? {
-                return Ok(false);
+                can_join = false;
             }
         }
 
-        Ok(true)
+        Ok(can_join)
     }
 
     fn notify_awaiting(
@@ -983,14 +985,15 @@ macro_rules! impl_accessor_for_tuple {
 
             fn can_join(&self, world: &World) -> Result<bool, AccessError> {
                 self.is_disjoint()?;
+                let mut can_join = true;
                 let ($($A,)*) = self;
                 $(
                     if !$A.can_join(world)? {
-                        return Ok(false);
+                        can_join = false;
                     }
                 )*
 
-                Ok(true)
+                Ok(can_join)
             }
 
             fn notify_awaiting(
