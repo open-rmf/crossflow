@@ -969,4 +969,50 @@ async def test_python_buffer_apis(input: Input):
         }))
         .unwrap()
     }
+
+    #[test]
+    fn test_python_accessors_remap() {
+        let mut fixture = DiagramTestFixture::new();
+
+        let py_event_loop = PythonEventLoop::new().unwrap();
+        fixture.registry.enable_python(&py_event_loop).unwrap();
+        py_event_loop.spawn_thread_and_run();
+
+        let env_script = r###"
+from crossflow import *
+
+async def test_python_buffer_remap(input: Input):
+    accessors = Accessors({
+        'a': input.accessors['alice'],
+        'b': input.accessors['bob'],
+        'c': input.accessors['chris'],
+        'd': input.accessors['dee'],
+    })
+
+    return await accessors.wait_for_join()
+"###;
+
+        let diagram = named_split_buffer_diagram(env_script, "test_python_buffer_remap");
+
+        let input = json!({
+            "buffer_values": {
+                "alice": 1,
+                "bob": 2,
+                "chris": 3,
+                "dee": 4,
+            },
+            "input": null
+        });
+
+        let result: JsonMessage = fixture.spawn_and_run(&diagram, input).unwrap();
+
+        let expectation = json!({
+            "a": 1,
+            "b": 2,
+            "c": 3,
+            "d": 4,
+        });
+
+        assert_eq!(result, expectation);
+    }
 }

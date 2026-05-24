@@ -243,6 +243,54 @@ mod crossflow {
 
     #[pymethods]
     impl PythonAccessors {
+        #[new]
+        fn py_new(dict: Bound<PyDict>) -> PyResult<Self> {
+            let mut channel = None;
+            let mut accessors = BufferKeyMap::new();
+            for (py_id, py_key) in dict.iter() {
+                let mut id: Option<IdentifierRef<'static>> = None;
+                if let Ok(name) = py_id.extract::<String>() {
+                    id = Some(name.into());
+                }
+
+                if let Ok(index) = py_id.extract::<usize>() {
+                    id = Some(index.into());
+                }
+
+                let Some(id) = id else {
+                    return Err(PyKeyError::new_err(format!(
+                        "keys for Accessors dict must be string or int"
+                    )));
+                };
+
+                let Ok(accessor) = py_key.extract::<PythonAccessor>() else {
+                    return Err(PyValueError::new_err(format!(
+                        "values for Accessors dict must be Accessor objects"
+                    )));
+                };
+
+                if channel.is_none() {
+                    channel = Some(Arc::clone(&accessor.channel));
+                }
+
+                accessors.insert(id, accessor.key);
+            }
+
+            let Some(channel) = channel else {
+                return Err(PyValueError::new_err(format!(
+                    "Accessors dict must contain at least one entry"
+                )));
+            };
+
+            let len = get_len(accessors.keys());
+
+            Ok(Self {
+                accessors: Arc::new(accessors),
+                channel,
+                len,
+            })
+        }
+
         fn __len__(&self) -> PyResult<usize> {
             Ok(self.accessors.len())
         }
@@ -664,37 +712,6 @@ mod crossflow {
     }
 
     #[derive(Clone)]
-    #[pyclass(from_py_object, name = "BufferAccess")]
-    pub struct PythonBufferAccess {
-        access: AccessMapRef,
-        len: Option<isize>,
-    }
-
-    impl PythonBufferAccess {
-        fn new(
-            mutex: &BufferMutex,
-            access_map: &mut HashMap<IdentifierRef<'static>, JsonBufferMut<'_, '_, '_>>,
-        ) -> Self {
-            let len = get_len(access_map.keys());
-            let mut access = HashMap::new();
-            for (identifier, buffer) in access_map {
-                let buffer_ptr: *mut JsonBufferMut<'static, 'static, 'static> =
-                    unsafe { std::mem::transmute(buffer) };
-                let buffer_mut = PythonBufferMut {
-                    mutex: mutex.clone(),
-                    buffer_ptr,
-                };
-                access.insert(identifier.clone(), buffer_mut);
-            }
-
-            Self {
-                access: AccessMapRef::new(access),
-                len,
-            }
-        }
-    }
-
-    #[derive(Clone)]
     #[pyclass(from_py_object, name = "Message")]
     pub struct PythonMessage {
         pub data: JsonMessage,
@@ -734,8 +751,66 @@ mod crossflow {
     unsafe impl Send for PythonBufferAccess {}
     unsafe impl Sync for PythonBufferAccess {}
 
+    #[derive(Clone)]
+    #[pyclass(from_py_object, name = "BufferAccess")]
+    pub struct PythonBufferAccess {
+        access: AccessMapRef,
+        len: Option<isize>,
+    }
+
+    impl PythonBufferAccess {
+        fn new(
+            mutex: &BufferMutex,
+            access_map: &mut HashMap<IdentifierRef<'static>, JsonBufferMut<'_, '_, '_>>,
+        ) -> Self {
+            let len = get_len(access_map.keys());
+            let mut access = HashMap::new();
+            for (identifier, buffer) in access_map {
+                let buffer_ptr: *mut JsonBufferMut<'static, 'static, 'static> =
+                    unsafe { std::mem::transmute(buffer) };
+                let buffer_mut = PythonBufferMut {
+                    mutex: mutex.clone(),
+                    buffer_ptr,
+                };
+                access.insert(identifier.clone(), buffer_mut);
+            }
+
+            Self {
+                access: AccessMapRef::new(access),
+                len,
+            }
+        }
+
+        fn get_item(
+            &self,
+            identifier: &IdentifierRef<'static>,
+        ) -> PyResult<Option<PythonBufferMut>> {
+            let access = self.access.lock()?;
+            Ok(access.get(identifier).cloned())
+        }
+    }
+
     #[pymethods]
     impl PythonBufferAccess {
+        /// Create a new BufferAccess dict. Pass no arguments for an empty dict.
+        /// Pass in another BufferAccess dict to make a deep copy of it.
+        #[new]
+        #[pyo3(signature = (other=None))]
+        fn py_new(other: Option<Self>) -> PyResult<Self> {
+            if let Some(other) = other {
+                let access_copy = other.access.lock()?.clone();
+                return Ok(Self {
+                    access: AccessMapRef::new(access_copy),
+                    len: other.len,
+                });
+            }
+
+            Ok(Self {
+                access: Default::default(),
+                len: None,
+            })
+        }
+
         fn __len__(&self) -> PyResult<usize> {
             Ok(self.access.lock()?.len())
         }
@@ -829,19 +904,9 @@ mod crossflow {
         }
     }
 
-    impl PythonBufferAccess {
-        fn get_item(
-            &self,
-            identifier: &IdentifierRef<'static>,
-        ) -> PyResult<Option<PythonBufferMut>> {
-            let access = self.access.lock()?;
-            Ok(access.get(identifier).cloned())
-        }
-    }
-
     type AccessMap = HashMap<IdentifierRef<'static>, PythonBufferMut>;
 
-    #[derive(Clone)]
+    #[derive(Clone, Default)]
     struct AccessMapRef(Arc<Mutex<AccessMap>>);
 
     impl AccessMapRef {
