@@ -34,7 +34,7 @@ mod crossflow {
     use tokio::sync::oneshot;
     use pyo3::{
         prelude::*,
-        types::{PySlice, PySliceIndices, PyNone, PyList},
+        types::{PySlice, PySliceIndices, PyNone, PyList, PyDict, PyTuple, PyTupleMethods},
         exceptions::{PyValueError, PyTypeError, PyKeyError, PyIndexError, PyRuntimeError},
     };
     use pythonize::{depythonize, pythonize};
@@ -74,15 +74,6 @@ mod crossflow {
     impl From<AccessError> for PyErr {
         fn from(value: AccessError) -> Self {
             match value {
-                AccessError::NotDisjoint(overlap) => {
-                    overlap.into()
-                }
-                AccessError::Inaccessible(error) => {
-                    error.into()
-                }
-                AccessError::NotCloneable(error) => {
-                    error.into()
-                }
                 AccessError::Multiple(multiple) => {
                     pyo3::exceptions::PyValueError::new_err(
                         format!(
@@ -90,6 +81,9 @@ mod crossflow {
                             format_vertical_list(&multiple),
                         )
                     )
+                }
+                err => {
+                    pyo3::exceptions::PyValueError::new_err(format!("{err}"))
                 }
             }
         }
@@ -175,6 +169,80 @@ mod crossflow {
                 Err(this) => (*this).clone(),
             }
         }
+
+        fn as_json_keys(&self) -> HashMap<IdentifierRef<'static>, JsonBufferKey> {
+            let mut accessors = HashMap::new();
+            for (id, key) in &*self.accessors {
+                if let Some(json_key) = key.clone().downcast_buffer_key::<JsonBufferKey>() {
+                    accessors.insert(id.clone(), json_key);
+                }
+            }
+
+            accessors
+        }
+
+        fn modify_buffers(
+            &self,
+            args: &Bound<PyTuple>,
+            mut f: impl FnMut(&AnyBufferKey) -> AnyBufferKey,
+        ) -> PyResult<Self> {
+            let mut accessors = BufferKeyMap::new();
+
+            if args.is_empty() {
+                for (id, key) in self.accessors.iter() {
+                    accessors.insert(id.clone(), f(key));
+                }
+            } else {
+                accessors = (*self.accessors).clone();
+                for id in args {
+                    match indexing(id, self.len)? {
+                        Indexing::Name(name) => {
+                            let id = IdentifierRef::Name(Cow::Owned(name));
+                            match accessors.get_mut(&id) {
+                                Some(accessor) => {
+                                    *accessor = f(accessor);
+                                }
+                                None => {
+                                    return Err(PyKeyError::new_err(
+                                        format!("name \"{}\" does not refer to an accessor", id)
+                                    ));
+                                }
+                            }
+                        }
+                        Indexing::Index(index) => {
+                            match accessors.get_mut(&IdentifierRef::from_index(index)) {
+                                Some(accessor) => {
+                                    *accessor = f(accessor);
+                                }
+                                None => {
+                                    // The index is within the valid range, but
+                                    // there is no entry for this particular index.
+                                    // We will treat it as a deliberate gap in
+                                    // the list and skip it.
+                                    continue;
+                                }
+                            }
+                        }
+                        Indexing::Slice(slice) => {
+                            for s in slice {
+                                let id = IdentifierRef::from_index(s?.index);
+                                let Some(accessor) = accessors.get_mut(&id) else {
+                                    continue;
+                                };
+
+                                *accessor = f(accessor);
+                            }
+                        }
+                    }
+                }
+            }
+
+            Ok(Self {
+                accessors: Arc::new(accessors),
+                channel: Arc::clone(&self.channel),
+                len: self.len,
+            })
+        }
     }
 
     #[pymethods]
@@ -246,14 +314,20 @@ mod crossflow {
             Ok(Py::new(py, accessor)?.into())
         }
 
+        /// Pass in a callback that will be given simultaneous access to all
+        /// buffers referred to by this `Accessors` dictionary. The callback
+        /// will have one input argument, which is a `BufferAccess` dictionary.
+        /// The `BufferAccess` dictionary contains the same keys as this
+        /// `Accessor` but its values will be `BufferMut` objects that allow you
+        /// to directly read and modify values held by a buffer.
+        ///
+        /// The callback passed to this function cannot be async. While running,
+        /// this callback will block the main event loop of crossflow to ensure
+        /// no other operations can have conflicting access to the buffers. Make
+        /// sure to have this callback be minimalist to avoid blocking the main
+        /// event loop for longer than necessary.
         pub fn access(&self, callback: Py<PyAny>) -> PythonReply {
-            let mut accessors = HashMap::new();
-            for (id, key) in &*self.accessors {
-                if let Some(json_key) = key.clone().downcast_buffer_key::<JsonBufferKey>() {
-                    accessors.insert(id.clone(), json_key);
-                }
-            }
-
+            let accessors = self.as_json_keys();
             let reply = self.channel.access(accessors, move |mut access| {
                 let r = Python::attach(move |py| {
                     let mutex = BufferMutex::new();
@@ -265,6 +339,170 @@ mod crossflow {
                 Arc::new(r)
             });
             reply.into()
+        }
+
+        /// Try to fetch values from every buffer. The returned object will be
+        /// a dict with an entry for each buffer.
+        ///
+        /// If no value is immediately available for any buffer, we will set a
+        /// `None` value for that buffer's entry in the dict. Any buffers that
+        /// do have a value available will receive that value in their dict
+        /// entry.
+        ///
+        /// If you want to receive all-or-nothing, use `try_join` instead. If
+        /// you want to wait for all buffers to have a value at the same time,
+        /// use `wait_for_join` instead.
+        pub fn try_fetch(&self) -> PythonReply {
+            let keys = Arc::clone(&self.accessors);
+            let accessors = self.as_json_keys();
+            let reply = self.channel.access(accessors, move |mut access| {
+                let mut values = Vec::new();
+                for (id, buffer) in &mut access {
+                    let Some(key) = keys.get(id) else {
+                        continue;
+                    };
+
+                    let value = match key.fetch_behavior() {
+                        FetchBehavior::Pull => {
+                            buffer.pull()
+                        }
+                        FetchBehavior::Clone => {
+                            buffer.get(0).map(|json| json.serialize())
+                        }
+                    };
+
+                    values.push((id, value));
+                }
+
+                let reply = Python::attach(|py| {
+                    let reply = PyDict::new(py);
+                    for (id, value) in values {
+                        let value = match value {
+                            Some(value) => pythonize_result(value)?,
+                            None => py_none(py),
+                        };
+
+                        set_dict_item(&reply, id, value)?;
+                    }
+
+                    PyResult::Ok(reply.into_any().unbind())
+                });
+
+                Arc::new(reply)
+            });
+
+            reply.into()
+        }
+
+        /// Try to join values from all the buffers in this `Accessors` dict.
+        /// This means every buffer must have at least one value or else a `None`
+        /// will be returned and the buffers will not be modified, no matter the
+        /// fetch settings.
+        ///
+        /// If every buffer has at least one value then exactly one value will
+        /// be fetched from every buffer and returned as a dict of values. The
+        /// fetch will be done according to the fetch setting of each key.
+        ///
+        /// This is an async function, so you need to `await` the result.
+        pub fn try_join(&self) -> PythonReply {
+            let accessors = self.as_json_keys();
+            let req = self.channel.request_id();
+            let reply = self.channel.world(move |world| {
+                let Some(joined) = accessors.join(req, world)? else {
+                    let none = Python::attach(|py| py_none(py));
+                    return Ok(Arc::new(PyResult::Ok(none)));
+                };
+
+                let reply = Python::attach(|py| {
+                    let reply = PyDict::new(py);
+                    for (id, value) in joined {
+                        set_dict_item(&reply, &id, pythonize_value(&value)?)?;
+                    }
+
+                    PyResult::Ok(reply.into_any().unbind())
+                });
+
+                Ok::<_, AccessError>(Arc::new(reply))
+            });
+
+            reply.into()
+        }
+
+        /// Wait for every buffer in this `Accessors` dict to have at least one
+        /// value and then join exactly one value from each buffer into a dict.
+        ///
+        /// This is any async function, so you need to `await` the result.
+        pub fn wait_for_join(&self) -> PythonReply {
+            let accessors = self.as_json_keys();
+            let req = self.channel.request_id();
+            let reply = self.channel.wait_for(accessors.clone(), move |world| {
+                let joined = match accessors.join(req, world) {
+                    Ok(joined) => joined?,
+                    Err(err) => return Some(Err(err.into())),
+                };
+
+                let reply = Python::attach(|py| {
+                    let reply = PyDict::new(py);
+                    for (id, value) in joined {
+                        let value = match pythonize_value(&value) {
+                            Ok(value) => value,
+                            Err(err) => return Err(err),
+                        };
+                        if let Err(err) = set_dict_item(&reply, &id, value) {
+                            return Err(err);
+                        }
+                    }
+
+                    PyResult::Ok(reply.into_any().unbind())
+                });
+
+                Some(Ok::<_, AccessError>(Arc::new(reply)))
+            });
+
+            reply.into()
+        }
+
+        /// Create a copy of this `Accessors` dictionary whose fetch and join
+        /// operations will be done by pulling (removing data from the buffer)
+        /// instead of cloning (copying data from the buffer). The default
+        /// behavior is to fetch by pulling.
+        ///
+        /// If you want to change the behavior of only a specific subset of
+        /// buffers, list their names or indices as positional arguments, e.g.:
+        ///
+        /// ```python
+        /// values = await accessors.fetch_by_pull("position", "velocity").try_fetch()
+        /// ```
+        ///
+        /// If no buffers are named, the change will be applied to all buffers.
+        ///
+        /// This method does not actually perform any fetch. To actually get
+        /// data from the buffers, use `try_fetch`, `try_join`, or `wait_for_join`
+        /// on the returned value.
+        #[pyo3(signature = (*args))]
+        pub fn fetch_by_pull(&self, args: &Bound<PyTuple>) -> PyResult<Self> {
+            self.modify_buffers(args, |key| key.fetch_by_pull())
+        }
+
+        /// Create a copy of this `Accessors` dictionary whose fetch and join
+        /// operations will be done by cloning (copying data from the buffer)
+        /// instead of pulling (removing data from the buffer). The default
+        /// behavior is to fetch by pulling.
+        ///
+        /// If you want to change the behavior of only a specific subset of
+        /// buffers, list their names or indices as positional arguments, e.g.:
+        ///
+        /// ```python
+        /// values = await accessors.fetch_by_pull("position", "velocity").try_fetch()
+        /// ```
+        ///
+        /// If no buffers are named, the change will be applied to all buffers.
+        ///
+        /// This method does not actually perform any fetch. To actually get
+        /// data from the buffers, use `try_fetch`, `try_join`, or `wait_for_join`.
+        #[pyo3(signature = (*args))]
+        pub fn fetch_by_clone(&self, args: &Bound<PyTuple>) -> PyResult<Self> {
+            self.modify_buffers(args, |key| key.fetch_by_clone())
         }
     }
 
@@ -299,6 +537,11 @@ mod crossflow {
             Ok(reply.into())
         }
 
+        /// Try to fetch a value from this buffer. If no value is immediately
+        /// available, return `None`.
+        ///
+        /// Even though this does not wait for a value to be available, it is
+        /// still an async function, so you need to `await` the result.
         pub fn try_fetch(&self) -> PyResult<PythonReply> {
             let key = self.try_json()?;
             let req = self.channel.request_id();
@@ -318,6 +561,10 @@ mod crossflow {
             Ok(reply.into())
         }
 
+        /// Wait for at least one value to become available in the buffer and
+        /// then fetch the oldest value.
+        ///
+        /// This is an async function, so you need to `await` the result.
         pub fn wait_for_fetch(&self) -> PyResult<PythonReply> {
             let key = self.try_json()?;
             let req = self.channel.request_id();
@@ -335,12 +582,26 @@ mod crossflow {
             Ok(reply.into())
         }
 
+        /// Create a copy of this `Accessor` which will fetch data from its
+        /// buffer by pulling (removing data from the buffer) instead of cloning
+        /// (copying data from the buffer). The default behavior is to fetch by
+        /// pulling.
+        ///
+        /// This method does not actually perform the fetch. To actually fetch
+        /// data, use `try_fetch` or `wait_for_fetch`.
         pub fn fetch_by_pull(&self) -> Self {
             let mut accessor = self.clone();
             accessor.key = accessor.key.fetch_by_pull();
             accessor
         }
 
+        /// Create a copy of this `Accessor` which will fetch data from its
+        /// buffer by pulling (removing data from the buffer) instead of cloning
+        /// (copying data from the buffer). The default behavior is to fetch by
+        /// pulling.
+        ///
+        /// This method does not actually perform the fetch. To actually fetch
+        /// data, use `try_fetch` or `wait_for_fetch`.
         pub fn fetch_by_clone(&self) -> Self {
             let mut accessor = self.clone();
             accessor.key = accessor.key.fetch_by_clone();
@@ -866,18 +1127,9 @@ mod crossflow {
             let buffer = unsafe { &mut *self.buffer_ptr };
 
             let data = match buffer.pull() {
-                Some(Ok(data)) => data,
-                Some(Err(err)) => {
-                    return Err(PyRuntimeError::new_err(
-                        format!("failed to deserialize message: {err}")
-                    ));
-                }
-                None => {
-                    return Ok(py_none(py));
-                }
+                Some(result) => pythonize_result(result)?,
+                None => py_none(py),
             };
-
-            let data = pythonize(py, &data)?.unbind();
 
             drop(lock);
             Ok(data)
@@ -891,18 +1143,9 @@ mod crossflow {
             let buffer = unsafe { &mut *self.buffer_ptr };
 
             let data = match buffer.pull_newest() {
-                Some(Ok(data)) => data,
-                Some(Err(err)) => {
-                    return Err(PyRuntimeError::new_err(
-                        format!("failed to deserialize message: {err}")
-                    ));
-                }
-                None => {
-                    return Ok(py_none(py));
-                }
+                Some(result) => pythonize_result(result)?,
+                None => py_none(py),
             };
-
-            let data = pythonize(py, &data)?.unbind();
 
             drop(lock);
             Ok(data)
@@ -1114,6 +1357,29 @@ mod crossflow {
                 )
             })
         })
+    }
+
+    fn pythonize_result(result: Result<JsonMessage, Arc<serde_json::Error>>) -> PyResult<Py<PyAny>> {
+        let value = result.map_err(|err|
+            PyRuntimeError::new_err(
+                format!("failed to deserialize message: {err}")
+            )
+        )?;
+
+        pythonize_value(&value)
+    }
+
+    fn set_dict_item(dict: &Bound<PyDict>, id: &IdentifierRef<'static>, value: Py<PyAny>) -> PyResult<()> {
+        match id {
+            IdentifierRef::Name(name) => {
+                dict.set_item(name.to_string(), value)?;
+            }
+            IdentifierRef::Index(index) => {
+                dict.set_item(index, value)?;
+            }
+        }
+
+        Ok(())
     }
 
     #[cfg(test)]

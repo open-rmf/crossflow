@@ -44,7 +44,7 @@ use crate::{
     DrainBuffer, FetchBehavior, Gate, GateState, IdentifierRef, IncompatibleLayout,
     InspectBufferSessions, Joined, Joining, ManageBufferSessions, MessageTypeHint,
     MessageTypeHintEvaluation, NotifyBufferUpdate, OperationError, OperationResult, OrBroken,
-    OverlapError, RequestId, Seq, TypeInfo, add_listener_to_source,
+    OverlapError, RequestId, Seq, TypeInfo, add_listener_to_source, NotifyAwaitingBuffer,
 };
 
 #[cfg(feature = "trace")]
@@ -1360,8 +1360,23 @@ impl Accessor for JsonBufferKey {
         Ok(view.iter().any(|json| json.serialize().is_ok()))
     }
 
+    fn notify_awaiting(
+        &self,
+        req: RequestId,
+        handles: &mut Vec<Arc<crate::AwaitingHandle>>,
+        world: &mut World,
+    ) {
+        if let Some(handle) = world.awaiting_buffer(self.tag(), req) {
+            handles.push(handle);
+        }
+    }
+
     type Joined = JsonMessage;
     fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
+        if !self.can_join(world)? {
+            return Ok(None);
+        }
+
         Ok(world.json_buffer_mut(req, self, |mut buffer| {
             match self.fetch_behavior {
                 FetchBehavior::Pull => {

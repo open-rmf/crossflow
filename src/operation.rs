@@ -17,7 +17,7 @@
 
 use crate::{
     Broken, DeliveryLabelId, Disposal, InspectInput, ManageCancellation, RequestId,
-    RouteSourceOwned, SetupFailure, StreamTargetMap, UnhandledErrors,
+    RouteSourceOwned, SetupFailure, StreamTargetMap, UnhandledErrors, BufferKeyTag,
 };
 
 use bevy_derive::Deref;
@@ -395,6 +395,10 @@ pub struct OperationReachability<'a> {
     // it will emit a value in response to the disposal, which may affect the
     // reachability calculation.
     disposed: Option<Entity>,
+    /// For buffers, we should ignore reachability related to this accessor, if
+    /// specified. This is used so that an operation can use an accessor to check
+    /// reachability without forcing a positive result by its own access.
+    requested_by_accessor: Option<Entity>,
     world: &'a World,
     visited: &'a mut HashMap<Entity, bool>,
 }
@@ -411,9 +415,15 @@ impl<'a> OperationReachability<'a> {
             session,
             source,
             disposed,
+            requested_by_accessor: None,
             world,
             visited,
         }
+    }
+
+    pub fn ignore_accessor(mut self, accessor: Entity) -> Self {
+        self.requested_by_accessor = Some(accessor);
+        self
     }
 
     pub fn check_upstream(&mut self, source: Entity) -> ReachabilityResult {
@@ -442,6 +452,7 @@ impl<'a> OperationReachability<'a> {
             source,
             session: self.session,
             disposed: self.disposed,
+            requested_by_accessor: self.requested_by_accessor,
             world: self.world,
             visited: self.visited,
         })?;
@@ -484,10 +495,27 @@ pub fn check_reachability(
         source,
         session,
         disposed,
+        requested_by_accessor: None,
         world,
         visited: &mut visited,
     };
     r.check_upstream(source)
+}
+
+pub fn check_buffer_reachability(
+    tag: &BufferKeyTag,
+    world: &World,
+) -> ReachabilityResult {
+    let mut visited = HashMap::new();
+    let mut r = OperationReachability {
+        source: tag.buffer,
+        session: tag.session,
+        disposed: None,
+        requested_by_accessor: Some(tag.accessor),
+        world,
+        visited: &mut visited,
+    };
+    r.check_upstream(tag.buffer)
 }
 
 #[derive(Clone, Copy)]

@@ -318,6 +318,17 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
                 ::std::result::Result::Ok(true)
             }
 
+            fn notify_awaiting(
+                &self,
+                req: ::crossflow::RequestId,
+                handles: &mut ::std::vec::Vec<::std::sync::Arc<::crossflow::AwaitingHandle>>,
+                world: &mut ::crossflow::re_exports::World,
+            ) {
+                #(
+                    <#field_type as ::crossflow::Accessor>::notify_awaiting(&self. #field_ident, req, handles, world);
+                )*
+            }
+
             type Joined = #joined_struct_ident #ty_generics;
             fn join(
                 &self,

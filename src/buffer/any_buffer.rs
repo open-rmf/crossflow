@@ -42,7 +42,7 @@ use crate::{
     IdentifierRef, IncompatibleLayout, InspectBufferSessions, IterBufferView, Joining,
     ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
     NotifyBufferUpdate, OperationError, OperationResult, OperationRoster, OrBroken, RequestId, Seq,
-    TypeInfo, FetchSettings, FetchFn, add_listener_to_source,
+    TypeInfo, FetchSettings, FetchFn, add_listener_to_source, AwaitingHandle, NotifyAwaitingBuffer,
 };
 
 #[cfg(feature = "trace")]
@@ -313,6 +313,11 @@ impl AnyBufferKey {
         self.fetch_behavior = behavior;
     }
 
+    /// Get the current fetch behavior of this key.
+    pub fn fetch_behavior(&self) -> &FetchBehavior {
+        &self.fetch_behavior
+    }
+
     /// The buffer ID of this key.
     pub fn id(&self) -> Entity {
         self.body.tag.buffer
@@ -462,8 +467,23 @@ impl Accessor for AnyBufferKey {
         Ok(view.oldest().is_some())
     }
 
+    fn notify_awaiting(
+        &self,
+        req: RequestId,
+        handles: &mut Vec<Arc<AwaitingHandle>>,
+        world: &mut World,
+    ) {
+        if let Some(handle) = world.awaiting_buffer(self.tag(), req) {
+            handles.push(handle);
+        }
+    }
+
     type Joined = AnyMessageBox;
     fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
+        if !self.can_join(world)? {
+            return Ok(None);
+        }
+
         let r = world.any_buffer_mut(req, self, |mut buffer| {
             match self.fetch_behavior {
                 FetchBehavior::Pull => {

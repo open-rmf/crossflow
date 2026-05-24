@@ -768,7 +768,108 @@ async def fetch_by_name(input: Input):
     return await input.accessors[name].wait_for_fetch()
 "###;
 
-        let diagram = Diagram::from_json(json!({
+        let diagram = named_split_buffer_diagram(env_script, "fetch_by_name");
+
+        let input = json!({
+            "input": "bob",
+            "buffer_values": {
+                "alice": 2,
+                "bob": 5,
+            }
+        });
+
+        let r: i32 = fixture.spawn_and_run(&diagram, input).unwrap();
+        assert_eq!(r, 5);
+
+        py_event_loop.stop().unwrap();
+    }
+
+    #[test]
+    fn test_python_buffer_accessor_apis() {
+        let mut fixture = DiagramTestFixture::new();
+
+        let py_event_loop = PythonEventLoop::new().unwrap();
+        fixture.registry.enable_python(&py_event_loop).unwrap();
+        py_event_loop.spawn_thread_and_run();
+
+        let env_script =
+r###"
+from crossflow import *
+
+async def test_python_buffer_apis(input: Input):
+
+    for test in input.data:
+        fetch_by_clone_args = test.get('fetch_by_clone')
+        accessors = input.accessors
+        if fetch_by_clone_args is not None:
+            accessors = accessors.fetch_by_clone(*fetch_by_clone_args)
+
+        api = test['api']
+        if api == 'try_fetch':
+            value = await accessors.try_fetch()
+            assert value == test['expect']
+
+        if api == 'try_join':
+            value = await accessors.try_join()
+            assert value == test['expect']
+
+        if api == 'wait_for_join':
+            value = await accessors.wait_for_join()
+            assert value == test['expect']
+
+"###;
+        let diagram = named_split_buffer_diagram(env_script, "test_python_buffer_apis");
+
+        let input = json!({
+            "input": [
+                {
+                    "api": "try_fetch",
+                    "fetch_by_clone": [],
+                    "expect": {
+                        "alice": 1,
+                        "bob": 2,
+                        "chris": 3,
+                        "dee": 4,
+                    }
+                },
+                {
+                    "api": "try_fetch",
+                    "fetch_by_clone": ["alice", "dee"],
+                    "expect": {
+                        "alice": 1,
+                        "bob": 2,
+                        "chris": 3,
+                        "dee": 4,
+                    }
+                },
+                {
+                    "api": "try_fetch",
+                    "expect": {
+                        "alice": 1,
+                        "bob": JsonMessage::Null,
+                        "chris": JsonMessage::Null,
+                        "dee": 4,
+                    }
+                }
+            ],
+            "buffer_values": {
+                "alice": 1,
+                "bob": 2,
+                "chris": 3,
+                "dee": 4
+            }
+        });
+
+        let _: () = fixture.spawn_and_run(&diagram, input).unwrap();
+
+        py_event_loop.stop().unwrap();
+    }
+
+    fn named_split_buffer_diagram(
+        env_script: &str,
+        run: &str,
+    ) -> Diagram {
+        Diagram::from_json(json!({
             "version": "0.1.0",
             "script_environments": {
                 "test_env": {
@@ -783,46 +884,41 @@ async def fetch_by_name(input: Input):
                 "split_input": {
                     "type": "split",
                     "keyed": {
-                        "name": "fetcher_access",
-                        "values": "split_values"
+                        "input": "fetcher_access",
+                        "buffer_values": "split_values"
                     }
                 },
                 "alice_buffer": { "type": "buffer" },
                 "bob_buffer": { "type": "buffer" },
+                "chris_buffer": { "type": "buffer" },
+                "dee_buffer": { "type": "buffer" },
                 "fetcher_access": {
                     "type": "buffer_access",
                     "buffers": {
                         "alice": "alice_buffer",
-                        "bob": "bob_buffer"
+                        "bob": "bob_buffer",
+                        "chris": "chris_buffer",
+                        "dee": "dee_buffer",
                     },
                     "next": "fetcher"
                 },
                 "fetcher": {
                     "type": "script",
                     "environment": "test_env",
-                    "run": "fetch_by_name",
+                    "run": run,
                     "next": { "builtin": "terminate" }
                 },
                 "split_values": {
                     "type": "split",
                     "keyed": {
                         "alice": "alice_buffer",
-                        "bob": "bob_buffer"
+                        "bob": "bob_buffer",
+                        "chris": "chris_buffer",
+                        "dee": "dee_buffer"
                     }
                 }
             }
         }))
-        .unwrap();
-
-        let input = json!({
-            "name": "bob",
-            "values": {
-                "alice": 2,
-                "bob": 5,
-            }
-        });
-
-        let r: i32 = fixture.spawn_and_run(&diagram, input).unwrap();
-        assert_eq!(r, 5);
+        .unwrap()
     }
 }

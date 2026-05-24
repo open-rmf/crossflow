@@ -19,11 +19,14 @@ use crate::{
     JsonMessage, IdentifierRef, AnyBuffer, Joined, Accessor,
     Accessing, BufferKeyBuilder, OperationResult, BufferMap, BufferMapStruct,
     BufferMapLayout, IncompatibleLayout, MessageTypeHintMap, BufferMapLayoutHints,
-    BufferKeyMap, AccessError, RequestId, BufferError,
+    BufferKeyMap, AccessError, RequestId, BufferError, AwaitingHandle,
 };
 use serde::{Serialize, Deserialize};
 use schemars::JsonSchema;
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    sync::Arc,
+};
 use bevy_ecs::prelude::{Entity, World};
 
 /// This is a message type designed to be passed in and out of scripting
@@ -90,6 +93,15 @@ impl Accessor for ScriptMessage {
 
     fn can_join(&self, world: &World) -> Result<bool, crate::AccessError> {
         self.accessors.can_join(world)
+    }
+
+    fn notify_awaiting(
+        &self,
+        req: RequestId,
+        handles: &mut Vec<Arc<AwaitingHandle>>,
+        world: &mut World,
+    ) {
+        self.accessors.notify_awaiting(req, handles, world);
     }
 
     type Joined = <BufferKeyMap as Accessor>::Joined;
