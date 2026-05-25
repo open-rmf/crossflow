@@ -70,13 +70,7 @@ pub use workflow_builder::*;
 
 use anyhow::Error as Anyhow;
 
-use std::{
-    borrow::Cow,
-    collections::{HashMap, HashSet},
-    fmt::Display,
-    io::Read,
-    sync::Arc,
-};
+use std::{borrow::Cow, collections::HashMap, fmt::Display, io::Read, sync::Arc};
 
 pub use crate::type_info::TypeInfo;
 use crate::{
@@ -408,7 +402,10 @@ impl BuildDiagramOperation for DiagramOperation {
         }
     }
 
-    fn child_operations(&self, templates: &Templates) -> Result<Option<Operations>, DiagramErrorCode> {
+    fn child_operations(
+        &self,
+        templates: &Templates,
+    ) -> Result<Option<Operations>, DiagramErrorCode> {
         match self {
             Self::Buffer(op) => op.child_operations(templates),
             Self::BufferAccess(op) => op.child_operations(templates),
@@ -901,11 +898,7 @@ impl OperationStack {
         Ok(children)
     }
 
-    fn child(
-        &self,
-        name: OperationName,
-        next: Operations,
-    ) -> Result<Self, DiagramErrorCode> {
+    fn child(&self, name: OperationName, next: Operations) -> Result<Self, DiagramErrorCode> {
         let mut child = self.clone();
         child.used.push(child.next);
         child.names.push(name);

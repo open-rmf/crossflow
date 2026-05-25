@@ -28,8 +28,8 @@ use crate::{
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
-    MessageRegistry, NextOperation, OperationName, RegisterClone, SerializeMessage, TraceInfo,
-    Templates, Operations, TraceSettings, supported::*,
+    MessageRegistry, NextOperation, OperationName, Operations, RegisterClone, SerializeMessage,
+    Templates, TraceInfo, TraceSettings, supported::*,
 };
 
 /// If the input message is a list-like or map-like object, split it into

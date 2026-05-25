@@ -20,7 +20,9 @@ use std::{any::Any, borrow::Borrow, cell::RefCell, collections::HashMap, sync::A
 use anyhow::Error as Anyhow;
 
 pub use crate::dyn_node::*;
-use crate::{AnyMessageBox, Builder, Text, JsonBuffer, JsonMessage, Node, StreamPack, ScriptMessage};
+use crate::{
+    AnyMessageBox, Builder, JsonBuffer, JsonMessage, Node, ScriptMessage, StreamPack, Text,
+};
 
 #[cfg(feature = "trace")]
 use crate::Trace;
@@ -30,9 +32,9 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::SerializeMap};
 
 use super::{
     BuilderId, DeserializeMessage, DiagramErrorCode, DynForkClone, DynForkResult, DynSplit,
-    DynType, JsonRegistration, RegisterJson, RegisterSplit, Section, SectionInterface,
-    SectionInterfaceDescription, SerializeMessage, SplitSchema, TypeInfo, OperationName, TransformError,
-    ScriptEnvironment, Script,
+    DynType, JsonRegistration, OperationName, RegisterJson, RegisterSplit, Script,
+    ScriptEnvironment, Section, SectionInterface, SectionInterfaceDescription, SerializeMessage,
+    SplitSchema, TransformError, TypeInfo,
     buffer_schema::BufferAccessRequest,
     fork_clone_schema::RegisterClone,
     fork_result_schema::{ForkResultRegistration, RegisterForkResult},
@@ -248,12 +250,12 @@ impl DiagramElementRegistry {
                 let config = serde_json::from_value::<Config>(config)
                     .map_err(|err| DiagramErrorCode::ConfigError(Arc::new(err)))?;
 
-                let section =
-                    section_builder(builder, config)
-                        .map_err(|error| DiagramErrorCode::SectionBuildingError {
-                            builder: Arc::clone(&builder_id),
-                            error: Arc::new(error),
-                        })?;
+                let section = section_builder(builder, config).map_err(|error| {
+                    DiagramErrorCode::SectionBuildingError {
+                        builder: Arc::clone(&builder_id),
+                        error: Arc::new(error),
+                    }
+                })?;
                 Ok(Box::new(section))
             })),
         };
@@ -266,8 +268,7 @@ impl DiagramElementRegistry {
         &mut self,
         options: ScriptEnvironmentBuilderOptions,
         mut environment_builder: impl FnMut(Config) -> Result<Arc<Env>, Anyhow> + 'static + Send + Sync,
-    )
-    where
+    ) where
         Config: DeserializeOwned + JsonSchema,
         Env: ScriptEnvironment + 'static + Send + Sync,
     {
@@ -488,7 +489,9 @@ impl ConfigExample {
     pub fn new(description: impl Into<Text>, config: impl Serialize) -> Self {
         Self {
             description: description.into(),
-            config: Arc::new(serde_json::to_value(config).expect("failed to serialize example config")),
+            config: Arc::new(
+                serde_json::to_value(config).expect("failed to serialize example config"),
+            ),
         }
     }
 }
@@ -642,7 +645,9 @@ impl ScriptConfigExample {
         Self {
             name: name.into(),
             description: description.into(),
-            config: Arc::new(serde_json::to_value(config).expect("failed to serialize example config")),
+            config: Arc::new(
+                serde_json::to_value(config).expect("failed to serialize example config"),
+            ),
             run,
         }
     }

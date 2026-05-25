@@ -130,7 +130,10 @@ pub trait Accessing: Buffering {
         self.access_into(builder)
     }
 
-    fn access_into<InputMessage, OutputMessage>(self, builder: &mut Builder) -> Node<InputMessage, OutputMessage>
+    fn access_into<InputMessage, OutputMessage>(
+        self,
+        builder: &mut Builder,
+    ) -> Node<InputMessage, OutputMessage>
     where
         InputMessage: 'static + Send + Sync,
         OutputMessage: 'static + Send + Sync + From<(InputMessage, Self::Key)>,
@@ -410,7 +413,7 @@ impl<T: 'static + Send + Sync + Clone> Accessing for CloneFromBuffer<T> {
     }
 
     fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key> {
-        Self::Key::create_key(&(*self).into(), builder)
+        Self::Key::create_key(&(*self).into(), builder).map(|k| k.fetch_by_clone())
     }
 
     fn deep_clone_key(key: &Self::Key) -> Self::Key {

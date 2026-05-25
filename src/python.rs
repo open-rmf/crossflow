@@ -18,26 +18,24 @@
 #[pyo3::pymodule]
 mod crossflow {
     use crate::{
-        AnyBufferKey, Channel, JsonBufferKey, IdentifierRef, AccessError, BufferError, OverlapError,
-        JsonBufferMut, JsonMut, JsonRef, JsonMessage, format_vertical_list, DynamicallyNamedStreamChannel, StreamOf,
-        ScriptMessage, NamedValue, BufferKeyMap, Accessor, Reply,
+        AccessError, Accessor, AnyBufferKey, BufferError, BufferKeyMap, Channel, CloneError,
+        DynamicallyNamedStreamChannel, FetchBehavior, IdentifierRef, JsonBufferKey, JsonBufferMut,
+        JsonMessage, JsonMut, JsonRef, NamedValue, OverlapError, Reply, ScriptMessage, StreamOf,
+        format_vertical_list,
     };
+    use futures::{FutureExt, future::Shared};
+    use pyo3::{
+        exceptions::{PyIndexError, PyKeyError, PyRuntimeError, PyTypeError, PyValueError},
+        prelude::*,
+        types::{PyDict, PyList, PyNone, PySlice, PySliceIndices, PyTuple, PyTupleMethods},
+    };
+    use pythonize::{depythonize, pythonize};
     use std::{
         borrow::Cow,
         collections::HashMap,
         sync::{Arc, Mutex, MutexGuard, atomic::AtomicBool},
     };
-    use futures::{
-        future::Shared,
-        FutureExt,
-    };
     use tokio::sync::oneshot;
-    use pyo3::{
-        prelude::*,
-        types::{PySlice, PySliceIndices, PyNone, PyList},
-        exceptions::{PyValueError, PyTypeError, PyKeyError, PyIndexError, PyRuntimeError},
-    };
-    use pythonize::{depythonize, pythonize};
 
     /// Enable the native Python crossflow module to be imported by
     /// user-defined scripts without needing to install the module.
@@ -65,23 +63,22 @@ mod crossflow {
         }
     }
 
+    impl From<CloneError> for PyErr {
+        fn from(value: CloneError) -> Self {
+            PyTypeError::new_err(format!("{value}"))
+        }
+    }
+
     impl From<AccessError> for PyErr {
         fn from(value: AccessError) -> Self {
             match value {
-                AccessError::NotDisjoint(overlap) => {
-                    overlap.into()
-                }
-                AccessError::Inaccessible(error) => {
-                    error.into()
-                }
                 AccessError::Multiple(multiple) => {
-                    pyo3::exceptions::PyValueError::new_err(
-                        format!(
-                            "Multiple errors encountered:{}",
-                            format_vertical_list(&multiple),
-                        )
-                    )
+                    pyo3::exceptions::PyValueError::new_err(format!(
+                        "Multiple errors encountered:{}",
+                        format_vertical_list(&multiple),
+                    ))
                 }
+                err => pyo3::exceptions::PyValueError::new_err(format!("{err}")),
             }
         }
     }
@@ -152,12 +149,13 @@ mod crossflow {
     }
 
     impl PythonAccessors {
-        pub fn new(
-            accessors: Arc<BufferKeyMap>,
-            channel: Arc<Channel>,
-        ) -> Self {
+        pub fn new(accessors: Arc<BufferKeyMap>, channel: Arc<Channel>) -> Self {
             let len = get_len(accessors.keys());
-            Self { accessors, channel, len }
+            Self {
+                accessors,
+                channel,
+                len,
+            }
         }
 
         pub fn depythonize(self) -> BufferKeyMap {
@@ -166,10 +164,133 @@ mod crossflow {
                 Err(this) => (*this).clone(),
             }
         }
+
+        fn as_json_keys(&self) -> HashMap<IdentifierRef<'static>, JsonBufferKey> {
+            let mut accessors = HashMap::new();
+            for (id, key) in &*self.accessors {
+                if let Some(json_key) = key.clone().downcast_buffer_key::<JsonBufferKey>() {
+                    accessors.insert(id.clone(), json_key);
+                }
+            }
+
+            accessors
+        }
+
+        fn modify_buffers(
+            &self,
+            args: &Bound<PyTuple>,
+            mut f: impl FnMut(&AnyBufferKey) -> AnyBufferKey,
+        ) -> PyResult<Self> {
+            let mut accessors = BufferKeyMap::new();
+
+            if args.is_empty() {
+                for (id, key) in self.accessors.iter() {
+                    accessors.insert(id.clone(), f(key));
+                }
+            } else {
+                accessors = (*self.accessors).clone();
+                for id in args {
+                    match indexing(id, self.len)? {
+                        Indexing::Name(name) => {
+                            let id = IdentifierRef::Name(Cow::Owned(name));
+                            match accessors.get_mut(&id) {
+                                Some(accessor) => {
+                                    *accessor = f(accessor);
+                                }
+                                None => {
+                                    return Err(PyKeyError::new_err(format!(
+                                        "name \"{}\" does not refer to an accessor",
+                                        id
+                                    )));
+                                }
+                            }
+                        }
+                        Indexing::Index(index) => {
+                            match accessors.get_mut(&IdentifierRef::from_index(index)) {
+                                Some(accessor) => {
+                                    *accessor = f(accessor);
+                                }
+                                None => {
+                                    // The index is within the valid range, but
+                                    // there is no entry for this particular index.
+                                    // We will treat it as a deliberate gap in
+                                    // the list and skip it.
+                                    continue;
+                                }
+                            }
+                        }
+                        Indexing::Slice(slice) => {
+                            for s in slice {
+                                let id = IdentifierRef::from_index(s?.index);
+                                let Some(accessor) = accessors.get_mut(&id) else {
+                                    continue;
+                                };
+
+                                *accessor = f(accessor);
+                            }
+                        }
+                    }
+                }
+            }
+
+            Ok(Self {
+                accessors: Arc::new(accessors),
+                channel: Arc::clone(&self.channel),
+                len: self.len,
+            })
+        }
     }
 
     #[pymethods]
     impl PythonAccessors {
+        #[new]
+        fn py_new(dict: Bound<PyDict>) -> PyResult<Self> {
+            let mut channel = None;
+            let mut accessors = BufferKeyMap::new();
+            for (py_id, py_key) in dict.iter() {
+                let mut id: Option<IdentifierRef<'static>> = None;
+                if let Ok(name) = py_id.extract::<String>() {
+                    id = Some(name.into());
+                }
+
+                if let Ok(index) = py_id.extract::<usize>() {
+                    id = Some(index.into());
+                }
+
+                let Some(id) = id else {
+                    return Err(PyKeyError::new_err(format!(
+                        "keys for Accessors dict must be string or int"
+                    )));
+                };
+
+                let Ok(accessor) = py_key.extract::<PythonAccessor>() else {
+                    return Err(PyValueError::new_err(format!(
+                        "values for Accessors dict must be Accessor objects"
+                    )));
+                };
+
+                if channel.is_none() {
+                    channel = Some(Arc::clone(&accessor.channel));
+                }
+
+                accessors.insert(id, accessor.key);
+            }
+
+            let Some(channel) = channel else {
+                return Err(PyValueError::new_err(format!(
+                    "Accessors dict must contain at least one entry"
+                )));
+            };
+
+            let len = get_len(accessors.keys());
+
+            Ok(Self {
+                accessors: Arc::new(accessors),
+                channel,
+                len,
+            })
+        }
+
         fn __len__(&self) -> PyResult<usize> {
             Ok(self.accessors.len())
         }
@@ -192,9 +313,10 @@ mod crossflow {
                     match self.accessors.get(&identifier) {
                         Some(accessor) => accessor,
                         None => {
-                            return Err(PyKeyError::new_err(
-                                format!("name \"{}\" does not refer to an accessor", identifier)
-                            ));
+                            return Err(PyKeyError::new_err(format!(
+                                "name \"{}\" does not refer to an accessor",
+                                identifier
+                            )));
                         }
                     }
                 }
@@ -221,10 +343,8 @@ mod crossflow {
                         accessors.insert(id, accessor.clone());
                     }
 
-                    let accessors = PythonAccessors::new(
-                        Arc::new(accessors),
-                        Arc::clone(&self.channel),
-                    );
+                    let accessors =
+                        PythonAccessors::new(Arc::new(accessors), Arc::clone(&self.channel));
 
                     return Ok(Py::new(py, accessors)?.into());
                 }
@@ -237,14 +357,20 @@ mod crossflow {
             Ok(Py::new(py, accessor)?.into())
         }
 
+        /// Pass in a callback that will be given simultaneous access to all
+        /// buffers referred to by this `Accessors` dictionary. The callback
+        /// will have one input argument, which is a `BufferAccess` dictionary.
+        /// The `BufferAccess` dictionary contains the same keys as this
+        /// `Accessor` but its values will be `BufferMut` objects that allow you
+        /// to directly read and modify values held by a buffer.
+        ///
+        /// The callback passed to this function cannot be async. While running,
+        /// this callback will block the main event loop of crossflow to ensure
+        /// no other operations can have conflicting access to the buffers. Make
+        /// sure to have this callback be minimalist to avoid blocking the main
+        /// event loop for longer than necessary.
         pub fn access(&self, callback: Py<PyAny>) -> PythonReply {
-            let mut accessors = HashMap::new();
-            for (id, key) in &*self.accessors {
-                if let Some(json_key) = key.clone().downcast_buffer_key::<JsonBufferKey>() {
-                    accessors.insert(id.clone(), json_key);
-                }
-            }
-
+            let accessors = self.as_json_keys();
             let reply = self.channel.access(accessors, move |mut access| {
                 let r = Python::attach(move |py| {
                     let mutex = BufferMutex::new();
@@ -256,6 +382,166 @@ mod crossflow {
                 Arc::new(r)
             });
             reply.into()
+        }
+
+        /// Try to fetch values from every buffer. The returned object will be
+        /// a dict with an entry for each buffer.
+        ///
+        /// If no value is immediately available for any buffer, we will set a
+        /// `None` value for that buffer's entry in the dict. Any buffers that
+        /// do have a value available will receive that value in their dict
+        /// entry.
+        ///
+        /// If you want to receive all-or-nothing, use `try_join` instead. If
+        /// you want to wait for all buffers to have a value at the same time,
+        /// use `wait_for_join` instead.
+        pub fn try_fetch(&self) -> PythonReply {
+            let keys = Arc::clone(&self.accessors);
+            let accessors = self.as_json_keys();
+            let reply = self.channel.access(accessors, move |mut access| {
+                let mut values = Vec::new();
+                for (id, buffer) in &mut access {
+                    let Some(key) = keys.get(id) else {
+                        continue;
+                    };
+
+                    let value = match key.fetch_behavior() {
+                        FetchBehavior::Pull => buffer.pull(),
+                        FetchBehavior::Clone => buffer.get(0).map(|json| json.serialize()),
+                    };
+
+                    values.push((id, value));
+                }
+
+                let reply = Python::attach(|py| {
+                    let reply = PyDict::new(py);
+                    for (id, value) in values {
+                        let value = match value {
+                            Some(value) => pythonize_result(value)?,
+                            None => py_none(py),
+                        };
+
+                        set_dict_item(&reply, id, value)?;
+                    }
+
+                    PyResult::Ok(reply.into_any().unbind())
+                });
+
+                Arc::new(reply)
+            });
+
+            reply.into()
+        }
+
+        /// Try to join values from all the buffers in this `Accessors` dict.
+        /// This means every buffer must have at least one value or else a `None`
+        /// will be returned and the buffers will not be modified, no matter the
+        /// fetch settings.
+        ///
+        /// If every buffer has at least one value then exactly one value will
+        /// be fetched from every buffer and returned as a dict of values. The
+        /// fetch will be done according to the fetch setting of each key.
+        ///
+        /// This is an async function, so you need to `await` the result.
+        pub fn try_join(&self) -> PythonReply {
+            let accessors = self.as_json_keys();
+            let req = self.channel.request_id();
+            let reply = self.channel.world(move |world| {
+                let Some(joined) = accessors.join(req, world)? else {
+                    let none = Python::attach(|py| py_none(py));
+                    return Ok(Arc::new(PyResult::Ok(none)));
+                };
+
+                let reply = Python::attach(|py| {
+                    let reply = PyDict::new(py);
+                    for (id, value) in joined {
+                        set_dict_item(&reply, &id, pythonize_value(&value)?)?;
+                    }
+
+                    PyResult::Ok(reply.into_any().unbind())
+                });
+
+                Ok::<_, AccessError>(Arc::new(reply))
+            });
+
+            reply.into()
+        }
+
+        /// Wait for every buffer in this `Accessors` dict to have at least one
+        /// value and then join exactly one value from each buffer into a dict.
+        ///
+        /// This is any async function, so you need to `await` the result.
+        pub fn wait_for_join(&self) -> PythonReply {
+            let accessors = self.as_json_keys();
+            let req = self.channel.request_id();
+            let reply = self.channel.wait_for(accessors.clone(), move |world| {
+                let joined = match accessors.join(req, world) {
+                    Ok(joined) => joined?,
+                    Err(err) => return Some(Err(err.into())),
+                };
+
+                let reply = Python::attach(|py| {
+                    let reply = PyDict::new(py);
+                    for (id, value) in joined {
+                        let value = match pythonize_value(&value) {
+                            Ok(value) => value,
+                            Err(err) => return Err(err),
+                        };
+                        if let Err(err) = set_dict_item(&reply, &id, value) {
+                            return Err(err);
+                        }
+                    }
+
+                    PyResult::Ok(reply.into_any().unbind())
+                });
+
+                Some(Ok::<_, AccessError>(Arc::new(reply)))
+            });
+
+            reply.into()
+        }
+
+        /// Create a copy of this `Accessors` dictionary whose fetch and join
+        /// operations will be done by pulling (removing data from the buffer)
+        /// instead of cloning (copying data from the buffer). The default
+        /// behavior is to fetch by pulling.
+        ///
+        /// If you want to change the behavior of only a specific subset of
+        /// buffers, list their names or indices as positional arguments, e.g.:
+        ///
+        /// ```python
+        /// values = await accessors.fetch_by_pull("position", "velocity").try_fetch()
+        /// ```
+        ///
+        /// If no buffers are named, the change will be applied to all buffers.
+        ///
+        /// This method does not actually perform any fetch. To actually get
+        /// data from the buffers, use `try_fetch`, `try_join`, or `wait_for_join`
+        /// on the returned value.
+        #[pyo3(signature = (*args))]
+        pub fn fetch_by_pull(&self, args: &Bound<PyTuple>) -> PyResult<Self> {
+            self.modify_buffers(args, |key| key.fetch_by_pull())
+        }
+
+        /// Create a copy of this `Accessors` dictionary whose fetch and join
+        /// operations will be done by cloning (copying data from the buffer)
+        /// instead of pulling (removing data from the buffer). The default
+        /// behavior is to fetch by pulling.
+        ///
+        /// If you want to change the behavior of only a specific subset of
+        /// buffers, list their names or indices as positional arguments, e.g.:
+        ///
+        /// ```python
+        /// values = await accessors.fetch_by_pull("position", "velocity").try_fetch()
+        /// ```
+        ///
+        /// If no buffers are named, the change will be applied to all buffers.
+        ///
+        /// This method does not actually perform any fetch. To actually get
+        /// data from the buffers, use `try_fetch`, `try_join`, or `wait_for_join`.
+        #[pyo3(signature = (*args))]
+        pub fn fetch_by_clone(&self, args: &Bound<PyTuple>) -> PyResult<Self> {
+            self.modify_buffers(args, |key| key.fetch_by_clone())
         }
     }
 
@@ -273,9 +559,8 @@ mod crossflow {
             let reply = self.channel.access(key, move |access| {
                 let r = Python::attach(move |py| {
                     let mutex = BufferMutex::new();
-                    let buffer_ptr: *mut JsonBufferMut<'static, 'static, 'static> = unsafe {
-                        std::mem::transmute(&access)
-                    };
+                    let buffer_ptr: *mut JsonBufferMut<'static, 'static, 'static> =
+                        unsafe { std::mem::transmute(&access) };
                     let py_buffer_mut = PythonBufferMut {
                         mutex: mutex.clone(),
                         buffer_ptr,
@@ -290,6 +575,11 @@ mod crossflow {
             Ok(reply.into())
         }
 
+        /// Try to fetch a value from this buffer. If no value is immediately
+        /// available, return `None`.
+        ///
+        /// Even though this does not wait for a value to be available, it is
+        /// still an async function, so you need to `await` the result.
         pub fn try_fetch(&self) -> PyResult<PythonReply> {
             let key = self.try_json()?;
             let req = self.channel.request_id();
@@ -298,9 +588,7 @@ mod crossflow {
                 let py_obj = if let Some(value) = value {
                     pythonize_value(&value)
                 } else {
-                    Python::attach(|py| {
-                        Ok(py_none(py))
-                    })
+                    Python::attach(|py| Ok(py_none(py)))
                 };
 
                 Ok(Arc::new(py_obj))
@@ -309,6 +597,10 @@ mod crossflow {
             Ok(reply.into())
         }
 
+        /// Wait for at least one value to become available in the buffer and
+        /// then fetch the oldest value.
+        ///
+        /// This is an async function, so you need to `await` the result.
         pub fn wait_for_fetch(&self) -> PyResult<PythonReply> {
             let key = self.try_json()?;
             let req = self.channel.request_id();
@@ -325,6 +617,32 @@ mod crossflow {
 
             Ok(reply.into())
         }
+
+        /// Create a copy of this `Accessor` which will fetch data from its
+        /// buffer by pulling (removing data from the buffer) instead of cloning
+        /// (copying data from the buffer). The default behavior is to fetch by
+        /// pulling.
+        ///
+        /// This method does not actually perform the fetch. To actually fetch
+        /// data, use `try_fetch` or `wait_for_fetch`.
+        pub fn fetch_by_pull(&self) -> Self {
+            let mut accessor = self.clone();
+            accessor.key = accessor.key.fetch_by_pull();
+            accessor
+        }
+
+        /// Create a copy of this `Accessor` which will fetch data from its
+        /// buffer by pulling (removing data from the buffer) instead of cloning
+        /// (copying data from the buffer). The default behavior is to fetch by
+        /// pulling.
+        ///
+        /// This method does not actually perform the fetch. To actually fetch
+        /// data, use `try_fetch` or `wait_for_fetch`.
+        pub fn fetch_by_clone(&self) -> Self {
+            let mut accessor = self.clone();
+            accessor.key = accessor.key.fetch_by_clone();
+            accessor
+        }
     }
 
     impl PythonAccessor {
@@ -333,9 +651,7 @@ mod crossflow {
                 .key
                 .clone()
                 .downcast_buffer_key::<JsonBufferKey>()
-                .ok_or_else(||
-                    PyTypeError::new_err("buffer message type cannot serialize")
-                )?;
+                .ok_or_else(|| PyTypeError::new_err("buffer message type cannot serialize"))?;
             Ok(key)
         }
     }
@@ -368,29 +684,19 @@ mod crossflow {
             let future = self.future.clone();
             let py_future = pyo3_async_runtimes::async_std::future_into_py(py, async move {
                 match future.await {
-                    Ok(Ok(result)) => {
-                        match result.as_ref() {
-                            Ok(result) => {
-                                Python::attach(|py| {
-                                    Ok(result.clone_ref(py))
-                                })
-                            }
-                            Err(err) => {
-                                Python::attach(|py| {
-                                    Err(err.clone_ref(py))
-                                })
-                            }
-                        }
-                    }
+                    Ok(Ok(result)) => match result.as_ref() {
+                        Ok(result) => Python::attach(|py| Ok(result.clone_ref(py))),
+                        Err(err) => Python::attach(|py| Err(err.clone_ref(py))),
+                    },
                     Ok(Err(err)) => {
-                        return Err(PyRuntimeError::new_err(
-                            format!("failed to access buffer: {err}")
-                        ));
+                        return Err(PyRuntimeError::new_err(format!(
+                            "failed to access buffer: {err}"
+                        )));
                     }
                     Err(err) => {
-                        return Err(PyRuntimeError::new_err(
-                            format!("unable to receive reply: {err}")
-                        ));
+                        return Err(PyRuntimeError::new_err(format!(
+                            "unable to receive reply: {err}"
+                        )));
                     }
                 }
             })?;
@@ -399,10 +705,51 @@ mod crossflow {
         }
 
         fn detach(&self) -> PyResult<()> {
-            self.detached.store(true, std::sync::atomic::Ordering::Release);
+            self.detached
+                .store(true, std::sync::atomic::Ordering::Release);
             Ok(())
         }
     }
+
+    #[derive(Clone)]
+    #[pyclass(from_py_object, name = "Message")]
+    pub struct PythonMessage {
+        pub data: JsonMessage,
+        pub accessors: Option<PythonAccessors>,
+    }
+
+    #[pymethods]
+    impl PythonMessage {
+        #[new]
+        #[pyo3(signature = (data=None, accessors=None))]
+        pub fn py_new(
+            data: Option<&Bound<PyAny>>,
+            accessors: Option<PythonAccessors>,
+        ) -> PyResult<Self> {
+            let data: JsonMessage = if let Some(data) = data {
+                depythonize(data)?
+            } else {
+                JsonMessage::Null
+            };
+
+            Ok(Self { data, accessors })
+        }
+    }
+
+    impl From<PythonMessage> for ScriptMessage {
+        fn from(message: PythonMessage) -> Self {
+            Self {
+                data: message.data,
+                accessors: message
+                    .accessors
+                    .map(|a| a.depythonize())
+                    .unwrap_or(HashMap::default()),
+            }
+        }
+    }
+
+    unsafe impl Send for PythonBufferAccess {}
+    unsafe impl Sync for PythonBufferAccess {}
 
     #[derive(Clone)]
     #[pyclass(from_py_object, name = "BufferAccess")]
@@ -419,9 +766,8 @@ mod crossflow {
             let len = get_len(access_map.keys());
             let mut access = HashMap::new();
             for (identifier, buffer) in access_map {
-                let buffer_ptr: *mut JsonBufferMut<'static, 'static, 'static> = unsafe {
-                    std::mem::transmute(buffer)
-                };
+                let buffer_ptr: *mut JsonBufferMut<'static, 'static, 'static> =
+                    unsafe { std::mem::transmute(buffer) };
                 let buffer_mut = PythonBufferMut {
                     mutex: mutex.clone(),
                     buffer_ptr,
@@ -434,44 +780,37 @@ mod crossflow {
                 len,
             }
         }
-    }
 
-    #[derive(Clone)]
-    #[pyclass(from_py_object, name = "Message")]
-    pub struct PythonMessage {
-        pub data: JsonMessage,
-        pub accessors: Option<PythonAccessors>,
-    }
-
-    #[pymethods]
-    impl PythonMessage {
-        #[new]
-        #[pyo3(signature = (data=None, accessors=None))]
-        pub fn py_new(data: Option<&Bound<PyAny>>, accessors: Option<PythonAccessors>) -> PyResult<Self> {
-            let data: JsonMessage = if let Some(data) = data {
-                depythonize(data)?
-            } else {
-                JsonMessage::Null
-            };
-
-            Ok(Self { data, accessors })
+        fn get_item(
+            &self,
+            identifier: &IdentifierRef<'static>,
+        ) -> PyResult<Option<PythonBufferMut>> {
+            let access = self.access.lock()?;
+            Ok(access.get(identifier).cloned())
         }
     }
-
-    impl From<PythonMessage> for ScriptMessage {
-        fn from(message: PythonMessage) -> Self {
-            Self {
-                data: message.data,
-                accessors: message.accessors.map(|a| a.depythonize()).unwrap_or(HashMap::default()),
-            }
-        }
-    }
-
-    unsafe impl Send for PythonBufferAccess {}
-    unsafe impl Sync for PythonBufferAccess {}
 
     #[pymethods]
     impl PythonBufferAccess {
+        /// Create a new BufferAccess dict. Pass no arguments for an empty dict.
+        /// Pass in another BufferAccess dict to make a deep copy of it.
+        #[new]
+        #[pyo3(signature = (other=None))]
+        fn py_new(other: Option<Self>) -> PyResult<Self> {
+            if let Some(other) = other {
+                let access_copy = other.access.lock()?.clone();
+                return Ok(Self {
+                    access: AccessMapRef::new(access_copy),
+                    len: other.len,
+                });
+            }
+
+            Ok(Self {
+                access: Default::default(),
+                len: None,
+            })
+        }
+
         fn __len__(&self) -> PyResult<usize> {
             Ok(self.access.lock()?.len())
         }
@@ -496,9 +835,10 @@ mod crossflow {
                             return Ok(Py::new(py, buffer)?.into());
                         }
                         None => {
-                            return Err(PyKeyError::new_err(
-                                format!("name \"{}\" does not exist for this buffer access", identifier)
-                            ));
+                            return Err(PyKeyError::new_err(format!(
+                                "name \"{}\" does not exist for this buffer access",
+                                identifier
+                            )));
                         }
                     }
                 }
@@ -549,9 +889,9 @@ mod crossflow {
                         return Ok(());
                     }
 
-                    Err(PyKeyError::new_err(
-                        format!("cannot use negative index for a buffer access that is not a list")
-                    ))?;
+                    Err(PyKeyError::new_err(format!(
+                        "cannot use negative index for a buffer access that is not a list"
+                    )))?;
                 }
 
                 let identifier = IdentifierRef::from_index(original_index as usize);
@@ -564,16 +904,9 @@ mod crossflow {
         }
     }
 
-    impl PythonBufferAccess {
-        fn get_item(&self, identifier: &IdentifierRef<'static>) -> PyResult<Option<PythonBufferMut>> {
-            let access = self.access.lock()?;
-            Ok(access.get(identifier).cloned())
-        }
-    }
-
     type AccessMap = HashMap<IdentifierRef<'static>, PythonBufferMut>;
 
-    #[derive(Clone)]
+    #[derive(Clone, Default)]
     struct AccessMapRef(Arc<Mutex<AccessMap>>);
 
     impl AccessMapRef {
@@ -582,9 +915,9 @@ mod crossflow {
         }
 
         fn lock(&self) -> PyResult<MutexGuard<'_, AccessMap>> {
-            self.0.lock().map_err(|err| {
-                PyRuntimeError::new_err(format!("mutex poisoned: {err}")).into()
-            })
+            self.0
+                .lock()
+                .map_err(|err| PyRuntimeError::new_err(format!("mutex poisoned: {err}")).into())
         }
     }
 
@@ -598,9 +931,9 @@ mod crossflow {
         }
 
         if index < 0 || index >= len {
-            Err(PyIndexError::new_err(
-                format!("index {original_index} is outside the range of the list, len={len}")
-            ))?;
+            Err(PyIndexError::new_err(format!(
+                "index {original_index} is outside the range of the list, len={len}"
+            )))?;
         }
 
         Ok(index)
@@ -663,7 +996,10 @@ mod crossflow {
             if let Ok(slice) = key.extract::<Bound<PySlice>>() {
                 let mut list = Vec::new();
                 for s in PySliceIterator::create(&slice, len)? {
-                    let SliceEntry { index, original_index } = s?;
+                    let SliceEntry {
+                        index,
+                        original_index,
+                    } = s?;
                     list.push(self.get_item(py, index, original_index, len)?);
                 }
 
@@ -681,9 +1017,10 @@ mod crossflow {
             let index = get_index(original_index, len)? as usize;
 
             let Some(mut json) = buffer.get_mut(index) else {
-                return Err(PyIndexError::new_err(
-                    format!("index {original_index} is outside the range of the buffer, len={len}")
-                ).into());
+                return Err(PyIndexError::new_err(format!(
+                    "index {original_index} is outside the range of the buffer, len={len}"
+                ))
+                .into());
             };
 
             insert_json_value(&mut json, &value)?;
@@ -756,9 +1093,7 @@ mod crossflow {
 
             let value: JsonMessage = depythonize(&value)?;
             buffer.push_as_oldest(value).map_err(|err| {
-                PyRuntimeError::new_err(
-                    format!("unable to serialize input data: {err}")
-                )
+                PyRuntimeError::new_err(format!("unable to serialize input data: {err}"))
             })?;
 
             drop(lock);
@@ -805,9 +1140,7 @@ mod crossflow {
 
             let value: JsonMessage = depythonize(&value)?;
             buffer.push(value).map_err(|err| {
-                PyRuntimeError::new_err(
-                    format!("unable to serialize input data: {err}")
-                )
+                PyRuntimeError::new_err(format!("unable to serialize input data: {err}"))
             })?;
 
             drop(lock);
@@ -845,18 +1178,9 @@ mod crossflow {
             let buffer = unsafe { &mut *self.buffer_ptr };
 
             let data = match buffer.pull() {
-                Some(Ok(data)) => data,
-                Some(Err(err)) => {
-                    return Err(PyRuntimeError::new_err(
-                        format!("failed to deserialize message: {err}")
-                    ));
-                }
-                None => {
-                    return Ok(py_none(py));
-                }
+                Some(result) => pythonize_result(result)?,
+                None => py_none(py),
             };
-
-            let data = pythonize(py, &data)?.unbind();
 
             drop(lock);
             Ok(data)
@@ -870,18 +1194,9 @@ mod crossflow {
             let buffer = unsafe { &mut *self.buffer_ptr };
 
             let data = match buffer.pull_newest() {
-                Some(Ok(data)) => data,
-                Some(Err(err)) => {
-                    return Err(PyRuntimeError::new_err(
-                        format!("failed to deserialize message: {err}")
-                    ));
-                }
-                None => {
-                    return Ok(py_none(py));
-                }
+                Some(result) => pythonize_result(result)?,
+                None => py_none(py),
             };
-
-            let data = pythonize(py, &data)?.unbind();
 
             drop(lock);
             Ok(data)
@@ -896,9 +1211,9 @@ mod crossflow {
 
             let value: JsonMessage = depythonize(&value)?;
             if let Err(err) = buffer.push_json(value) {
-                return Err(PyRuntimeError::new_err(
-                    format!("failed to deserialize message: {err}")
-                ));
+                return Err(PyRuntimeError::new_err(format!(
+                    "failed to deserialize message: {err}"
+                )));
             }
 
             drop(lock);
@@ -914,9 +1229,9 @@ mod crossflow {
 
             let value: JsonMessage = depythonize(&value)?;
             if let Err(err) = buffer.push_json_as_oldest(value) {
-                return Err(PyRuntimeError::new_err(
-                    format!("failed to deserialize message: {err}")
-                ));
+                return Err(PyRuntimeError::new_err(format!(
+                    "failed to deserialize message: {err}"
+                )));
             }
 
             drop(lock);
@@ -925,12 +1240,19 @@ mod crossflow {
     }
 
     impl PythonBufferMut {
-        fn get_item(&self, py: Python, index: usize, original_index: isize, len: isize) -> PyResult<Py<PyAny>> {
+        fn get_item(
+            &self,
+            py: Python,
+            index: usize,
+            original_index: isize,
+            len: isize,
+        ) -> PyResult<Py<PyAny>> {
             let buffer = unsafe { &*self.buffer_ptr };
             let Some(json) = buffer.get(index) else {
-                return Err(PyIndexError::new_err(
-                    format!("index {original_index} is outside the range of the buffer, len={len}")
-                ).into());
+                return Err(PyIndexError::new_err(format!(
+                    "index {original_index} is outside the range of the buffer, len={len}"
+                ))
+                .into());
             };
 
             get_json_value(py, &json)
@@ -947,7 +1269,7 @@ mod crossflow {
     impl BufferMutex {
         fn new() -> Self {
             Self {
-                mutex: Arc::new(Mutex::new(true))
+                mutex: Arc::new(Mutex::new(true)),
             }
         }
 
@@ -985,18 +1307,13 @@ mod crossflow {
 
     fn insert_json_value(json: &mut JsonMut, value: &Bound<PyAny>) -> PyResult<()> {
         json.insert(depythonize(value)?).map_err(|err| {
-            PyRuntimeError::new_err(
-                format!("unable to serialize input data: {err}")
-            )
-            .into()
+            PyRuntimeError::new_err(format!("unable to serialize input data: {err}")).into()
         })
     }
 
     fn get_json_value(py: Python, json: &JsonRef) -> PyResult<Py<PyAny>> {
         let data = json.serialize().map_err(|err| {
-            PyRuntimeError::new_err(
-                format!("unable to serialize buffer data: {err}")
-            )
+            PyRuntimeError::new_err(format!("unable to serialize buffer data: {err}"))
         })?;
 
         Ok(pythonize(py, &data)?.unbind())
@@ -1033,13 +1350,10 @@ mod crossflow {
 
             let original_index = self.next;
             self.next += self.indices.step;
-            Some(
-                get_index(original_index, self.len)
-                .map(|i| SliceEntry {
-                    index: i as usize,
-                    original_index,
-                })
-            )
+            Some(get_index(original_index, self.len).map(|i| SliceEntry {
+                index: i as usize,
+                original_index,
+            }))
         }
     }
 
@@ -1065,9 +1379,9 @@ mod crossflow {
                 return Ok(Indexing::Index(index as usize));
             }
 
-            Err(PyKeyError::new_err(
-                format!("cannot use index for buffer access that is not a list")
-            ))?;
+            Err(PyKeyError::new_err(format!(
+                "cannot use index for buffer access that is not a list"
+            )))?;
         }
 
         if let Ok(slice) = key.extract::<Bound<PySlice>>() {
@@ -1075,24 +1389,50 @@ mod crossflow {
                 return Ok(Indexing::Slice(PySliceIterator::create(&slice, len)?));
             }
 
-            Err(PyKeyError::new_err(
-                format!("cannot use slice for buffer access that is not a list")
-            ))?;
+            Err(PyKeyError::new_err(format!(
+                "cannot use slice for buffer access that is not a list"
+            )))?;
         }
 
-        Err(PyKeyError::new_err("unsupported key type - must provide a name, index, or slice").into())
+        Err(
+            PyKeyError::new_err("unsupported key type - must provide a name, index, or slice")
+                .into(),
+        )
     }
 
     fn pythonize_value(value: &JsonMessage) -> PyResult<Py<PyAny>> {
         Python::attach(|py| {
-            pythonize(py, value)
-            .map(|v| v.unbind())
-            .map_err(|err| {
-                PyRuntimeError::new_err(
-                    format!("failed to Pythonize data: {err}\n{value:#?}")
-                )
+            pythonize(py, value).map(|v| v.unbind()).map_err(|err| {
+                PyRuntimeError::new_err(format!("failed to Pythonize data: {err}\n{value:#?}"))
             })
         })
+    }
+
+    fn pythonize_result(
+        result: Result<JsonMessage, Arc<serde_json::Error>>,
+    ) -> PyResult<Py<PyAny>> {
+        let value = result.map_err(|err| {
+            PyRuntimeError::new_err(format!("failed to deserialize message: {err}"))
+        })?;
+
+        pythonize_value(&value)
+    }
+
+    fn set_dict_item(
+        dict: &Bound<PyDict>,
+        id: &IdentifierRef<'static>,
+        value: Py<PyAny>,
+    ) -> PyResult<()> {
+        match id {
+            IdentifierRef::Name(name) => {
+                dict.set_item(name.to_string(), value)?;
+            }
+            IdentifierRef::Index(index) => {
+                dict.set_item(index, value)?;
+            }
+        }
+
+        Ok(())
     }
 
     #[cfg(test)]
@@ -1104,8 +1444,7 @@ mod crossflow {
 
         #[test]
         fn test_running_script() {
-            let python_script =
-cr###"
+            let python_script = cr###"
 a = 0
 b = 1
 c = 2

@@ -19,14 +19,15 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ArcAny, Accessor, BufferMap, BufferMapLayout, BufferMapLayoutHints, BufferSettings, Builder, DynNode,
-    ScriptMessage, DynOutput, InferenceContext, JsonMessage, BufferKeyMap, default_as_false, is_false,
+    Accessor, ArcAny, BufferKeyMap, BufferMap, BufferMapLayout, BufferMapLayoutHints,
+    BufferSettings, Builder, DynNode, DynOutput, InferenceContext, JsonMessage, ScriptMessage,
+    default_as_false, is_false,
 };
 
 use super::{
-    BufferSelection, BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode,
-    MessageRegistry, NextOperation, OperationName, TraceInfo, TraceSettings, TypeInfo,
-    DynForkResult, SerializeFn, DeserializeFn,
+    BufferSelection, BuildDiagramOperation, BuildStatus, BuilderContext, DeserializeFn,
+    DiagramErrorCode, DynForkResult, MessageRegistry, NextOperation, OperationName, SerializeFn,
+    TraceInfo, TraceSettings, TypeInfo,
 };
 
 use std::any::Any;
@@ -145,7 +146,10 @@ impl BuildDiagramOperation for BufferSchema {
         Ok(())
     }
 
-    fn child_operations(&self, _: &super::Templates) -> Result<Option<super::Operations>, DiagramErrorCode> {
+    fn child_operations(
+        &self,
+        _: &super::Templates,
+    ) -> Result<Option<super::Operations>, DiagramErrorCode> {
         Ok(None)
     }
 }
@@ -240,12 +244,17 @@ impl BuildDiagramOperation for BufferAccessSchema {
         Ok(())
     }
 
-    fn child_operations(&self, _: &super::Templates) -> Result<Option<super::Operations>, DiagramErrorCode> {
+    fn child_operations(
+        &self,
+        _: &super::Templates,
+    ) -> Result<Option<super::Operations>, DiagramErrorCode> {
         Ok(None)
     }
 }
 
-pub trait BufferAccessRequest: 'static + Send + Sync + From<(Self::Message, Self::BufferKeys)> {
+pub trait BufferAccessRequest:
+    'static + Send + Sync + From<(Self::Message, Self::BufferKeys)>
+{
     type Message: Send + Sync + 'static;
     type BufferKeys: Accessor;
 
@@ -302,7 +311,8 @@ impl BufferAccessRegistration {
             .export(messages);
 
         let into_script_message = |builder: &mut Builder, serialize: ArcAny| {
-            let serialize = *serialize.downcast_ref::<SerializeFn<T::Message>>()
+            let serialize = *serialize
+                .downcast_ref::<SerializeFn<T::Message>>()
                 .ok_or_else(|| DiagramErrorCode::InvalidDowncast {
                     from: serialize.type_id(),
                     to: TypeInfo::of::<SerializeFn<T>>(),
@@ -327,7 +337,8 @@ impl BufferAccessRegistration {
         };
 
         let from_script_message = |builder: &mut Builder, deserialize: ArcAny| {
-            let deserialize = *deserialize.downcast_ref::<DeserializeFn<T::Message>>()
+            let deserialize = *deserialize
+                .downcast_ref::<DeserializeFn<T::Message>>()
                 .ok_or_else(|| DiagramErrorCode::InvalidDowncast {
                     from: deserialize.type_id(),
                     to: TypeInfo::of::<DeserializeFn<T>>(),
@@ -437,16 +448,23 @@ impl BuildDiagramOperation for ListenSchema {
         Ok(())
     }
 
-    fn child_operations(&self, _: &super::Templates) -> Result<Option<super::Operations>, DiagramErrorCode> {
+    fn child_operations(
+        &self,
+        _: &super::Templates,
+    ) -> Result<Option<super::Operations>, DiagramErrorCode> {
         Ok(None)
     }
 }
 
 pub type ListenFn = fn(&BufferMap, &mut Builder) -> Result<DynOutput, DiagramErrorCode>;
-pub(crate) type ListenToScriptMessageFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
-pub(crate) type ScriptMessageToListenFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
-pub(crate) type AccessToScriptMessageFn = fn(&mut Builder, ArcAny) -> Result<DynForkResult, DiagramErrorCode>;
-pub(crate) type ScriptMessageToAccessFn = fn(&mut Builder, ArcAny) -> Result<DynForkResult, DiagramErrorCode>;
+pub(crate) type ListenToScriptMessageFn =
+    fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
+pub(crate) type ScriptMessageToListenFn =
+    fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
+pub(crate) type AccessToScriptMessageFn =
+    fn(&mut Builder, ArcAny) -> Result<DynForkResult, DiagramErrorCode>;
+pub(crate) type ScriptMessageToAccessFn =
+    fn(&mut Builder, ArcAny) -> Result<DynForkResult, DiagramErrorCode>;
 
 pub struct ListenRegistration {
     pub create: ListenFn,
@@ -498,7 +516,12 @@ impl ListenRegistration {
             })
         };
 
-        Self { create, layout, into_script_message, from_script_message }
+        Self {
+            create,
+            layout,
+            into_script_message,
+            from_script_message,
+        }
     }
 }
 

@@ -101,7 +101,10 @@ impl BuildDiagramOperation for ForkResultSchema {
         Ok(())
     }
 
-    fn child_operations(&self, _: &super::Templates) -> Result<Option<super::Operations>, DiagramErrorCode> {
+    fn child_operations(
+        &self,
+        _: &super::Templates,
+    ) -> Result<Option<super::Operations>, DiagramErrorCode> {
         Ok(None)
     }
 }

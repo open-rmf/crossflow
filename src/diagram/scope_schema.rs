@@ -210,7 +210,10 @@ impl BuildDiagramOperation for ScopeSchema {
         Ok(())
     }
 
-    fn child_operations(&self, _: &super::Templates) -> Result<Option<Operations>, DiagramErrorCode> {
+    fn child_operations(
+        &self,
+        _: &super::Templates,
+    ) -> Result<Option<Operations>, DiagramErrorCode> {
         Ok(Some(self.ops.clone()))
     }
 }

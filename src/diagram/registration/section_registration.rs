@@ -15,10 +15,7 @@
  *
 */
 
-use std::{
-    cell::RefCell,
-    sync::Arc,
-};
+use std::cell::RefCell;
 
 pub use crate::dyn_node::*;
 use crate::{Builder, ConfigExample, Text};
@@ -26,7 +23,7 @@ use crate::{Builder, ConfigExample, Text};
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 
-use super::{DiagramErrorCode, Section, SectionInterface, JsonMessage};
+use super::{DiagramErrorCode, JsonMessage, Section, SectionInterface};
 
 type CreateSectionFn =
     dyn FnMut(&mut Builder, JsonMessage) -> Result<Box<dyn Section>, DiagramErrorCode> + Send;

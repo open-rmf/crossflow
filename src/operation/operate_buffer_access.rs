@@ -15,6 +15,7 @@
  *
 */
 
+use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{
     prelude::{Component, Entity, Query, World},
     system::SystemState,
@@ -22,17 +23,58 @@ use bevy_ecs::{
 
 use std::{
     collections::{HashMap, hash_map::Entry},
-    sync::Arc,
+    sync::{Arc, Weak},
 };
 
 use smallvec::SmallVec;
 
 use crate::{
-    Accessing, BufferChangeBroadcasters, BufferKeyBuilder, ChannelQueue, InScope, Input,
-    InputBundle, ManageInput, MessageRoute, Operation, OperationCleanup, OperationError,
+    Accessing, BufferChangeBroadcasters, BufferKeyBuilder, BufferKeyTag, ChannelQueue, InScope,
+    Input, InputBundle, ManageInput, MessageRoute, Operation, OperationCleanup, OperationError,
     OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ReachabilityResult, Seq, SingleInputStorage, SingleTargetStorage, output_port,
+    ReachabilityResult, RequestId, Seq, SingleInputStorage, SingleTargetStorage, output_port,
 };
+
+#[derive(Default, Component, Deref, DerefMut)]
+struct AwaitingFetch(HashMap<Entity, HashMap<RequestId, Weak<AwaitingHandle>>>);
+
+pub struct AwaitingHandle;
+
+pub trait NotifyAwaitingBuffer {
+    fn awaiting_buffer(
+        &mut self,
+        tag: &BufferKeyTag,
+        req: RequestId,
+    ) -> Option<Arc<AwaitingHandle>>;
+}
+
+impl NotifyAwaitingBuffer for World {
+    fn awaiting_buffer(
+        &mut self,
+        tag: &BufferKeyTag,
+        req: RequestId,
+    ) -> Option<Arc<AwaitingHandle>> {
+        let mut awaiting = self.get_mut::<AwaitingFetch>(tag.accessor)?;
+        let map = awaiting.entry(tag.session).or_default();
+
+        match map.entry(req) {
+            Entry::Vacant(vacant) => {
+                let handle = Arc::new(AwaitingHandle);
+                vacant.insert(Arc::downgrade(&handle));
+                return Some(handle);
+            }
+            Entry::Occupied(mut occupied) => {
+                if let Some(handle) = occupied.get().upgrade() {
+                    return Some(handle);
+                }
+
+                let handle = Arc::new(AwaitingHandle);
+                occupied.insert(Arc::downgrade(&handle));
+                return Some(handle);
+            }
+        }
+    }
+}
 
 pub(crate) struct OperateBufferAccess<Input, Buffers, Output>
 where
@@ -95,6 +137,7 @@ where
             BufferAccessStorage::new(self.buffers),
             SingleTargetStorage::new(self.target),
             BufferKeyUsage(buffer_key_usage::<Buffers>),
+            AwaitingFetch::default(),
         ));
 
         Ok(())
@@ -128,6 +171,13 @@ where
     fn cleanup(mut clean: OperationCleanup) -> OperationResult {
         clean.cleanup_inputs::<InputMessage>()?;
         clean.cleanup_buffer_access::<Buffers>()?;
+
+        let mut awaiting = clean
+            .world
+            .get_mut::<AwaitingFetch>(clean.source)
+            .or_broken()?;
+        awaiting.remove(&clean.cleanup.session);
+
         clean.notify_cleaned()
     }
 
@@ -238,6 +288,32 @@ impl BufferAccessors {
         };
 
         for accessor in &accessors.0 {
+            if let Some(requested_by_accessor) = r.requested_by_accessor {
+                // We calculate reachability a bit differently when a buffer
+                // accessor is the one requesting it.
+
+                if requested_by_accessor == *accessor {
+                    // This is the accessor that is asking about reachability,
+                    // so do not count it for reachability.
+                    continue;
+                }
+
+                // Since an accessor is the one evaluating the reachability, we
+                // will also account for other accessors that are awaiting a
+                // fetch. This is to prevent a situation where multiple accessors
+                // are awaiting the same buffer and none of them will ever place
+                // a value in it.
+                let awaiting = r.world.get::<AwaitingFetch>(*accessor).or_broken()?;
+                if let Some(awaiting_session) = awaiting.get(&r.session) {
+                    if awaiting_session.iter().any(|a| a.1.strong_count() > 0) {
+                        // At least one key related to this accessor is being used
+                        // to await a fetch. Out of an abundance of caution we will
+                        // discount this accessor as providing reachability.
+                        continue;
+                    }
+                }
+            }
+
             let usage = r.world.get::<BufferKeyUsage>(*accessor).or_broken()?.0;
             if usage(*accessor, r.session, r.world)? {
                 return Ok(true);

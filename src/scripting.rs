@@ -16,15 +16,14 @@
 */
 
 use crate::{
-    JsonMessage, IdentifierRef, AnyBuffer, Joined, Accessor,
-    Accessing, BufferKeyBuilder, OperationResult, BufferMap, BufferMapStruct,
-    BufferMapLayout, IncompatibleLayout, MessageTypeHintMap, BufferMapLayoutHints,
-    BufferKeyMap, AccessError, RequestId, BufferError,
+    AccessError, Accessing, Accessor, AnyBuffer, AwaitingHandle, BufferError, BufferKeyBuilder,
+    BufferKeyMap, BufferMap, BufferMapLayout, BufferMapLayoutHints, BufferMapStruct, IdentifierRef,
+    IncompatibleLayout, Joined, JsonMessage, MessageTypeHintMap, OperationResult, RequestId,
 };
-use serde::{Serialize, Deserialize};
-use schemars::JsonSchema;
-use std::collections::HashSet;
 use bevy_ecs::prelude::{Entity, World};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use std::{collections::HashSet, sync::Arc};
 
 /// This is a message type designed to be passed in and out of scripting
 /// environments, such as Python bindings or CEL operations.
@@ -92,6 +91,15 @@ impl Accessor for ScriptMessage {
         self.accessors.can_join(world)
     }
 
+    fn notify_awaiting(
+        &self,
+        req: RequestId,
+        handles: &mut Vec<Arc<AwaitingHandle>>,
+        world: &mut World,
+    ) {
+        self.accessors.notify_awaiting(req, handles, world);
+    }
+
     type Joined = <BufferKeyMap as Accessor>::Joined;
     fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
         self.accessors.join(req, world)
@@ -102,8 +110,7 @@ impl Accessor for ScriptMessage {
         value: Self::Joined,
         req: RequestId,
         world: &mut World,
-    ) -> Result<(), AccessError>
-    {
+    ) -> Result<(), AccessError> {
         self.accessors.distribute(value, req, world)
     }
 
@@ -126,8 +133,7 @@ impl Accessor for ScriptMessage {
         req: RequestId,
         world: &mut World,
         f: impl FnOnce(Self::Access<'_, '_, '_>) -> U,
-    ) -> Result<U, AccessError>
-    {
+    ) -> Result<U, AccessError> {
         self.accessors.access(req, world, f)
     }
 }
@@ -163,8 +169,7 @@ impl Accessing for ScriptBuffers {
     type Key = ScriptMessage;
 
     fn create_key(&self, builder: &mut BufferKeyBuilder) -> OperationResult<Self::Key> {
-        <BufferMap as Accessing>::create_key(&self.0, builder)
-            .map(|accessors| accessors.into())
+        <BufferMap as Accessing>::create_key(&self.0, builder).map(|accessors| accessors.into())
     }
 
     fn add_accessor(&self, accessor: Entity, world: &mut World) -> OperationResult {

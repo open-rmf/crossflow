@@ -18,8 +18,8 @@
 use std::collections::HashMap;
 
 use crate::{
-    NamespaceList, OperationName, OperationRef, Operations, OutputRef, PortRef, Templates,
-    TraceToggle, ScriptEnvironmentSchema,
+    NamespaceList, OperationName, OperationRef, Operations, OutputRef, PortRef,
+    ScriptEnvironmentSchema, Templates, TraceToggle,
 };
 
 pub struct DiagramContext<'a> {

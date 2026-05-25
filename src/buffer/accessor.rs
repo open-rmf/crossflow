@@ -17,11 +17,7 @@
 
 use variadics_please::all_tuples;
 
-use std::{
-    collections::HashMap,
-    hash::Hash,
-    sync::Arc,
-};
+use std::{collections::HashMap, hash::Hash, sync::Arc};
 
 use thiserror::Error as ThisError;
 
@@ -31,10 +27,10 @@ use bevy_ecs::{
 };
 
 use crate::{
-    Accessing, Buffer, BufferAccessMut, BufferError, BufferKey, BufferMap, BufferMapLayout,
-    BufferMut, BufferView, BufferWorldAccess, Builder, Chain, IncompatibleLayout, IdentifierRef,
-    ManageBufferSessions, Node, RequestId, Sendish, Seq, format_vertical_list, AnyBufferKey,
-    Identifiable,
+    Accessing, AnyBufferKey, AwaitingHandle, Buffer, BufferAccessMut, BufferError, BufferKey,
+    BufferMap, BufferMapLayout, BufferMut, BufferView, BufferWorldAccess, Builder, Chain,
+    CloneError, Identifiable, IdentifierRef, IncompatibleLayout, ManageBufferSessions, Node,
+    NotifyAwaitingBuffer, RequestId, Sendish, Seq, format_vertical_list, is_buffer_reachable,
 };
 
 use futures_concurrency::future::Race;
@@ -107,7 +103,9 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
 
     fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey>;
 
-    fn try_from_any_keys(keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>) -> Result<Self, IncompatibleLayout>;
+    fn try_from_any_keys(
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<Self, IncompatibleLayout>;
 
     /// Wait for a change to occur in any one of the buffer sessions that this
     /// accessor refers to.
@@ -142,6 +140,14 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
 
     /// Check if the buffer is in a state that it's ready to be fetched from.
     fn can_join(&self, world: &World) -> Result<bool, AccessError>;
+
+    /// Notify the buffer that a value is being awaited for it.
+    fn notify_awaiting(
+        &self,
+        req: RequestId,
+        handles: &mut Vec<Arc<AwaitingHandle>>,
+        world: &mut World,
+    );
 
     type Joined: 'static + Send + Sync;
     /// Fetch a value from the buffer. For a normal [`BufferKey`] this will
@@ -183,6 +189,10 @@ pub enum AccessError {
     NotDisjoint(#[from] OverlapError),
     #[error("Failed to access one of the buffers: {0}")]
     Inaccessible(#[from] BufferError),
+    #[error("{0}")]
+    NotCloneable(#[from] CloneError),
+    #[error("The buffer is empty and nothing in the workflow will be able to provide a value")]
+    Unreachable,
     #[error("Multiple access errors occurred:{}", format_vertical_list(.0))]
     Multiple(Vec<AccessError>),
 }
@@ -322,9 +332,13 @@ where
         map
     }
 
-    fn try_from_any_keys(keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>) -> Result<Self, IncompatibleLayout> {
+    fn try_from_any_keys(
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<Self, IncompatibleLayout> {
         let mut compatibility = IncompatibleLayout::default();
-        if let Ok(downcast_key) = compatibility.require_buffer_key_for_identifier::<BufferKey<T>>(0, keys) {
+        if let Ok(downcast_key) =
+            compatibility.require_buffer_key_for_identifier::<BufferKey<T>>(0, keys)
+        {
             return Ok(downcast_key);
         }
 
@@ -355,12 +369,39 @@ where
 
     fn can_join(&self, world: &World) -> Result<bool, AccessError> {
         let view = world.buffer_view_untraced::<T>(self.tag())?;
-        Ok(view.oldest().is_some())
+        let can_join = view.oldest().is_some();
+        if !can_join {
+            // Check if this will ever be reachable
+            let r = is_buffer_reachable(self.tag(), world);
+            if r.is_err() || r.is_ok_and(|ok| !ok) {
+                // We cannot ensure that the buffer is reachable anymore, so we
+                // should return an error here.
+                return Err(AccessError::Unreachable);
+            }
+        }
+
+        Ok(can_join)
+    }
+
+    fn notify_awaiting(
+        &self,
+        req: RequestId,
+        handles: &mut Vec<Arc<AwaitingHandle>>,
+        world: &mut World,
+    ) {
+        if let Some(handle) = world.awaiting_buffer(self.tag(), req) {
+            handles.push(handle);
+        }
     }
 
     type Joined = T;
     fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
-        Ok(world.buffer_mut(req, self, |mut buffer| buffer.pull())?)
+        if !self.can_join(world)? {
+            return Ok(None);
+        }
+
+        let fetch = self.fetch_settings.fetch;
+        Ok(world.buffer_mut(req, self, fetch)?)
     }
 
     fn distribute(
@@ -406,7 +447,9 @@ where
 {
     type Buffers = Vec<A::Buffers>;
 
-    fn try_from_any_keys(keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>) -> Result<Self, IncompatibleLayout> {
+    fn try_from_any_keys(
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<Self, IncompatibleLayout> {
         let mut downcast_keys = Vec::new();
         let mut compatibility = IncompatibleLayout::default();
         for i in 0..keys.len() {
@@ -466,13 +509,25 @@ where
 
     fn can_join(&self, world: &World) -> Result<bool, AccessError> {
         self.is_disjoint()?;
+        let mut can_join = true;
         for key in self {
             if !key.can_join(world)? {
-                return Ok(false);
+                can_join = false;
             }
         }
 
-        Ok(true)
+        Ok(can_join)
+    }
+
+    fn notify_awaiting(
+        &self,
+        req: RequestId,
+        handles: &mut Vec<Arc<AwaitingHandle>>,
+        world: &mut World,
+    ) {
+        for key in self {
+            key.notify_awaiting(req, handles, world);
+        }
     }
 
     type Joined = Vec<A::Joined>;
@@ -617,17 +672,21 @@ where
 
 impl<K, A: AccessKey> Accessor for HashMap<K, A>
 where
-    K: 'static + Send + Sync + Clone + Eq + Hash + Identifiable,
+    K: 'static + Send + Sync + Clone + Eq + Hash + Identifiable + std::fmt::Debug,
     HashMap<K, A::Buffers>:
         'static + BufferMapLayout + Accessing<Key = HashMap<K, A>> + Send + Sync,
 {
     type Buffers = HashMap<K, A::Buffers>;
 
     fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
-        self.iter().map(|(id, key)| (id.clone().into_id(), key.to_any_key())).collect()
+        self.iter()
+            .map(|(id, key)| (id.clone().into_id(), key.to_any_key()))
+            .collect()
     }
 
-    fn try_from_any_keys(keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>) -> Result<Self, IncompatibleLayout> {
+    fn try_from_any_keys(
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<Self, IncompatibleLayout> {
         let mut downcast_keys = HashMap::new();
         let mut compatibility = IncompatibleLayout::default();
         for identifier in keys.keys() {
@@ -636,7 +695,9 @@ where
                 continue;
             };
 
-            if let Ok(downcast) = compatibility.require_buffer_key_for_identifier::<A>(identifier.clone(), keys) {
+            if let Ok(downcast) =
+                compatibility.require_buffer_key_for_identifier::<A>(identifier.clone(), keys)
+            {
                 downcast_keys.insert(key, downcast);
             }
         }
@@ -685,13 +746,25 @@ where
 
     fn can_join(&self, world: &World) -> Result<bool, AccessError> {
         self.is_disjoint()?;
+        let mut can_join = true;
         for key in self.values() {
             if !key.can_join(world)? {
-                return Ok(false);
+                can_join = false;
             }
         }
 
-        Ok(true)
+        Ok(can_join)
+    }
+
+    fn notify_awaiting(
+        &self,
+        req: RequestId,
+        handles: &mut Vec<Arc<AwaitingHandle>>,
+        world: &mut World,
+    ) {
+        for key in self.values() {
+            key.notify_awaiting(req, handles, world);
+        }
     }
 
     type Joined = HashMap<K, A::Joined>;
@@ -927,14 +1000,27 @@ macro_rules! impl_accessor_for_tuple {
 
             fn can_join(&self, world: &World) -> Result<bool, AccessError> {
                 self.is_disjoint()?;
+                let mut can_join = true;
                 let ($($A,)*) = self;
                 $(
                     if !$A.can_join(world)? {
-                        return Ok(false);
+                        can_join = false;
                     }
                 )*
 
-                Ok(true)
+                Ok(can_join)
+            }
+
+            fn notify_awaiting(
+                &self,
+                req: RequestId,
+                handles: &mut Vec<Arc<AwaitingHandle>>,
+                world: &mut World,
+            ) {
+                let ($($A,)*) = self;
+                $(
+                    $A.notify_awaiting(req, handles, world);
+                )*
             }
 
             type Joined = ($($A::Joined,)*);

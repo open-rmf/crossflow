@@ -19,8 +19,8 @@ use std::{any::Any, borrow::Cow, cell::RefCell, collections::HashMap, marker::Ph
 
 pub use crate::dyn_node::*;
 use crate::{
-    Accessor, Builder, BuilderId, DiagramElementRegistry, DiagramErrorCode, Text, DynType,
-    Joined, JsonMessage, MessageRegistrationBuilder, RegisterSplit, diagram::supported::*,
+    Accessor, Builder, BuilderId, DiagramElementRegistry, DiagramErrorCode, DynType, Joined,
+    JsonMessage, MessageRegistrationBuilder, RegisterSplit, Text, diagram::supported::*,
 };
 
 use super::{BufferAccessRequest, ConfigExample, RegisterForkResult, RegisterUnzip};

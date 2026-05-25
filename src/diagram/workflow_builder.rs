@@ -23,20 +23,19 @@ use std::{
 
 use crate::{
     AnyBuffer, BufferMap, Builder, BuilderScopeContext, IdentifierRef, JsonMessage, PortRef, Scope,
-    StreamPack, dyn_node::DynStreamInputPack, ScriptMessage,
-    diagram::script_environment_registration::ArcScriptEnvironment,
+    ScriptMessage, StreamPack, diagram::script_environment_registration::ArcScriptEnvironment,
+    dyn_node::DynStreamInputPack,
 };
 
 #[cfg(feature = "trace")]
 use crate::{OperationInfo, Trace};
 
 use super::{
-    BufferSelection, Diagram, DiagramContext, DiagramElementRegistry, DiagramError,
+    BufferSelection, BuilderId, Diagram, DiagramContext, DiagramElementRegistry, DiagramError,
     DiagramErrorCode, DynInputSlot, DynOutput, FinishingErrors, ImplicitDeserialization,
-    ImplicitSerialization, ImplicitStringify, InferenceBoundaryConditions, InferenceContext,
-    NamedOperationRef, NamespaceList, NextOperation, OperationName, OperationRef, Operations,
-    TraceToggle, TypeInfo, TypeMismatch, Templates, ImplicitScriptMessage,
-    BuilderId,
+    ImplicitScriptMessage, ImplicitSerialization, ImplicitStringify, InferenceBoundaryConditions,
+    InferenceContext, NamedOperationRef, NamespaceList, NextOperation, OperationName, OperationRef,
+    Operations, Templates, TraceToggle, TypeInfo, TypeMismatch,
 };
 
 use bevy_ecs::prelude::Entity;
@@ -460,27 +459,38 @@ impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
         &mut self,
         environment: &OperationName,
     ) -> Result<ArcScriptEnvironment, DiagramErrorCode> {
-        let env = match self.construction.script_environments.entry(environment.clone()) {
+        let env = match self
+            .construction
+            .script_environments
+            .entry(environment.clone())
+        {
             Entry::Occupied(entry) => entry.get().clone(),
             Entry::Vacant(entry) => {
                 let env_description = self
                     .diagram_context
                     .script_environments
                     .get(&*environment)
-                    .ok_or_else(|| DiagramErrorCode::UnknownScriptEnvironment(environment.clone()))?;
+                    .ok_or_else(|| {
+                        DiagramErrorCode::UnknownScriptEnvironment(environment.clone())
+                    })?;
 
                 let env_builder = self
                     .registry
                     .scripting
                     .get(&*env_description.builder)
-                    .ok_or_else(|| DiagramErrorCode::UnknownScriptEnvironmentBuilder(env_description.builder.clone()))?;
+                    .ok_or_else(|| {
+                        DiagramErrorCode::UnknownScriptEnvironmentBuilder(
+                            env_description.builder.clone(),
+                        )
+                    })?;
 
                 let mut f = env_builder.create_environment_impl.borrow_mut();
-                let env = (*f)((*env_description.config).clone())
-                    .map_err(|error| DiagramErrorCode::ScriptEnvironmentBuildingError {
+                let env = (*f)((*env_description.config).clone()).map_err(|error| {
+                    DiagramErrorCode::ScriptEnvironmentBuildingError {
                         builder: env_description.builder.clone(),
                         error: Arc::new(error),
-                    })?;
+                    }
+                })?;
                 entry.insert(env).clone()
             }
         };
@@ -578,7 +588,10 @@ pub trait BuildDiagramOperation {
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode>;
 
-    fn child_operations(&self, templates: &Templates) -> Result<Option<Operations>, DiagramErrorCode>;
+    fn child_operations(
+        &self,
+        templates: &Templates,
+    ) -> Result<Option<Operations>, DiagramErrorCode>;
 }
 
 /// This trait is used to connect outputs to their target operations. This trait

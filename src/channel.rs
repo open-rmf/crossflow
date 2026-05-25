@@ -191,6 +191,17 @@ impl Channel {
             .flatten()
     }
 
+    /// Check whether the accessors are able to be joined. That means every buffer
+    /// contains at least one value.
+    ///
+    /// This method can also be used to test whether any buffers are unreachable.
+    /// If a buffer is empty and no other active part of the workflow will be
+    /// able to give it a value, then this will return [`AccessError::Unreachable`].
+    #[must_use = "This method does not affect anything. Await the Reply to find out if the accessors can be joined."]
+    pub fn can_join<A: Accessor>(&self, accessor: A) -> Reply<Result<bool, AccessError>> {
+        self.world(move |world| accessor.can_join(world))
+    }
+
     /// Get access to a [`Commands`] for the [`World`].
     ///
     /// The commands will be carried out asynchronously. You can .await the
@@ -271,9 +282,25 @@ impl Channel {
     pub fn wait_for<A: Accessor, U: 'static + Send>(
         &self,
         dependencies: A,
-        f: impl FnMut(&mut World) -> Option<U> + 'static + Send,
+        mut f: impl FnMut(&mut World) -> Option<U> + 'static + Send,
     ) -> Reply<U> {
-        wait_for(self.inner.clone(), dependencies, f)
+        let req = self.request_id();
+        let accessors = dependencies.clone();
+        let mut awaiting_handles = None;
+
+        let wait = move |world: &mut World| {
+            let done = f(world);
+
+            if done.is_none() && awaiting_handles.is_none() {
+                let mut handles = Vec::new();
+                accessors.notify_awaiting(req, &mut handles, world);
+                awaiting_handles = Some(handles);
+            }
+
+            done
+        };
+
+        wait_for(self.inner.clone(), dependencies, wait)
     }
 
     /// Get the [`RequestId`] that this channel is serving.
@@ -447,7 +474,7 @@ fn wait_for<A: Accessor, U: 'static + Send>(
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::*, testing::*};
+    use crate::{AccessError, prelude::*, testing::*};
     use bevy_ecs::system::EntityCommands;
     use std::{collections::HashMap, time::Duration};
 
@@ -789,6 +816,50 @@ mod tests {
 
         // Now check that the resolved values are what they are supposed to be
         assert_eq!(resolved, values);
+    }
+
+    #[test]
+    fn test_unreachable_wait_for_join() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffer = builder.create_buffer(Default::default());
+            let (value, trigger) = builder
+                .chain(scope.start)
+                .map_block(|value| (value, ()))
+                .unzip();
+
+            builder
+                .chain(trigger)
+                .with_access(buffer)
+                .map(|input: Async<((), BufferKey<i32>)>| {
+                    let key = input.request.1;
+                    let channel = input.channel;
+                    async move {
+                        let joined = channel.wait_for_join(key.clone()).await.unwrap();
+                        assert_eq!(joined, 5);
+
+                        let failed_join = channel.wait_for_join(key).await;
+                        assert!(matches!(failed_join, Err(AccessError::Unreachable)));
+                    }
+                })
+                .connect(scope.terminate);
+
+            builder
+                .chain(value)
+                .with_access(buffer)
+                .map(|input: Async<(i32, BufferKey<i32>)>| {
+                    let value = input.request.0;
+                    let key = input.request.1;
+                    let channel = input.channel;
+                    async move {
+                        channel.distribute(key, value).detach();
+                    }
+                })
+                .unused();
+        });
+
+        context.resolve_request(5, workflow);
     }
 
     async fn async_distribute_values<A: Accessor>(

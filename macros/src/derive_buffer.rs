@@ -308,14 +308,26 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
 
             fn can_join(&self, world: &::crossflow::re_exports::World) -> Result<bool, ::crossflow::AccessError>{
                 ::crossflow::Accessor::is_disjoint(self)?;
+                let mut can_join = true;
 
                 #(
                     if !<#field_type as ::crossflow::Accessor>::can_join(&self. #field_ident, world)? {
-                        return std::result::Result::Ok(false);
+                        can_join = false;
                     }
                 )*
 
-                ::std::result::Result::Ok(true)
+                ::std::result::Result::Ok(can_join)
+            }
+
+            fn notify_awaiting(
+                &self,
+                req: ::crossflow::RequestId,
+                handles: &mut ::std::vec::Vec<::std::sync::Arc<::crossflow::AwaitingHandle>>,
+                world: &mut ::crossflow::re_exports::World,
+            ) {
+                #(
+                    <#field_type as ::crossflow::Accessor>::notify_awaiting(&self. #field_ident, req, handles, world);
+                )*
             }
 
             type Joined = #joined_struct_ident #ty_generics;

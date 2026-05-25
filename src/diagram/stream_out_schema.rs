@@ -22,7 +22,7 @@ use crate::TraceSettings;
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, InferenceContext,
-    OperationName, OperationRef, RedirectConnection, Templates, Operations,
+    OperationName, OperationRef, Operations, RedirectConnection, Templates,
 };
 
 /// Declare a stream output for the current scope. Outputs that you connect

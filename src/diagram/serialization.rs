@@ -25,10 +25,9 @@ use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Serialize, de::DeserializeOwned};
 
 use super::{
-    BasicConnect, BuilderContext, ConnectIntoTarget, DiagramErrorCode, DynForkResult, DynInputSlot, Builder,
-    DynOutput, JsonMessage, MessageRegistrations, MessageRegistry, TypeInfo, TypeMismatch, Serialization,
-    Deserialization,
-    supported::*,
+    BasicConnect, Builder, BuilderContext, ConnectIntoTarget, Deserialization, DiagramErrorCode,
+    DynForkResult, DynInputSlot, DynOutput, JsonMessage, MessageRegistrations, MessageRegistry,
+    Serialization, TypeInfo, TypeMismatch, supported::*,
 };
 use crate::{JsonBuffer, ScriptMessage};
 
@@ -88,15 +87,12 @@ where
             })
         };
 
-        let serialize = |message: T| {
-            serde_json::to_value(message).map_err(|err| err.to_string())
-        };
+        let serialize = |message: T| serde_json::to_value(message).map_err(|err| err.to_string());
 
         ops.serialize = Some(Serialization {
             into_json_message: create_node,
             serialize: Arc::new(serialize),
         });
-
 
         #[cfg(feature = "trace")]
         {
@@ -267,7 +263,8 @@ impl ImplicitSerialization {
                     return Ok(Err(incoming));
                 };
 
-                self.serialized_input.connect_into_target(serialize.ok, ctx)?;
+                self.serialized_input
+                    .connect_into_target(serialize.ok, ctx)?;
 
                 let error_target = ctx.get_implicit_error_target();
                 ctx.add_output_into_target(error_target, serialize.err);
@@ -328,7 +325,10 @@ impl ImplicitDeserialization {
         incoming: DynOutput,
         ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
-        if self.basic_input.is_compatible(incoming.message_info(), ctx)? {
+        if self
+            .basic_input
+            .is_compatible(incoming.message_info(), ctx)?
+        {
             return self.basic_input.connect_into_target(incoming, ctx);
         }
 
@@ -361,10 +361,10 @@ impl ImplicitDeserialization {
             let script_input = match self.script_input {
                 Some(script_input) => script_input,
                 None => {
-                    let from_script = ctx
-                        .registry
-                        .messages
-                        .from_script_message(self.basic_input.input_slot.message_info(), ctx.builder)?;
+                    let from_script = ctx.registry.messages.from_script_message(
+                        self.basic_input.input_slot.message_info(),
+                        ctx.builder,
+                    )?;
 
                     self.basic_input.connect_into_target(from_script.ok, ctx)?;
 

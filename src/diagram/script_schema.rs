@@ -27,12 +27,10 @@ use std::{
 };
 
 use crate::{
-    Async, DynamicallyNamedStream, JsonMessage, AnyBufferKey, TraceSettings,
-    NextOperation, OperationName, IdentifierRef, StreamOf, BuildDiagramOperation,
-    Templates, Operations, DiagramErrorCode, BuilderContext, BuildStatus, IntoCallback,
-    Node, TraceInfo, InferenceContext, Joined, TypeInfo, DynInputSlot, BasicConnect, TypeMismatch,
-    ConnectIntoTarget, DynOutput, Text, ScriptMessage,
-    is_default,
+    Async, BasicConnect, BuildDiagramOperation, BuildStatus, BuilderContext, ConnectIntoTarget,
+    DiagramErrorCode, DynInputSlot, DynOutput, DynamicallyNamedStream, InferenceContext,
+    IntoCallback, JsonMessage, NextOperation, Node, OperationName, Operations, ScriptMessage,
+    StreamOf, Templates, Text, TraceInfo, TraceSettings, TypeInfo, TypeMismatch, is_default,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -73,21 +71,27 @@ impl BuildDiagramOperation for ScriptSchema {
         ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         let env = ctx.get_script_environment(&self.environment)?;
-        let script = env.compile(&self.run, &self.config)
-            .map_err(|error| DiagramErrorCode::ScriptCompileError {
+        let script = env.compile(&self.run, &self.config).map_err(|error| {
+            DiagramErrorCode::ScriptCompileError {
                 environment: self.environment.clone(),
                 error: Arc::new(error),
-            })?;
+            }
+        })?;
 
         let callback = move |input: ScriptInput, world: &mut World| {
             let running = script.run(input, world);
-            async move {
-                running.await.map_err(|err| format!("{err}"))
-            }
+            async move { running.await.map_err(|err| format!("{err}")) }
         };
 
-        let Node { input, output, streams } = ctx.builder.create_node(callback.into_callback());
-        let (ok, err) = ctx.builder.chain(output).fork_result(|ok| ok.output(), |err| err.output());
+        let Node {
+            input,
+            output,
+            streams,
+        } = ctx.builder.create_node(callback.into_callback());
+        let (ok, err) = ctx
+            .builder
+            .chain(output)
+            .fork_result(|ok| ok.output(), |err| err.output());
 
         let trace = TraceInfo::new(self, self.trace_settings.trace)?;
         ctx.set_input_for_target(id, input.into(), trace)?;
@@ -106,21 +110,18 @@ impl BuildDiagramOperation for ScriptSchema {
 
         if !self.stream_out.is_empty() {
             let mut outputs = Vec::new();
-            streams
-                .chain(ctx.builder)
-                .split(|mut split| {
-                    for (name, target) in &self.stream_out {
-                        let name: Cow<'static, str> = Cow::Owned(name.as_ref().to_owned());
-                        let output = split.specific_chain(
-                            name,
-                            |chain| chain.map_block(|(_, value)| value).output(),
-                        )?;
+            streams.chain(ctx.builder).split(|mut split| {
+                for (name, target) in &self.stream_out {
+                    let name: Cow<'static, str> = Cow::Owned(name.as_ref().to_owned());
+                    let output = split.specific_chain(name, |chain| {
+                        chain.map_block(|(_, value)| value).output()
+                    })?;
 
-                        outputs.push((target, output));
-                    }
+                    outputs.push((target, output));
+                }
 
-                    Ok::<_, DiagramErrorCode>(())
-                })?;
+                Ok::<_, DiagramErrorCode>(())
+            })?;
 
             for (target, output) in outputs {
                 ctx.add_output_into_target(target, output.into());
@@ -228,7 +229,11 @@ pub trait ScriptEnvironment {
 pub type ScriptInput = Async<ScriptMessage, DynamicallyNamedStream<StreamOf<ScriptMessage>>>;
 
 pub trait ScriptExecution {
-    fn run(&self, input: ScriptInput, world: &mut World) -> BoxFuture<'static, Result<ScriptMessage, Anyhow>>;
+    fn run(
+        &self,
+        input: ScriptInput,
+        world: &mut World,
+    ) -> BoxFuture<'static, Result<ScriptMessage, Anyhow>>;
 }
 
 pub struct ImplicitScriptMessage {
@@ -257,8 +262,12 @@ impl ImplicitScriptMessage {
         incoming: DynOutput,
         ctx: &mut BuilderContext,
     ) -> Result<Result<(), DynOutput>, DiagramErrorCode> {
-        if self.script_message_input.is_compatible(incoming.message_info(), ctx)? {
-            self.script_message_input.connect_into_target(incoming, ctx)?;
+        if self
+            .script_message_input
+            .is_compatible(incoming.message_info(), ctx)?
+        {
+            self.script_message_input
+                .connect_into_target(incoming, ctx)?;
             return Ok(Ok(()));
         }
 
@@ -274,7 +283,8 @@ impl ImplicitScriptMessage {
                     return Ok(Err(incoming));
                 };
 
-                self.script_message_input.connect_into_target(into_script_message.ok, ctx)?;
+                self.script_message_input
+                    .connect_into_target(into_script_message.ok, ctx)?;
 
                 let error_target = ctx.get_implicit_error_target();
                 ctx.add_output_into_target(error_target, into_script_message.err);

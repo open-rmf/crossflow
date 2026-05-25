@@ -26,7 +26,7 @@ use crate::{ForkResultOutput, InferenceContext, JsonMessage};
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, NextOperation,
-    OperationName, TraceInfo, TraceSettings, Templates, Operations,
+    OperationName, Operations, Templates, TraceInfo, TraceSettings,
 };
 
 #[derive(Clone, ThisError, Debug)]
