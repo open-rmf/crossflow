@@ -17,7 +17,7 @@
 
 use bevy::prelude::*;
 use crossflow_diagram_editor::basic_executor::{
-    self, BasicExecutorSetup, DiagramElementRegistry, Error,
+    self, BasicExecutorSetup, DiagramElementRegistry, Error, PluginSelection,
 };
 use traffic_ops_catalog::{
     MovementPlugin, PedestrianPlugin, SpawnWorldPlugin, SpeedLimitPlugin, TrafficSignalPlugin,
@@ -25,7 +25,7 @@ use traffic_ops_catalog::{
 };
 
 pub fn run() -> Result<(), Box<dyn Error>> {
-    basic_executor::run_custom_setup(None, || {
+    basic_executor::run_custom_setup(PluginSelection::Minimal, || {
         let mut app = App::new();
         app.add_plugins((
             SpawnWorldPlugin::default(),

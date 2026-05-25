@@ -27,7 +27,6 @@ path = "server/lib.rs"
 
 [dependencies]
 axum = { workspace = true, features = ["json"], default-features = false }
-bevy = { workspace = true }
 bevy_app = { workspace = true }
 bevy_ecs = { workspace = true }
 crossflow = { version = "0.0.7", path = "..", features = ["diagram", "trace"] }
