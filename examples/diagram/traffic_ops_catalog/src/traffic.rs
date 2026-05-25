@@ -15,11 +15,12 @@
  *
 */
 
-use crate::vehicle::Velocity;
 use bevy::prelude::*;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+
+use crate::METERS_PER_SECOND_TO_KMH;
 
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -70,18 +71,38 @@ impl ObstacleInRange {
 #[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema)]
 pub struct Obstacles(pub HashSet<ObstacleInRange>);
 
-#[derive(Clone, Debug, Component, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-pub struct SpeedLimit(pub i32);
+#[derive(Clone, Debug, Component, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct SpeedLimit(pub f32);
 
 impl Default for SpeedLimit {
     fn default() -> Self {
-        Self(50)
+        Self(50.0)
     }
 }
 
 #[derive(Clone, Debug, Default, Component)]
 #[require(Transform)]
 pub struct Obstacle;
+
+#[derive(Clone, Copy, Debug, Default, Component)]
+pub struct Velocity {
+    pub translation: Vec2,
+}
+
+impl Velocity {
+    pub fn zero() -> Self {
+        Velocity { translation: Vec2::ZERO }
+    }
+
+    pub fn default_pedestrian() -> Self {
+        Velocity {
+            translation: Vec2 {
+                x: 0.2 * METERS_PER_SECOND_TO_KMH,
+                y: 0.0,
+            }
+        }
+    }
+}
 
 #[derive(Clone, Debug, Component)]
 #[require(Velocity)]

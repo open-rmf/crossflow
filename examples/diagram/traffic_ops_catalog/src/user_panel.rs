@@ -21,7 +21,7 @@ use crate::{
     speed_limit::CurrentSpeedLimit,
     traffic::{TrafficLight, TrafficSignal},
     traffic_signal::{NextTrafficLight, TrafficSignalChange},
-    vehicle::VehicleState,
+    vehicle::{VehicleDynamics, MainVehicle},
 };
 use bevy::{
     ecs::system::{SystemParam, SystemState},
@@ -106,7 +106,7 @@ pub struct UserInteraction<'w, 's> {
     next_traffic_light: Res<'w, NextTrafficLight>,
     traffic_lights: Query<'w, 's, (Entity, &'static TrafficLight)>,
     user_panel: ResMut<'w, UserPanel>,
-    vehicle_state: Res<'w, VehicleState>,
+    vehicle_state: Query<'w, 's, &'static VehicleDynamics, With<MainVehicle>>,
 }
 
 impl<'w, 's> WidgetSystem for UserInteraction<'w, 's> {
@@ -124,57 +124,20 @@ impl<'w, 's> UserInteraction<'w, 's> {
         ui.separator();
         ui.add_space(20.0);
 
-        ui.label(RichText::new("Vehicle State").size(14.0));
-        ui.separator();
-        ui.add_space(10.0);
-        Grid::new("vehicle_state").show(ui, |ui| {
-            let engine = if self.vehicle_state.engine() {
-                "ON"
-            } else {
-                "OFF"
-            };
-            ui.label("Engine: ");
-            ui.label(engine);
-            ui.end_row();
-
-            for (item, state) in self.vehicle_state.checklist() {
-                ui.label(format!("{}: ", item));
-                ui.label(format!("{:?}", state));
+        if let Ok(vehicle_state) = self.vehicle_state.single() {
+            ui.label(RichText::new("Vehicle State").size(14.0));
+            ui.separator();
+            ui.add_space(10.0);
+            Grid::new("vehicle_state").show(ui, |ui| {
+                ui.label("Speed: ");
+                ui.label(format!("{:0.1}", vehicle_state.speed));
                 ui.end_row();
-            }
 
-            let next_lane = if let Some(lane) = self.vehicle_state.changing_lane() {
-                format!("{:?}", lane)
-            } else {
-                "None".to_string()
-            };
-            ui.label("Changing to lane: ");
-            ui.label(next_lane);
-            ui.end_row();
-
-            ui.label("Speed: ");
-            ui.label(format!("{}", self.vehicle_state.speed()));
-        });
-        ui.add_space(20.0);
-
-        ui.label(RichText::new("Trip request").size(14.0));
-        ui.separator();
-        ui.add_space(10.0);
-        let distance_left = self.vehicle_state.distance_left();
-        if distance_left > 0.0 {
-            ui.horizontal(|ui| {
-                ui.label("Distance left to destination: ");
-                ui.label(
-                    RichText::new(format!("{}", self.vehicle_state.distance_left())).size(20.0),
-                );
+                ui.label("Turning Angle: ");
+                ui.label(format!("{:.0}", vehicle_state.wheel_rotation));
             });
-            if ui.button("Abandon trip").clicked() {
-                self.abandon_trip.write(AbandonTrip);
-            }
-        } else {
-            ui.label("No ongoing trip request.");
+            ui.add_space(20.0);
         }
-        ui.add_space(20.0);
 
         ui.label(RichText::new("Traffic Settings").size(14.0));
         ui.separator();

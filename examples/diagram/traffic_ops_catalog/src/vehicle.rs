@@ -20,25 +20,25 @@ use core::f32;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use glam::Vec2;
 
-// Enum variants represent hierarchical priority
-#[repr(i32)]
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, PartialEq, PartialOrd)]
-pub enum MoveVehicle {
-    #[default]
-    Stop = 0,
-    ChangeSpeed(Acceleration) = 1,
-    ChangeLane(Velocity) = 2,
-    Forward(Velocity) = 3,
+use crate::spawn_world::METERS_PER_SECOND_TO_KMH;
+
+pub const VEHICLE_LAYER_Z: f32 = 10.0;
+
+///
+#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, PartialEq, PartialOrd, Component)]
+pub struct ThrottleCommand {
+    pub target_speed: f32,
+    #[serde(default)]
+    pub max_acceleration: Option<f32>,
 }
 
-impl MoveVehicle {
-    pub fn min(&self, other_move: &MoveVehicle) -> MoveVehicle {
-        if self < other_move {
-            return self.clone();
-        }
-        return other_move.clone();
-    }
+#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, PartialEq, PartialOrd, Component)]
+pub struct SteeringCommand {
+    pub target_turn_angle: f32,
+    #[serde(default)]
+    pub max_steer_speed: Option<f32>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -64,124 +64,51 @@ pub enum ReadyState {
     NotReady,
 }
 
-#[derive(Clone, Debug, Resource, Serialize, Deserialize, JsonSchema)]
-pub struct VehicleState {
-    engine_on: bool,
-    distance_to_destination: f32,
-    checklist: HashMap<String, ReadyState>,
-    changing_to_lane: Option<Lane>,
-    speed: i32,
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Component)]
+pub struct VehicleDynamics {
+    pub speed: f32,
+    pub wheel_rotation: f32,
 }
 
-impl Default for VehicleState {
+impl Default for VehicleDynamics {
     fn default() -> Self {
-        let mut checklist = HashMap::<String, ReadyState>::new();
-        let checklist_items = vec!["fuel", "mirrors"];
-        for item in checklist_items.iter() {
-            checklist.insert(item.to_string(), ReadyState::default());
-        }
         Self {
-            engine_on: false,
-            distance_to_destination: 0.0,
-            checklist,
-            changing_to_lane: None,
-            speed: Velocity::default_forward().y.round() as i32,
+            speed: 0.0,
+            wheel_rotation: 0.0,
         }
     }
 }
 
-impl VehicleState {
-    pub fn engine(&self) -> bool {
-        self.engine_on
-    }
-
-    pub fn toggle_engine(&mut self, on: bool) -> &mut Self {
-        self.engine_on = on;
-        self
-    }
-
-    pub fn checklist(&self) -> &HashMap<String, ReadyState> {
-        &self.checklist
-    }
-
-    pub fn checklist_mut(&mut self) -> &mut HashMap<String, ReadyState> {
-        &mut self.checklist
-    }
-
-    pub fn distance_left(&self) -> f32 {
-        self.distance_to_destination.clone()
-    }
-
-    pub fn try_move(&mut self, mut e_cmds: EntityCommands, move_vehicle: MoveVehicle) -> &mut Self {
-        match move_vehicle {
-            MoveVehicle::Forward(velocity) => {
-                e_cmds.insert(velocity);
-            }
-            MoveVehicle::ChangeSpeed(acceleration) => {
-                e_cmds.insert(acceleration);
-            }
-            MoveVehicle::ChangeLane(velocity) => {
-                let new_to_lane = if velocity.x > 0.0 {
-                    Lane::Right
-                } else {
-                    Lane::Left
-                };
-                self.changing_to_lane = Some(new_to_lane);
-                e_cmds.insert((velocity, Acceleration::zero()));
-            }
-            MoveVehicle::Stop => {
-                e_cmds.insert((Velocity::zero(), Acceleration::zero()));
-            }
+impl VehicleDynamics {
+    pub fn command(
+        &mut self,
+        throttle: &ThrottleCommand,
+        steering: &SteeringCommand,
+        dt: f32,
+    ) {
+        if dt <= 0.0 {
+            return;
         }
-        self
+
+        let max_accel = throttle.max_acceleration.unwrap_or(2.0 * METERS_PER_SECOND_TO_KMH);
+        let dv = throttle.target_speed - self.speed;
+        let a = cap(dv/dt, max_accel);
+        self.speed += a * dt;
+        self.speed;
+
+        let max_rot_speed = steering.max_steer_speed.unwrap_or(90.0 / 16.0);
+        let dr = steering.target_turn_angle - self.wheel_rotation;
+        let v_rot = cap(dr, max_rot_speed);
+        self.wheel_rotation += cap(v_rot * dt, 30.0);
+    }
+}
+
+pub fn cap(value: f32, limit: f32) -> f32 {
+    if f32::abs(value) > limit {
+        return f32::signum(value) * limit;
     }
 
-    pub fn set_distance_to_destination(&mut self, distance: f32) -> bool {
-        if distance <= 0.0 {
-            return false;
-        }
-        self.distance_to_destination = distance;
-        true
-    }
-
-    pub fn update_remaining_distance(&mut self, distance: f32) -> &mut Self {
-        self.distance_to_destination -= distance;
-        if self.distance_to_destination < 0.0 {
-            self.reset();
-        }
-        self
-    }
-
-    pub fn at_destination(&self) -> bool {
-        self.distance_to_destination == 0.0
-    }
-
-    pub fn reset(&mut self) -> &mut Self {
-        self.distance_to_destination = 0.0;
-        for (_, state) in self.checklist.iter_mut() {
-            *state = ReadyState::default();
-        }
-        self.changing_to_lane = None;
-        self
-    }
-
-    pub fn changing_lane(&self) -> &Option<Lane> {
-        &self.changing_to_lane
-    }
-
-    pub fn changed_lane(&mut self) -> &mut Self {
-        self.changing_to_lane = None;
-        self
-    }
-
-    pub fn speed(&self) -> i32 {
-        self.speed
-    }
-
-    pub fn update_speed(&mut self, speed: i32) -> &mut Self {
-        self.speed = speed;
-        self
-    }
+    value
 }
 
 #[derive(Clone, Debug, Default, Component)]
@@ -191,75 +118,31 @@ pub struct Vehicle;
 #[require(Vehicle)]
 pub struct MainVehicle;
 
-#[derive(Clone, Debug, Component, Serialize, Deserialize, JsonSchema, PartialEq, PartialOrd)]
-pub struct Velocity {
-    pub x: f32,
-    pub y: f32,
-}
-
-impl Default for Velocity {
-    fn default() -> Self {
-        Self { x: 0.0, y: 0.0 }
-    }
-}
-
-impl Velocity {
-    pub fn zero() -> Self {
-        Self { x: 0.0, y: 0.0 }
-    }
-
-    pub fn default_forward() -> Self {
-        Self { x: 0.0, y: 60.0 }
-    }
-
-    pub fn default_change_lane(to_lane: Lane) -> Self {
-        Self {
-            x: match to_lane {
-                Lane::Left => -10.0,
-                Lane::Right => 10.0,
-            },
-            y: 40.0,
-        }
-    }
-
-    pub fn default_pedestrian() -> Self {
-        Self { x: 40.0, y: 0.0 }
-    }
-}
-
-#[derive(Clone, Debug, Component, Serialize, Deserialize, JsonSchema, PartialEq, PartialOrd)]
-pub struct Acceleration {
-    pub x: f32,
-    pub y: f32,
-}
-
-impl Default for Acceleration {
-    fn default() -> Self {
-        Self { x: 0.0, y: 0.0 }
-    }
-}
-
-impl Acceleration {
-    pub fn zero() -> Self {
-        Self { x: 0.0, y: 0.0 }
-    }
-
-    pub fn default_slow_down() -> Self {
-        Self { x: 0.0, y: -5.0 }
-    }
-
-    pub fn default_speed_up() -> Self {
-        Self { x: 0.0, y: 5.0 }
-    }
-
-    pub fn quick_speed_up() -> Self {
-        Self { x: 0.0, y: 30.0 }
-    }
+#[derive(Clone, Debug, Component, Default)]
+pub struct Position {
+    pub translation: Vec2,
+    pub yaw: f32,
 }
 
 #[derive(Clone, Debug, Default, Bundle)]
 pub struct VehicleBundle {
+    pub position: Position,
+    pub dynamics: VehicleDynamics,
+    pub engine: ThrottleCommand,
+    pub steering: SteeringCommand,
     pub vehicle: Vehicle,
-    pub velocity: Velocity,
-    pub acceleration: Acceleration,
+    pub transform: Transform,
+}
+
+impl VehicleBundle {
+    pub fn new(x: f32, y: f32) -> Self {
+        Self {
+            position: Position {
+                translation: Vec2::new(x, y),
+                yaw: 0.0,
+            },
+            transform: Transform::from_xyz(x, y, VEHICLE_LAYER_Z),
+            ..Default::default()
+        }
+    }
 }

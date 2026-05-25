@@ -15,7 +15,10 @@
  *
 */
 
-use crate::{Lane, MainVehicle, ScrollingWorld, TrafficLightColors, VehicleBundle, VehicleState};
+pub const METERS_PER_SECOND_TO_KMH: f32 = 3600.0/1000.0;
+pub const VEHICLE_LENGTH_M: f32 = 5.0;
+
+use crate::{Lane, MainVehicle, ScrollingWorld, TrafficLightColors, VehicleBundle};
 use bevy::{
     prelude::*,
     render::{
@@ -35,7 +38,6 @@ pub const LANE_LAYER_Z: f32 = 0.0;
 pub const ENV_LAYER_Z: f32 = 1.0;
 pub const PEDESTRIAN_LAYER_Z: f32 = 8.0;
 pub const TRAFFIC_LIGHT_LAYER_Z: f32 = 9.0;
-pub const VEHICLE_LAYER_Z: f32 = 10.0;
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ObstacleLimits {
@@ -100,6 +102,7 @@ pub struct WorldLimits {
     pub pavement_limits: (f32, f32),
     pub vehicle_size: (f32, f32),
     pub obstacle_limits: ObstacleLimits,
+    pub size_conversion: f32,
 }
 
 impl FromWorld for WorldLimits {
@@ -143,6 +146,8 @@ impl FromWorld for WorldLimits {
             y_back: vehicle_size.1 * 0.5,
         };
 
+        let size_conversion = vehicle_size.1 / VEHICLE_LENGTH_M;
+
         Self {
             window,
             full_runway,
@@ -153,6 +158,7 @@ impl FromWorld for WorldLimits {
             pavement_limits,
             vehicle_size,
             obstacle_limits,
+            size_conversion,
         }
     }
 }
@@ -254,7 +260,6 @@ impl Plugin for SpawnWorldPlugin {
 
         app.init_resource::<WorldLimits>()
             .init_resource::<WorldMeshes>()
-            .init_resource::<VehicleState>()
             .init_resource::<TrafficLightColors>()
             .add_event::<AbandonTrip>()
             .add_systems(Startup, (spawn_vehicle_and_camera, spawn_environment));
@@ -280,17 +285,16 @@ fn spawn_vehicle_and_camera(
 
     // Spawn main vehicle
     // Vehicle assets provided by https://kenney.nl/assets/racing-pack
+    let scale = world_limits.size_conversion;
     commands.spawn((
         Sprite {
             image: world_meshes.vehicle.clone(),
             ..default()
         },
-        Transform::from_xyz(
-            world_limits.lane_centers.0, // left_lane
-            world_limits.road_center.1 - 100.0,
-            VEHICLE_LAYER_Z,
+        VehicleBundle::new(
+            world_limits.lane_centers.0 / scale,
+            (world_limits.road_center.1 - 100.0) / scale,
         ),
-        VehicleBundle::default(),
         MainVehicle,
     ));
 }

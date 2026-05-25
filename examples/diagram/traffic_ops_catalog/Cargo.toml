@@ -17,3 +17,4 @@ serde_json = { workspace = true }
 schemars = { workspace = true }
 thiserror = "2.0.16"
 tokio = { workspace = true, features = ["time"] }
+glam = "*"
