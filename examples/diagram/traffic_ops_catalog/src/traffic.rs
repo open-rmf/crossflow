@@ -22,6 +22,7 @@ use std::collections::HashSet;
 
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum TrafficSignal {
     Red = 0,
     Yellow = 1,
