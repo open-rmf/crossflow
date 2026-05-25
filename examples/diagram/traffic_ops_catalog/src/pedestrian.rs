@@ -132,12 +132,11 @@ fn move_pedestrians(
         transform.translation.x += v.x * dt;
         transform.translation.y += v.y * dt;
 
-
         // If pedestrian reached the edge of the limit, flip the direction
         if transform.translation.x <= world_limits.pavement_limits.0 {
             velocity.translation.x = v.x.abs();
         } else if transform.translation.x >= world_limits.pavement_limits.1 {
-            velocity.translation.y = -v.x.abs();
+            velocity.translation.x = -v.x.abs();
         }
 
         // If for some reason pedestrians stopped moving, ensure that they resume
@@ -188,7 +187,8 @@ fn update_pedestrian_state(
         0.5 * world_limits.vehicle_size.1,
     );
     for (e, transform, pedestrian) in transforms.iter() {
-        if !pedestrian.is_alive() && transform.translation.y > 0.5 * world_limits.window.1 {
+        let diff = vehicle_y - transform.translation.y;
+        if !pedestrian.is_alive() && diff.abs() > 0.5 * world_limits.window.1 {
             // If pedestrian is dead, revive them through the scrolling world
             commands.trigger(PedestrianStateChange::Revival(e))
         } else if pedestrian.is_alive() {

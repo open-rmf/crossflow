@@ -232,33 +232,33 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         }
     );
 
-    // // =========================================================================
-    // let detect_traffic_signal_description = "Detects traffic signal updates via events";
-    // fn detect_traffic_signal(
-    //     srv: ContinuousService<(), (), TrafficStateStreams>,
-    //     mut orders: ContinuousQuery<(), (), TrafficStateStreams>,
-    //     mut upcoming_signal: EventReader<UpcomingTrafficSignal>,
-    // ) {
-    //     let Some(mut orders) = orders.get_mut(&srv.key) else {
-    //         return;
-    //     };
+    // =========================================================================
+    let detect_traffic_signal_description = "Detects traffic signal updates via events";
+    fn detect_traffic_signal(
+        srv: ContinuousService<(), (), TrafficStateStreams>,
+        mut orders: ContinuousQuery<(), (), TrafficStateStreams>,
+        mut upcoming_signal: EventReader<UpcomingTrafficSignal>,
+    ) {
+        let Some(mut orders) = orders.get_mut(&srv.key) else {
+            return;
+        };
 
-    //     if orders.is_empty() {
-    //         return;
-    //     }
+        if orders.is_empty() {
+            return;
+        }
 
-    //     for signal in upcoming_signal.read() {
-    //         orders.for_each(|order| order.streams().traffic_signal.send(signal.0.clone()));
-    //     }
-    // }
+        for signal in upcoming_signal.read() {
+            orders.for_each(|order| order.streams().traffic_signal.send(signal.0.clone()));
+        }
+    }
 
-    // let detect_traffic_signal_service =
-    //     app.spawn_continuous_service(PostUpdate, detect_traffic_signal);
-    // registry.register_node_builder(
-    //     NodeBuilderOptions::new("detect_traffic_signal".to_string())
-    //         .with_description(detect_traffic_signal_description),
-    //     move |builder, _config: ()| builder.create_node(detect_traffic_signal_service),
-    // );
+    let detect_traffic_signal_service =
+        app.spawn_continuous_service(PostUpdate, detect_traffic_signal);
+    registry.register_node_builder(
+        NodeBuilderOptions::new("detect_traffic_signal".to_string())
+            .with_description(detect_traffic_signal_description),
+        move |builder, _config: ()| builder.create_node(detect_traffic_signal_service),
+    );
 
     // // =========================================================================
     // let process_traffic_signal_description = "Process the latest traffic signal \

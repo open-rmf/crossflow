@@ -20,8 +20,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-use crate::METERS_PER_SECOND_TO_KMH;
-
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub enum TrafficSignal {
@@ -97,7 +95,7 @@ impl Velocity {
     pub fn default_pedestrian() -> Self {
         Velocity {
             translation: Vec2 {
-                x: 0.2 * METERS_PER_SECOND_TO_KMH,
+                x: 40.0,
                 y: 0.0,
             }
         }
