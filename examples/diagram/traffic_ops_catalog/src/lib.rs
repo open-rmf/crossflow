@@ -55,9 +55,24 @@ struct MidJourneyStreams {
 #[derive(StreamPack)]
 struct TrafficStateStreams {
     arriving: ApproachingIntersection,
-    obstacles: Obstacles,
     speed_limit: SpeedLimit,
     traffic_signal: TrafficSignal,
+}
+
+#[derive(StreamPack)]
+struct TrafficSignalStreams {
+    traffic_signal: TrafficSignal,
+}
+
+#[derive(StreamPack)]
+struct TrafficObstacleStreams {
+    obstacles: Vec<JsonVec2>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema)]
+struct JsonVec2 {
+    x: f32,
+    y: f32,
 }
 
 #[derive(StreamPack)]
@@ -69,16 +84,10 @@ struct DashboardStreams {
 #[derive(Clone, Accessor)]
 struct TrafficStateAccessor {
     traffic_signal: BufferKey<TrafficSignal>,
-    obstacles: BufferKey<Obstacles>,
     arriving: BufferKey<ApproachingIntersection>,
     speed_limit: BufferKey<SpeedLimit>,
 }
 
-#[derive(Clone, Accessor)]
-struct TrafficSignalWithObstaclesAccessor {
-    traffic_signal: BufferKey<TrafficSignal>,
-    obstacles: BufferKey<Obstacles>,
-}
 
 #[derive(Clone, Accessor)]
 struct TrafficSignalWithArrivingAccessor {
@@ -89,7 +98,6 @@ struct TrafficSignalWithArrivingAccessor {
 #[derive(Clone, Debug, Default, Joined)]
 pub struct TrafficSignalWithObstacles {
     traffic_signal: TrafficSignal,
-    obstacles: Obstacles,
 }
 
 #[derive(Clone, Debug, Default, Joined)]
@@ -178,7 +186,6 @@ pub fn register(setup: &mut BasicExecutorSetup) {
                 srv: Blocking<JsonMessage>,
                 mut main_vehicle: Query<&mut ThrottleCommand, With<MainVehicle>>,
             | {
-                dbg!(&srv.request);
                 let speed_value = srv.request.as_number().and_then(|n| n.as_f64().map(|n| n as f32));
                 let mut cmd = if let Some(target_speed) = speed_value {
                     ThrottleCommand {
@@ -239,8 +246,8 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     // =========================================================================
     let detect_traffic_signal_description = "Detects traffic signal updates via events";
     fn detect_traffic_signal(
-        srv: ContinuousService<(), (), TrafficStateStreams>,
-        mut orders: ContinuousQuery<(), (), TrafficStateStreams>,
+        srv: ContinuousService<(), (), TrafficSignalStreams>,
+        mut orders: ContinuousQuery<(), (), TrafficSignalStreams>,
         mut upcoming_signal: EventReader<UpcomingTrafficSignal>,
     ) {
         let Some(mut orders) = orders.get_mut(&srv.key) else {
@@ -264,40 +271,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         move |builder, _config: ()| builder.create_node(detect_traffic_signal_service),
     );
 
-    // // =========================================================================
-    // let process_traffic_signal_description = "Process the latest traffic signal \
-    //     upon trigger and make a decision on what the vehicle should do next";
-    // fn process_traffic_signal(
-    //     Blocking {
-    //         request: (_, key),
-    //         id,
-    //         ..
-    //     }: Blocking<((), BufferKey<TrafficSignal>)>,
-    //     mut access: BufferAccessMut<TrafficSignal>,
-    // ) -> Result<MoveVehicle, ()> {
-    //     let Some(signal) = access
-    //         .get_mut(id, &key)
-    //         .ok()
-    //         .map(|res| res.newest().cloned())
-    //         .flatten()
-    //     else {
-    //         return Err(());
-    //     };
 
-    //     Ok(determine_next_move_from_traffic_signal(&signal))
-    // }
-    // registry
-    //     .opt_out()
-    //     .no_serializing()
-    //     .no_deserializing()
-    //     .register_node_builder(
-    //         NodeBuilderOptions::new("process_traffic_signal".to_owned())
-    //             .with_description(process_traffic_signal_description),
-    //         |builder, _config: ()| builder.create_node(process_traffic_signal.into_callback()),
-    //     )
-    //     .with_buffer_access()
-    //     .with_result()
-    //     .with_common_response();
 
     // // =========================================================================
     // let configure_obstacles_thresholds_description = "Update ObstacleLimits based on
@@ -335,60 +309,60 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     //         },
     //     );
 
-    // // =========================================================================
-    // let detect_obstacles_description = "Detects obstacles in range via query";
-    // fn detect_obstacles(
-    //     srv: ContinuousService<(), (), TrafficStateStreams>,
-    //     mut orders: ContinuousQuery<(), (), TrafficStateStreams>,
-    //     main_vehicle: Query<&Transform, (With<MainVehicle>, Without<Obstacle>)>,
-    //     obstacles: Query<&Transform, (With<Obstacle>, Without<MainVehicle>)>,
-    //     world_limits: Res<WorldLimits>,
-    // ) {
-    //     let Some(mut orders) = orders.get_mut(&srv.key) else {
-    //         return;
-    //     };
-    //     if orders.is_empty() {
-    //         return;
-    //     }
+    // =========================================================================
+    let detect_obstacles_description = "Detects obstacles in range via query";
+    fn detect_obstacles(
+        srv: ContinuousService<(), (), TrafficObstacleStreams>,
+        mut orders: ContinuousQuery<(), (), TrafficObstacleStreams>,
+        main_vehicle: Query<&Transform, (With<MainVehicle>, Without<Obstacle>)>,
+        obstacles: Query<&Transform, (With<Obstacle>, Without<MainVehicle>)>,
+        world_limits: Res<WorldLimits>,
+    ) {
+        let Some(mut orders) = orders.get_mut(&srv.key) else {
+            return;
+        };
+        if orders.is_empty() {
+            return;
+        }
 
-    //     let Ok(vehicle) = main_vehicle.single() else {
-    //         return;
-    //     };
+        let Ok(vehicle) = main_vehicle.single() else {
+            return;
+        };
 
-    //     let obstacles = Obstacles(
-    //         obstacles
-    //             .iter()
-    //             .filter(|ob| {
-    //                 // Ignore obstacles behind the main vehicle
-    //                 if ob.translation.y - vehicle.translation.y < world_limits.vehicle_size.1 {
-    //                     return false;
-    //                 }
-    //                 // Ignore obstacles off screen
-    //                 if ob.translation.y > 0.5 * world_limits.window.1 {
-    //                     return false;
-    //                 }
-    //                 true
-    //             })
-    //             .map(|t| {
-    //                 ObstacleInRange::new(
-    //                     (t.translation.x - vehicle.translation.x).round() as i32,
-    //                     (t.translation.y - vehicle.translation.y).round() as i32,
-    //                 )
-    //             })
-    //             .collect(),
-    //     );
-    //     if obstacles.0.is_empty() {
-    //         return;
-    //     }
+        let scale = world_limits.convert_m_to_px;
+        let obstacles: Vec<JsonVec2> =
+            obstacles
+                .iter()
+                .filter(|ob| {
+                    let diff = ob.translation.y - vehicle.translation.y;
+                    // Ignore obstacles behind the main vehicle
+                    if diff < world_limits.vehicle_size.1 {
+                        return false;
+                    }
+                    // Ignore obstacles off screen
+                    if diff > 0.5 * world_limits.window.1 {
+                        return false;
+                    }
+                    true
+                })
+                .map(|t| JsonVec2 {
+                    x: (t.translation.x - vehicle.translation.x)/scale,
+                    y: (t.translation.y - vehicle.translation.y)/scale,
+                })
+                .collect();
 
-    //     orders.for_each(|order| order.streams().obstacles.send(obstacles.clone()));
-    // }
-    // let detect_obstacles_service = app.spawn_continuous_service(PostUpdate, detect_obstacles);
-    // registry.register_node_builder(
-    //     NodeBuilderOptions::new("detect_obstacles".to_string())
-    //         .with_description(detect_obstacles_description),
-    //     move |builder, _config: ()| builder.create_node(detect_obstacles_service),
-    // );
+        if obstacles.is_empty() {
+            return;
+        }
+
+        orders.for_each(|order| order.streams().obstacles.send(obstacles.clone()));
+    }
+    let detect_obstacles_service = app.spawn_continuous_service(PostUpdate, detect_obstacles);
+    registry.register_node_builder(
+        NodeBuilderOptions::new("detect_obstacles".to_string())
+            .with_description(detect_obstacles_description),
+        move |builder, _config: ()| builder.create_node(detect_obstacles_service),
+    );
 
     // // =========================================================================
     // let process_obstacles_description = "Process the current obstacles in range upon \

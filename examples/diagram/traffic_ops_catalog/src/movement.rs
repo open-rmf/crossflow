@@ -53,7 +53,7 @@ fn move_vehicles(
     world_limits: Res<WorldLimits>,
     time: Res<Time>,
 ) {
-    let scale = world_limits.size_conversion;
+    let scale = world_limits.convert_m_to_px;
     let dt = time.delta_secs();
     for (mut transform, mut position, mut dynamics, engine, steering, main) in transforms.iter_mut() {
         dynamics.command(&*engine, &*steering, dt);

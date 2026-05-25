@@ -18,7 +18,6 @@
 use bevy::prelude::*;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -54,21 +53,6 @@ impl TrafficLight {
 pub struct ApproachingIntersection {
     pub distance: f32,
 }
-
-#[derive(Clone, Debug, Default, Event, Serialize, Deserialize, JsonSchema, Hash, Eq, PartialEq)]
-pub struct ObstacleInRange {
-    pub offset_x: i32,
-    pub offset_y: i32,
-}
-
-impl ObstacleInRange {
-    pub fn new(offset_x: i32, offset_y: i32) -> Self {
-        Self { offset_x, offset_y }
-    }
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema)]
-pub struct Obstacles(pub HashSet<ObstacleInRange>);
 
 #[derive(Clone, Debug, Component, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct SpeedLimit(pub f32);

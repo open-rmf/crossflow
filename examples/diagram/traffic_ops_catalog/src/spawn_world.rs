@@ -102,7 +102,7 @@ pub struct WorldLimits {
     pub pavement_limits: (f32, f32),
     pub vehicle_size: (f32, f32),
     pub obstacle_limits: ObstacleLimits,
-    pub size_conversion: f32,
+    pub convert_m_to_px: f32,
 }
 
 impl FromWorld for WorldLimits {
@@ -146,7 +146,7 @@ impl FromWorld for WorldLimits {
             y_back: vehicle_size.1 * 0.5,
         };
 
-        let size_conversion = vehicle_size.1 / VEHICLE_LENGTH_M;
+        let convert_m_to_px = vehicle_size.1 / VEHICLE_LENGTH_M;
 
         Self {
             window,
@@ -158,7 +158,7 @@ impl FromWorld for WorldLimits {
             pavement_limits,
             vehicle_size,
             obstacle_limits,
-            size_conversion,
+            convert_m_to_px,
         }
     }
 }
@@ -285,7 +285,7 @@ fn spawn_vehicle_and_camera(
 
     // Spawn main vehicle
     // Vehicle assets provided by https://kenney.nl/assets/racing-pack
-    let scale = world_limits.size_conversion;
+    let scale = world_limits.convert_m_to_px;
     commands.spawn((
         Sprite {
             image: world_meshes.vehicle.clone(),
