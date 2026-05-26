@@ -160,7 +160,7 @@ function getOutputCardinality(
   handleId: string | null | undefined,
 ): CardinalityType {
   if (handleId === HandleId.DataStream) {
-    return CardinalityType.Single;
+    return CardinalityType.Many;
   }
 
   switch (type) {
