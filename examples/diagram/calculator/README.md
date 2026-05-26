@@ -26,6 +26,13 @@ cargo run -- run diagrams/python_script_nodes.json '[[0, 1, 2, 3, 4, 5], [10, 9,
 
 This workflow launches two parallel dynamic Python script streams that output values to buffers; a final listener node accesses these buffers and terminates the execution when a matching value is found (which outputs `5` in this example).
 
+To see diagram editor progress visualization clearly, use the delayed carry
+workflow:
+
+```bash
+cargo run -- run diagrams/carry_object_progress.json '{"object":"box-1","from":"shelf","to":"station_a"}'
+```
+
 ## Diagram Editor
 
 To use the diagram editor to create a new calculator workflow, run

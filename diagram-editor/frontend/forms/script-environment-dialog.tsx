@@ -52,7 +52,7 @@ export function ScriptEnvironmentDialog({
       const parsedConfig = JSON.parse(config);
       onSave(builder, parsedConfig);
       onClose();
-    } catch (err) {
+    } catch {
       setConfigError('Invalid JSON');
     }
   };

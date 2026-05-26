@@ -54,15 +54,21 @@ export function render(
   registry?: DiagramElementMetadata,
   options?: Omit<RenderOptions, 'wrapper'>,
 ) {
-  registry = registry || {
-    messages: {},
+  const registryValue: DiagramElementMetadata = registry || {
+    messages: [],
     nodes: {},
+    reverse_message_lookup: {
+      result: [],
+      split: [],
+      unzip: [],
+    },
     schemas: {},
     sections: {},
+    scripting: {},
     trace_supported: false,
   };
   return baseRender(ui, {
-    wrapper: createTestingProviders(registry),
+    wrapper: createTestingProviders(registryValue),
     ...options,
   });
 }

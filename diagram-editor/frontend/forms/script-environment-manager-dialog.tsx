@@ -65,8 +65,6 @@ export function ScriptEnvironmentManagerDialog({
     return registry?.scripting ? Object.keys(registry.scripting) : [];
   }, [registry]);
 
-
-
   useEffect(() => {
     if (open && !wasOpen.current) {
       if (initialEnvName && environments[initialEnvName]) {
@@ -111,7 +109,7 @@ export function ScriptEnvironmentManagerDialog({
         }
       }
 
-      setLanguage((env as any).language || 'python');
+      setLanguage((env as { language?: string }).language || 'python');
       setMode('view');
     }
   }, [open, selectedEnvName, environments]);
@@ -239,7 +237,7 @@ export function ScriptEnvironmentManagerDialog({
         );
       }
       setMode('view');
-    } catch (err) {
+    } catch {
       setConfigError('Invalid JSON');
     }
   };
@@ -474,7 +472,9 @@ export function ScriptEnvironmentManagerDialog({
                           }
                         }
 
-                        setLanguage((env as any).language || 'python');
+                        setLanguage(
+                          (env as { language?: string }).language || 'python',
+                        );
                       }
                     }
                   }}
@@ -485,337 +485,331 @@ export function ScriptEnvironmentManagerDialog({
             )}
           </Stack>
 
-          {(mode !== 'view' || selectedEnvName) && (
-            <>
-              {builder === 'process-bound-python' ? (
-                <>
-                  <Stack direction="row" spacing={2}>
-                    <TextField
-                      select={mode !== 'view'}
-                      label="Builder"
-                      value={builder}
-                      onChange={(e) => {
-                        const selectedBuilder = e.target.value;
-                        setBuilder(selectedBuilder);
+          {(mode !== 'view' || selectedEnvName) &&
+            (builder === 'process-bound-python' ? (
+              <>
+                <Stack direction="row" spacing={2}>
+                  <TextField
+                    select={mode !== 'view'}
+                    label="Builder"
+                    value={builder}
+                    onChange={(e) => {
+                      const selectedBuilder = e.target.value;
+                      setBuilder(selectedBuilder);
 
-                        const builderMeta =
-                          registry?.scripting?.[selectedBuilder];
-                        if (builderMeta) {
-                          setLanguage(builderMeta.language || 'python');
+                      const builderMeta =
+                        registry?.scripting?.[selectedBuilder];
+                      if (builderMeta) {
+                        setLanguage(builderMeta.language || 'python');
 
-                          // Auto-bootstrap template if creating or starting with empty config
+                        // Auto-bootstrap template if creating or starting with empty config
+                        if (
+                          mode === 'create' ||
+                          config === '{}' ||
+                          !config.trim()
+                        ) {
                           if (
-                            mode === 'create' ||
-                            config === '{}' ||
-                            !config.trim()
+                            builderMeta.config_examples &&
+                            builderMeta.config_examples.length > 0
                           ) {
+                            const exampleConfig =
+                              builderMeta.config_examples[0].config;
                             if (
-                              builderMeta.config_examples &&
-                              builderMeta.config_examples.length > 0
+                              exampleConfig &&
+                              typeof exampleConfig === 'object'
                             ) {
-                              const exampleConfig =
-                                builderMeta.config_examples[0].config;
-                              if (
-                                exampleConfig &&
-                                typeof exampleConfig === 'object'
-                              ) {
-                                const configObj = { ...exampleConfig };
-                                setOwnership(
-                                  typeof configObj.ownership === 'string'
-                                    ? configObj.ownership
-                                    : 'persistent',
-                                );
-                                setScriptText(
-                                  typeof configObj.script === 'string'
-                                    ? configObj.script
-                                    : '',
-                                );
-                                setConfig(JSON.stringify(configObj, null, 2));
-                              }
-                            } else {
-                              setOwnership('persistent');
-                              setScriptText('');
-                              setConfig(
-                                JSON.stringify(
-                                  { ownership: 'persistent', script: '' },
-                                  null,
-                                  2,
-                                ),
+                              const configObj = { ...exampleConfig };
+                              setOwnership(
+                                typeof configObj.ownership === 'string'
+                                  ? configObj.ownership
+                                  : 'persistent',
                               );
+                              setScriptText(
+                                typeof configObj.script === 'string'
+                                  ? configObj.script
+                                  : '',
+                              );
+                              setConfig(JSON.stringify(configObj, null, 2));
                             }
                           } else {
-                            try {
-                              const parsed = JSON.parse(config);
-                              if (parsed && typeof parsed === 'object') {
-                                setOwnership(
-                                  typeof parsed.ownership === 'string'
-                                    ? parsed.ownership
-                                    : 'persistent',
-                                );
-                                setScriptText(
-                                  typeof parsed.script === 'string'
-                                    ? parsed.script
-                                    : '',
-                                );
-                              }
-                            } catch {}
+                            setOwnership('persistent');
+                            setScriptText('');
+                            setConfig(
+                              JSON.stringify(
+                                { ownership: 'persistent', script: '' },
+                                null,
+                                2,
+                              ),
+                            );
                           }
-                        }
-                      }}
-                      fullWidth
-                      disabled={mode === 'view'}
-                      sx={{ flex: 1 }}
-                    >
-                      {mode === 'view' ? (
-                        <MenuItem value={builder}>{builder}</MenuItem>
-                      ) : registeredBuilders.length === 0 ? (
-                        <MenuItem disabled value="">
-                          <Typography variant="caption" color="text.disabled">
-                            No active builders registered on server
-                          </Typography>
-                        </MenuItem>
-                      ) : (
-                        registeredBuilders.map((b) => (
-                          <MenuItem key={b} value={b}>
-                            {b}
-                          </MenuItem>
-                        ))
-                      )}
-                    </TextField>
-                    <TextField
-                      select={mode !== 'view'}
-                      label="Ownership"
-                      value={ownership}
-                      onChange={(e) => handleOwnershipChange(e.target.value)}
-                      fullWidth
-                      disabled={mode === 'view'}
-                      sx={{ flex: 1 }}
-                    >
-                      {mode === 'view' ? (
-                        <MenuItem value={ownership}>{ownership}</MenuItem>
-                      ) : (
-                        ['shared', 'persistent', 'isolated'].map((opt) => (
-                          <MenuItem key={opt} value={opt}>
-                            {opt}
-                          </MenuItem>
-                        ))
-                      )}
-                    </TextField>
-                  </Stack>
-
-                  <Stack
-                    direction="row"
-                    justifyContent="space-between"
-                    alignItems="center"
-                  >
-                    <Typography variant="caption" color="text.secondary">
-                      Python Script
-                    </Typography>
-                    <IconButton
-                      size="small"
-                      onClick={() => setIsExpanded(!isExpanded)}
-                    >
-                      <MaterialSymbol
-                        symbol={isExpanded ? 'fullscreen_exit' : 'fullscreen'}
-                      />
-                    </IconButton>
-                  </Stack>
-                  <CodeMirror
-                    value={scriptText}
-                    height={isExpanded ? '50vh' : '300px'}
-                    extensions={[
-                      python(),
-                      indentUnit.of('    '),
-                      keymap.of([indentWithTab]),
-                    ]}
-                    onChange={handleScriptTextChange}
-                    theme="dark"
-                    readOnly={mode === 'view'}
-                  />
-                </>
-              ) : (
-                <>
-                  <Stack direction="row" spacing={2}>
-                    <TextField
-                      select={mode !== 'view'}
-                      label="Builder"
-                      value={builder}
-                      onChange={(e) => {
-                        const selectedBuilder = e.target.value;
-                        setBuilder(selectedBuilder);
-
-                        const builderMeta =
-                          registry?.scripting?.[selectedBuilder];
-                        if (builderMeta) {
-                          setLanguage(builderMeta.language || 'python');
-
-                          // Auto-bootstrap template if creating or starting with empty config
-                          if (
-                            mode === 'create' ||
-                            config === '{}' ||
-                            !config.trim()
-                          ) {
-                            if (
-                              builderMeta.config_examples &&
-                              builderMeta.config_examples.length > 0
-                            ) {
-                              const exampleConfig =
-                                builderMeta.config_examples[0].config;
-                              if (
-                                exampleConfig &&
-                                typeof exampleConfig === 'object'
-                              ) {
-                                const configObj = { ...exampleConfig };
-                                if (
-                                  'script' in configObj &&
-                                  typeof configObj.script === 'string'
-                                ) {
-                                  setScriptText(configObj.script);
-                                  setSelectedCodeField('script');
-                                } else {
-                                  setScriptText('');
-                                  setSelectedCodeField('');
-                                }
-                                setConfig(JSON.stringify(configObj, null, 2));
-                              }
-                            } else {
-                              setConfig('{}');
+                        } else {
+                          try {
+                            const parsed = JSON.parse(config);
+                            if (parsed && typeof parsed === 'object') {
+                              setOwnership(
+                                typeof parsed.ownership === 'string'
+                                  ? parsed.ownership
+                                  : 'persistent',
+                              );
+                              setScriptText(
+                                typeof parsed.script === 'string'
+                                  ? parsed.script
+                                  : '',
+                              );
                             }
-                          }
+                          } catch {}
                         }
-                      }}
-                      fullWidth
-                      disabled={mode === 'view'}
-                      sx={{ flex: 1 }}
-                    >
-                      {mode === 'view' ? (
-                        <MenuItem value={builder}>{builder}</MenuItem>
-                      ) : registeredBuilders.length === 0 ? (
-                        <MenuItem disabled value="">
-                          <Typography variant="caption" color="text.disabled">
-                            No active builders registered on server
-                          </Typography>
-                        </MenuItem>
-                      ) : (
-                        registeredBuilders.map((b) => (
-                          <MenuItem key={b} value={b}>
-                            {b}
-                          </MenuItem>
-                        ))
-                      )}
-                    </TextField>
-                    <TextField
-                      select
-                      label="Code Field"
-                      value={selectedCodeField}
-                      onChange={(e) => handleCodeFieldChange(e.target.value)}
-                      fullWidth
-                      disabled={mode === 'view'}
-                      sx={{ flex: 1 }}
-                    >
-                      {configKeys.length === 0 ? (
-                        <MenuItem disabled value="">
-                          <Typography variant="caption" color="text.disabled">
-                            No string fields defined
-                          </Typography>
-                        </MenuItem>
-                      ) : (
-                        configKeys.map((key) => (
-                          <MenuItem key={key} value={key}>
-                            {key}
-                          </MenuItem>
-                        ))
-                      )}
-                    </TextField>
-                    <Tooltip title="Python is the only supported scripting language on the frontend for now (since CodeMirror support for each language needs new dependencies). If a new script environment builder with a different scripting language is added, a corresponding CodeMirror language dependency must be added to the frontend.">
-                      <TextField
-                        label="Scripting Language"
-                        value={language || 'python'}
-                        fullWidth
-                        disabled
-                        slotProps={{
-                          input: {
-                            readOnly: true,
-                          },
-                        }}
-                        sx={{ flex: 1 }}
-                      />
-                    </Tooltip>
-                  </Stack>
-
-                  <TextField
-                    label="Builder Config (JSON)"
-                    multiline
-                    rows={4}
-                    value={config}
-                    onChange={(e) => handleConfigChange(e.target.value)}
+                      }
+                    }}
                     fullWidth
                     disabled={mode === 'view'}
-                    error={!!configError}
-                    helperText={configError}
-                    slotProps={{
-                      htmlInput: {
-                        sx: { fontFamily: 'monospace' },
-                      },
-                    }}
-                  />
-
-                  {selectedCodeField &&
-                  configKeys.includes(selectedCodeField) ? (
-                    <>
-                      <Stack
-                        direction="row"
-                        justifyContent="space-between"
-                        alignItems="center"
-                      >
-                        <Typography variant="caption" color="text.secondary">
-                          Script ({selectedCodeField})
+                    sx={{ flex: 1 }}
+                  >
+                    {mode === 'view' ? (
+                      <MenuItem value={builder}>{builder}</MenuItem>
+                    ) : registeredBuilders.length === 0 ? (
+                      <MenuItem disabled value="">
+                        <Typography variant="caption" color="text.disabled">
+                          No active builders registered on server
                         </Typography>
-                        <IconButton
-                          size="small"
-                          onClick={() => setIsExpanded(!isExpanded)}
-                        >
-                          <MaterialSymbol
-                            symbol={
-                              isExpanded ? 'fullscreen_exit' : 'fullscreen'
+                      </MenuItem>
+                    ) : (
+                      registeredBuilders.map((b) => (
+                        <MenuItem key={b} value={b}>
+                          {b}
+                        </MenuItem>
+                      ))
+                    )}
+                  </TextField>
+                  <TextField
+                    select={mode !== 'view'}
+                    label="Ownership"
+                    value={ownership}
+                    onChange={(e) => handleOwnershipChange(e.target.value)}
+                    fullWidth
+                    disabled={mode === 'view'}
+                    sx={{ flex: 1 }}
+                  >
+                    {mode === 'view' ? (
+                      <MenuItem value={ownership}>{ownership}</MenuItem>
+                    ) : (
+                      ['shared', 'persistent', 'isolated'].map((opt) => (
+                        <MenuItem key={opt} value={opt}>
+                          {opt}
+                        </MenuItem>
+                      ))
+                    )}
+                  </TextField>
+                </Stack>
+
+                <Stack
+                  direction="row"
+                  justifyContent="space-between"
+                  alignItems="center"
+                >
+                  <Typography variant="caption" color="text.secondary">
+                    Python Script
+                  </Typography>
+                  <IconButton
+                    size="small"
+                    onClick={() => setIsExpanded(!isExpanded)}
+                  >
+                    <MaterialSymbol
+                      symbol={isExpanded ? 'fullscreen_exit' : 'fullscreen'}
+                    />
+                  </IconButton>
+                </Stack>
+                <CodeMirror
+                  value={scriptText}
+                  height={isExpanded ? '50vh' : '300px'}
+                  extensions={[
+                    python(),
+                    indentUnit.of('    '),
+                    keymap.of([indentWithTab]),
+                  ]}
+                  onChange={handleScriptTextChange}
+                  theme="dark"
+                  readOnly={mode === 'view'}
+                />
+              </>
+            ) : (
+              <>
+                <Stack direction="row" spacing={2}>
+                  <TextField
+                    select={mode !== 'view'}
+                    label="Builder"
+                    value={builder}
+                    onChange={(e) => {
+                      const selectedBuilder = e.target.value;
+                      setBuilder(selectedBuilder);
+
+                      const builderMeta =
+                        registry?.scripting?.[selectedBuilder];
+                      if (builderMeta) {
+                        setLanguage(builderMeta.language || 'python');
+
+                        // Auto-bootstrap template if creating or starting with empty config
+                        if (
+                          mode === 'create' ||
+                          config === '{}' ||
+                          !config.trim()
+                        ) {
+                          if (
+                            builderMeta.config_examples &&
+                            builderMeta.config_examples.length > 0
+                          ) {
+                            const exampleConfig =
+                              builderMeta.config_examples[0].config;
+                            if (
+                              exampleConfig &&
+                              typeof exampleConfig === 'object'
+                            ) {
+                              const configObj = { ...exampleConfig };
+                              if (
+                                'script' in configObj &&
+                                typeof configObj.script === 'string'
+                              ) {
+                                setScriptText(configObj.script);
+                                setSelectedCodeField('script');
+                              } else {
+                                setScriptText('');
+                                setSelectedCodeField('');
+                              }
+                              setConfig(JSON.stringify(configObj, null, 2));
                             }
-                          />
-                        </IconButton>
-                      </Stack>
-                      <CodeMirror
-                        value={scriptText}
-                        height={isExpanded ? '50vh' : '300px'}
-                        extensions={[
-                          python(),
-                          indentUnit.of('    '),
-                          keymap.of([indentWithTab]),
-                        ]}
-                        onChange={handleScriptTextChange}
-                        theme="dark"
-                        readOnly={mode === 'view'}
-                      />
-                    </>
-                  ) : (
-                    <Paper
-                      variant="outlined"
-                      sx={{
-                        p: 4,
-                        textAlign: 'center',
-                        backgroundColor: 'action.hover',
-                        borderStyle: 'dashed',
+                          } else {
+                            setConfig('{}');
+                          }
+                        }
+                      }
+                    }}
+                    fullWidth
+                    disabled={mode === 'view'}
+                    sx={{ flex: 1 }}
+                  >
+                    {mode === 'view' ? (
+                      <MenuItem value={builder}>{builder}</MenuItem>
+                    ) : registeredBuilders.length === 0 ? (
+                      <MenuItem disabled value="">
+                        <Typography variant="caption" color="text.disabled">
+                          No active builders registered on server
+                        </Typography>
+                      </MenuItem>
+                    ) : (
+                      registeredBuilders.map((b) => (
+                        <MenuItem key={b} value={b}>
+                          {b}
+                        </MenuItem>
+                      ))
+                    )}
+                  </TextField>
+                  <TextField
+                    select
+                    label="Code Field"
+                    value={selectedCodeField}
+                    onChange={(e) => handleCodeFieldChange(e.target.value)}
+                    fullWidth
+                    disabled={mode === 'view'}
+                    sx={{ flex: 1 }}
+                  >
+                    {configKeys.length === 0 ? (
+                      <MenuItem disabled value="">
+                        <Typography variant="caption" color="text.disabled">
+                          No string fields defined
+                        </Typography>
+                      </MenuItem>
+                    ) : (
+                      configKeys.map((key) => (
+                        <MenuItem key={key} value={key}>
+                          {key}
+                        </MenuItem>
+                      ))
+                    )}
+                  </TextField>
+                  <Tooltip title="Python is the only supported scripting language on the frontend for now (since CodeMirror support for each language needs new dependencies). If a new script environment builder with a different scripting language is added, a corresponding CodeMirror language dependency must be added to the frontend.">
+                    <TextField
+                      label="Scripting Language"
+                      value={language || 'python'}
+                      fullWidth
+                      disabled
+                      slotProps={{
+                        input: {
+                          readOnly: true,
+                        },
                       }}
+                      sx={{ flex: 1 }}
+                    />
+                  </Tooltip>
+                </Stack>
+
+                <TextField
+                  label="Builder Config (JSON)"
+                  multiline
+                  rows={4}
+                  value={config}
+                  onChange={(e) => handleConfigChange(e.target.value)}
+                  fullWidth
+                  disabled={mode === 'view'}
+                  error={!!configError}
+                  helperText={configError}
+                  slotProps={{
+                    htmlInput: {
+                      sx: { fontFamily: 'monospace' },
+                    },
+                  }}
+                />
+
+                {selectedCodeField && configKeys.includes(selectedCodeField) ? (
+                  <>
+                    <Stack
+                      direction="row"
+                      justifyContent="space-between"
+                      alignItems="center"
                     >
-                      <Typography color="text.secondary">
-                        {configKeys.length === 0
-                          ? "Define string fields (like 'script') inside the JSON config above to enable the code editor."
-                          : "Select a string field from the 'Code Field' dropdown to open the code editor."}
+                      <Typography variant="caption" color="text.secondary">
+                        Script ({selectedCodeField})
                       </Typography>
-                    </Paper>
-                  )}
-                </>
-              )}
-            </>
-          )}
+                      <IconButton
+                        size="small"
+                        onClick={() => setIsExpanded(!isExpanded)}
+                      >
+                        <MaterialSymbol
+                          symbol={isExpanded ? 'fullscreen_exit' : 'fullscreen'}
+                        />
+                      </IconButton>
+                    </Stack>
+                    <CodeMirror
+                      value={scriptText}
+                      height={isExpanded ? '50vh' : '300px'}
+                      extensions={[
+                        python(),
+                        indentUnit.of('    '),
+                        keymap.of([indentWithTab]),
+                      ]}
+                      onChange={handleScriptTextChange}
+                      theme="dark"
+                      readOnly={mode === 'view'}
+                    />
+                  </>
+                ) : (
+                  <Paper
+                    variant="outlined"
+                    sx={{
+                      p: 4,
+                      textAlign: 'center',
+                      backgroundColor: 'action.hover',
+                      borderStyle: 'dashed',
+                    }}
+                  >
+                    <Typography color="text.secondary">
+                      {configKeys.length === 0
+                        ? "Define string fields (like 'script') inside the JSON config above to enable the code editor."
+                        : "Select a string field from the 'Code Field' dropdown to open the code editor."}
+                    </Typography>
+                  </Paper>
+                )}
+              </>
+            ))}
         </Stack>
       </DialogContent>
       <DialogActions>

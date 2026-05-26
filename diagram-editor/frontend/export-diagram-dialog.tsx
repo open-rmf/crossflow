@@ -95,7 +95,15 @@ function ExportDiagramDialogInternal({
       });
       return null;
     }
-  }, [registry, nodeManager, edges, templates, loadContext, diagramProperties]);
+  }, [
+    registry,
+    nodeManager,
+    edges,
+    templates,
+    loadContext,
+    diagramProperties,
+    onValidDiagram,
+  ]);
 
   const dialogData = use(dialogDataPromise);
 
