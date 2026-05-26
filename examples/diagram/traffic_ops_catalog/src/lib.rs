@@ -16,7 +16,7 @@
 */
 
 use bevy::prelude::*;
-use crossflow::{ConfigExample, NodeBuilderOptions, prelude::*};
+use crossflow::{ConfigExample, NodeBuilderOptions, Node, prelude::*};
 use crossflow_diagram_editor::basic_executor::BasicExecutorSetup;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -69,6 +69,11 @@ struct TrafficObstacleStreams {
     obstacles: Vec<JsonVec2>,
 }
 
+#[derive(StreamPack)]
+struct StopRequestedStreams {
+    stop: f32,
+}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema)]
 struct JsonVec2 {
     x: f32,
@@ -104,6 +109,26 @@ pub struct TrafficSignalWithObstacles {
 pub struct TrafficSignalWithArriving {
     traffic_signal: TrafficSignal,
     arriving: ApproachingIntersection,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct ChangeLaneConfig {
+    pub max_yaw: f32,
+    pub p_gain: f32,
+}
+
+impl Default for ChangeLaneConfig {
+    fn default() -> Self {
+        ChangeLaneConfig {
+            max_yaw: 5.0,
+            p_gain: 0.01,
+        }
+    }
+}
+
+#[derive(StreamPack)]
+pub struct ChangeLaneStreams {
+    pub steer: f32,
 }
 
 #[derive(Clone, Debug, Error, Serialize, Deserialize, JsonSchema)]
@@ -359,10 +384,91 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     }
     let detect_obstacles_service = app.spawn_continuous_service(PostUpdate, detect_obstacles);
     registry.register_node_builder(
-        NodeBuilderOptions::new("detect_obstacles".to_string())
+        NodeBuilderOptions::new("detect_obstacles")
             .with_description(detect_obstacles_description),
         move |builder, _config: ()| builder.create_node(detect_obstacles_service),
     );
+
+    // =========================================================================
+    fn detect_stop_request(
+        srv: ContinuousService<(), (), StopRequestedStreams>,
+        mut orders: ContinuousQuery<(), (), StopRequestedStreams>,
+        mut stop_requested: EventReader<StopRequested>,
+        time: Res<Time>,
+    ) {
+        let Some(mut orders) = orders.get_mut(&srv.key) else {
+            return;
+        };
+
+        if stop_requested.read().last().is_none() {
+            return;
+        }
+
+        orders.for_each(|order| {
+            order.streams().stop.send(time.elapsed_secs());
+        });
+    }
+    let detect_stop_request_service = app.spawn_continuous_service(PostUpdate, detect_stop_request);
+    registry.register_node_builder(
+        NodeBuilderOptions::new("detect_stop_request")
+            .with_description("Sends out a signal each time a stop is requested")
+            .with_default_display_text("Detect Stop Request"),
+        move |builder, _: ()| builder.create_node(detect_stop_request_service),
+    );
+
+    // =========================================================================
+    fn lane_controller(
+        srv: ContinuousService<(ChangeLaneConfig, BufferKey<f32>), (), ChangeLaneStreams>,
+        mut orders: ContinuousQuery<(ChangeLaneConfig, BufferKey<f32>), (), ChangeLaneStreams>,
+        mut target: BufferAccess<f32>,
+        query: Query<&Position, With<MainVehicle>>,
+    ) {
+        let Some(mut orders) = orders.get_mut(&srv.key) else {
+            return;
+        };
+
+        let Ok(position) = query.single() else {
+            return;
+        };
+
+        orders.for_each(|mut order| {
+            let config = &order.request().0;
+            let target_key = &order.request().1;
+            let Some(target) = target.get(order.id(), target_key).ok().and_then(|t| t.newest()) else {
+                return;
+            };
+
+            let x = position.translation.x;
+            let dx = *target - x;
+            let target_yaw = cap(-config.p_gain * dx, config.max_yaw);
+            order.streams().steer.send(target_yaw);
+        });
+    }
+    let lane_controller_service = app.spawn_continuous_service(PostUpdate, lane_controller);
+    registry
+        .opt_out()
+        .no_serializing()
+        .no_deserializing()
+        .register_node_builder(
+        NodeBuilderOptions::new("lane_controller")
+            .with_description("Steer the robot to a certain x position with the lane")
+            .with_default_display_text("Lane Controller"),
+        move |builder, config: Option<ChangeLaneConfig>| {
+            let config = config.unwrap_or_default();
+            let insert_config = builder.create_map_block(move |(_, key): ((), BufferKey<f32>)| {
+                (config, key)
+            });
+
+            let node = builder.create_node(lane_controller_service);
+            builder.connect(insert_config.output, node.input);
+            Node::<_, _, ChangeLaneStreams> {
+                input: insert_config.input,
+                output: node.output,
+                streams: node.streams,
+            }
+        }
+    )
+        .with_buffer_access();
 
     // // =========================================================================
     // let process_obstacles_description = "Process the current obstacles in range upon \

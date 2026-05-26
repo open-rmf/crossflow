@@ -236,11 +236,11 @@ impl FromWorld for WorldMeshes {
     }
 }
 
-#[derive(Clone, Debug, Event)]
-pub struct AbandonTrip;
-
 #[derive(Clone, Debug, Component)]
 pub struct LaneDash;
+
+#[derive(Event)]
+pub struct StopRequested;
 
 #[derive(Default)]
 pub struct SpawnWorldPlugin {}
@@ -261,7 +261,7 @@ impl Plugin for SpawnWorldPlugin {
         app.init_resource::<WorldLimits>()
             .init_resource::<WorldMeshes>()
             .init_resource::<TrafficLightColors>()
-            .add_event::<AbandonTrip>()
+            .add_event::<StopRequested>()
             .add_systems(Startup, (spawn_vehicle_and_camera, spawn_environment));
     }
 }

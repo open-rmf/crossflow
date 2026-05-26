@@ -17,7 +17,7 @@
 
 use crate::{
     pedestrian::TogglePedestrians,
-    spawn_world::{AbandonTrip, WorldLimits},
+    spawn_world::{StopRequested, WorldLimits},
     speed_limit::CurrentSpeedLimit,
     traffic::{TrafficLight, TrafficSignal},
     traffic_signal::{NextTrafficLight, TrafficSignalChange},
@@ -100,7 +100,7 @@ impl FromWorld for UserPanel {
 
 #[derive(SystemParam)]
 pub struct UserInteraction<'w, 's> {
-    abandon_trip: EventWriter<'w, AbandonTrip>,
+    request_stop: EventWriter<'w, StopRequested>,
     commands: Commands<'w, 's>,
     current_speed_limit: Res<'w, CurrentSpeedLimit>,
     next_traffic_light: Res<'w, NextTrafficLight>,
@@ -124,10 +124,10 @@ impl<'w, 's> UserInteraction<'w, 's> {
         ui.separator();
         ui.add_space(20.0);
 
+        ui.label(RichText::new("Vehicle State").size(14.0));
+        ui.separator();
+        ui.add_space(10.0);
         if let Ok(vehicle_state) = self.vehicle_state.single() {
-            ui.label(RichText::new("Vehicle State").size(14.0));
-            ui.separator();
-            ui.add_space(10.0);
             Grid::new("vehicle_state").show(ui, |ui| {
                 ui.label("Speed: ");
                 ui.label(format!("{:0.1}", vehicle_state.speed));
@@ -137,6 +137,10 @@ impl<'w, 's> UserInteraction<'w, 's> {
                 ui.label(format!("{:.0}", vehicle_state.wheel_rotation));
             });
             ui.add_space(20.0);
+        }
+
+        if ui.button("STOP").clicked() {
+            self.request_stop.write(StopRequested);
         }
 
         ui.label(RichText::new("Traffic Settings").size(14.0));
