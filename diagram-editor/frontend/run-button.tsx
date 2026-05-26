@@ -1,62 +1,117 @@
 import {
+  Box,
   Button,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
+  Checkbox,
   Divider,
-  Popover,
+  FormControlLabel,
   Stack,
   TextField,
-  Tooltip,
   Typography,
   useTheme,
 } from '@mui/material';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Subscription } from 'rxjs';
 import { useApiClient } from './api-client-provider';
+import { useDebugVisualization } from './debug-visualization-provider';
 import { useDiagramProperties } from './diagram-properties-provider';
 import { useNodeManager } from './node-manager';
 import { MaterialSymbol } from './nodes';
 import { useRegistry } from './registry-provider';
 import { useTemplates } from './templates-provider';
+import type { Diagram, DiagramOperation } from './types/api';
 import { useEdges } from './use-edges';
 import { exportDiagram } from './utils/export-diagram';
 
 type ResponseContent = { raw: string } | { err: string };
+type RunningMode = 'run' | null;
 
-const DefaultResponseContent: ResponseContent = { raw: '' };
-
-export interface RunButtonProps {
-  requestJsonString: string;
+interface ExecutionTimelineEntry {
+  seq: number;
+  operationId: string;
 }
 
-export function RunButton({ requestJsonString }: RunButtonProps) {
+const DefaultResponseContent: ResponseContent = { raw: '' };
+const MaxExecutionTimelineEntries = 200;
+
+function enableDebugTraceForOps(ops: Record<string, DiagramOperation>) {
+  for (const op of Object.values(ops)) {
+    op.trace = 'on';
+    if (op.type === 'scope') {
+      enableDebugTraceForOps(op.ops);
+    }
+  }
+}
+
+function enableDebugTrace(diagram: Diagram): Diagram {
+  const debugDiagram = JSON.parse(JSON.stringify(diagram)) as Diagram;
+  debugDiagram.default_trace = 'on';
+  enableDebugTraceForOps(debugDiagram.ops);
+  return debugDiagram;
+}
+
+export interface RunPanelProps {
+  requestJsonString: string;
+  onRequestJsonStringChange: (requestJsonString: string) => void;
+}
+
+export function RunPanel({
+  requestJsonString,
+  onRequestJsonStringChange,
+}: RunPanelProps) {
   const nodeManager = useNodeManager();
   const edges = useEdges();
-  const [openPopover, setOpenPopover] = useState(false);
-  const buttonRef = useRef<HTMLButtonElement>(null);
   const theme = useTheme();
-  const [requestJson, setRequestJson] = useState(requestJsonString);
   const [responseContent, setResponseContent] = useState<ResponseContent>(
     DefaultResponseContent,
   );
   const apiClient = useApiClient();
-  const [templates, _setTemplates] = useTemplates();
+  const {
+    clearDebugVisualization,
+    markDebugFinished,
+    markDebugOperationStarted,
+  } = useDebugVisualization();
+  const [templates] = useTemplates();
   const registry = useRegistry();
-  const [running, setRunning] = useState(false);
-  const [diagramProperties, _] = useDiagramProperties();
+  const [runningMode, setRunningMode] = useState<RunningMode>(null);
+  const [showProgress, setShowProgress] = useState(true);
+  const showProgressRef = useRef(showProgress);
+  const [executionTimeline, setExecutionTimeline] = useState<
+    ExecutionTimelineEntry[]
+  >([]);
+  const debugEventCounter = useRef(0);
+  const debugSessionRef = useRef<Awaited<
+    ReturnType<NonNullable<typeof apiClient.wsDebugWorkflow>>
+  > | null>(null);
+  const debugSubscriptionRef = useRef<Subscription | null>(null);
+  const [diagramProperties] = useDiagramProperties();
+
+  const closeDebugSession = useCallback(() => {
+    debugSubscriptionRef.current?.unsubscribe();
+    debugSubscriptionRef.current = null;
+    debugSessionRef.current?.close();
+    debugSessionRef.current = null;
+  }, []);
 
   useEffect(() => {
-    setRequestJson(requestJsonString);
-  }, [requestJsonString]);
+    return closeDebugSession;
+  }, [closeDebugSession]);
+
+  useEffect(() => {
+    showProgressRef.current = showProgress;
+    if (!showProgress) {
+      clearDebugVisualization();
+      setExecutionTimeline([]);
+    }
+  }, [clearDebugVisualization, showProgress]);
 
   const requestError = useMemo(() => {
     try {
-      JSON.parse(requestJson);
+      JSON.parse(requestJsonString);
       return false;
     } catch {
       return true;
     }
-  }, [requestJson]);
+  }, [requestJsonString]);
 
   const responseError = useMemo(() => {
     return 'err' in responseContent;
@@ -65,14 +120,31 @@ export function RunButton({ requestJsonString }: RunButtonProps) {
   const responseValue = useMemo(() => {
     if ('err' in responseContent) {
       return `Error: ${responseContent.err}`;
-    } else {
-      return responseContent.raw;
     }
+    return responseContent.raw;
   }, [responseContent]);
 
-  const handleRunClick = () => {
+  const runWithPost = (diagram: Diagram, request: unknown) => {
+    apiClient.postRunWorkflow(diagram, request).subscribe({
+      next: (response) => {
+        setResponseContent({ raw: JSON.stringify(response, null, 2) });
+        setRunningMode(null);
+      },
+      error: (err) => {
+        setResponseContent({ err: (err as Error).message });
+        setRunningMode(null);
+      },
+    });
+  };
+
+  const handleRunClick = async () => {
+    closeDebugSession();
+    clearDebugVisualization();
+    setExecutionTimeline([]);
+    debugEventCounter.current = 0;
+
     try {
-      const request = JSON.parse(requestJson);
+      const request = JSON.parse(requestJsonString);
       const diagram = exportDiagram(
         registry,
         nodeManager,
@@ -80,130 +152,186 @@ export function RunButton({ requestJsonString }: RunButtonProps) {
         templates,
         diagramProperties,
       );
-      apiClient.postRunWorkflow(diagram, request).subscribe({
-        next: (response) => {
-          setResponseContent({ raw: JSON.stringify(response, null, 2) });
-          setRunning(false);
+      setResponseContent(DefaultResponseContent);
+      setRunningMode('run');
+
+      if (!showProgress || !apiClient.wsDebugWorkflow) {
+        runWithPost(diagram, request);
+        return;
+      }
+
+      const debugSession = await apiClient.wsDebugWorkflow(
+        enableDebugTrace(diagram),
+        request,
+      );
+      debugSessionRef.current = debugSession;
+      debugSubscriptionRef.current = debugSession.debugFeedback$.subscribe({
+        next: (msg) => {
+          if (msg.type === 'feedback' && 'operationStarted' in msg) {
+            if (!showProgressRef.current) {
+              return;
+            }
+            const operationId = msg.operationStarted;
+            markDebugOperationStarted(operationId);
+            const entry = {
+              seq: ++debugEventCounter.current,
+              operationId,
+            };
+            setExecutionTimeline((prev) =>
+              [...prev, entry].slice(-MaxExecutionTimelineEntries),
+            );
+            return;
+          }
+
+          if (msg.type === 'finish') {
+            markDebugFinished();
+            if ('ok' in msg) {
+              setResponseContent({ raw: JSON.stringify(msg.ok, null, 2) });
+            } else {
+              setResponseContent({ err: msg.err });
+            }
+            setRunningMode(null);
+            closeDebugSession();
+          }
         },
         error: (err) => {
+          markDebugFinished();
           setResponseContent({ err: (err as Error).message });
-          setRunning(false);
+          setRunningMode(null);
+          closeDebugSession();
+        },
+        complete: () => {
+          setRunningMode(null);
         },
       });
-      setRunning(true);
     } catch (e) {
       setResponseContent({ err: (e as Error).message });
+      setRunningMode(null);
+      closeDebugSession();
     }
   };
 
   return (
-    <>
-      <Tooltip title="Run Workflow">
-        <Button ref={buttonRef} onClick={() => setOpenPopover(true)}>
-          <MaterialSymbol symbol="play_arrow" />
-        </Button>
-      </Tooltip>
-      <Popover
-        open={openPopover}
-        onClose={() => {
-          setOpenPopover(false);
-          setResponseContent(DefaultResponseContent);
-        }}
-        anchorEl={buttonRef.current}
-        anchorOrigin={{
-          vertical: 'bottom',
-          horizontal: 'center',
-        }}
-        transformOrigin={{
-          vertical: 'top',
-          horizontal: 'center',
-        }}
-        slotProps={{
-          paper: {
-            sx: {
-              overflow: 'visible',
-              mt: 0.5,
-              backgroundColor: theme.palette.background.paper,
-              border: `1px solid ${theme.palette.divider}`,
-              '&:before': {
-                content: '""',
-                position: 'absolute',
-                top: 0,
-                left: '50%',
-                transform: 'translateY(-50%) translateX(-50%) rotate(45deg)',
-                width: 16,
-                height: 16,
-                backgroundColor: theme.palette.background.paper,
-                backgroundImage: 'inherit',
-                borderTop: `1px solid ${theme.palette.divider}`,
-                borderLeft: `1px solid ${theme.palette.divider}`,
-              },
+    <Stack
+      spacing={2}
+      sx={{
+        minHeight: 0,
+        overflowY: 'auto',
+        p: 2,
+      }}
+    >
+      <Stack spacing={1}>
+        <Typography variant="h6">Run Workflow</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Request
+        </Typography>
+        <TextField
+          fullWidth
+          multiline
+          minRows={6}
+          maxRows={12}
+          variant="outlined"
+          value={requestJsonString}
+          slotProps={{
+            htmlInput: {
+              sx: { fontFamily: 'monospace', whiteSpace: 'nowrap' },
             },
-          },
-        }}
-      >
-        <DialogTitle>Run Workflow</DialogTitle>
-        <Divider />
-        <DialogContent sx={{ width: 500 }}>
-          <Stack spacing={2}>
-            <Typography variant="body1">Request:</Typography>
-            <TextField
-              fullWidth
-              multiline
-              rows={10}
-              variant="outlined"
-              value={requestJson}
-              slotProps={{
-                htmlInput: {
-                  sx: { fontFamily: 'monospace', whiteSpace: 'nowrap' },
-                },
-              }}
-              onChange={(e) => setRequestJson(e.target.value)}
-              error={requestError}
-              sx={{ backgroundColor: theme.palette.background.paper }}
+          }}
+          onChange={(e) => onRequestJsonStringChange(e.target.value)}
+          error={requestError}
+          sx={{ backgroundColor: theme.palette.background.paper }}
+        />
+      </Stack>
+      <Stack direction="row" spacing={1}>
+        <Button
+          variant="contained"
+          onClick={handleRunClick}
+          disabled={runningMode !== null}
+          loading={runningMode === 'run'}
+          startIcon={<MaterialSymbol symbol="play_arrow" />}
+        >
+          Run
+        </Button>
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={showProgress}
+              onChange={(event) => setShowProgress(event.target.checked)}
             />
-            <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-              <Typography variant="body1">Response:</Typography>
-              {'err' in responseContent ? (
-                <MaterialSymbol
-                  symbol="error"
-                  sx={{ color: theme.palette.error.main }}
-                />
-              ) : 'raw' in responseContent && responseContent.raw.length > 0 ? (
-                <MaterialSymbol
-                  symbol="check_circle"
-                  sx={{ color: theme.palette.success.main }}
-                />
-              ) : (
-                <></>
-              )}
-            </Stack>
-            <TextField
-              fullWidth
-              multiline
-              rows={10}
-              variant="outlined"
-              value={responseValue}
-              slotProps={{
-                htmlInput: {
-                  sx: { fontFamily: 'monospace', whiteSpace: 'nowrap' },
-                },
-              }}
-              error={responseError}
+          }
+          label="Show progress"
+        />
+      </Stack>
+      <Divider />
+      <Stack spacing={1}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          <Typography variant="body1">Response</Typography>
+          {'err' in responseContent ? (
+            <MaterialSymbol
+              symbol="error"
+              sx={{ color: theme.palette.error.main }}
             />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button
-            variant="contained"
-            onClick={handleRunClick}
-            loading={running}
-            startIcon={<MaterialSymbol symbol="play_arrow" />}
+          ) : 'raw' in responseContent && responseContent.raw.length > 0 ? (
+            <MaterialSymbol
+              symbol="check_circle"
+              sx={{ color: theme.palette.success.main }}
+            />
+          ) : null}
+        </Stack>
+        <TextField
+          fullWidth
+          multiline
+          minRows={6}
+          maxRows={12}
+          variant="outlined"
+          value={responseValue}
+          slotProps={{
+            htmlInput: {
+              sx: { fontFamily: 'monospace', whiteSpace: 'nowrap' },
+            },
+          }}
+          error={responseError}
+        />
+      </Stack>
+      {showProgress && executionTimeline.length > 0 && (
+        <Stack spacing={1}>
+          <Typography variant="body1">Execution timeline</Typography>
+          <Box
+            sx={{
+              border: `1px solid ${theme.palette.divider}`,
+              borderRadius: 1,
+              maxHeight: 220,
+              overflowY: 'auto',
+              px: 1,
+              py: 0.5,
+            }}
           >
-            Run
-          </Button>
-        </DialogActions>
-      </Popover>
-    </>
+            {executionTimeline.map((entry) => (
+              <Stack
+                key={entry.seq}
+                direction="row"
+                spacing={1}
+                sx={{ alignItems: 'baseline' }}
+              >
+                <Typography variant="caption" color="text.secondary">
+                  {entry.seq}
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontFamily: 'monospace',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {entry.operationId}
+                </Typography>
+              </Stack>
+            ))}
+          </Box>
+        </Stack>
+      )}
+    </Stack>
   );
 }

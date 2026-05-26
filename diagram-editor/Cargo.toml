@@ -57,9 +57,9 @@ tower = "0.5.2"
 
 [features]
 default = ["frontend", "router", "python"]
-debug = ["router", "axum/ws"]
+debug = ["router"]
 frontend = ["router", "dep:flate2", "dep:tar"]
-router = []
+router = ["axum/ws"]
 json_schema = ["dep:schemars", "dep:indexmap"]
 basic_executor = [
   "router",
