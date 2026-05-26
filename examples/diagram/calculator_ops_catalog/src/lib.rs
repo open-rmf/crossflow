@@ -1,4 +1,4 @@
-use std::fmt::Write;
+use std::{fmt::Write, thread, time::Duration};
 
 use crossflow::{
     Async, ConfigExample, DiagramElementRegistry, JsonMessage, NodeBuilderOptions, StreamPack,
@@ -343,6 +343,27 @@ pub fn register(registry: &mut DiagramElementRegistry) {
                     Ok(())
                 },
             )
+        },
+    );
+
+    let delay_description = "Wait for a configured number of milliseconds, then \
+        pass the input through unchanged. This is useful for making example \
+        workflow progress visible in the diagram editor debugger.";
+    let delay_examples = [
+        ConfigExample::new("Wait for the default 750 ms.", json!(null)),
+        ConfigExample::new("Wait for 1200 ms.", json!(1200)),
+    ];
+
+    registry.register_node_builder(
+        NodeBuilderOptions::new("delay_ms")
+            .with_default_display_text("Delay")
+            .with_description(delay_description)
+            .with_config_examples(delay_examples),
+        |builder, config: Option<u64>| {
+            builder.create_map_block(move |req: JsonMessage| {
+                thread::sleep(Duration::from_millis(config.unwrap_or(750)));
+                req
+            })
         },
     );
 

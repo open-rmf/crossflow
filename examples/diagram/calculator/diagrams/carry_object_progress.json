@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/open-rmf/crossflow/refs/heads/main/diagram.schema.json",
+  "version": "0.1.0",
+  "description": "Progress visualization workflow that carries an object through a short sequence with visible latency.",
+  "input_examples": [
+    {
+      "description": "Carry box-1 from the shelf to station A",
+      "value": {
+        "object": "box-1",
+        "from": "shelf",
+        "to": "station_a"
+      }
+    }
+  ],
+  "templates": {},
+  "start": "pick_object",
+  "ops": {
+    "pick_object": {
+      "type": "node",
+      "builder": "delay_ms",
+      "config": 800,
+      "display_text": "Pick object",
+      "next": "move_to_a"
+    },
+    "move_to_a": {
+      "type": "node",
+      "builder": "delay_ms",
+      "config": 1200,
+      "display_text": "Move to A",
+      "next": "drop_object"
+    },
+    "drop_object": {
+      "type": "node",
+      "builder": "delay_ms",
+      "config": 800,
+      "display_text": "Drop object",
+      "next": {
+        "builtin": "terminate"
+      }
+    }
+  }
+}
