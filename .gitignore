@@ -15,3 +15,4 @@ storybook-static
 
 .env/
 venv/
+.DS_Store

@@ -26,6 +26,7 @@ const stubRegistry: DiagramElementMetadata = {
   },
   schemas: {},
   sections: {},
+  scripting: {},
   trace_supported: false,
 };
 

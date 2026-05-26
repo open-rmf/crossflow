@@ -60,18 +60,20 @@ export class ApiClient implements BaseApiClient {
     diagram: Diagram,
     request: unknown,
   ): Promise<DebugSession> {
-    const ws = new WebSocket('/api/executor/debug');
-    await new Promise((resolve, reject) => {
+    const url = new URL('/api/executor/debug', window.location.href);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(url);
+    return new Promise((resolve, reject) => {
       ws.onopen = () => {
+        const session = new DebugSession(ws);
         const body: PostRunRequest = {
           diagram,
           request,
         };
         ws.send(JSON.stringify(body));
-        resolve(ws);
+        resolve(session);
       };
-      ws.onerror = reject;
+      ws.onerror = () => reject(new Error('debug websocket error'));
     });
-    return new DebugSession(ws);
   }
 }
