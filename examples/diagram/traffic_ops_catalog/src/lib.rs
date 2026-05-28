@@ -16,7 +16,7 @@
 */
 
 use bevy::prelude::*;
-use crossflow::{ConfigExample, NodeBuilderOptions, Node, prelude::*};
+use crossflow::{ConfigExample, NodeBuilderOptions, ScriptMessage, Node, prelude::*};
 use crossflow_diagram_editor::basic_executor::BasicExecutorSetup;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -114,14 +114,16 @@ pub struct TrafficSignalWithArriving {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ChangeLaneConfig {
     pub max_yaw: f32,
-    pub p_gain: f32,
+    pub err_gain: f32,
+    pub dir_gain: f32,
 }
 
 impl Default for ChangeLaneConfig {
     fn default() -> Self {
         ChangeLaneConfig {
             max_yaw: 5.0,
-            p_gain: 0.01,
+            err_gain: 0.01,
+            dir_gain: 1.0,
         }
     }
 }
@@ -129,6 +131,11 @@ impl Default for ChangeLaneConfig {
 #[derive(StreamPack)]
 pub struct ChangeLaneStreams {
     pub steer: f32,
+}
+
+#[derive(StreamPack)]
+pub struct LanePositionStreams {
+    pub position: f32,
 }
 
 #[derive(Clone, Debug, Error, Serialize, Deserialize, JsonSchema)]
@@ -418,9 +425,9 @@ pub fn register(setup: &mut BasicExecutorSetup) {
 
     // =========================================================================
     fn lane_controller(
-        srv: ContinuousService<(ChangeLaneConfig, BufferKey<f32>), (), ChangeLaneStreams>,
-        mut orders: ContinuousQuery<(ChangeLaneConfig, BufferKey<f32>), (), ChangeLaneStreams>,
-        mut target: BufferAccess<f32>,
+        srv: ContinuousService<(ChangeLaneConfig, BufferKey<ScriptMessage>), (), ChangeLaneStreams>,
+        mut orders: ContinuousQuery<(ChangeLaneConfig, BufferKey<ScriptMessage>), (), ChangeLaneStreams>,
+        mut target: BufferAccess<ScriptMessage>,
         query: Query<&Position, With<MainVehicle>>,
     ) {
         let Some(mut orders) = orders.get_mut(&srv.key) else {
@@ -431,17 +438,28 @@ pub fn register(setup: &mut BasicExecutorSetup) {
             return;
         };
 
-        orders.for_each(|mut order| {
+        orders.for_each(|order| {
             let config = &order.request().0;
             let target_key = &order.request().1;
             let Some(target) = target.get(order.id(), target_key).ok().and_then(|t| t.newest()) else {
                 return;
             };
+            let Some(target) = target.data.as_number().and_then(|n| n.as_f64()) else {
+                return;
+            };
+            let target = target as f32;
 
             let x = position.translation.x;
-            let dx = *target - x;
-            let target_yaw = cap(-config.p_gain * dx, config.max_yaw);
-            order.streams().steer.send(target_yaw);
+            let yaw = position.yaw;
+            let dx = target - x;
+            let mut steering = -config.err_gain * dx - config.dir_gain * yaw;
+            if yaw.abs() > config.max_yaw {
+                if steering.signum() * yaw.signum() > 0.0 {
+                    steering = 0.0;
+                }
+            }
+
+            order.streams().steer.send(dbg!(steering));
         });
     }
     let lane_controller_service = app.spawn_continuous_service(PostUpdate, lane_controller);
@@ -455,7 +473,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
             .with_default_display_text("Lane Controller"),
         move |builder, config: Option<ChangeLaneConfig>| {
             let config = config.unwrap_or_default();
-            let insert_config = builder.create_map_block(move |(_, key): ((), BufferKey<f32>)| {
+            let insert_config = builder.create_map_block(move |(_, key): ((), BufferKey<ScriptMessage>)| {
                 (config, key)
             });
 
@@ -469,6 +487,31 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         }
     )
         .with_buffer_access();
+
+    fn detect_lane_position(
+        srv: ContinuousService<(), (), LanePositionStreams>,
+        mut orders: ContinuousQuery<(), (), LanePositionStreams>,
+        query: Query<&Position, With<MainVehicle>>,
+    ) {
+        let Some(mut orders) = orders.get_mut(&srv.key) else {
+            return;
+        };
+
+        let Ok(position) = query.single() else {
+            return;
+        };
+
+        orders.for_each(|order| {
+            order.streams().position.send(position.translation.x);
+        });
+    }
+    let detect_lane_position_service = app.spawn_continuous_service(PostUpdate, detect_lane_position);
+    registry.register_node_builder(
+        NodeBuilderOptions::new("detect_lane_position")
+            .with_description("Detect the current position within the lane")
+            .with_default_display_text("Detect Lane Position"),
+        move |builder, _: ()| builder.create_node(detect_lane_position_service),
+    );
 
     // // =========================================================================
     // let process_obstacles_description = "Process the current obstacles in range upon \

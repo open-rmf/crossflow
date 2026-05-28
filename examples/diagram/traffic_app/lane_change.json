@@ -1,0 +1,554 @@
+{
+  "$schema": "https://raw.githubusercontent.com/open-rmf/crossflow/refs/heads/main/diagram.schema.json",
+  "version": "0.1.0",
+  "templates": {},
+  "start": "47dded56-cfa8-47df-b154-08fede1ae142",
+  "ops": {
+    "84b190be-35b3-4085-ab64-6649a70d4264": {
+      "type": "node",
+      "builder": "set_throttle",
+      "next": {
+        "builtin": "dispose"
+      }
+    },
+    "43fdb66a-24fc-4ace-8dc3-ce3a8710a2b1": {
+      "type": "node",
+      "builder": "steer",
+      "next": {
+        "builtin": "dispose"
+      }
+    },
+    "c2e5dbad-ab47-4f51-876b-7eaab56b7228": {
+      "type": "script",
+      "environment": "scripts",
+      "run": "execute",
+      "next": "c4265450-5fc2-4367-8a49-906d426f106d",
+      "stream_out": {
+        "throttle": "84b190be-35b3-4085-ab64-6649a70d4264",
+        "lane": "8bcc0b7f-d57c-42a9-823a-7e097c6b1ac9"
+      }
+    },
+    "47dded56-cfa8-47df-b154-08fede1ae142": {
+      "type": "fork_clone",
+      "next": [
+        "c2e5dbad-ab47-4f51-876b-7eaab56b7228",
+        "lane_access"
+      ]
+    },
+    "83dbd229-cb1d-43dd-a3c4-a28160bcafe2": {
+      "type": "node",
+      "builder": "lane_controller",
+      "next": {
+        "builtin": "dispose"
+      },
+      "config": {
+        "max_yaw": 5,
+        "p_gain": 0.1
+      },
+      "stream_out": {
+        "steer": "43fdb66a-24fc-4ace-8dc3-ce3a8710a2b1"
+      }
+    },
+    "c4265450-5fc2-4367-8a49-906d426f106d": {
+      "type": "script",
+      "environment": "scripts",
+      "run": "stop",
+      "next": {
+        "builtin": "terminate"
+      },
+      "stream_out": {
+        "stop": "84b190be-35b3-4085-ab64-6649a70d4264"
+      }
+    },
+    "8bcc0b7f-d57c-42a9-823a-7e097c6b1ac9": {
+      "type": "buffer"
+    },
+    "lane_access": {
+      "type": "buffer_access",
+      "buffers": [
+        "8bcc0b7f-d57c-42a9-823a-7e097c6b1ac9"
+      ],
+      "next": "83dbd229-cb1d-43dd-a3c4-a28160bcafe2"
+    }
+  },
+  "description": "",
+  "input_examples": [],
+  "script_environments": {
+    "scripts": {
+      "builder": "process-bound-python",
+      "config": {
+        "ownership": "persistent",
+        "script": "import asyncio\nfrom crossflow import *\n\nasync def execute(input: Input):\n    for i in range(0, 120):\n        input.stream_out('throttle', 10)\n        input.stream_out('lane', -2.0)\n        await asyncio.sleep(0.1)\n\ndef stop(input: Input):\n    input.stream_out('stop', 0)"
+      }
+    }
+  },
+  "extensions": {
+    "crossflow-diagram-editor-v1": {
+      "hash": "028727de61bfe7bfdd46b6aa42a0c9e8b0fd0a21",
+      "state": {
+        "nodes": [
+          {
+            "id": ":__builtin_start__",
+            "type": "start",
+            "position": {
+              "x": 542.5,
+              "y": 25
+            },
+            "selectable": false,
+            "data": {
+              "namespace": ""
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          },
+          {
+            "id": ":__builtin_terminate__",
+            "type": "terminate",
+            "position": {
+              "x": 81.17096050426954,
+              "y": 503.10564531562267
+            },
+            "selectable": false,
+            "data": {
+              "namespace": ""
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          },
+          {
+            "id": "059d9721-35fe-4a6f-927b-e99aeee1fcd8",
+            "type": "node",
+            "position": {
+              "x": 350,
+              "y": 425
+            },
+            "data": {
+              "namespace": "",
+              "opId": "84b190be-35b3-4085-ab64-6649a70d4264",
+              "op": {
+                "type": "node",
+                "builder": "set_throttle",
+                "next": {
+                  "builtin": "dispose"
+                }
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          },
+          {
+            "id": "38983695-f5a1-43a5-95c2-977d5813d4f9",
+            "type": "node",
+            "position": {
+              "x": 774.5797526293478,
+              "y": 661.9607071582858
+            },
+            "data": {
+              "namespace": "",
+              "opId": "43fdb66a-24fc-4ace-8dc3-ce3a8710a2b1",
+              "op": {
+                "type": "node",
+                "builder": "steer",
+                "next": {
+                  "builtin": "dispose"
+                }
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          },
+          {
+            "id": "9ab0ee5c-2d4f-4041-9c60-6515248a93ea",
+            "type": "script",
+            "position": {
+              "x": 254.77556853463057,
+              "y": 201.9867295052183
+            },
+            "data": {
+              "namespace": "",
+              "opId": "c2e5dbad-ab47-4f51-876b-7eaab56b7228",
+              "op": {
+                "type": "script",
+                "environment": "scripts",
+                "run": "execute",
+                "next": "c4265450-5fc2-4367-8a49-906d426f106d",
+                "stream_out": {
+                  "throttle": "84b190be-35b3-4085-ab64-6649a70d4264",
+                  "lane": "8bcc0b7f-d57c-42a9-823a-7e097c6b1ac9"
+                }
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          },
+          {
+            "id": "26cb99a1-e6b9-49f7-b517-0fa21b026c04",
+            "type": "fork_clone",
+            "position": {
+              "x": 542.5,
+              "y": 125
+            },
+            "data": {
+              "namespace": "",
+              "opId": "47dded56-cfa8-47df-b154-08fede1ae142",
+              "op": {
+                "type": "fork_clone",
+                "next": [
+                  "c2e5dbad-ab47-4f51-876b-7eaab56b7228",
+                  "lane_access"
+                ]
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          },
+          {
+            "id": "a8492835-58e3-4d3b-86d9-5c043e13d54a",
+            "type": "node",
+            "position": {
+              "x": 610,
+              "y": 525
+            },
+            "data": {
+              "namespace": "",
+              "opId": "83dbd229-cb1d-43dd-a3c4-a28160bcafe2",
+              "op": {
+                "type": "node",
+                "builder": "lane_controller",
+                "next": {
+                  "builtin": "dispose"
+                },
+                "config": {
+                  "max_yaw": 5,
+                  "p_gain": 0.1
+                },
+                "stream_out": {
+                  "steer": "43fdb66a-24fc-4ace-8dc3-ce3a8710a2b1"
+                }
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          },
+          {
+            "id": "4623b72b-0363-43c5-9517-64c6e4182f5e",
+            "type": "script",
+            "position": {
+              "x": 110,
+              "y": 325
+            },
+            "data": {
+              "namespace": "",
+              "opId": "c4265450-5fc2-4367-8a49-906d426f106d",
+              "op": {
+                "type": "script",
+                "environment": "scripts",
+                "run": "stop",
+                "next": {
+                  "builtin": "terminate"
+                },
+                "stream_out": {
+                  "stop": "84b190be-35b3-4085-ab64-6649a70d4264"
+                }
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          },
+          {
+            "id": "5994acff-de51-4d42-b38d-77320d0fa483",
+            "type": "buffer",
+            "position": {
+              "x": 581.5528226578112,
+              "y": 309.65781967014556
+            },
+            "data": {
+              "namespace": "",
+              "opId": "8bcc0b7f-d57c-42a9-823a-7e097c6b1ac9",
+              "op": {
+                "type": "buffer"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          },
+          {
+            "id": "56086aec-e3cd-4d05-8716-b229dc60d654",
+            "type": "buffer_access",
+            "position": {
+              "x": 905.685657266286,
+              "y": 409.65781967014556
+            },
+            "data": {
+              "namespace": "",
+              "opId": "lane_access",
+              "op": {
+                "type": "buffer_access",
+                "buffers": [
+                  "8bcc0b7f-d57c-42a9-823a-7e097c6b1ac9"
+                ],
+                "next": "83dbd229-cb1d-43dd-a3c4-a28160bcafe2"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          }
+        ],
+        "edges": [
+          {
+            "id": "704d46e6-35d2-4282-8fde-3027fbe7985b",
+            "source": "9ab0ee5c-2d4f-4041-9c60-6515248a93ea",
+            "sourceHandle": "dataStream",
+            "target": "059d9721-35fe-4a6f-927b-e99aeee1fcd8",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "streamOut",
+            "data": {
+              "output": {
+                "streamId": "throttle"
+              },
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          },
+          {
+            "id": "bca00bfd-e3e2-44a0-914e-953a5cf58df6",
+            "source": ":__builtin_start__",
+            "target": "26cb99a1-e6b9-49f7-b517-0fa21b026c04",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          },
+          {
+            "id": "f754b5a0-4d00-41e7-a38b-c77c9a94865f",
+            "source": "26cb99a1-e6b9-49f7-b517-0fa21b026c04",
+            "target": "9ab0ee5c-2d4f-4041-9c60-6515248a93ea",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          },
+          {
+            "id": "29046764-a501-4926-8cfd-9d457710cd7b",
+            "source": "a8492835-58e3-4d3b-86d9-5c043e13d54a",
+            "sourceHandle": "dataStream",
+            "target": "38983695-f5a1-43a5-95c2-977d5813d4f9",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "streamOut",
+            "data": {
+              "output": {
+                "streamId": "steer"
+              },
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          },
+          {
+            "id": "c31dbcc4-58f7-4dcc-98dc-90485b8429a4",
+            "source": "4623b72b-0363-43c5-9517-64c6e4182f5e",
+            "sourceHandle": "dataStream",
+            "target": "059d9721-35fe-4a6f-927b-e99aeee1fcd8",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "streamOut",
+            "data": {
+              "output": {
+                "streamId": "stop"
+              },
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          },
+          {
+            "id": "552371ba-39bf-411e-b941-74c4774fe696",
+            "source": "4623b72b-0363-43c5-9517-64c6e4182f5e",
+            "target": ":__builtin_terminate__",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          },
+          {
+            "id": "c204b015-ceef-4e09-b7b7-4ad5f38402ae",
+            "source": "9ab0ee5c-2d4f-4041-9c60-6515248a93ea",
+            "target": "4623b72b-0363-43c5-9517-64c6e4182f5e",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          },
+          {
+            "id": "2e76c299-4d8c-4809-9826-ddc5d78433f1",
+            "source": "9ab0ee5c-2d4f-4041-9c60-6515248a93ea",
+            "sourceHandle": "dataStream",
+            "target": "5994acff-de51-4d42-b38d-77320d0fa483",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "streamOut",
+            "data": {
+              "output": {
+                "streamId": "lane"
+              },
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          },
+          {
+            "id": "d9367df6-5ab8-40dc-b73f-d9f0f55ea93b",
+            "source": "56086aec-e3cd-4d05-8716-b229dc60d654",
+            "target": "a8492835-58e3-4d3b-86d9-5c043e13d54a",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          },
+          {
+            "id": "19eeebed-a0ed-4a18-8685-693ca73d0453",
+            "source": "26cb99a1-e6b9-49f7-b517-0fa21b026c04",
+            "target": "56086aec-e3cd-4d05-8716-b229dc60d654",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          },
+          {
+            "id": "85c3c011-609a-4d3e-bcc8-63f7299bba58",
+            "source": "5994acff-de51-4d42-b38d-77320d0fa483",
+            "target": "56086aec-e3cd-4d05-8716-b229dc60d654",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "buffer",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "bufferSeq",
+                "seq": 0
+              }
+            },
+            "style": {},
+            "selected": false
+          }
+        ]
+      }
+    }
+  }
+}

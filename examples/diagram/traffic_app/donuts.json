@@ -1,0 +1,229 @@
+{
+  "$schema": "https://raw.githubusercontent.com/open-rmf/crossflow/refs/heads/main/diagram.schema.json",
+  "version": "0.1.0",
+  "templates": {},
+  "start": "cd79f387-eb82-4c3d-8c57-195fa7eee1ff",
+  "ops": {
+    "c1031467-a12b-439d-aca5-160fd822148e": {
+      "type": "node",
+      "builder": "set_throttle",
+      "next": {
+        "builtin": "terminate"
+      }
+    },
+    "2612f24a-7b8b-4b40-a51c-2916f9894710": {
+      "type": "node",
+      "builder": "steer",
+      "next": {
+        "builtin": "dispose"
+      }
+    },
+    "cd79f387-eb82-4c3d-8c57-195fa7eee1ff": {
+      "type": "split",
+      "keyed": {
+        "throttle": "c1031467-a12b-439d-aca5-160fd822148e",
+        "steer": "2612f24a-7b8b-4b40-a51c-2916f9894710"
+      }
+    }
+  },
+  "description": "",
+  "input_examples": [],
+  "script_environments": {},
+  "extensions": {
+    "crossflow-diagram-editor-v1": {
+      "hash": "cce052ecc13f853c5b667ad4d79218a5513149af",
+      "state": {
+        "nodes": [
+          {
+            "id": ":__builtin_start__",
+            "type": "start",
+            "position": {
+              "x": 33,
+              "y": -31
+            },
+            "selectable": false,
+            "data": {
+              "namespace": ""
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          },
+          {
+            "id": ":__builtin_terminate__",
+            "type": "terminate",
+            "position": {
+              "x": 0,
+              "y": 400
+            },
+            "selectable": false,
+            "data": {
+              "namespace": ""
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false
+          },
+          {
+            "id": "87986f85-bd88-46c0-96c8-c912fb16a65d",
+            "type": "node",
+            "position": {
+              "x": -75,
+              "y": 228.75
+            },
+            "data": {
+              "namespace": "",
+              "opId": "c1031467-a12b-439d-aca5-160fd822148e",
+              "op": {
+                "type": "node",
+                "builder": "set_throttle",
+                "next": {
+                  "builtin": "terminate"
+                }
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          },
+          {
+            "id": "420e8cb8-d709-4c1e-ba69-27c2f90806a6",
+            "type": "node",
+            "position": {
+              "x": 194,
+              "y": 240.75
+            },
+            "data": {
+              "namespace": "",
+              "opId": "2612f24a-7b8b-4b40-a51c-2916f9894710",
+              "op": {
+                "type": "node",
+                "builder": "steer",
+                "next": {
+                  "builtin": "dispose"
+                }
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          },
+          {
+            "id": "92976a75-eea6-4c79-abf6-73d4baaeb545",
+            "type": "split",
+            "position": {
+              "x": 37,
+              "y": 90.75
+            },
+            "data": {
+              "namespace": "",
+              "opId": "cd79f387-eb82-4c3d-8c57-195fa7eee1ff",
+              "op": {
+                "type": "split",
+                "keyed": {
+                  "throttle": "c1031467-a12b-439d-aca5-160fd822148e",
+                  "steer": "2612f24a-7b8b-4b40-a51c-2916f9894710"
+                }
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          }
+        ],
+        "edges": [
+          {
+            "id": "b095ff3d-f9c9-47df-b7a4-2d9ffe79a0bd",
+            "source": ":__builtin_start__",
+            "target": "92976a75-eea6-4c79-abf6-73d4baaeb545",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          },
+          {
+            "id": "d60312c1-07b0-4c81-857d-d011c929c95a",
+            "source": "92976a75-eea6-4c79-abf6-73d4baaeb545",
+            "target": "87986f85-bd88-46c0-96c8-c912fb16a65d",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "splitKey",
+            "data": {
+              "output": {
+                "key": "throttle"
+              },
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          },
+          {
+            "id": "518af006-c859-4bc5-8970-51955b3cf738",
+            "source": "92976a75-eea6-4c79-abf6-73d4baaeb545",
+            "target": "420e8cb8-d709-4c1e-ba69-27c2f90806a6",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "splitKey",
+            "data": {
+              "output": {
+                "key": "steer"
+              },
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          },
+          {
+            "id": "ce63ecf8-d089-40d8-b1fc-38a57c267f6c",
+            "source": "87986f85-bd88-46c0-96c8-c912fb16a65d",
+            "target": ":__builtin_terminate__",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            },
+            "selected": false
+          }
+        ]
+      }
+    }
+  }
+}
