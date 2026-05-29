@@ -25,6 +25,7 @@ import { MaterialSymbol } from '../nodes';
 import { useNotification } from '../notification-provider';
 import { useRegistry } from '../registry-provider';
 import type { DiagramElementMetadata } from '../types/api';
+import { scriptEnvironmentPlugins } from './script-environments/registry';
 
 export interface ScriptEnvironmentManagerDialogProps {
   open: boolean;
@@ -120,13 +121,16 @@ export function ScriptEnvironmentManagerDialog({
     return [];
   }, [config]);
 
+  const plugin = scriptEnvironmentPlugins[builder];
+  const activeCodeField = plugin?.defaultCodeField || selectedCodeField;
+
   const handleScriptTextChange = (newVal: string) => {
     setScriptText(newVal);
-    if (!selectedCodeField) return;
+    if (!activeCodeField) return;
     try {
       const obj = JSON.parse(config);
       if (obj && typeof obj === 'object') {
-        obj[selectedCodeField] = newVal;
+        obj[activeCodeField] = newVal;
         setConfig(JSON.stringify(obj, null, 2));
       }
     } catch {}
@@ -450,6 +454,9 @@ export function ScriptEnvironmentManagerDialog({
                       setLanguage(builderMeta.language || 'python');
 
                       // Auto-bootstrap template if creating or starting with empty config
+                      const selectedPlugin = scriptEnvironmentPlugins[selectedBuilder];
+                      const activeField = selectedPlugin?.defaultCodeField || '';
+
                       if (
                         mode === 'create' ||
                         config === '{}' ||
@@ -466,12 +473,13 @@ export function ScriptEnvironmentManagerDialog({
                             typeof exampleConfig === 'object'
                           ) {
                             const configObj = { ...exampleConfig };
+                            const codeField = activeField || 'script';
                             if (
-                              'script' in configObj &&
-                              typeof configObj.script === 'string'
+                              codeField in configObj &&
+                              typeof configObj[codeField] === 'string'
                             ) {
-                              setScriptText(configObj.script);
-                              setSelectedCodeField('script');
+                              setScriptText(configObj[codeField]);
+                              setSelectedCodeField(codeField);
                             } else {
                               setScriptText('');
                               setSelectedCodeField('');
@@ -479,7 +487,23 @@ export function ScriptEnvironmentManagerDialog({
                             setConfig(JSON.stringify(configObj, null, 2));
                           }
                         } else {
-                          setConfig('{}');
+                          if (selectedPlugin) {
+                            if (selectedPlugin.defaultCodeField) {
+                              setSelectedCodeField(selectedPlugin.defaultCodeField);
+                            }
+                            if (selectedPlugin.bootstrapConfig) {
+                              setConfig(selectedPlugin.bootstrapConfig());
+                            }
+                            setScriptText('');
+                          } else {
+                            setConfig('{}');
+                            setScriptText('');
+                            setSelectedCodeField('');
+                          }
+                        }
+                      } else {
+                        if (selectedPlugin?.defaultCodeField) {
+                          setSelectedCodeField(selectedPlugin.defaultCodeField);
                         }
                       }
                     }
@@ -504,29 +528,31 @@ export function ScriptEnvironmentManagerDialog({
                     ))
                   )}
                 </TextField>
-                <TextField
-                  select
-                  label="Code Field"
-                  value={selectedCodeField}
-                  onChange={(e) => handleCodeFieldChange(e.target.value)}
-                  fullWidth
-                  disabled={mode === 'view'}
-                  sx={{ flex: 1 }}
-                >
-                  {configKeys.length === 0 ? (
-                    <MenuItem disabled value="">
-                      <Typography variant="caption" color="text.disabled">
-                        No string fields defined
-                      </Typography>
-                    </MenuItem>
-                  ) : (
-                    configKeys.map((key) => (
-                      <MenuItem key={key} value={key}>
-                        {key}
+                {!plugin?.defaultCodeField && (
+                  <TextField
+                    select
+                    label="Code Field"
+                    value={selectedCodeField}
+                    onChange={(e) => handleCodeFieldChange(e.target.value)}
+                    fullWidth
+                    disabled={mode === 'view'}
+                    sx={{ flex: 1 }}
+                  >
+                    {configKeys.length === 0 ? (
+                      <MenuItem disabled value="">
+                        <Typography variant="caption" color="text.disabled">
+                          No string fields defined
+                        </Typography>
                       </MenuItem>
-                    ))
-                  )}
-                </TextField>
+                    ) : (
+                      configKeys.map((key) => (
+                        <MenuItem key={key} value={key}>
+                          {key}
+                        </MenuItem>
+                      ))
+                    )}
+                  </TextField>
+                )}
                 <Tooltip title="Python is the only supported scripting language on the frontend for now (since CodeMirror support for each language needs new dependencies). If a new script environment builder with a different scripting language is added, a corresponding CodeMirror language dependency must be added to the frontend.">
                   <TextField
                     label="Scripting Language"
@@ -543,24 +569,35 @@ export function ScriptEnvironmentManagerDialog({
                 </Tooltip>
               </Stack>
 
-              <TextField
-                label="Builder Config (JSON)"
-                multiline
-                rows={4}
-                value={config}
-                onChange={(e) => handleConfigChange(e.target.value)}
-                fullWidth
-                disabled={mode === 'view'}
-                error={!!configError}
-                helperText={configError}
-                slotProps={{
-                  htmlInput: {
-                    sx: { fontFamily: 'monospace' },
-                  },
-                }}
-              />
+              {plugin ? (
+                <plugin.PropertiesForm
+                  config={config}
+                  onChange={setConfig}
+                  onValidationError={setConfigError}
+                  mode={mode}
+                  registry={registry}
+                  scriptText={scriptText}
+                />
+              ) : (
+                <TextField
+                  label="Builder Config (JSON)"
+                  multiline
+                  rows={4}
+                  value={config}
+                  onChange={(e) => handleConfigChange(e.target.value)}
+                  fullWidth
+                  disabled={mode === 'view'}
+                  error={!!configError}
+                  helperText={configError}
+                  slotProps={{
+                    htmlInput: {
+                      sx: { fontFamily: 'monospace' },
+                    },
+                  }}
+                />
+              )}
 
-              {selectedCodeField && configKeys.includes(selectedCodeField) ? (
+              {activeCodeField && (plugin || configKeys.includes(activeCodeField)) ? (
                 <>
                   <Stack
                     direction="row"
@@ -568,7 +605,7 @@ export function ScriptEnvironmentManagerDialog({
                     alignItems="center"
                   >
                     <Typography variant="caption" color="text.secondary">
-                      Script ({selectedCodeField})
+                      Script ({activeCodeField})
                     </Typography>
                     <IconButton
                       size="small"
