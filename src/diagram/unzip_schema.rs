@@ -24,8 +24,8 @@ use crate::Builder;
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
-    InferenceContext, MessageRegistry, NextOperation, OperationName, RegisterClone,
-    SerializeMessage, TraceInfo, TraceSettings, supported::*,
+    InferenceContext, MessageRegistry, NextOperation, OperationName, Operations, RegisterClone,
+    SerializeMessage, Templates, TraceInfo, TraceSettings, supported::*,
 };
 
 /// If the input message is a tuple of (T1, T2, T3, ...), unzip it into
@@ -137,6 +137,10 @@ impl BuildDiagramOperation for UnzipSchema {
     ) -> Result<(), DiagramErrorCode> {
         ctx.unzip(id, self.next.iter());
         Ok(())
+    }
+
+    fn child_operations(&self, _: &Templates) -> Result<Option<Operations>, DiagramErrorCode> {
+        Ok(None)
     }
 }
 

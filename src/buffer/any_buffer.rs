@@ -34,15 +34,16 @@ use thiserror::Error as ThisError;
 use smallvec::SmallVec;
 
 use crate::{
-    AccessError, AccessKey, Accessing, Accessor, BMut, BMutTracer, Buffer, BufferAccessMut,
-    BufferAccessors, BufferEntry, BufferError, BufferInstanceId, BufferKey, BufferKeyBody,
-    BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation, BufferManager, BufferMap,
-    BufferMapLayout, BufferMapLayoutHints, BufferStorage, BufferView, BufferWorldAccess,
-    Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer, FetchFromBuffer, Gate, GateState,
-    IdentifierRef, IncompatibleLayout, InspectBufferSessions, IterBufferView, Joining,
-    ManageBufferSessions, MessageTypeHint, MessageTypeHintEvaluation, MessageTypeHintMap,
-    NotifyBufferUpdate, OperationError, OperationResult, OperationRoster, OrBroken, RequestId, Seq,
-    TypeInfo, add_listener_to_source,
+    AccessError, AccessKey, Accessing, Accessor, AwaitingHandle, BMut, BMutTracer, Buffer,
+    BufferAccessMut, BufferAccessors, BufferEntry, BufferError, BufferInstanceId, BufferKey,
+    BufferKeyBody, BufferKeyBuilder, BufferKeyLifecycle, BufferKeyTag, BufferLocation,
+    BufferManager, BufferMap, BufferMapLayout, BufferMapLayoutHints, BufferStorage, BufferView,
+    BufferWorldAccess, Bufferable, Buffering, Builder, CloneFromBuffer, DrainBuffer, FetchFn,
+    FetchFromBuffer, FetchSettings, Gate, GateState, IdentifierRef, IncompatibleLayout,
+    InspectBufferSessions, IterBufferView, Joining, ManageBufferSessions, MessageTypeHint,
+    MessageTypeHintEvaluation, MessageTypeHintMap, NotifyAwaitingBuffer, NotifyBufferUpdate,
+    OperationError, OperationResult, OperationRoster, OrBroken, RequestId, Seq, TypeInfo,
+    add_listener_to_source, is_buffer_reachable,
 };
 
 #[cfg(feature = "trace")]
@@ -248,6 +249,7 @@ impl<T: 'static + Send + Sync + Clone> AsAnyBuffer for CloneFromBuffer<T> {
 #[derive(Clone)]
 pub struct AnyBufferKey {
     pub(crate) body: BufferKeyBody,
+    pub(crate) fetch_behavior: FetchBehavior,
     pub(crate) interface: &'static (dyn AnyBufferAccessInterface + Send + Sync),
 }
 
@@ -255,11 +257,27 @@ impl AnyBufferKey {
     /// Downcast this into a concrete [`BufferKey`] for the specified message type.
     ///
     /// To downcast to a specialized kind of key, use [`Self::downcast_buffer_key`] instead.
-    pub fn downcast_for_message<Message: 'static>(self) -> Option<BufferKey<Message>> {
+    pub fn downcast_for_message<Message: 'static + Send + Sync>(
+        self,
+    ) -> Option<BufferKey<Message>> {
         if TypeId::of::<Message>() == self.interface.message_type_id() {
+            let fetch_settings = match self.fetch_behavior {
+                FetchBehavior::Pull => FetchSettings::<Message>::default(),
+                FetchBehavior::Clone => self
+                    .interface
+                    .fetch_by_clone_fn()
+                    .and_then(|f| f.downcast_ref::<FetchFn<Message>>())
+                    .copied()
+                    .map(|fetch| FetchSettings {
+                        behavior: FetchBehavior::Clone,
+                        fetch,
+                    })
+                    .unwrap_or_else(|| FetchSettings::<Message>::default()),
+            };
+
             Some(BufferKey {
                 body: self.body,
-                _ignore: Default::default(),
+                fetch_settings,
             })
         } else {
             None
@@ -269,10 +287,35 @@ impl AnyBufferKey {
     /// Downcast this into a different special buffer key representation, such
     /// as a `JsonBufferKey`.
     pub fn downcast_buffer_key<KeyType: 'static>(self) -> Option<KeyType> {
-        self.interface.key_downcast(TypeId::of::<KeyType>())?(self.body)
+        self.interface.key_downcast(TypeId::of::<KeyType>())?(self.body, self.fetch_behavior)
             .downcast::<KeyType>()
             .ok()
             .map(|x| *x)
+    }
+
+    /// Create a copy of this key that fetches from its buffer by cloning.
+    pub fn fetch_by_clone(&self) -> Self {
+        let mut key = self.clone();
+        key.fetch_behavior = FetchBehavior::Clone;
+        key
+    }
+
+    /// Create a copy of this key that fetches from its buffer by pulling values
+    /// out of it.
+    pub fn fetch_by_pull(&self) -> Self {
+        let mut key = self.clone();
+        key.fetch_behavior = FetchBehavior::Pull;
+        key
+    }
+
+    /// Change the way this key fetches from its buffer.
+    pub fn set_fetch_behavior(&mut self, behavior: FetchBehavior) {
+        self.fetch_behavior = behavior;
+    }
+
+    /// Get the current fetch behavior of this key.
+    pub fn fetch_behavior(&self) -> &FetchBehavior {
+        &self.fetch_behavior
     }
 
     /// The buffer ID of this key.
@@ -297,6 +340,7 @@ impl BufferKeyLifecycle for AnyBufferKey {
         Ok(AnyBufferKey {
             body: builder.make_body(buffer.id())?,
             interface: buffer.interface,
+            fetch_behavior: FetchBehavior::Pull,
         })
     }
 
@@ -308,6 +352,7 @@ impl BufferKeyLifecycle for AnyBufferKey {
         Self {
             body: self.body.deep_clone(),
             interface: self.interface,
+            fetch_behavior: FetchBehavior::Pull,
         }
     }
 }
@@ -327,11 +372,16 @@ impl<T: 'static + Send + Sync + Any> From<BufferKey<T>> for AnyBufferKey {
         AnyBufferKey {
             body: value.body,
             interface,
+            fetch_behavior: value.fetch_settings.behavior,
         }
     }
 }
 
 impl AccessKey for AnyBufferKey {
+    fn to_any_key(&self) -> AnyBufferKey {
+        self.clone()
+    }
+
     fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool {
         let entry = included.entry(self.tag().instance()).or_default();
         *entry += 1;
@@ -375,6 +425,25 @@ impl AccessKey for AnyBufferKey {
 impl Accessor for AnyBufferKey {
     type Buffers = AnyBuffer;
 
+    fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
+        let mut map = HashMap::new();
+        map.insert(IdentifierRef::Index(0), self.clone());
+        map
+    }
+
+    fn try_from_any_keys(
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<Self, IncompatibleLayout> {
+        let mut compatibility = IncompatibleLayout::default();
+        if let Ok(downcast_key) =
+            compatibility.require_buffer_key_for_identifier::<AnyBufferKey>(0, keys)
+        {
+            return Ok(downcast_key);
+        }
+
+        Err(compatibility)
+    }
+
     async fn wait_for_change(&mut self) {
         let _ = self.body.receiver.changed().await;
     }
@@ -399,12 +468,43 @@ impl Accessor for AnyBufferKey {
 
     fn can_join(&self, world: &World) -> Result<bool, AccessError> {
         let view = world.any_buffer_view_untraced(self)?;
-        Ok(view.oldest().is_some())
+        let can_join = view.oldest().is_some();
+        if !can_join {
+            // Check if this will ever be reachable
+            let r = is_buffer_reachable(self.tag(), world);
+            if r.is_err() || r.is_ok_and(|ok| !ok) {
+                // We cannot ensure that the buffer is reachable anymore, so we
+                // should return an error here.
+                return Err(AccessError::Unreachable);
+            }
+        }
+
+        Ok(can_join)
+    }
+
+    fn notify_awaiting(
+        &self,
+        req: RequestId,
+        handles: &mut Vec<Arc<AwaitingHandle>>,
+        world: &mut World,
+    ) {
+        if let Some(handle) = world.awaiting_buffer(self.tag(), req) {
+            handles.push(handle);
+        }
     }
 
     type Joined = AnyMessageBox;
     fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
-        Ok(world.any_buffer_mut(req, self, |mut buffer| buffer.pull())?)
+        if !self.can_join(world)? {
+            return Ok(None);
+        }
+
+        let r = world.any_buffer_mut(req, self, |mut buffer| match self.fetch_behavior {
+            FetchBehavior::Pull => Ok(buffer.pull()),
+            FetchBehavior::Clone => buffer.get_clone(0),
+        })??;
+
+        Ok(r)
     }
 
     fn distribute(
@@ -502,6 +602,11 @@ impl<'a> AnyBufferView<'a> {
         self.viewing.any_get(index)
     }
 
+    /// Get a clone of a message from the buffer. Indexing is the same as `get`.
+    pub fn get_clone(&self, index: usize) -> Result<Option<AnyMessageBox>, CloneError> {
+        self.viewing.any_clone(index)
+    }
+
     /// Iterate through the contents of this buffer.
     pub fn iter(&self) -> IterAnyBuffer<'a> {
         IterAnyBuffer {
@@ -574,6 +679,11 @@ impl<'w, 's, 'a> AnyBufferMut<'w, 's, 'a> {
     /// while the highest index is the newest message in the buffer.
     pub fn get(&self, index: usize) -> Option<AnyMessageRef<'_>> {
         self.manager.any_get(index)
+    }
+
+    /// Get a clone of a message from the buffer. Indexing is the same as `get`.
+    pub fn get_clone(&self, index: usize) -> Result<Option<AnyMessageBox>, CloneError> {
+        self.manager.any_clone(index)
     }
 
     /// Iterate through the contents of this buffer.
@@ -827,6 +937,7 @@ trait AnyBufferViewing<'a> {
     fn any_oldest(&self) -> Option<AnyMessageRef<'a>>;
     fn any_newest(&self) -> Option<AnyMessageRef<'a>>;
     fn any_get(&self, index: usize) -> Option<AnyMessageRef<'a>>;
+    fn any_clone(&self, index: usize) -> Result<Option<AnyMessageBox>, CloneError>;
     fn any_iter(&self) -> Box<dyn IterAnyBufferInterface<'a> + 'a>;
     fn any_message_type(&self) -> TypeInfo;
 }
@@ -836,6 +947,7 @@ trait AnyBufferManagement {
     fn any_oldest(&self) -> Option<AnyMessageRef<'_>>;
     fn any_newest(&self) -> Option<AnyMessageRef<'_>>;
     fn any_get(&self, index: usize) -> Option<AnyMessageRef<'_>>;
+    fn any_clone(&self, index: usize) -> Result<Option<AnyMessageBox>, CloneError>;
     fn any_iter(&self) -> Box<dyn IterAnyBufferInterface<'_> + '_>;
     fn any_message_type(&self) -> TypeInfo;
 
@@ -847,6 +959,12 @@ trait AnyBufferManagement {
     fn any_newest_mut(&mut self) -> Option<AnyMut<'_>>;
     fn any_get_mut(&mut self, index: usize) -> Option<AnyMut<'_>>;
     fn any_drain(&mut self, range: AnyRange) -> Box<dyn DrainAnyBufferInterface + '_>;
+}
+
+#[derive(Debug, ThisError, Clone, Copy)]
+#[error("Unable to clone the buffer content. Message type: {message_type}")]
+pub struct CloneError {
+    pub message_type: TypeInfo,
 }
 
 pub(crate) struct AnyRange {
@@ -936,6 +1054,21 @@ impl<'a, T: 'static + Send + Sync + Any> AnyBufferViewing<'a> for BufferView<'a,
         self.get(index).map(to_any_ref)
     }
 
+    fn any_clone(&self, index: usize) -> Result<Option<AnyMessageBox>, CloneError> {
+        let Some(message) = self.any_get(index) else {
+            return Ok(None);
+        };
+
+        let interface = AnyBuffer::interface_for::<T>();
+        let Some(output) = interface.clone_any(message) else {
+            return Err(CloneError {
+                message_type: TypeInfo::of::<T>(),
+            });
+        };
+
+        Ok(Some(output))
+    }
+
     fn any_iter(&self) -> Box<dyn IterAnyBufferInterface<'a> + 'a> {
         Box::new(self.iter())
     }
@@ -1010,6 +1143,21 @@ impl<T: 'static + Send + Sync + Any> AnyBufferManagement for BufferManager<'_, '
 
     fn any_get(&self, index: usize) -> Option<AnyMessageRef<'_>> {
         self.get(index).map(to_any_ref)
+    }
+
+    fn any_clone(&self, index: usize) -> Result<Option<AnyMessageBox>, CloneError> {
+        let Some(message) = self.any_get(index) else {
+            return Ok(None);
+        };
+
+        let interface = AnyBuffer::interface_for::<T>();
+        let Some(output) = interface.clone_any(message) else {
+            return Err(CloneError {
+                message_type: TypeInfo::of::<T>(),
+            });
+        };
+
+        Ok(Some(output))
     }
 
     fn any_iter(&self) -> Box<dyn IterAnyBufferInterface<'_> + '_> {
@@ -1168,6 +1316,8 @@ pub trait AnyBufferAccessInterface {
         &self,
         clone_for_any_join: CloneForAnyFn,
         clone_for_join_fn: &'static (dyn Any + Send + Sync),
+        fetch_by_clone_fn: &'static (dyn Any + Send + Sync),
+        clone_any_fn: fn(AnyMessageRef) -> AnyMessageBox,
     );
 
     fn buffer_downcast(&self, buffer_type: TypeId) -> Option<BufferDowncastRef>;
@@ -1190,7 +1340,15 @@ pub trait AnyBufferAccessInterface {
         world: &mut World,
     ) -> Result<AnyMessageBox, OperationError>;
 
+    /// Cast this into a FetchFromBufferFn
     fn clone_for_join_fn(&self) -> Option<&'static (dyn Any + Send + Sync)>;
+
+    /// Cast this into a FetchFn
+    fn fetch_by_clone_fn(&self) -> Option<&'static (dyn Any + Send + Sync)>;
+
+    /// Pass in a compatible AnyMessageRef to make a clone of it, if the message
+    /// type supports cloning and that cloning has been registered.
+    fn clone_any(&self, message: AnyMessageRef) -> Option<AnyMessageBox>;
 
     fn create_any_buffer_view<'a>(
         &self,
@@ -1208,8 +1366,9 @@ pub type AnyMessageResult = Result<AnyMessageBox, OperationError>;
 // TODO(@mxgrey): Consider changing this trait box into a function pointer
 pub type BufferDowncastBox = Box<dyn Fn(AnyBuffer) -> AnyMessageResult + Send + Sync>;
 pub type BufferDowncastRef = &'static (dyn Fn(AnyBuffer) -> AnyMessageResult + Send + Sync);
-pub type KeyDowncastBox = Box<dyn Fn(BufferKeyBody) -> AnyMessageBox + Send + Sync>;
-pub type KeyDowncastRef = &'static (dyn Fn(BufferKeyBody) -> AnyMessageBox + Send + Sync);
+pub type KeyDowncastBox = Box<dyn Fn(BufferKeyBody, FetchBehavior) -> AnyMessageBox + Send + Sync>;
+pub type KeyDowncastRef =
+    &'static (dyn Fn(BufferKeyBody, FetchBehavior) -> AnyMessageBox + Send + Sync);
 pub type CloneForAnyFn = fn(RequestId, &BufferKeyTag, &mut World) -> AnyMessageResult;
 
 struct AnyBufferAccessImpl<T> {
@@ -1224,6 +1383,12 @@ struct CloneInterfaces {
     /// Contains a function pointer that can be downcast into a type-specific
     /// fetch_for_join function pointer for [`FetchFromBuffer`].
     clone_for_join_fn: &'static (dyn Any + Send + Sync),
+    /// Contains a function pointer that can be downcast into a type-specific
+    /// fetch_by_clone function pointer that can be used by BufferKey::fetch_settings
+    fetch_by_clone_fn: &'static (dyn Any + Send + Sync),
+    /// Takes in a reference to a compatible Any message reference and returns a
+    /// new copy as a box-allocated message.
+    clone_any_fn: fn(AnyMessageRef) -> AnyMessageBox,
 }
 
 impl<T: 'static + Send + Sync> AnyBufferAccessImpl<T> {
@@ -1270,10 +1435,11 @@ impl<T: 'static + Send + Sync> AnyBufferAccessImpl<T> {
         // Automatically register a downcast to AnyBufferKey
         key_downcasts.insert(
             TypeId::of::<AnyBufferKey>(),
-            Box::leak(Box::new(|body| -> AnyMessageBox {
+            Box::leak(Box::new(|body, fetch_behavior| -> AnyMessageBox {
                 Box::new(AnyBufferKey {
                     body,
                     interface: AnyBuffer::interface_for::<T>(),
+                    fetch_behavior,
                 })
             })),
         );
@@ -1317,10 +1483,14 @@ impl<T: 'static + Send + Sync + Any> AnyBufferAccessInterface for AnyBufferAcces
         &self,
         clone_for_any_join: CloneForAnyFn,
         clone_for_join_fn: &'static (dyn Any + Send + Sync),
+        fetch_by_clone_fn: &'static (dyn Any + Send + Sync),
+        clone_any_fn: fn(AnyMessageRef) -> AnyMessageBox,
     ) {
         *self.cloning.lock().unwrap() = Some(CloneInterfaces {
             clone_for_any_join,
             clone_for_join_fn,
+            fetch_by_clone_fn,
+            clone_any_fn,
         });
     }
 
@@ -1380,6 +1550,23 @@ impl<T: 'static + Send + Sync + Any> AnyBufferAccessInterface for AnyBufferAcces
             .unwrap()
             .as_ref()
             .map(|c| c.clone_for_join_fn)
+    }
+
+    fn fetch_by_clone_fn(&self) -> Option<&'static (dyn Any + Send + Sync)> {
+        self.cloning
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|c| c.fetch_by_clone_fn)
+    }
+
+    fn clone_any(&self, message: AnyMessageRef) -> Option<AnyMessageBox> {
+        self.cloning
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|c| c.clone_any_fn)
+            .map(|f| f(message))
     }
 
     fn create_any_buffer_view<'a>(
@@ -1555,6 +1742,7 @@ impl Accessing for AnyBuffer {
         Ok(AnyBufferKey {
             body: builder.make_body(self.id())?,
             interface: self.interface,
+            fetch_behavior: self.join_behavior,
         })
     }
 

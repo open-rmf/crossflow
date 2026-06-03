@@ -145,6 +145,11 @@ pub use promise::*;
 pub mod provider;
 pub use provider::*;
 
+#[cfg(feature = "python")]
+pub mod python;
+#[cfg(feature = "python")]
+pub use python::*;
+
 pub mod reply;
 pub use reply::*;
 
@@ -168,6 +173,11 @@ pub mod testing;
 pub(crate) mod utils;
 #[allow(unused)]
 pub(crate) use utils::*;
+
+#[cfg(any(feature = "python", feature = "diagram"))]
+pub mod scripting;
+#[cfg(any(feature = "python", feature = "diagram"))]
+pub use scripting::*;
 
 #[cfg(feature = "trace")]
 pub mod trace;
@@ -508,20 +518,23 @@ pub mod prelude {
 
     pub use bevy_ecs::prelude::World;
 
+    #[cfg(feature = "json")]
+    pub use crate::buffer::{
+        JsonBuffer, JsonBufferKey, JsonBufferMut, JsonBufferView, JsonBufferWorldAccess,
+        JsonMessage,
+    };
+
     #[cfg(feature = "diagram")]
-    pub use crate::{
-        buffer::{
-            JsonBuffer, JsonBufferKey, JsonBufferMut, JsonBufferView, JsonBufferWorldAccess,
-            JsonMessage,
-        },
-        diagram::{
-            Diagram, DiagramElementRegistry, DiagramError, NodeBuilderOptions, Section,
-            SectionInterfaceItem,
-        },
+    pub use crate::diagram::{
+        Diagram, DiagramElementRegistry, DiagramError, NodeBuilderOptions, Section,
+        SectionInterfaceItem,
     };
 
     #[cfg(feature = "trace")]
     pub use crate::{Debug, DebugStepExt, UniversalTraceToggle};
+
+    #[cfg(all(feature = "python", feature = "diagram"))]
+    pub use crate::diagram::process_bound_python::PythonEventLoop;
 
     pub use futures::FutureExt;
 }

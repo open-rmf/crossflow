@@ -25,11 +25,11 @@ use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Serialize, de::DeserializeOwned};
 
 use super::{
-    BasicConnect, BuilderContext, ConnectIntoTarget, DiagramErrorCode, DynForkResult, DynInputSlot,
-    DynOutput, JsonMessage, MessageRegistrations, MessageRegistry, TypeInfo, TypeMismatch,
-    supported::*,
+    BasicConnect, Builder, BuilderContext, ConnectIntoTarget, Deserialization, DiagramErrorCode,
+    DynForkResult, DynInputSlot, DynOutput, JsonMessage, MessageRegistrations, MessageRegistry,
+    Serialization, TypeInfo, TypeMismatch, supported::*,
 };
-use crate::JsonBuffer;
+use crate::{JsonBuffer, ScriptMessage};
 
 #[cfg(feature = "trace")]
 use crate::Trace;
@@ -71,7 +71,7 @@ where
     ) {
         let ops = messages.get_or_insert_operations::<T>();
 
-        ops.serialize = Some(|builder| {
+        let create_node = |builder: &mut Builder| {
             let serialize = builder.create_map_block(|message: T| {
                 serde_json::to_value(message).map_err(|err| err.to_string())
             });
@@ -85,6 +85,13 @@ where
                 ok: ok.into(),
                 err: err.into(),
             })
+        };
+
+        let serialize = |message: T| serde_json::to_value(message).map_err(|err| err.to_string());
+
+        ops.serialize = Some(Serialization {
+            into_json_message: create_node,
+            serialize: Arc::new(serialize),
         });
 
         #[cfg(feature = "trace")]
@@ -117,7 +124,7 @@ where
         schema_generator: &mut SchemaGenerator,
     ) {
         let ops = messages.get_or_insert_operations::<T>();
-        ops.deserialize = Some(|builder| {
+        let create_node = |builder: &mut Builder| {
             let deserialize = builder.create_map_block(|message: JsonMessage| {
                 serde_json::from_value::<T>(message).map_err(|err| err.to_string())
             });
@@ -131,6 +138,15 @@ where
                 ok: ok.into(),
                 err: err.into(),
             })
+        };
+
+        let deserialize = |message: JsonMessage| {
+            serde_json::from_value::<T>(message).map_err(|err| err.to_string())
+        };
+
+        ops.deserialize = Some(Deserialization {
+            create_node,
+            deserialize: Arc::new(deserialize),
         });
 
         // Serialize and deserialize both generate the schema, so check before
@@ -231,7 +247,7 @@ impl ImplicitSerialization {
             .serialized_input
             .is_compatible(incoming.message_info(), ctx)?
         {
-            incoming.connect_to(&self.serialized_input.input_slot, ctx.builder)?;
+            self.serialized_input.connect_into_target(incoming, ctx)?;
             return Ok(Ok(()));
         }
 
@@ -247,9 +263,8 @@ impl ImplicitSerialization {
                     return Ok(Err(incoming));
                 };
 
-                serialize
-                    .ok
-                    .connect_to(&self.serialized_input.input_slot, ctx.builder)?;
+                self.serialized_input
+                    .connect_into_target(serialize.ok, ctx)?;
 
                 let error_target = ctx.get_implicit_error_target();
                 ctx.add_output_into_target(error_target, serialize.err);
@@ -273,10 +288,6 @@ impl ImplicitSerialization {
         self.try_implicit_serialize(incoming, ctx)?
             .map_err(|incoming| DiagramErrorCode::NotSerializable(*incoming.message_info()))
     }
-
-    pub fn serialized_input_slot(&self) -> &Arc<DynInputSlot> {
-        &self.serialized_input.input_slot
-    }
 }
 
 pub struct ImplicitDeserialization {
@@ -285,6 +296,7 @@ pub struct ImplicitDeserialization {
     // attempts to connect to this operation. Otherwise there is no need to
     // create it.
     serialized_input: Option<DynInputSlot>,
+    script_input: Option<DynInputSlot>,
 }
 
 impl ImplicitDeserialization {
@@ -301,6 +313,7 @@ impl ImplicitDeserialization {
             return Ok(Some(Self {
                 basic_input: BasicConnect::new(deserialized_input),
                 serialized_input: None,
+                script_input: None,
             }));
         }
 
@@ -312,6 +325,13 @@ impl ImplicitDeserialization {
         incoming: DynOutput,
         ctx: &mut BuilderContext,
     ) -> Result<(), DiagramErrorCode> {
+        if self
+            .basic_input
+            .is_compatible(incoming.message_info(), ctx)?
+        {
+            return self.basic_input.connect_into_target(incoming, ctx);
+        }
+
         if incoming.message_info() == &TypeInfo::of::<JsonMessage>() {
             // Connect to the input for serialized messages
             let serialized_input = match self.serialized_input {
@@ -322,9 +342,7 @@ impl ImplicitDeserialization {
                         .messages
                         .deserialize(self.basic_input.input_slot.message_info(), ctx.builder)?;
 
-                    deserialize
-                        .ok
-                        .connect_to(&self.basic_input.input_slot, ctx.builder)?;
+                    self.basic_input.connect_into_target(deserialize.ok, ctx)?;
 
                     let error_target = ctx.get_implicit_error_target();
                     ctx.add_output_into_target(error_target, deserialize.err);
@@ -339,7 +357,34 @@ impl ImplicitDeserialization {
                 .map_err(Into::into);
         }
 
-        self.basic_input.connect_into_target(incoming, ctx)
+        if incoming.message_info() == &TypeInfo::of::<ScriptMessage>() {
+            let script_input = match self.script_input {
+                Some(script_input) => script_input,
+                None => {
+                    let from_script = ctx.registry.messages.from_script_message(
+                        self.basic_input.input_slot.message_info(),
+                        ctx.builder,
+                    )?;
+
+                    self.basic_input.connect_into_target(from_script.ok, ctx)?;
+
+                    let error_target = ctx.get_implicit_error_target();
+                    ctx.add_output_into_target(error_target, from_script.err);
+
+                    self.script_input = Some(from_script.input);
+                    from_script.input
+                }
+            };
+
+            return incoming
+                .connect_to(&script_input, ctx.builder)
+                .map_err(Into::into);
+        }
+
+        Err(DiagramErrorCode::TypeMismatch(TypeMismatch {
+            source_type: *incoming.message_info(),
+            target_type: *self.basic_input.input_slot.message_info(),
+        }))
     }
 
     pub fn deserialized_input_slot(&self) -> &Arc<DynInputSlot> {

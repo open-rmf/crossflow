@@ -156,6 +156,13 @@ impl BuildDiagramOperation for JoinSchema {
         ctx.join(id, &self.buffers, &self.next, self.serialize)?;
         Ok(())
     }
+
+    fn child_operations(
+        &self,
+        _: &super::Templates,
+    ) -> Result<Option<super::Operations>, DiagramErrorCode> {
+        Ok(None)
+    }
 }
 
 type CreateJoinFn = fn(&BufferMap, &mut Builder) -> Result<DynOutput, DiagramErrorCode>;
