@@ -64,11 +64,6 @@ export type BuiltinTarget = 'terminate' | 'dispose' | 'cancel';
 export type TraceToggle = 'off' | 'on' | 'messages';
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "BufferIdentifier".
- */
-export type BufferIdentifier = string | number;
-/**
- * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "RetentionPolicy".
  */
 export type RetentionPolicy =
@@ -195,6 +190,11 @@ export type SectionSchema = (
   trace?: TraceToggle | null;
   [k: string]: unknown;
 };
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "IdentifierRef".
+ */
+export type IdentifierRef = string | number;
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "InputRemapping".
@@ -1073,7 +1073,7 @@ export interface JoinSchema {
    * the value will leave the buffer unchanged after the join operation takes
    * place.
    */
-  clone?: BufferIdentifier[];
+  clone?: IdentifierRef[];
   /**
    * Override for text that should be displayed for an operation within an
    * editor.
