@@ -492,8 +492,6 @@ pub struct Diagram {
     ///
     /// Script environment builders may have automatic configs, which you should
     /// consider using before creating a custom environment.
-    ///
-    /// [1]: ScriptEnvironmentMetadata
     #[serde(default)]
     pub script_environments: HashMap<OperationName, ScriptEnvironmentSchema>,
 
