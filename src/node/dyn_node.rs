@@ -187,8 +187,6 @@ where
     }
 }
 
-// pub struct DynStreamInputSlots
-
 /// Error type that happens when you try to convert a [`DynOutput`] to an
 /// <code>[Output]&lt;T&gt;</code> for the wrong `T`.
 #[derive(ThisError, Debug, Clone)]

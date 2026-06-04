@@ -50,12 +50,12 @@ impl Display for TypeInfo {
     }
 }
 
-#[cfg(feature = "diagram")]
+#[cfg(feature = "json")]
 use schemars::{JsonSchema, Schema, SchemaGenerator};
-#[cfg(feature = "diagram")]
+#[cfg(feature = "json")]
 use serde::Serialize;
 
-#[cfg(feature = "diagram")]
+#[cfg(feature = "json")]
 impl Serialize for TypeInfo {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

@@ -98,6 +98,7 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
 
     let (field_ident, field_type, field_config) =
         get_fields_map(&input_struct.fields, FieldSettings::for_key())?;
+    let field_name: Vec<String> = field_ident.iter().map(|id| id.to_string()).collect();
     let buffer: Vec<&Type> = field_config.iter().map(|config| &config.buffer).collect();
     let noncopy = field_config.iter().any(|config| config.noncopy);
 
@@ -222,6 +223,39 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
         impl #impl_generics ::crossflow::Accessor for #struct_ident #ty_generics #where_clause {
             type Buffers = #buffer_struct_ident #ty_generics;
 
+            fn to_any_keys(&self) -> ::std::collections::HashMap<::crossflow::IdentifierRef<'static>, ::crossflow::AnyBufferKey> {
+                let mut map = ::std::collections::HashMap::new();
+                #(
+                    map.insert(
+                        ::crossflow::IdentifierRef::name_str(#field_name),
+                        <#field_type as ::crossflow::AccessKey>::to_any_key(&self.#field_ident),
+                    );
+                )*
+
+                map
+            }
+
+            fn try_from_any_keys(
+                keys: &::std::collections::HashMap<::crossflow::IdentifierRef<'static>, ::crossflow::AnyBufferKey>,
+            ) -> ::std::result::Result<Self, ::crossflow::IncompatibleLayout> {
+                let mut compatibility = ::crossflow::IncompatibleLayout::default();
+                #(
+                    let #field_ident = compatibility.require_buffer_key_for_identifier::<#field_type>(#field_name, keys);
+                )*
+
+                #(
+                    let Ok(#field_ident) = #field_ident else {
+                        return Err(compatibility);
+                    };
+                )*
+
+                Ok(Self {
+                    #(
+                        #field_ident,
+                    )*
+                })
+            }
+
             async fn wait_for_change(&mut self) {
                 #wait_for_change_impl
             }
@@ -274,14 +308,26 @@ pub(crate) fn impl_buffer_accessor(input_struct: &ItemStruct) -> Result<TokenStr
 
             fn can_join(&self, world: &::crossflow::re_exports::World) -> Result<bool, ::crossflow::AccessError>{
                 ::crossflow::Accessor::is_disjoint(self)?;
+                let mut can_join = true;
 
                 #(
                     if !<#field_type as ::crossflow::Accessor>::can_join(&self. #field_ident, world)? {
-                        return std::result::Result::Ok(false);
+                        can_join = false;
                     }
                 )*
 
-                ::std::result::Result::Ok(true)
+                ::std::result::Result::Ok(can_join)
+            }
+
+            fn notify_awaiting(
+                &self,
+                req: ::crossflow::RequestId,
+                handles: &mut ::std::vec::Vec<::std::sync::Arc<::crossflow::AwaitingHandle>>,
+                world: &mut ::crossflow::re_exports::World,
+            ) {
+                #(
+                    <#field_type as ::crossflow::Accessor>::notify_awaiting(&self. #field_ident, req, handles, world);
+                )*
             }
 
             type Joined = #joined_struct_ident #ty_generics;

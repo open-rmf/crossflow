@@ -12,3 +12,6 @@ node_modules
 # storybook
 *storybook.log
 storybook-static
+
+.env/
+venv/

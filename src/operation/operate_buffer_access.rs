@@ -15,6 +15,7 @@
  *
 */
 
+use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{
     prelude::{Component, Entity, Query, World},
     system::SystemState,
@@ -22,34 +23,75 @@ use bevy_ecs::{
 
 use std::{
     collections::{HashMap, hash_map::Entry},
-    sync::Arc,
+    sync::{Arc, Weak},
 };
 
 use smallvec::SmallVec;
 
 use crate::{
-    Accessing, BufferChangeBroadcasters, BufferKeyBuilder, ChannelQueue, InScope, Input,
-    InputBundle, ManageInput, MessageRoute, Operation, OperationCleanup, OperationError,
+    Accessing, BufferChangeBroadcasters, BufferKeyBuilder, BufferKeyTag, ChannelQueue, InScope,
+    Input, InputBundle, ManageInput, MessageRoute, Operation, OperationCleanup, OperationError,
     OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ReachabilityResult, Seq, SingleInputStorage, SingleTargetStorage, output_port,
+    ReachabilityResult, RequestId, Seq, SingleInputStorage, SingleTargetStorage, output_port,
 };
 
-pub(crate) struct OperateBufferAccess<T, B>
-where
-    T: 'static + Send + Sync,
-    B: Accessing,
-{
-    buffers: B,
-    target: Entity,
-    _ignore: std::marker::PhantomData<fn(T, B)>,
+#[derive(Default, Component, Deref, DerefMut)]
+struct AwaitingFetch(HashMap<Entity, HashMap<RequestId, Weak<AwaitingHandle>>>);
+
+pub struct AwaitingHandle;
+
+pub trait NotifyAwaitingBuffer {
+    fn awaiting_buffer(
+        &mut self,
+        tag: &BufferKeyTag,
+        req: RequestId,
+    ) -> Option<Arc<AwaitingHandle>>;
 }
 
-impl<T, B> OperateBufferAccess<T, B>
+impl NotifyAwaitingBuffer for World {
+    fn awaiting_buffer(
+        &mut self,
+        tag: &BufferKeyTag,
+        req: RequestId,
+    ) -> Option<Arc<AwaitingHandle>> {
+        let mut awaiting = self.get_mut::<AwaitingFetch>(tag.accessor)?;
+        let map = awaiting.entry(tag.session).or_default();
+
+        match map.entry(req) {
+            Entry::Vacant(vacant) => {
+                let handle = Arc::new(AwaitingHandle);
+                vacant.insert(Arc::downgrade(&handle));
+                return Some(handle);
+            }
+            Entry::Occupied(mut occupied) => {
+                if let Some(handle) = occupied.get().upgrade() {
+                    return Some(handle);
+                }
+
+                let handle = Arc::new(AwaitingHandle);
+                occupied.insert(Arc::downgrade(&handle));
+                return Some(handle);
+            }
+        }
+    }
+}
+
+pub(crate) struct OperateBufferAccess<Input, Buffers, Output>
 where
-    T: 'static + Send + Sync,
-    B: Accessing,
+    Input: 'static + Send + Sync,
+    Buffers: Accessing,
 {
-    pub(crate) fn new(buffers: B, target: Entity) -> Self {
+    buffers: Buffers,
+    target: Entity,
+    _ignore: std::marker::PhantomData<fn(Input, Buffers, Output)>,
+}
+
+impl<Input, Buffers, Output> OperateBufferAccess<Input, Buffers, Output>
+where
+    Input: 'static + Send + Sync,
+    Buffers: Accessing,
+{
+    pub(crate) fn new(buffers: Buffers, target: Entity) -> Self {
         Self {
             buffers,
             target,
@@ -76,11 +118,12 @@ impl<B: Accessing> BufferAccessStorage<B> {
     }
 }
 
-impl<T, B> Operation for OperateBufferAccess<T, B>
+impl<InputMessage, Buffers, Output> Operation for OperateBufferAccess<InputMessage, Buffers, Output>
 where
-    T: 'static + Send + Sync,
-    B: Accessing + 'static + Send + Sync,
-    B::Key: 'static + Send + Sync,
+    InputMessage: 'static + Send + Sync,
+    Buffers: Accessing + 'static + Send + Sync,
+    Buffers::Key: 'static + Send + Sync,
+    Output: From<(InputMessage, Buffers::Key)> + 'static + Send + Sync,
 {
     fn setup(self, OperationSetup { source, world }: OperationSetup) -> OperationResult {
         world
@@ -90,10 +133,11 @@ where
 
         self.buffers.add_accessor(source, world)?;
         world.entity_mut(source).insert((
-            InputBundle::<T>::new(),
+            InputBundle::<InputMessage>::new(),
             BufferAccessStorage::new(self.buffers),
             SingleTargetStorage::new(self.target),
-            BufferKeyUsage(buffer_key_usage::<B>),
+            BufferKeyUsage(buffer_key_usage::<Buffers>),
+            AwaitingFetch::default(),
         ));
 
         Ok(())
@@ -106,8 +150,8 @@ where
             roster,
         }: OperationRequest,
     ) -> OperationResult {
-        let Input { session, data, seq } = world.take_input::<T>(source)?;
-        let keys = get_access_keys::<B>(source, session, seq, world)?;
+        let Input { session, data, seq } = world.take_input::<InputMessage>(source)?;
+        let keys = get_access_keys::<Buffers>(source, session, seq, world)?;
 
         let target = world.get::<SingleTargetStorage>(source).or_broken()?.get();
 
@@ -119,17 +163,26 @@ where
             port: &port,
             target,
         };
-        world.give_input(route, (data, keys), roster)
+
+        let output = Output::from((data, keys));
+        world.give_input(route, output, roster)
     }
 
     fn cleanup(mut clean: OperationCleanup) -> OperationResult {
-        clean.cleanup_inputs::<T>()?;
-        clean.cleanup_buffer_access::<B>()?;
+        clean.cleanup_inputs::<InputMessage>()?;
+        clean.cleanup_buffer_access::<Buffers>()?;
+
+        let mut awaiting = clean
+            .world
+            .get_mut::<AwaitingFetch>(clean.source)
+            .or_broken()?;
+        awaiting.remove(&clean.cleanup.session);
+
         clean.notify_cleaned()
     }
 
     fn is_reachable(mut r: OperationReachability) -> ReachabilityResult {
-        if r.has_input::<T>()? {
+        if r.has_input::<InputMessage>()? {
             return Ok(true);
         }
 
@@ -235,6 +288,32 @@ impl BufferAccessors {
         };
 
         for accessor in &accessors.0 {
+            if let Some(requested_by_accessor) = r.requested_by_accessor {
+                // We calculate reachability a bit differently when a buffer
+                // accessor is the one requesting it.
+
+                if requested_by_accessor == *accessor {
+                    // This is the accessor that is asking about reachability,
+                    // so do not count it for reachability.
+                    continue;
+                }
+
+                // Since an accessor is the one evaluating the reachability, we
+                // will also account for other accessors that are awaiting a
+                // fetch. This is to prevent a situation where multiple accessors
+                // are awaiting the same buffer and none of them will ever place
+                // a value in it.
+                let awaiting = r.world.get::<AwaitingFetch>(*accessor).or_broken()?;
+                if let Some(awaiting_session) = awaiting.get(&r.session) {
+                    if awaiting_session.iter().any(|a| a.1.strong_count() > 0) {
+                        // At least one key related to this accessor is being used
+                        // to await a fetch. Out of an abundance of caution we will
+                        // discount this accessor as providing reachability.
+                        continue;
+                    }
+                }
+            }
+
             let usage = r.world.get::<BufferKeyUsage>(*accessor).or_broken()?.0;
             if usage(*accessor, r.session, r.world)? {
                 return Ok(true);
