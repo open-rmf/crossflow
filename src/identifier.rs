@@ -19,17 +19,17 @@ use std::{borrow::Cow, hash::Hash, sync::Arc};
 
 pub use crossflow_derive::{Accessor, Joined};
 
-use crate::{ListSplitKey, MapSplitKey};
+use crate::{ListSplitKey, MapSplitKey, NameSplitKey};
 
-#[cfg(feature = "diagram")]
+#[cfg(feature = "json")]
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "diagram")]
+#[cfg(feature = "json")]
 use schemars::JsonSchema;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(
-    feature = "diagram",
+    feature = "json",
     derive(Serialize, Deserialize, JsonSchema),
     serde(untagged)
 )]
@@ -148,6 +148,15 @@ where
             MapSplitKey::Remaining => {
                 vec!["remaining".into()]
             }
+        }
+    }
+}
+
+impl Identification<NameSplitKey> for BasicIdentification {
+    fn to_identifier(value: NameSplitKey) -> Vec<Identifier> {
+        match value {
+            NameSplitKey::Specific(name) => vec!["specific".into(), name.into()],
+            NameSplitKey::Remaining => vec!["remaining".into()],
         }
     }
 }
@@ -295,6 +304,7 @@ pub trait Identifiable {
         Self: Sized;
     fn indexable() -> bool;
     fn nameable() -> bool;
+    fn into_id(self) -> IdentifierRef<'static>;
 }
 
 impl<'a> Identifiable for IdentifierRef<'a> {
@@ -308,6 +318,10 @@ impl<'a> Identifiable for IdentifierRef<'a> {
 
     fn nameable() -> bool {
         true
+    }
+
+    fn into_id(self) -> IdentifierRef<'static> {
+        self.to_owned()
     }
 }
 
@@ -323,6 +337,10 @@ impl Identifiable for Identifier {
     fn nameable() -> bool {
         true
     }
+
+    fn into_id(self) -> IdentifierRef<'static> {
+        self.into()
+    }
 }
 
 impl Identifiable for usize {
@@ -336,6 +354,10 @@ impl Identifiable for usize {
 
     fn nameable() -> bool {
         false
+    }
+
+    fn into_id(self) -> IdentifierRef<'static> {
+        IdentifierRef::Index(self)
     }
 }
 
@@ -353,6 +375,10 @@ impl Identifiable for String {
 
     fn nameable() -> bool {
         true
+    }
+
+    fn into_id(self) -> IdentifierRef<'static> {
+        IdentifierRef::Name(Cow::Owned(self))
     }
 }
 

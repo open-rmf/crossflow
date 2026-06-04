@@ -42,11 +42,20 @@
         "$ref": "#/$defs/DiagramOperation"
       }
     },
+    "script_environments": {
+      "description": "Custom script environments used by this diagram.\n\nTo run a script operation you will need to specify what its environment\nis. A script environment determines the language and interpreter for the\nscript, as well as any other factors specific to the environment.\n\nScript environment builders may have automatic configs, which you should\nconsider using before creating a custom environment.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/ScriptEnvironmentSchema"
+      },
+      "default": {}
+    },
     "start": {
       "description": "Indicates where the workflow should start running.",
       "$ref": "#/$defs/NextOperation"
     },
     "templates": {
+      "description": "Section templates used by this diagram.",
       "type": "object",
       "additionalProperties": {
         "$ref": "#/$defs/SectionTemplate"
@@ -366,6 +375,19 @@
             }
           },
           "$ref": "#/$defs/ListenSchema",
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "script"
+            }
+          },
+          "$ref": "#/$defs/ScriptSchema",
           "required": [
             "type"
           ]
@@ -801,6 +823,88 @@
         "uninterruptible"
       ]
     },
+    "ScriptEnvironmentSchema": {
+      "description": "Description of a scripting environment that a diagram uses to run scripts.",
+      "type": "object",
+      "properties": {
+        "builder": {
+          "type": "string"
+        },
+        "config": true
+      },
+      "required": [
+        "builder",
+        "config"
+      ]
+    },
+    "ScriptSchema": {
+      "description": "Settings that describe how an operation should be traced. It is recommended\nto add this to each operation with #[serde(flatten)].",
+      "type": "object",
+      "properties": {
+        "config": {
+          "description": "Configured data to pass into the function that `run` refers to. This will\nbe passed in as a keyword argument named `config`."
+        },
+        "display_text": {
+          "description": "Override for text that should be displayed for an operation within an\neditor.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "environment": {
+          "description": "Name of the environment that will be used to execute this script operation.",
+          "type": "string"
+        },
+        "extensions": {
+          "description": "Settings for each extension.",
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        },
+        "next": {
+          "description": "The operation that the final output of this Python operation will be passed to",
+          "$ref": "#/$defs/NextOperation"
+        },
+        "on_error": {
+          "description": "Specify what happens if an error occurs during the script, such as an\nexception or a serialization problem. If you specify a target for\non_error, then an error message will be sent to that target. You can set\nthis to `{ \"builtin\": \"dispose\" }` to simply ignore errors.\n\nIf left unspecified, a failure will be treated like an implicit operation\nfailure and behave according to the `on_implicit_error` for this operation's\nscope.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NextOperation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run": {
+          "description": "What to run in the environment",
+          "type": "string"
+        },
+        "stream_out": {
+          "description": "A map from the name of a stream to the operation that its outputs should\nbe passed to.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/NextOperation"
+          }
+        },
+        "trace": {
+          "description": "Set what the tracing behavior should be for this operation. If this is\nleft unspecified then the default trace setting of the diagram will be\nused.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TraceToggle"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "environment",
+        "run",
+        "next"
+      ]
+    },
     "SectionSchema": {
       "description": "Connect the request to a registered section.\n\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"section_op\",\n    \"ops\": {\n        \"section_op\": {\n            \"type\": \"section\",\n            \"builder\": \"my_section_builder\",\n            \"connect\": {\n                \"my_section_output\": { \"builtin\": \"terminate\" }\n            }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```\n\nCustom sections can also be created via templates\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"templates\": {\n        \"my_template\": {\n            \"inputs\": [\"section_input\"],\n            \"outputs\": [\"section_output\"],\n            \"buffers\": [],\n            \"ops\": {\n                \"section_input\": {\n                    \"type\": \"node\",\n                    \"builder\": \"my_node\",\n                    \"next\": \"section_output\"\n                }\n            }\n        }\n    },\n    \"start\": \"section_op\",\n    \"ops\": {\n        \"section_op\": {\n            \"type\": \"section\",\n            \"template\": \"my_template\",\n            \"connect\": {\n                \"section_output\": { \"builtin\": \"terminate\" }\n            }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```",
       "type": "object",
@@ -1030,7 +1134,7 @@
           "$ref": "#/$defs/NextOperation"
         },
         "on_error": {
-          "description": "Specify what happens if an error occurs during the transformation. If\nyou specify a target for on_error, then an error message will be sent to\nthat target. You can set this to `{ \"builtin\": \"dispose\" }` to simply\nignore errors.\n\nIf left unspecified, a failure will be treated like an implicit operation\nfailure and behave according to `on_implicit_error`.",
+          "description": "Specify what happens if an error occurs during the transformation. If\nyou specify a target for on_error, then an error message will be sent to\nthat target. You can set this to `{ \"builtin\": \"dispose\" }` to simply\nignore errors.\n\nIf left unspecified, a failure will be treated like an implicit operation\nfailure and behave according to the `on_implicit_error` for this operation's\nscope.",
           "anyOf": [
             {
               "$ref": "#/$defs/NextOperation"

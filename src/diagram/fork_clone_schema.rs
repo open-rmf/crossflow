@@ -106,6 +106,13 @@ impl BuildDiagramOperation for ForkCloneSchema {
         ctx.fork_clone(id, &self.next);
         Ok(())
     }
+
+    fn child_operations(
+        &self,
+        _: &super::Templates,
+    ) -> Result<Option<super::Operations>, DiagramErrorCode> {
+        Ok(None)
+    }
 }
 
 pub trait RegisterClone<T> {
