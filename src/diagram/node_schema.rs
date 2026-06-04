@@ -21,8 +21,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, BuilderId, DiagramErrorCode,
-    InferenceContext, JsonMessage, MissingStream, NextOperation, OperationName, TraceInfo,
-    TraceSettings, is_default,
+    InferenceContext, JsonMessage, MissingStream, NextOperation, OperationName, Operations,
+    Templates, TraceInfo, TraceSettings, is_default,
 };
 
 /// Create an operation that that takes an input message and produces an
@@ -120,6 +120,10 @@ impl BuildDiagramOperation for NodeSchema {
     ) -> Result<(), DiagramErrorCode> {
         ctx.node(id, self)?;
         Ok(())
+    }
+
+    fn child_operations(&self, _: &Templates) -> Result<Option<Operations>, DiagramErrorCode> {
+        Ok(None)
     }
 }
 

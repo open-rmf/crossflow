@@ -19,14 +19,18 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Accessor, BufferMap, BufferMapLayout, BufferMapLayoutHints, BufferSettings, Builder, DynNode,
-    DynOutput, InferenceContext, JsonMessage, default_as_false, is_false,
+    Accessor, ArcAny, BufferKeyMap, BufferMap, BufferMapLayout, BufferMapLayoutHints,
+    BufferSettings, Builder, DynNode, DynOutput, InferenceContext, JsonMessage, ScriptMessage,
+    default_as_false, is_false,
 };
 
 use super::{
-    BufferSelection, BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode,
-    MessageRegistry, NextOperation, OperationName, TraceInfo, TraceSettings, TypeInfo,
+    BufferSelection, BuildDiagramOperation, BuildStatus, BuilderContext, DeserializeFn,
+    DiagramErrorCode, DynForkResult, MessageRegistry, NextOperation, OperationName, SerializeFn,
+    TraceInfo, TraceSettings, TypeInfo,
 };
+
+use std::any::Any;
 
 /// Create a [`Buffer`][1] which can be used to store and pull data within
 /// a scope.
@@ -141,6 +145,13 @@ impl BuildDiagramOperation for BufferSchema {
         ctx.buffer(id, self.serialize)?;
         Ok(())
     }
+
+    fn child_operations(
+        &self,
+        _: &super::Templates,
+    ) -> Result<Option<super::Operations>, DiagramErrorCode> {
+        Ok(None)
+    }
 }
 
 /// Zip a message together with access to one or more buffers.
@@ -232,11 +243,22 @@ impl BuildDiagramOperation for BufferAccessSchema {
         ctx.buffer_access(id, &self.buffers, &self.next);
         Ok(())
     }
+
+    fn child_operations(
+        &self,
+        _: &super::Templates,
+    ) -> Result<Option<super::Operations>, DiagramErrorCode> {
+        Ok(None)
+    }
 }
 
-pub trait BufferAccessRequest {
+pub trait BufferAccessRequest:
+    'static + Send + Sync + From<(Self::Message, Self::BufferKeys)>
+{
     type Message: Send + Sync + 'static;
     type BufferKeys: Accessor;
+
+    fn split_access(self) -> (Self::Message, Self::BufferKeys);
 }
 
 impl<T, B> BufferAccessRequest for (T, B)
@@ -246,12 +268,27 @@ where
 {
     type Message = T;
     type BufferKeys = B;
+
+    fn split_access(self) -> (T, B) {
+        self
+    }
+}
+
+impl BufferAccessRequest for ScriptMessage {
+    type Message = JsonMessage;
+    type BufferKeys = BufferKeyMap;
+
+    fn split_access(self) -> (Self::Message, Self::BufferKeys) {
+        (self.data, self.accessors)
+    }
 }
 
 pub type BufferAccessFn = fn(&BufferMap, &mut Builder) -> Result<DynNode, DiagramErrorCode>;
 
 pub struct BufferAccessRegistration {
     pub create: BufferAccessFn,
+    pub into_script_message: AccessToScriptMessageFn,
+    pub from_script_message: ScriptMessageToAccessFn,
     pub metadata: BufferAccessMetadata,
 }
 
@@ -266,15 +303,70 @@ impl BufferAccessRegistration {
     pub fn new<T: BufferAccessRequest>(messages: &mut MessageRegistry) -> Self {
         let create = |buffers: &BufferMap, builder: &mut Builder| {
             let buffer_access =
-                builder.try_create_buffer_access::<T::Message, T::BufferKeys>(buffers)?;
+                builder.try_create_buffer_access::<T::Message, T::BufferKeys, T>(buffers)?;
             Ok(buffer_access.into())
         };
         let request_message = messages.registration.get_index_or_insert::<T::Message>();
         let layout = <<T::BufferKeys as Accessor>::Buffers as BufferMapLayout>::get_layout_hints()
             .export(messages);
 
+        let into_script_message = |builder: &mut Builder, serialize: ArcAny| {
+            let serialize = *serialize
+                .downcast_ref::<SerializeFn<T::Message>>()
+                .ok_or_else(|| DiagramErrorCode::InvalidDowncast {
+                    from: serialize.type_id(),
+                    to: TypeInfo::of::<SerializeFn<T>>(),
+                })?;
+
+            let node = builder.create_map_block(move |input: T| {
+                let (data, accessors) = input.split_access();
+                let data = serialize(data).map_err(|err| err.to_string())?;
+                let accessors = accessors.to_any_keys();
+                Ok::<_, String>(ScriptMessage { data, accessors })
+            });
+
+            let (ok, err) = builder
+                .chain(node.output)
+                .fork_result(|ok| ok.output(), |err| err.output());
+
+            Ok(DynForkResult {
+                input: node.input.into(),
+                ok: ok.into(),
+                err: err.into(),
+            })
+        };
+
+        let from_script_message = |builder: &mut Builder, deserialize: ArcAny| {
+            let deserialize = *deserialize
+                .downcast_ref::<DeserializeFn<T::Message>>()
+                .ok_or_else(|| DiagramErrorCode::InvalidDowncast {
+                    from: deserialize.type_id(),
+                    to: TypeInfo::of::<DeserializeFn<T>>(),
+                })?;
+
+            let node = builder.create_map_block(move |input: ScriptMessage| {
+                let data = deserialize(&input.data).map_err(|err| err.to_string())?;
+                let accessors = <T::BufferKeys as Accessor>::try_from_any_keys(&input.accessors)
+                    .map_err(|err| err.to_string())?;
+
+                Ok::<_, String>(T::from((data, accessors)))
+            });
+
+            let (ok, err) = builder
+                .chain(node.output)
+                .fork_result(|ok| ok.output(), |err| err.output());
+
+            Ok(DynForkResult {
+                input: node.input.into(),
+                ok: ok.into(),
+                err: err.into(),
+            })
+        };
+
         Self {
             create,
+            into_script_message,
+            from_script_message,
             metadata: BufferAccessMetadata {
                 request_message,
                 layout,
@@ -355,12 +447,29 @@ impl BuildDiagramOperation for ListenSchema {
         ctx.listen(id, &self.buffers, &self.next);
         Ok(())
     }
+
+    fn child_operations(
+        &self,
+        _: &super::Templates,
+    ) -> Result<Option<super::Operations>, DiagramErrorCode> {
+        Ok(None)
+    }
 }
 
 pub type ListenFn = fn(&BufferMap, &mut Builder) -> Result<DynOutput, DiagramErrorCode>;
+pub(crate) type ListenToScriptMessageFn =
+    fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
+pub(crate) type ScriptMessageToListenFn =
+    fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
+pub(crate) type AccessToScriptMessageFn =
+    fn(&mut Builder, ArcAny) -> Result<DynForkResult, DiagramErrorCode>;
+pub(crate) type ScriptMessageToAccessFn =
+    fn(&mut Builder, ArcAny) -> Result<DynForkResult, DiagramErrorCode>;
 
 pub struct ListenRegistration {
     pub create: ListenFn,
+    pub into_script_message: ListenToScriptMessageFn,
+    pub from_script_message: ScriptMessageToListenFn,
     pub layout: BufferMapLayoutHints<usize>,
 }
 
@@ -371,7 +480,48 @@ impl ListenRegistration {
         };
         let layout = <T::Buffers as BufferMapLayout>::get_layout_hints().export(messages);
 
-        Self { create, layout }
+        let into_script_message = |builder: &mut Builder| {
+            let node = builder.create_map_block(|message: T| {
+                let accessors = message.to_any_keys();
+                Ok::<_, String>(ScriptMessage {
+                    data: JsonMessage::Null,
+                    accessors,
+                })
+            });
+
+            let (ok, err) = builder
+                .chain(node.output)
+                .fork_result(|ok| ok.output(), |err| err.output());
+
+            Ok(DynForkResult {
+                input: node.input.into(),
+                ok: ok.into(),
+                err: err.into(),
+            })
+        };
+
+        let from_script_message = |builder: &mut Builder| {
+            let node = builder.create_map_block(|message: ScriptMessage| {
+                T::try_from_any_keys(&message.accessors).map_err(|err| err.to_string())
+            });
+
+            let (ok, err) = builder
+                .chain(node.output)
+                .fork_result(|ok| ok.output(), |err| err.output());
+
+            Ok(DynForkResult {
+                input: node.input.into(),
+                ok: ok.into(),
+                err: err.into(),
+            })
+        };
+
+        Self {
+            create,
+            layout,
+            into_script_message,
+            from_script_message,
+        }
     }
 }
 

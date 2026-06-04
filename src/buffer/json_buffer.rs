@@ -43,8 +43,9 @@ use crate::{
     BufferStorage, BufferView, BufferWorldAccess, Bufferable, Buffering, Builder, CloneFromBuffer,
     DrainBuffer, FetchBehavior, Gate, GateState, IdentifierRef, IncompatibleLayout,
     InspectBufferSessions, Joined, Joining, ManageBufferSessions, MessageTypeHint,
-    MessageTypeHintEvaluation, NotifyBufferUpdate, OperationError, OperationResult, OrBroken,
-    OverlapError, RequestId, Seq, TypeInfo, add_listener_to_source,
+    MessageTypeHintEvaluation, NotifyAwaitingBuffer, NotifyBufferUpdate, OperationError,
+    OperationResult, OrBroken, OverlapError, RequestId, Seq, TypeInfo, add_listener_to_source,
+    is_buffer_reachable,
 };
 
 #[cfg(feature = "trace")]
@@ -195,13 +196,14 @@ impl AsAnyBuffer for JsonBuffer {
 pub struct JsonBufferKey {
     body: BufferKeyBody,
     interface: &'static (dyn JsonBufferAccessInterface + Send + Sync),
+    fetch_behavior: FetchBehavior,
 }
 
 impl JsonBufferKey {
     /// Downcast this into a concrete [`BufferKey`] for the specified message type.
     ///
     /// To downcast to a specialized kind of key, use [`Self::downcast_buffer_key`] instead.
-    pub fn downcast_for_message<T: 'static>(self) -> Option<BufferKey<T>> {
+    pub fn downcast_for_message<T: 'static + Send + Sync>(self) -> Option<BufferKey<T>> {
         self.as_any_buffer_key().downcast_for_message()
     }
 
@@ -229,6 +231,7 @@ impl BufferKeyLifecycle for JsonBufferKey {
         Ok(Self {
             body: builder.make_body(buffer.id())?,
             interface: buffer.interface,
+            fetch_behavior: buffer.join_behavior,
         })
     }
 
@@ -240,6 +243,7 @@ impl BufferKeyLifecycle for JsonBufferKey {
         Self {
             body: self.body.deep_clone(),
             interface: self.interface,
+            fetch_behavior: self.fetch_behavior,
         }
     }
 }
@@ -262,6 +266,7 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> From<BufferKey<T>>
         JsonBufferKey {
             body: value.body,
             interface,
+            fetch_behavior: value.fetch_settings.behavior,
         }
     }
 }
@@ -271,6 +276,7 @@ impl From<JsonBufferKey> for AnyBufferKey {
         AnyBufferKey {
             body: value.body,
             interface: value.interface.any_access_interface(),
+            fetch_behavior: value.fetch_behavior,
         }
     }
 }
@@ -376,6 +382,11 @@ impl<'w, 's, 'a> JsonBufferMut<'w, 's, 'a> {
     pub fn allow_closed_loops(mut self) -> Self {
         self.accessor = None;
         self
+    }
+
+    /// Alternative to [`Self::allow_closed_loops`] that modifies in place.
+    pub fn enable_closed_loops(&mut self) {
+        self.accessor = None;
     }
 
     /// Get a serialized copy of the oldest message in the buffer.
@@ -955,10 +966,11 @@ impl<T: 'static + Send + Sync + Serialize + DeserializeOwned> JsonBufferAccessIm
 
             any_interface.register_key_downcast(
                 TypeId::of::<JsonBufferKey>(),
-                Box::new(|body| {
+                Box::new(|body, fetch_behavior| {
                     Box::new(JsonBufferKey {
                         body,
                         interface: Self::get_interface(),
+                        fetch_behavior,
                     })
                 }),
             );
@@ -1244,6 +1256,7 @@ impl Accessing for JsonBuffer {
         Ok(JsonBufferKey {
             body: builder.make_body(self.id())?,
             interface: self.interface,
+            fetch_behavior: self.join_behavior,
         })
     }
 
@@ -1257,6 +1270,10 @@ impl Accessing for JsonBuffer {
 }
 
 impl AccessKey for JsonBufferKey {
+    fn to_any_key(&self) -> AnyBufferKey {
+        self.clone().into()
+    }
+
     fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool {
         let entry = included.entry(self.tag().instance()).or_default();
         *entry += 1;
@@ -1300,6 +1317,25 @@ impl AccessKey for JsonBufferKey {
 impl Accessor for JsonBufferKey {
     type Buffers = JsonBuffer;
 
+    fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
+        let mut map = HashMap::new();
+        map.insert(IdentifierRef::Index(0), self.clone().into());
+        map
+    }
+
+    fn try_from_any_keys(
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<Self, IncompatibleLayout> {
+        let mut compatibility = IncompatibleLayout::default();
+        if let Ok(downcast_key) =
+            compatibility.require_buffer_key_for_identifier::<JsonBufferKey>(0, keys)
+        {
+            return Ok(downcast_key);
+        }
+
+        Err(compatibility)
+    }
+
     async fn wait_for_change(&mut self) {
         let _ = self.body.receiver.changed().await;
     }
@@ -1326,19 +1362,58 @@ impl Accessor for JsonBufferKey {
         // TODO(@mxgrey): It would be good if we can cache these serializations
         // to avoid redundant effort. We would have to add a caching field to
         // BufferEntry when the diagram feature is enabled.
-        Ok(view.iter().any(|json| json.serialize().is_ok()))
+        let can_join = view.iter().any(|json| json.serialize().is_ok());
+        if !can_join {
+            // Check if this will ever be reachable
+            let r = is_buffer_reachable(self.tag(), world);
+            if r.is_err() || r.is_ok_and(|ok| !ok) {
+                // We cannot ensure that the buffer is reachable anymore, so we
+                // should return an error here.
+                return Err(AccessError::Unreachable);
+            }
+        }
+
+        Ok(can_join)
+    }
+
+    fn notify_awaiting(
+        &self,
+        req: RequestId,
+        handles: &mut Vec<Arc<crate::AwaitingHandle>>,
+        world: &mut World,
+    ) {
+        if let Some(handle) = world.awaiting_buffer(self.tag(), req) {
+            handles.push(handle);
+        }
     }
 
     type Joined = JsonMessage;
     fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
+        if !self.can_join(world)? {
+            return Ok(None);
+        }
+
         Ok(world.json_buffer_mut(req, self, |mut buffer| {
-            loop {
-                match buffer.pull() {
-                    Some(Ok(value)) => return Some(value),
-                    Some(Err(_)) => continue,
-                    None => return None,
+            match self.fetch_behavior {
+                FetchBehavior::Pull => loop {
+                    match buffer.pull() {
+                        Some(Ok(value)) => return Some(value),
+                        Some(Err(_)) => continue,
+                        None => return None,
+                    }
+                },
+                FetchBehavior::Clone => {
+                    for i in 0..buffer.len() {
+                        if let Some(entry) = buffer.get(i) {
+                            if let Ok(value) = entry.serialize() {
+                                return Some(value);
+                            }
+                        }
+                    }
                 }
             }
+
+            None
         })?)
     }
 

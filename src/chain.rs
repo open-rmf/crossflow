@@ -313,7 +313,9 @@ impl<'w, 's, 'a, 'b, T: 'static + Send + Sync> Chain<'w, 's, 'a, 'b, T> {
         self.builder.commands.queue(AddOperation::new(
             Some(self.builder.scope()),
             source,
-            OperateBufferAccess::<T, B::BufferType>::new(buffers, target),
+            OperateBufferAccess::<T, B::BufferType, (T, <B::BufferType as Accessing>::Key)>::new(
+                buffers, target,
+            ),
         ));
 
         Chain::new(target, self.builder)

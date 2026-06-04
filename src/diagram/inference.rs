@@ -30,8 +30,8 @@ use crate::{
     BufferMapLayoutHints, BufferSelection, BuildDiagramOperation, Diagram, DiagramContext,
     DiagramElementRegistry, DiagramError, DiagramErrorCode, IdentifierRef, IncompatibleLayout,
     MetadataAccess, NamedOutputRef, NamespaceList, NamespacedOperation, NextOperation, NodeSchema,
-    OperationName, OperationRef, Operations, OutputRef, ScopeSchema, SectionError, SectionProvider,
-    SectionSchema, StreamAvailability, StreamPack, WithContext, output_ref,
+    OperationName, OperationRef, Operations, OutputRef, ScopeSchema, ScriptSchema, SectionError,
+    SectionProvider, SectionSchema, StreamAvailability, StreamPack, WithContext, output_ref,
 };
 
 pub type InferredMessageTypes = HashMap<PortRef, usize>;
@@ -124,6 +124,7 @@ impl Diagram {
                     diagram_context: DiagramContext {
                         operations: unfinished.sibling_ops.clone(),
                         templates: &self.templates,
+                        script_environments: &self.script_environments,
                         on_implicit_error: &unfinished.on_implicit_error,
                         default_trace: self.default_trace,
                         namespaces: unfinished.namespaces.clone(),
@@ -228,6 +229,7 @@ fn set_boundary_conditions(
         diagram_context: DiagramContext {
             operations: diagram.ops.clone(),
             templates: &diagram.templates,
+            script_environments: &diagram.script_environments,
             on_implicit_error: &root_on_implicit_error,
             default_trace: diagram.default_trace,
             namespaces: Default::default(),
@@ -720,6 +722,32 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         self.inference.constrain(split.clone(), SplitInput(split));
     }
 
+    pub fn script(
+        &mut self,
+        operation_name: &OperationName,
+        schema: &ScriptSchema,
+    ) -> Result<(), DiagramErrorCode> {
+        let script_message_index = self.metadata.script_message_index()?;
+
+        let input = self.into_operation_ref(operation_name);
+        self.fixed(input.into(), script_message_index);
+
+        let output = self.into_output_ref(output_ref(operation_name).next());
+        let target = self.into_operation_ref(&schema.next);
+        self.fixed(output.clone().into(), script_message_index);
+        self.connect(output, target);
+
+        for (stream_id, stream_target) in &schema.stream_out {
+            let stream = self.into_output_ref(output_ref(operation_name).stream_out(stream_id));
+            self.fixed(stream.clone().into(), script_message_index);
+
+            let stream_target = self.into_operation_ref(stream_target);
+            self.connect(stream, stream_target);
+        }
+
+        Ok(())
+    }
+
     /// Add an operation that exists as a child inside another operation.
     pub fn add_child_operation<T: BuildDiagramOperation + 'static>(
         &mut self,
@@ -938,18 +966,38 @@ impl<'a> ConstraintContext<'a> {
             return Ok(None);
         };
 
+        let script_index = self.metadata.script_message_index();
+
+        let mut deserializable = true;
+        let mut scriptable = true;
+        let mut has_script_message = false;
         for message_type in message_types {
             if !self.metadata.can_deserialize(message_type)? {
-                // Cannot deserialize all of the target messages, so we can't
-                // choose a clear outgoing message. This is only meant to be a
-                // hint, so we don't treat it as an error.
-                return Ok(None);
+                deserializable = false;
+            }
+
+            if !self.metadata.from_script_message(message_type)? {
+                scriptable = false;
+            }
+
+            if script_index
+                .as_ref()
+                .is_ok_and(|index| *index == message_type)
+            {
+                has_script_message = true;
             }
         }
 
-        // All target types are deserializable, so choose JsonMessage
-        Ok(Some(json_index))
+        if !has_script_message && deserializable {
+            // All target types are deserializable, and none of them are a script
+            // message, so choose JsonMessage.
+            return Ok(Some(json_index));
+        } else if scriptable && let Ok(script_index) = script_index {
+            // All messages can be created from a script message.
+            return Ok(Some(script_index));
+        }
 
+        Ok(None)
         // TODO(@mxgrey): We could consider finding a different single common
         // type that all target message types can be converted from, but there's
         // a signfiicant risk of ambiguity for that.

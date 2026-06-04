@@ -259,6 +259,7 @@ fn is_upstream_active<T: 'static + Send + Sync>(
         source,
         session,
         disposed,
+        requested_by_accessor: None,
         world,
         visited: &mut visited,
     };

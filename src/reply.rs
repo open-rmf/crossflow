@@ -131,4 +131,10 @@ impl<T> Reply<T> {
     pub(crate) fn detached(&self) -> Arc<AtomicBool> {
         self.detached.clone()
     }
+
+    /// Used in the python feature to refactor this `Reply` into a `PythonReply`
+    #[allow(unused)]
+    pub(crate) fn into_parts(self) -> (oneshot::Receiver<T>, Arc<AtomicBool>) {
+        (self.inner, self.detached)
+    }
 }
