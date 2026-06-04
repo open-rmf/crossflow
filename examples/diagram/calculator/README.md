@@ -16,6 +16,16 @@ very simple workflow that just multiples your input by 3.
 You can replace `10` with a different number or you can write a different workflow
 diagram to perform a different set of operations on the input value.
 
+### Running a Python Scripting Workflow
+
+For a more complex example demonstrating dynamic Python scripting support, run the following command:
+
+```bash
+cargo run -- run diagrams/python_script_nodes.json '[[0, 1, 2, 3, 4, 5], [10, 9, 8, 7, 6, 5]]'
+```
+
+This workflow launches two parallel dynamic Python script streams that output values to buffers; a final listener node accesses these buffers and terminates the execution when a matching value is found (which outputs `5` in this example).
+
 ## Diagram Editor
 
 To use the diagram editor to create a new calculator workflow, run

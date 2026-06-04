@@ -32,6 +32,7 @@ const ALLOWED_OUTPUT_EDGES: Record<NodeTypes, EdgeTypes[]> = {
   listen: ['default'],
   node: ['default', 'streamOut'],
   scope: ['default', 'streamOut'],
+  script: ['default', 'streamOut'],
   section: ['section'],
   sectionInput: ['default'],
   sectionOutput: [],
@@ -53,6 +54,7 @@ const ALLOWED_INPUT_EDGE_CATEGORIES: Record<NodeTypes, EdgeCategory[]> = {
   listen: [EdgeCategory.Buffer],
   node: [EdgeCategory.Data],
   scope: [EdgeCategory.Data],
+  script: [EdgeCategory.Data],
   section: [EdgeCategory.Data, EdgeCategory.Buffer],
   sectionInput: [],
   sectionOutput: [EdgeCategory.Data],
@@ -106,7 +108,8 @@ export function getValidEdgeTypes(
   targetNode: DiagramEditorNode,
   targetHandle: string | null | undefined,
 ): EdgeTypes[] {
-  let allowedOutputEdges: EdgeTypes[] = ALLOWED_OUTPUT_EDGES[sourceNode.type];
+  let allowedOutputEdges: EdgeTypes[] =
+    ALLOWED_OUTPUT_EDGES[sourceNode.type as NodeTypes];
   if (sourceHandle) {
     const allowedHandleOutput = ALLOWED_HANDLE_OUTPUT_EDGES[sourceHandle];
     if (allowedHandleOutput) {
@@ -126,7 +129,7 @@ export function getValidEdgeTypes(
   }
 
   let allowedInputEdgeCategories =
-    ALLOWED_INPUT_EDGE_CATEGORIES[targetNode.type];
+    ALLOWED_INPUT_EDGE_CATEGORIES[targetNode.type as NodeTypes];
   if (targetHandle) {
     const allowedHandleInput =
       ALLOWED_HANDLE_INPUT_EDGE_CATEGORIES[targetHandle];
@@ -157,7 +160,7 @@ function getOutputCardinality(
   handleId: string | null | undefined,
 ): CardinalityType {
   if (handleId === HandleId.DataStream) {
-    return CardinalityType.Single;
+    return CardinalityType.Many;
   }
 
   switch (type) {
@@ -174,6 +177,7 @@ function getOutputCardinality(
     case 'join':
     case 'listen':
     case 'scope':
+    case 'script':
     case 'stream_out':
     case 'transform':
     case 'start':

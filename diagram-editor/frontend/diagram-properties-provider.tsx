@@ -1,9 +1,16 @@
-import { createContext, PropsWithChildren, useContext, useState } from 'react';
-import type { InputExample } from './types/api';
+import {
+  createContext,
+  type PropsWithChildren,
+  useContext,
+  useState,
+} from 'react';
+import type { InputExample, ScriptEnvironmentSchema } from './types/api';
 
 export interface DiagramProperties {
   description?: string;
   input_examples?: InputExample[];
+  script_environments?: { [key: string]: ScriptEnvironmentSchema };
+  highlightedEnvironment?: string;
 }
 
 export type DiagramPropertiesContext = [
@@ -15,8 +22,9 @@ const DiagramPropertiesContextComp =
   createContext<DiagramPropertiesContext | null>(null);
 
 export function DiagramPropertiesProvider({ children }: PropsWithChildren) {
-  const [diagramProperties, setDiagramProperties] =
-    useState<DiagramProperties>({});
+  const [diagramProperties, setDiagramProperties] = useState<DiagramProperties>(
+    {},
+  );
 
   return (
     <DiagramPropertiesContextComp.Provider
@@ -31,7 +39,8 @@ export const useDiagramProperties = (): DiagramPropertiesContext => {
   const context = useContext(DiagramPropertiesContextComp);
   if (!context) {
     throw new Error(
-      'useDiagramProperties must be used within a TemplatesProvider');
+      'useDiagramProperties must be used within a TemplatesProvider',
+    );
   }
   return context;
 };

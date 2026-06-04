@@ -23,6 +23,7 @@ import {
   ListenIcon,
   NodeIcon,
   ScopeIcon,
+  ScriptIcon,
   SectionBufferIcon,
   type SectionBufferNode,
   SectionIcon,
@@ -286,6 +287,21 @@ function AddOperation({ parentId, newNodePosition, onAdd }: AddOperationProps) {
         }}
       >
         Transform
+      </StyledOperationButton>
+      <StyledOperationButton
+        startIcon={<ScriptIcon />}
+        onClick={() => {
+          onAdd?.(
+            createNodeChange(namespace, parentId, newNodePosition, {
+              type: 'script',
+              environment: '',
+              run: '',
+              next: { builtin: 'dispose' },
+            }),
+          );
+        }}
+      >
+        Script
       </StyledOperationButton>
       <StyledOperationButton
         startIcon={<BufferIcon />}
