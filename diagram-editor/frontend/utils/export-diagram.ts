@@ -22,7 +22,6 @@ import type {
   NextOperation,
   SectionTemplate,
 } from '../types/api';
-import { useEdges } from '../use-edges';
 import { exhaustiveCheck } from './exhaustive-check';
 import { ROOT_NAMESPACE, splitNamespaces } from './namespace';
 import { isArrayBufferSelection, isKeyedBufferSelection } from './operation';

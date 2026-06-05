@@ -2,9 +2,9 @@
  * @jest-environment node
  */
 
-import { type ChildProcess, spawn } from 'child_process';
-import fs from 'fs';
-import path from 'path';
+import { type ChildProcess, spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import { firstValueFrom } from 'rxjs';
 import type { Diagram } from '../types/api';
 import { ApiClient } from './rest-client';
@@ -79,19 +79,20 @@ describe('REST API Executor Integration Tests', () => {
     const fileName = path.basename(diagramPath);
 
     const diagram: Diagram = JSON.parse(fs.readFileSync(diagramPath, 'utf-8'));
-    if (diagram.input_examples && diagram.input_examples.length > 0) {
+    const inputExamples = diagram.input_examples;
+    if (inputExamples && inputExamples.length > 0) {
       describe(`Diagram: ${fileName}`, () => {
-        for (const example of diagram.input_examples) {
+        for (const example of inputExamples) {
           test(`postRunWorkflow with example: "${example.description}"`, async () => {
             let requestPayload: unknown = example.value;
             if (typeof example.value === 'string') {
               try {
                 // If it parses as JSON (like arrays or objects), we use the parsed value
                 requestPayload = JSON.parse(example.value);
-              } catch (e) {
+              } catch (_e) {
                 // Otherwise check if it's a number representation
                 const num = Number(example.value);
-                if (!isNaN(num)) {
+                if (!Number.isNaN(num)) {
                   requestPayload = num;
                 }
               }
@@ -118,7 +119,7 @@ async function waitForServer(url: string, timeoutMs = 30000): Promise<void> {
       if (res.ok) {
         return;
       }
-    } catch (e) {
+    } catch (_e) {
       // Ignored
     }
     await new Promise((resolve) => setTimeout(resolve, 200));

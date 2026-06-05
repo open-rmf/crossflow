@@ -93,6 +93,7 @@ describe('NodeNode', () => {
       schemas: {},
       sections: {},
       trace_supported: false,
+      scripting: {},
     };
     const fixture = render(<NodeNode {...nodeProps} />, registry);
 

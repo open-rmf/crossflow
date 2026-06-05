@@ -144,13 +144,11 @@ function DiagramPropertiesDrawer({
           </Stack>
           <Paper>
             <List>
-              {diagramProperties &&
-              diagramProperties.input_examples &&
+              {diagramProperties?.input_examples &&
               diagramProperties.input_examples.length > 0 ? (
                 localExamples.map((input, index) => (
                   <ListItem key={input.id}>
                     <TextField
-                      id="input-with-icon-textfield"
                       fullWidth
                       multiline
                       variant="outlined"

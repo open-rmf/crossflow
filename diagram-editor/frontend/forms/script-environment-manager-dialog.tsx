@@ -204,7 +204,7 @@ export function ScriptEnvironmentManagerDialog({
         );
       }
       setMode('view');
-    } catch (err) {
+    } catch (_err) {
       setConfigError('Invalid JSON');
     }
   };
