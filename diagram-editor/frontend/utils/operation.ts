@@ -145,7 +145,7 @@ export function buildEdges(nodes: DiagramEditorNode[]): DiagramEditorEdge[] {
 
   for (const node of nodes) {
     if (isOperationNode(node)) {
-      const op = node.data.op;
+      const op = node.data.op as DiagramOperation;
       const opId = node.data.opId;
 
       switch (op.type) {
@@ -168,6 +168,21 @@ export function buildEdges(nodes: DiagramEditorNode[]): DiagramEditorEdge[] {
           break;
         }
         case 'node': {
+          const target = nodeManager.getNodeFromNextOp(
+            node.data.namespace,
+            op.next,
+          )?.id;
+          if (target) {
+            edges.push(createDefaultEdge(node.id, null, target, null));
+          }
+          if (op.stream_out) {
+            edges.push(
+              ...createStreamOutEdges(op.stream_out, node, nodeManager),
+            );
+          }
+          break;
+        }
+        case 'script': {
           const target = nodeManager.getNodeFromNextOp(
             node.data.namespace,
             op.next,

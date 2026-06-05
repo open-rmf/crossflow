@@ -16,6 +16,7 @@ export interface BaseNodeProps extends NodeProps {
   label: string;
   caption?: string;
   handles?: JSX.Element;
+  highlight?: boolean;
 }
 
 function BaseNode({
@@ -25,6 +26,7 @@ function BaseNode({
   caption,
   handles,
   selected,
+  highlight,
 }: BaseNodeProps) {
   const icon =
     typeof materialIconOrSymbol === 'string' ? (
@@ -34,7 +36,9 @@ function BaseNode({
     );
 
   return (
-    <Paper>
+    <Paper
+      sx={highlight ? { border: '2px solid', borderColor: 'warning.main' } : {}}
+    >
       <Button
         title={label}
         color={color}

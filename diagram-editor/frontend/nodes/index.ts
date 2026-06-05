@@ -8,6 +8,7 @@ import JoinNodeComp from './join-node';
 import ListenNodeComp from './listen-node';
 import NodeNodeComp from './node-node';
 import ScopeNodeComp from './scope-node';
+import ScriptNodeComp from './script-node';
 import SectionNodeComp, {
   SectionBufferNodeComp,
   SectionInputNodeComp,
@@ -52,6 +53,7 @@ export const NODE_TYPES = {
   split: SplitNodeComp,
   join: JoinNodeComp,
   transform: TransformNodeComp,
+  script: ScriptNodeComp,
   buffer: BufferNodeComp,
   buffer_access: BufferAccessNodeComp,
   listen: ListenNodeComp,

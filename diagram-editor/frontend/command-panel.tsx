@@ -2,12 +2,13 @@ import { Button, ButtonGroup, styled, Tooltip, useTheme } from '@mui/material';
 import { type NodeChange, Panel } from '@xyflow/react';
 import React from 'react';
 import AutoLayoutButton from './auto-layout-button';
+import DiagramPropertiesDrawer from './diagram-properties-drawer';
 import EditTemplatesDialog from './edit-templates-dialog';
 import { EditorMode, useEditorMode } from './editor-mode';
+import { ScriptEnvironmentManagerDialog } from './forms/script-environment-manager-dialog';
 import type { DiagramEditorNode } from './nodes';
 import { MaterialSymbol } from './nodes';
 import { RunButton } from './run-button';
-import DiagramPropertiesDrawer from './diagram-properties-drawer';
 
 export interface CommandPanelProps {
   onNodeChanges: (changes: NodeChange<DiagramEditorNode>[]) => void;
@@ -39,6 +40,7 @@ function CommandPanel({
     React.useState(false);
   const [openDiagramPropertiesDrawer, setOpenDiagramPropertiesDrawer] =
     React.useState(true);
+  const [openScriptEnvManager, setOpenScriptEnvManager] = React.useState(false);
   const [editorMode] = useEditorMode();
 
   return (
@@ -46,7 +48,14 @@ function CommandPanel({
       <Panel position="top-center">
         <ButtonGroup variant="contained">
           {editorMode.mode === EditorMode.Normal && (
-            <RunButton requestJsonString=''/>
+            <RunButton requestJsonString="" />
+          )}
+          {editorMode.mode === EditorMode.Normal && (
+            <Tooltip title="Script Environment Manager">
+              <Button onClick={() => setOpenScriptEnvManager(true)}>
+                <MaterialSymbol symbol="code" />
+              </Button>
+            </Tooltip>
           )}
           {editorMode.mode === EditorMode.Normal && (
             <Tooltip title="Diagram properties">
@@ -73,9 +82,8 @@ function CommandPanel({
           {editorMode.mode === EditorMode.Normal && (
             <Tooltip
               title={
-                enableExport
-                ? 'Export Diagram'
-                : 'Export Diagram (disabled)'}
+                enableExport ? 'Export Diagram' : 'Export Diagram (disabled)'
+              }
             >
               <Button onClick={onExportClick} disabled={!enableExport}>
                 <MaterialSymbol symbol="download" />
@@ -114,6 +122,10 @@ function CommandPanel({
       <DiagramPropertiesDrawer
         open={openDiagramPropertiesDrawer}
         onClose={() => setOpenDiagramPropertiesDrawer(false)}
+      />
+      <ScriptEnvironmentManagerDialog
+        open={openScriptEnvManager}
+        onClose={() => setOpenScriptEnvManager(false)}
       />
     </>
   );

@@ -11,6 +11,7 @@ import BufferForm, { type BufferFormProps } from './buffer-form';
 import EditScopeForm, { type ScopeFormProps } from './edit-scope-form';
 import JoinForm, { type JoinFormProps } from './join-form';
 import NodeForm, { type NodeFormProps } from './node-form';
+import ScriptForm, { type ScriptFormProps } from './script-form';
 import {
   SectionBufferForm,
   SectionForm,
@@ -46,6 +47,9 @@ function EditOperationNodeForm(props: EditOperationNodeFormProps) {
     }
     case 'transform': {
       return <TransformForm {...(props as TransformFormProps)} />;
+    }
+    case 'script': {
+      return <ScriptForm {...(props as ScriptFormProps)} />;
     }
     case 'stream_out': {
       return <StreamOutForm {...(props as StreamOutFormProps)} />;
