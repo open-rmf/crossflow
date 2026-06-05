@@ -60,8 +60,8 @@ describe('REST API Executor Integration Tests', () => {
     );
 
     // Wait until the server is online and ready
-    await waitForServer('http://localhost:3001/api/registry');
-  }, 35000); // Allow up to 35s for compile & launch
+    await waitForServer('http://localhost:3001/api/registry', 120000);
+  }, 120000); // Allow up to 120s for compile & launch
 
   afterAll(() => {
     // Restore global fetch
