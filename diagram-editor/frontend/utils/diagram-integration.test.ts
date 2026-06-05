@@ -9,7 +9,10 @@ import { validateEdgeSimple } from './connection';
 import { loadDiagramJson } from './load-diagram';
 
 const testDataDir = path.join(__dirname, 'test-data');
-const calculatorDiagramsDir = path.join(__dirname, '../../../examples/diagram/calculator/diagrams');
+const calculatorDiagramsDir = path.join(
+  __dirname,
+  '../../../examples/diagram/calculator/diagrams',
+);
 
 function getJsonDiagrams(dir: string): string[] {
   if (!fs.existsSync(dir)) {

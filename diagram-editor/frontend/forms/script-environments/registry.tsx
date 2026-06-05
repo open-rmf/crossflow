@@ -1,4 +1,4 @@
-import { ComponentType } from 'react';
+import type { ComponentType } from 'react';
 import { PythonPropertiesForm } from './python-form';
 
 export interface ScriptEnvironmentFormProps {
@@ -25,10 +25,12 @@ export interface ScriptEnvironmentPlugin {
   bootstrapConfig?: () => string;
 }
 
-export const scriptEnvironmentPlugins: Record<string, ScriptEnvironmentPlugin> = {
-  'process-bound-python': {
-    PropertiesForm: PythonPropertiesForm,
-    defaultCodeField: 'script',
-    bootstrapConfig: () => JSON.stringify({ ownership: 'persistent', script: '' }, null, 2),
-  },
-};
+export const scriptEnvironmentPlugins: Record<string, ScriptEnvironmentPlugin> =
+  {
+    'process-bound-python': {
+      PropertiesForm: PythonPropertiesForm,
+      defaultCodeField: 'script',
+      bootstrapConfig: () =>
+        JSON.stringify({ ownership: 'persistent', script: '' }, null, 2),
+    },
+  };

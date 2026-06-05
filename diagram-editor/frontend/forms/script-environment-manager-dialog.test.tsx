@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { of } from 'rxjs';
 import { ApiClient } from '../api-client';
 import { ApiClientProvider } from '../api-client-provider';
@@ -71,7 +71,7 @@ const testRegistry: DiagramElementMetadata = {
 
 function renderDialog(
   ui: ReactNode,
-  registry: DiagramElementMetadata = testRegistry
+  registry: DiagramElementMetadata = testRegistry,
 ) {
   const apiClient = new ApiClient();
   jest.spyOn(apiClient, 'getRegistry').mockReturnValue(of(registry));
@@ -86,18 +86,20 @@ function renderDialog(
           </DiagramPropertiesProvider>
         </NodeManagerProvider>
       </RegistryProvider>
-    </ApiClientProvider>
+    </ApiClientProvider>,
   );
 }
 
 describe('ScriptEnvironmentManagerDialog', () => {
   test('opens and displays creation form when creating', async () => {
     renderDialog(
-      <ScriptEnvironmentManagerDialog open={true} onClose={jest.fn()} />
+      <ScriptEnvironmentManagerDialog open={true} onClose={jest.fn()} />,
     );
 
     // Click Create New button
-    const createButton = screen.getByRole('button', { name: /Create new environment/i });
+    const createButton = screen.getByRole('button', {
+      name: /Create new environment/i,
+    });
     fireEvent.click(createButton);
 
     // Expect Environment Name input to appear
@@ -106,10 +108,12 @@ describe('ScriptEnvironmentManagerDialog', () => {
 
   test('renders custom properties form for process-bound-python', async () => {
     renderDialog(
-      <ScriptEnvironmentManagerDialog open={true} onClose={jest.fn()} />
+      <ScriptEnvironmentManagerDialog open={true} onClose={jest.fn()} />,
     );
 
-    const createButton = screen.getByRole('button', { name: /Create new environment/i });
+    const createButton = screen.getByRole('button', {
+      name: /Create new environment/i,
+    });
     fireEvent.click(createButton);
 
     // Select 'process-bound-python' builder
@@ -131,17 +135,21 @@ describe('ScriptEnvironmentManagerDialog', () => {
 
   test('renders raw JSON editor and Code Field selection for generic script builders', async () => {
     renderDialog(
-      <ScriptEnvironmentManagerDialog open={true} onClose={jest.fn()} />
+      <ScriptEnvironmentManagerDialog open={true} onClose={jest.fn()} />,
     );
 
-    const createButton = screen.getByRole('button', { name: /Create new environment/i });
+    const createButton = screen.getByRole('button', {
+      name: /Create new environment/i,
+    });
     fireEvent.click(createButton);
 
     // Select 'generic-script-builder'
     const builderSelect = screen.getByRole('combobox', { name: /builder/i });
     fireEvent.mouseDown(builderSelect);
 
-    const option = screen.getByRole('option', { name: 'generic-script-builder' });
+    const option = screen.getByRole('option', {
+      name: 'generic-script-builder',
+    });
     fireEvent.click(option);
 
     // Verifies that generic controls are rendered
@@ -156,10 +164,12 @@ describe('ScriptEnvironmentManagerDialog', () => {
 
   test('automatically populates example script and config on builder selection', async () => {
     renderDialog(
-      <ScriptEnvironmentManagerDialog open={true} onClose={jest.fn()} />
+      <ScriptEnvironmentManagerDialog open={true} onClose={jest.fn()} />,
     );
 
-    const createButton = screen.getByRole('button', { name: /Create new environment/i });
+    const createButton = screen.getByRole('button', {
+      name: /Create new environment/i,
+    });
     fireEvent.click(createButton);
 
     // Select 'process-bound-python'

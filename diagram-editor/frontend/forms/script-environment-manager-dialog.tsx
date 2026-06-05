@@ -65,8 +65,6 @@ export function ScriptEnvironmentManagerDialog({
     return registry?.scripting ? Object.keys(registry.scripting) : [];
   }, [registry]);
 
-
-
   useEffect(() => {
     if (open && !wasOpen.current) {
       if (initialEnvName && environments[initialEnvName]) {
@@ -454,8 +452,10 @@ export function ScriptEnvironmentManagerDialog({
                       setLanguage(builderMeta.language || 'python');
 
                       // Auto-bootstrap template if creating or starting with empty config
-                      const selectedPlugin = scriptEnvironmentPlugins[selectedBuilder];
-                      const activeField = selectedPlugin?.defaultCodeField || '';
+                      const selectedPlugin =
+                        scriptEnvironmentPlugins[selectedBuilder];
+                      const activeField =
+                        selectedPlugin?.defaultCodeField || '';
 
                       if (
                         mode === 'create' ||
@@ -489,7 +489,9 @@ export function ScriptEnvironmentManagerDialog({
                         } else {
                           if (selectedPlugin) {
                             if (selectedPlugin.defaultCodeField) {
-                              setSelectedCodeField(selectedPlugin.defaultCodeField);
+                              setSelectedCodeField(
+                                selectedPlugin.defaultCodeField,
+                              );
                             }
                             if (selectedPlugin.bootstrapConfig) {
                               setConfig(selectedPlugin.bootstrapConfig());
@@ -597,7 +599,8 @@ export function ScriptEnvironmentManagerDialog({
                 />
               )}
 
-              {activeCodeField && (plugin || configKeys.includes(activeCodeField)) ? (
+              {activeCodeField &&
+              (plugin || configKeys.includes(activeCodeField)) ? (
                 <>
                   <Stack
                     direction="row"

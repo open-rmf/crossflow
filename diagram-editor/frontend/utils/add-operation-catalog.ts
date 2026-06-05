@@ -442,7 +442,7 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
         run: '',
         next: { builtin: 'dispose' },
       }),
-  }
+  },
 ];
 
 export function getVisibleAddOperations(options: {

@@ -2,14 +2,17 @@
  * @jest-environment node
  */
 
+import { type ChildProcess, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { spawn, ChildProcess } from 'child_process';
 import { firstValueFrom } from 'rxjs';
-import { ApiClient } from './rest-client';
 import type { Diagram } from '../types/api';
+import { ApiClient } from './rest-client';
 
-const calculatorDiagramsDir = path.join(__dirname, '../../../examples/diagram/calculator/diagrams');
+const calculatorDiagramsDir = path.join(
+  __dirname,
+  '../../../examples/diagram/calculator/diagrams',
+);
 
 function getJsonDiagrams(dir: string): string[] {
   if (!fs.existsSync(dir)) {
@@ -17,7 +20,12 @@ function getJsonDiagrams(dir: string): string[] {
   }
   return fs
     .readdirSync(dir)
-    .filter((file) => file.endsWith('.json') && file !== 'test-diagram.json' && file !== 'test-diagram-scope.json')
+    .filter(
+      (file) =>
+        file.endsWith('.json') &&
+        file !== 'test-diagram.json' &&
+        file !== 'test-diagram-scope.json',
+    )
     .map((file) => path.join(dir, file));
 }
 
@@ -38,14 +46,18 @@ describe('REST API Executor Integration Tests', () => {
     // Start the calculator executor server in the background on port 3001
     const calculatorCwd = path.join(calculatorDiagramsDir, '..');
 
-    backendProcess = spawn('cargo', ['run', '--features', 'python', '--', 'serve', '--port', '3001'], {
-      cwd: calculatorCwd,
-      env: {
-        ...process.env,
-        BUILD_FRONTEND: '1', // Prevent build-script blocking
+    backendProcess = spawn(
+      'cargo',
+      ['run', '--features', 'python', '--', 'serve', '--port', '3001'],
+      {
+        cwd: calculatorCwd,
+        env: {
+          ...process.env,
+          BUILD_FRONTEND: '1', // Prevent build-script blocking
+        },
+        stdio: 'ignore', // Ignore server output
       },
-      stdio: 'ignore', // Ignore server output
-    });
+    );
 
     // Wait until the server is online and ready
     await waitForServer('http://localhost:3001/api/registry');
@@ -86,7 +98,7 @@ describe('REST API Executor Integration Tests', () => {
             }
 
             const response = await firstValueFrom(
-              apiClient.postRunWorkflow(diagram, requestPayload)
+              apiClient.postRunWorkflow(diagram, requestPayload),
             );
 
             expect(response).toBeDefined();

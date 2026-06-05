@@ -31,7 +31,7 @@ describe('PythonPropertiesForm', () => {
         mode="edit"
         registry={defaultRegistry}
         scriptText="print(1)"
-      />
+      />,
     );
 
     const selectElement = screen.getByLabelText('Environment Ownership');
@@ -48,7 +48,7 @@ describe('PythonPropertiesForm', () => {
         mode="edit"
         registry={defaultRegistry}
         scriptText="print(1)"
-      />
+      />,
     );
 
     // Click on the select dropdown
@@ -73,7 +73,7 @@ describe('PythonPropertiesForm', () => {
         mode="edit"
         registry={defaultRegistry}
         scriptText="print(1)"
-      />
+      />,
     );
 
     expect(mockOnValidationError).toHaveBeenCalledWith(null);
@@ -88,7 +88,7 @@ describe('PythonPropertiesForm', () => {
         mode="edit"
         registry={defaultRegistry}
         scriptText="print(1)"
-      />
+      />,
     );
 
     expect(mockOnValidationError).toHaveBeenCalledWith(expect.any(String));
@@ -122,13 +122,15 @@ describe('PythonPropertiesForm', () => {
         mode="edit"
         registry={complexRegistry}
         scriptText=""
-      />
+      />,
     );
 
     const selectElement = screen.getByRole('combobox');
     fireEvent.mouseDown(selectElement);
 
     expect(screen.getByRole('option', { name: 'Shared_custom' })).toBeTruthy();
-    expect(screen.getByRole('option', { name: 'Persistent_custom' })).toBeTruthy();
+    expect(
+      screen.getByRole('option', { name: 'Persistent_custom' }),
+    ).toBeTruthy();
   });
 });

@@ -1,6 +1,6 @@
-import { useMemo, useEffect } from 'react';
 import { MenuItem, TextField } from '@mui/material';
-import { ScriptEnvironmentFormProps } from './registry';
+import { useEffect, useMemo } from 'react';
+import type { ScriptEnvironmentFormProps } from './registry';
 
 export function PythonPropertiesForm({
   config,
@@ -11,13 +11,15 @@ export function PythonPropertiesForm({
   scriptText,
 }: ScriptEnvironmentFormProps) {
   const ownershipOptions = useMemo(() => {
-    const schema = registry?.scripting?.['process-bound-python']?.config_schema as any;
+    const schema = registry?.scripting?.['process-bound-python']
+      ?.config_schema as any;
     const ownershipProp = schema?.properties?.ownership;
     const ref = ownershipProp?.$ref || ownershipProp?.anyOf?.[0]?.$ref;
     let enumValues: string[] = ['shared', 'persistent', 'isolated'];
     if (ref) {
       const defName = ref.split('/').pop();
-      const def = schema?.definitions?.[defName] || registry?.schemas?.[defName];
+      const def =
+        schema?.definitions?.[defName] || registry?.schemas?.[defName];
       if (def?.enum) {
         enumValues = def.enum;
       }
