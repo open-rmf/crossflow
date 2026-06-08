@@ -1,10 +1,12 @@
 import type { Connection } from '@xyflow/react';
 import {
+  createBaseEdge,
   type DiagramEditorEdge,
   EDGE_CATEGORIES,
   EdgeCategory,
   type EdgeTypes,
 } from '../edges';
+import { defaultEdgeData } from '../forms/edit-edge-form';
 import { HandleId } from '../handles';
 import type { NodeManager } from '../node-manager';
 import type { DiagramEditorNode, NodeTypes } from '../nodes';
@@ -372,6 +374,58 @@ export function validateConnectionSimple(
     edges,
     'id' in conn ? conn.id : undefined,
   );
+}
+
+export function createEdgeFromConnection(
+  conn: Connection,
+  nodeManager: NodeManager,
+  id?: string,
+): DiagramEditorEdge | ValidationError {
+  const sourceNode = nodeManager.tryGetNode(conn.source);
+  const targetNode = nodeManager.tryGetNode(conn.target);
+  if (!sourceNode || !targetNode) {
+    return createValidationError('cannot find source or target node');
+  }
+
+  const validEdges = getValidEdgeTypes(
+    sourceNode,
+    conn.sourceHandle,
+    targetNode,
+    conn.targetHandle,
+  );
+  if (validEdges.length === 0) {
+    return createValidationError(
+      `cannot connect "${sourceNode.type}" to "${targetNode.type}"`,
+    );
+  }
+
+  const newEdge = {
+    ...createBaseEdge(
+      conn.source,
+      conn.sourceHandle,
+      conn.target,
+      conn.targetHandle,
+      id,
+    ),
+    type: validEdges[0],
+    data: defaultEdgeData(validEdges[0]),
+  } as DiagramEditorEdge;
+
+  if (targetNode.type === 'section') {
+    if (EDGE_CATEGORIES[newEdge.type] === EdgeCategory.Buffer) {
+      newEdge.data.input = {
+        type: 'sectionBuffer',
+        inputId: '',
+      };
+    } else if (EDGE_CATEGORIES[newEdge.type] === EdgeCategory.Data) {
+      newEdge.data.input = {
+        type: 'sectionInput',
+        inputId: '',
+      };
+    }
+  }
+
+  return newEdge;
 }
 
 /**

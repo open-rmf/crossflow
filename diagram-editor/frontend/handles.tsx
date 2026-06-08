@@ -4,12 +4,9 @@ import {
   useConnection,
   useNodeId,
 } from '@xyflow/react';
-import { useNodeManager } from './node-manager';
-import { useEdges } from './use-edges';
-import {
-  createConnectionFromDraggedHandle,
-  validateConnectionSimple,
-} from './utils/connection';
+import React from 'react';
+import { useConnectionCompatibility } from './connection-compatibility-provider';
+import { createConnectionFromDraggedHandle } from './utils/connection';
 import { exhaustiveCheck } from './utils/exhaustive-check';
 
 export enum HandleId {
@@ -62,10 +59,33 @@ function variantClassName(handleType?: HandleType): string | undefined {
 
 export function Handle({ id, variant, className, ...baseProps }: HandleProps) {
   const nodeId = useNodeId();
-  const nodeManager = useNodeManager();
-  const edges = useEdges();
   const connection = useConnection();
   const handleType = baseProps.type || 'source';
+  const candidateConnection = React.useMemo(() => {
+    if (!nodeId || !connection.inProgress || !connection.fromHandle) {
+      return null;
+    }
+
+    if (
+      connection.fromHandle.nodeId === nodeId &&
+      (connection.fromHandle.id || null) === (id || null) &&
+      connection.fromHandle.type === handleType
+    ) {
+      return null;
+    }
+
+    return createConnectionFromDraggedHandle({
+      fromNodeId: connection.fromHandle.nodeId,
+      fromHandleId: connection.fromHandle.id,
+      fromHandleType: connection.fromHandle.type,
+      otherNodeId: nodeId,
+      otherHandleId: id,
+    });
+  }, [connection, handleType, id, nodeId]);
+  const compatibility = useConnectionCompatibility(
+    candidateConnection,
+    `handle:${nodeId ?? ''}:${handleType}:${id ?? ''}`,
+  );
 
   const classNames: string[] = [];
   const variantClass = variantClassName(variant);
@@ -76,26 +96,12 @@ export function Handle({ id, variant, className, ...baseProps }: HandleProps) {
     classNames.push(className);
   }
 
-  if (
-    nodeId &&
-    connection.inProgress &&
-    connection.fromHandle &&
-    connection.fromHandle.nodeId !== nodeId &&
-    connection.fromHandle.type !== handleType
-  ) {
-    const conn = createConnectionFromDraggedHandle({
-      fromNodeId: connection.fromHandle.nodeId,
-      fromHandleId: connection.fromHandle.id,
-      fromHandleType: connection.fromHandle.type,
-      otherNodeId: nodeId,
-      otherHandleId: id,
-    });
-
-    const result = validateConnectionSimple(conn, nodeManager, edges);
-
-    if (result.valid) {
-      classNames.push('handle-compatible');
-    }
+  if (compatibility && connection.inProgress) {
+    classNames.push(
+      compatibility.status === 'compatible'
+        ? 'handle-compatible'
+        : 'handle-incompatible',
+    );
   }
 
   return (

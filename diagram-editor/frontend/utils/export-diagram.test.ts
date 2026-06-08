@@ -25,9 +25,9 @@ const stubRegistry: DiagramElementMetadata = {
     unzip: [],
   },
   schemas: {},
+  scripting: {},
   sections: {},
   trace_supported: false,
-  scripting: {},
 };
 
 test('export diagram', async () => {

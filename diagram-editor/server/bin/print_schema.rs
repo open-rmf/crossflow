@@ -1,6 +1,6 @@
 use crossflow_diagram_editor::api::{
     RegistryResponse,
-    executor::{DebugSessionMessage, PostRunRequest},
+    executor::{CompatibilityRequest, CompatibilityResponse, DebugSessionMessage, PostRunRequest},
 };
 use indexmap::IndexMap;
 use schemars::SchemaGenerator;
@@ -8,6 +8,8 @@ use schemars::SchemaGenerator;
 fn main() {
     let mut schema_generator = SchemaGenerator::default();
     schema_generator.subschema_for::<PostRunRequest>();
+    schema_generator.subschema_for::<CompatibilityRequest>();
+    schema_generator.subschema_for::<CompatibilityResponse>();
     schema_generator.subschema_for::<RegistryResponse>();
     schema_generator.subschema_for::<DebugSessionMessage>();
 

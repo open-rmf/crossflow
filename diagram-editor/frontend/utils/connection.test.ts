@@ -24,6 +24,89 @@ import {
 } from './connection';
 import { ROOT_NAMESPACE } from './namespace';
 
+describe('connection helpers', () => {
+  test('normalizes a drag that starts from a source handle', () => {
+    const connection = createConnectionFromDraggedHandle({
+      fromNodeId: 'source-node',
+      fromHandleId: 'out',
+      fromHandleType: 'source',
+      otherNodeId: 'target-node',
+      otherHandleId: 'in',
+    });
+    expect(connection).toEqual({
+      source: 'source-node',
+      sourceHandle: 'out',
+      target: 'target-node',
+      targetHandle: 'in',
+    });
+  });
+
+  test('normalizes a drag that starts from a target handle', () => {
+    const connection = createConnectionFromDraggedHandle({
+      fromNodeId: 'target-node',
+      fromHandleId: 'in',
+      fromHandleType: 'target',
+      otherNodeId: 'source-node',
+      otherHandleId: 'out',
+    });
+    expect(connection).toEqual({
+      source: 'source-node',
+      sourceHandle: 'out',
+      target: 'target-node',
+      targetHandle: 'in',
+    });
+  });
+
+  test('detects single-output capacity conflicts', () => {
+    const source = createOperationNode(
+      ROOT_NAMESPACE,
+      undefined,
+      { x: 0, y: 0 },
+      { type: 'node', builder: 'test_builder', next: { builtin: 'dispose' } },
+      'source',
+    );
+    const firstTarget = createOperationNode(
+      ROOT_NAMESPACE,
+      undefined,
+      { x: 0, y: 0 },
+      { type: 'node', builder: 'test_builder', next: { builtin: 'dispose' } },
+      'first_target',
+    );
+    const secondTarget = createOperationNode(
+      ROOT_NAMESPACE,
+      undefined,
+      { x: 0, y: 0 },
+      { type: 'node', builder: 'test_builder', next: { builtin: 'dispose' } },
+      'second_target',
+    );
+    const existingEdge = createDefaultEdge(source.id, null, firstTarget.id, null);
+
+    expect(validateSourceOutputCapacity(source, null, [])).toEqual({
+      valid: true,
+    });
+    expect(
+      validateSourceOutputCapacity(source, null, [
+        existingEdge as DiagramEditorEdge,
+      ]),
+    ).toEqual({
+      valid: false,
+      error: 'This output can only be connected to one input',
+    });
+    expect(
+      validateSourceOutputCapacity(
+        source,
+        null,
+        [existingEdge as DiagramEditorEdge],
+        existingEdge.id,
+      ),
+    ).toEqual({ valid: true });
+
+    // Keep the second target live so this test also documents that the capacity
+    // check only depends on source edges, not target nodes.
+    expect(secondTarget.id).toBeTruthy();
+  });
+});
+
 describe('validate edges', () => {
   test('createConnectionFromDraggedHandle normalizes source drags', () => {
     expect(

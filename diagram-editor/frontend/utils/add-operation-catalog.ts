@@ -12,7 +12,11 @@ import {
   isSectionInputNode,
   isSectionOutputNode,
 } from '../nodes';
-import type { DiagramOperation, NextOperation } from '../types/api';
+import type {
+  DiagramElementMetadata,
+  DiagramOperation,
+  NextOperation,
+} from '../types/api';
 import { getValidEdgeTypes } from './connection';
 import { ROOT_NAMESPACE } from './namespace';
 import { addUniqueSuffix } from './unique-value';
@@ -36,8 +40,8 @@ export type AddOperationKey =
   | 'section'
   | 'script';
 
-type AddOperationDefinition = {
-  key: AddOperationKey;
+export type AddOperationCandidate = {
+  key: string;
   label: string;
   templateOnlyRoot?: boolean;
   createPreviewNode: (
@@ -50,6 +54,10 @@ type AddOperationDefinition = {
     newNodePosition: XYPosition;
     nodeManager: NodeManager;
   }) => NodeAddChange<DiagramEditorNode>[];
+};
+
+export type AddOperationDefinition = AddOperationCandidate & {
+  key: AddOperationKey;
 };
 
 function createSectionInputChange(
@@ -458,8 +466,8 @@ export function getVisibleAddOperations(options: {
   });
 }
 
-export function filterCompatibleAddOperations(
-  definitions: AddOperationDefinition[],
+export function filterCompatibleAddOperations<T extends AddOperationCandidate>(
+  definitions: T[],
   anchorNode: DiagramEditorNode,
   anchorHandle: string | null | undefined,
   options: { namespace: string; parentId: string | undefined },
@@ -479,4 +487,61 @@ export function filterCompatibleAddOperations(
       : getValidEdgeTypes(previewNode, null, anchorNode, anchorHandle).length >
           0;
   });
+}
+
+export function getRegistryNodeBuilderCandidates(
+  registry: DiagramElementMetadata,
+): AddOperationCandidate[] {
+  return Object.entries(registry.nodes)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([builder, metadata]) => ({
+      key: `node:${builder}`,
+      label: metadata.default_display_text || builder,
+      createPreviewNode: (namespace, parentId) =>
+        createOperationNode(
+          namespace,
+          parentId,
+          { x: 0, y: 0 },
+          { type: 'node', builder, next: { builtin: 'dispose' } },
+          `preview_node_${builder}`,
+        ),
+      createChanges: ({ namespace, parentId, newNodePosition }) =>
+        createNodeChange(namespace, parentId, newNodePosition, {
+          type: 'node',
+          builder,
+          next: { builtin: 'dispose' },
+        }),
+    }));
+}
+
+export function getAddOperationCandidates(
+  registry: DiagramElementMetadata,
+  options: {
+    includeGenericNode?: boolean;
+    includeRegistryNodes?: boolean;
+    includeBuiltins?: boolean;
+    builtins?: AddOperationCandidate[];
+  } = {},
+): AddOperationCandidate[] {
+  const {
+    includeGenericNode = true,
+    includeRegistryNodes = false,
+    includeBuiltins = true,
+    builtins = ADD_OPERATION_DEFINITIONS,
+  } = options;
+
+  const candidates: AddOperationCandidate[] = [];
+  if (includeBuiltins) {
+    candidates.push(
+      ...builtins.filter(
+        (definition) => includeGenericNode || definition.key !== 'node',
+      ),
+    );
+  }
+
+  if (includeRegistryNodes) {
+    candidates.push(...getRegistryNodeBuilderCandidates(registry));
+  }
+
+  return candidates;
 }

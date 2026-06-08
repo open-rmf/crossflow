@@ -184,6 +184,115 @@
         }
       ]
     },
+    "CompatibilityCandidate": {
+      "properties": {
+        "diagram": {
+          "$ref": "#/$defs/Diagram"
+        },
+        "focusPorts": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PortRef"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sourcePort": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PortRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "targetPort": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PortRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "diagram"
+      ],
+      "type": "object"
+    },
+    "CompatibilityRequest": {
+      "properties": {
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/CompatibilityCandidate"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "candidates"
+      ],
+      "type": "object"
+    },
+    "CompatibilityResponse": {
+      "properties": {
+        "results": {
+          "items": {
+            "$ref": "#/$defs/CompatibilityResult"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "results"
+      ],
+      "type": "object"
+    },
+    "CompatibilityResult": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "sourceType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/CompatibilityStatus"
+        },
+        "targetType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "CompatibilityStatus": {
+      "enum": [
+        "compatible",
+        "incompatible",
+        "unknown"
+      ],
+      "type": "string"
+    },
     "ConfigExample": {
       "properties": {
         "config": {
@@ -1105,6 +1214,54 @@
         }
       ]
     },
+    "NamedOperationRef": {
+      "properties": {
+        "exposed_namespace": {
+          "description": "If this references an exposed operation, such as an exposed input or\noutput of a session, this will contain the session name. Suppose we have\na section named `sec` and it has an exposed output named `out`. Then\nthere are two values of `NamedOperationRef` to consider:\n\n```\n# use crossflow::diagram::{NamedOperationRef, NamespaceList};\n# use smallvec::smallvec;\n\nlet op_id = NamedOperationRef {\n    namespaces: NamespaceList::for_child_of(\"sec\".into()),\n    exposed_namespace: None,\n    name: \"out\".into(),\n};\n```\n\nis the internal reference to `sec:out` that will be used by other\noperations inside of `sec`. On the other hand, operations that are\nsiblings of `sec` would instead connect to\n\n```\n# use crossflow::diagram::NamedOperationRef;\n# use smallvec::smallvec;\n\nlet op_id = NamedOperationRef {\n    namespaces: Default::default(),\n    exposed_namespace: Some(\"sec\".into()),\n    name: \"out\".into(),\n};\n```\n\nWe need to make this distinction because operations inside `sec` do not\nknow which of their siblings are exposed, and we don't want operations\noutside of `sec` to accidentally connect to operations that are supposed\nto be internal to `sec`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "namespaces": {
+          "$ref": "#/$defs/NamespaceList"
+        }
+      },
+      "required": [
+        "namespaces",
+        "name"
+      ],
+      "type": "object"
+    },
+    "NamedOutputRef": {
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/OutputKey"
+        },
+        "namespaces": {
+          "$ref": "#/$defs/NamespaceList"
+        },
+        "operation": {
+          "description": "The name of the output's operation within the scope of the namespaces",
+          "type": "string"
+        }
+      },
+      "required": [
+        "namespaces",
+        "operation",
+        "key"
+      ],
+      "type": "object"
+    },
+    "NamespaceList": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
     "NamespacedOperation": {
       "additionalProperties": {
         "type": "string"
@@ -1231,6 +1388,145 @@
         "next"
       ],
       "type": "object"
+    },
+    "OperationRef": {
+      "oneOf": [
+        {
+          "enum": [
+            "dispose"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "named": {
+              "$ref": "#/$defs/NamedOperationRef"
+            }
+          },
+          "required": [
+            "named"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "terminate": {
+              "$ref": "#/$defs/NamespaceList"
+            }
+          },
+          "required": [
+            "terminate"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "cancel": {
+              "$ref": "#/$defs/NamespaceList"
+            }
+          },
+          "required": [
+            "cancel"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "implicit_cancel": {
+              "$ref": "#/$defs/NamespaceList"
+            }
+          },
+          "required": [
+            "implicit_cancel"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "stream_out": {
+              "$ref": "#/$defs/StreamOutRef"
+            }
+          },
+          "required": [
+            "stream_out"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "OutputKey": {
+      "items": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          }
+        ]
+      },
+      "type": "array"
+    },
+    "OutputRef": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Named": {
+              "$ref": "#/$defs/NamedOutputRef"
+            }
+          },
+          "required": [
+            "Named"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Start": {
+              "$ref": "#/$defs/NamespaceList"
+            }
+          },
+          "required": [
+            "Start"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PortRef": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Input": {
+              "$ref": "#/$defs/OperationRef"
+            }
+          },
+          "required": [
+            "Input"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Output": {
+              "$ref": "#/$defs/OutputRef"
+            }
+          },
+          "required": [
+            "Output"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "PostRunRequest": {
       "properties": {
@@ -1867,6 +2163,22 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "StreamOutRef": {
+      "properties": {
+        "name": {
+          "description": "The name of the stream (within its scope) that is being referred to",
+          "type": "string"
+        },
+        "namespaces": {
+          "$ref": "#/$defs/NamespaceList"
+        }
+      },
+      "required": [
+        "namespaces",
+        "name"
+      ],
       "type": "object"
     },
     "StreamOutSchema": {

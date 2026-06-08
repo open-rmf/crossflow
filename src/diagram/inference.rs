@@ -96,6 +96,39 @@ impl Diagram {
         lookup: &dyn MetadataAccess,
         boundary: InferenceBoundaryConditions,
     ) -> Result<InferredMessageTypes, DiagramError> {
+        let inferences = self.evaluate_message_type_inferences(lookup, boundary)?;
+        Ok(inferences.try_infer_types()?)
+    }
+
+    /// Infer message types only for the requested ports.
+    ///
+    /// This is intended for editor hints where the diagram may be in a
+    /// partially edited state. Unlike [`Self::infer_message_types`], unrelated
+    /// ports that cannot yet be inferred do not make this fail.
+    pub fn infer_message_types_for_ports(
+        &self,
+        lookup: &dyn MetadataAccess,
+        boundary: InferenceBoundaryConditions,
+        ports: impl IntoIterator<Item = PortRef>,
+    ) -> Result<InferredMessageTypes, DiagramError> {
+        let inferences = self.evaluate_message_type_inferences(lookup, boundary)?;
+        let mut inferred = InferredMessageTypes::new();
+        for port in ports {
+            let evaluation = inferences.get_evaluation(&port).in_port(|| port.clone())?;
+            let Some(message_type) = evaluation.message_type else {
+                return Err(DiagramErrorCode::CannotInferType(port.clone()).in_port(port));
+            };
+            inferred.insert(port, message_type);
+        }
+
+        Ok(inferred)
+    }
+
+    fn evaluate_message_type_inferences(
+        &self,
+        lookup: &dyn MetadataAccess,
+        boundary: InferenceBoundaryConditions,
+    ) -> Result<Inferences, DiagramError> {
         self.validate_operation_names()?;
         self.validate_template_usage()?;
 
@@ -211,7 +244,7 @@ impl Diagram {
             }
         }
 
-        Ok(inferences.try_infer_types()?)
+        Ok(inferences)
     }
 }
 

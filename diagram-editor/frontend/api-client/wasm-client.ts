@@ -1,5 +1,10 @@
 import { from, type Observable, of } from 'rxjs';
-import type { Diagram, DiagramElementMetadata } from '../types/api';
+import type {
+  CompatibilityRequest,
+  CompatibilityResponse,
+  Diagram,
+  DiagramElementMetadata,
+} from '../types/api';
 import { getSchema } from '../utils/ajv';
 import type { BaseApiClient } from './base-api-client';
 import * as wasmApi from './wasm-stub/stub.js';
@@ -24,6 +29,16 @@ export class ApiClient implements BaseApiClient {
   postRunWorkflow(diagram: Diagram, request: unknown): Observable<unknown> {
     return from(
       wasmApi.post_run(new wasmApi.PostRunRequestWasm({ diagram, request })),
+    );
+  }
+
+  checkCompatibility(
+    request: CompatibilityRequest,
+  ): Observable<CompatibilityResponse> {
+    return from(
+      wasmApi.check_compatibility(
+        new wasmApi.CompatibilityRequestWasm(request),
+      ),
     );
   }
 }

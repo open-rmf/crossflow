@@ -29,16 +29,14 @@ import {
 import { inflateSync, strFromU8 } from 'fflate';
 import React, { Suspense } from 'react';
 import AddOperation from './add-operation';
+import { useApiClient } from './api-client-provider';
 import CommandPanel from './command-panel';
+import { CompatibleAddOperation } from './compatible-add-operation';
+import { ConnectionCompatibilityProvider } from './connection-compatibility-provider';
 import { ConnectionHintPanel } from './connection-hint-panel';
-import { DiagramPropertiesProvider } from './diagram-properties-provider';
+import { useDiagramProperties } from './diagram-properties-provider';
 import type { DiagramEditorEdge } from './edges';
-import {
-  createBaseEdge,
-  EDGE_CATEGORIES,
-  EDGE_TYPES,
-  EdgeCategory,
-} from './edges';
+import { EDGE_TYPES } from './edges';
 import {
   EditorMode,
   type EditorModeContext,
@@ -46,7 +44,7 @@ import {
   type UseEditorModeContext,
 } from './editor-mode';
 import { ExportDiagramDialog } from './export-diagram-dialog';
-import { defaultEdgeData, EditEdgeForm, EditNodeForm } from './forms';
+import { EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
 import { type LoadContext, LoadContextProvider } from './load-context-provider';
 import { NodeManager, NodeManagerProvider } from './node-manager';
@@ -67,9 +65,12 @@ import {
   createConnectionFromDraggedHandle,
   getValidEdgeTypes,
   validateConnectionSimple,
-  validateEdgeSimple,
   validateSourceOutputCapacity,
 } from './utils/connection';
+import {
+  buildCompatibilityCandidate,
+  checkCompatibilityCandidates,
+} from './utils/compatibility';
 import { exhaustiveCheck } from './utils/exhaustive-check';
 import { exportTemplate } from './utils/export-diagram';
 import { calculateScopeBounds, LAYOUT_OPTIONS } from './utils/layout';
@@ -140,9 +141,12 @@ function Providers({
       <LoadContextProvider value={loadContext}>
         <NodeManagerProvider value={nodeManager}>
           <EdgesProvider value={edges}>
-            <DiagramPropertiesProvider>
+            <ConnectionCompatibilityProvider
+              nodeManager={nodeManager}
+              edges={edges}
+            >
               <NotificationProvider>{children}</NotificationProvider>
-            </DiagramPropertiesProvider>
+            </ConnectionCompatibilityProvider>
           </EdgesProvider>
         </NodeManagerProvider>
       </LoadContextProvider>
@@ -172,6 +176,8 @@ function DiagramEditor() {
 
   const [templates] = useTemplates();
   const registry = useRegistry();
+  const apiClient = useApiClient();
+  const [diagramProperties] = useDiagramProperties();
 
   const updateEditorModeAction = React.useCallback(
     (newMode: EditorModeContext) => {
@@ -584,82 +590,52 @@ function DiagramEditor() {
     [],
   );
 
-  const tryCreateEdge = React.useCallback(
-    (
+  const tryCreateCompatibleEdge = React.useCallback(
+    async (
       conn: Connection,
       id?: string,
-      nodeOverride?: DiagramEditorNode,
-    ): DiagramEditorEdge | null => {
-      const sourceNode =
-        nodeOverride?.id === conn.source
-          ? nodeOverride
-          : nodeManager.tryGetNode(conn.source);
-      const targetNode =
-        nodeOverride?.id === conn.target
-          ? nodeOverride
-          : nodeManager.tryGetNode(conn.target);
-      if (!sourceNode || !targetNode) {
-        throw new Error('cannot find source or target node');
+      nodeChanges: Extract<NodeChange<DiagramEditorNode>, { type: 'add' }>[] =
+        [],
+    ): Promise<DiagramEditorEdge | null> => {
+      const built = buildCompatibilityCandidate({
+        id: id || 'new-edge',
+        registry,
+        nodeManager,
+        edges,
+        templates,
+        diagramProperties,
+        connection: conn,
+        nodeChanges,
+        edgeId: id,
+      });
+
+      if (!built.ok) {
+        showErrorToast(built.result.reason);
+        return null;
       }
 
-      const validEdges = getValidEdgeTypes(
-        sourceNode,
-        conn.sourceHandle,
-        targetNode,
-        conn.targetHandle,
-      );
-      if (validEdges.length === 0) {
+      const results = await checkCompatibilityCandidates(apiClient, [
+        built.candidate,
+      ]);
+      const compatibility = results.get(built.candidate.id);
+      if (compatibility?.status !== 'compatible') {
         showErrorToast(
-          `cannot connect "${sourceNode.type}" to "${targetNode.type}"`,
+          compatibility?.reason || 'connection is not compatible',
         );
         return null;
       }
 
-      const newEdge = {
-        ...createBaseEdge(
-          conn.source,
-          conn.sourceHandle,
-          conn.target,
-          conn.targetHandle,
-          id,
-        ),
-        type: validEdges[0],
-        data: defaultEdgeData(validEdges[0]),
-      } as DiagramEditorEdge;
-
-      if (targetNode.type === 'section') {
-        if (EDGE_CATEGORIES[newEdge.type] === EdgeCategory.Buffer) {
-          newEdge.data.input = {
-            type: 'sectionBuffer',
-            inputId: '',
-          };
-        } else if (EDGE_CATEGORIES[newEdge.type] === EdgeCategory.Data) {
-          newEdge.data.input = {
-            type: 'sectionInput',
-            inputId: '',
-          };
-        }
-      }
-
-      const validationNodeManager = nodeOverride
-        ? new NodeManager([
-            ...nodeManager.nodes.filter((node) => node.id !== nodeOverride.id),
-            nodeOverride,
-          ])
-        : nodeManager;
-      const validationResult = validateEdgeSimple(
-        newEdge,
-        validationNodeManager,
-        edges,
-      );
-      if (!validationResult.valid) {
-        showErrorToast(validationResult.error);
-        return null;
-      }
-
-      return newEdge;
+      return built.candidate.edge;
     },
-    [showErrorToast, nodeManager, edges],
+    [
+      apiClient,
+      diagramProperties,
+      edges,
+      nodeManager,
+      registry,
+      showErrorToast,
+      templates,
+    ],
   );
 
   const [enableExport, setEnableExport] = React.useState(true);
@@ -713,21 +689,28 @@ function DiagramEditor() {
           closeAllPopovers();
         }}
         onConnect={(conn) => {
-          const newEdge = tryCreateEdge(conn);
-          if (newEdge) {
-            setEdges((prev) => addEdge(newEdge, prev));
-          }
+          void (async () => {
+            const newEdge = await tryCreateCompatibleEdge(conn);
+            if (newEdge) {
+              setEdges((prev) => addEdge(newEdge, prev));
+            }
+          })();
         }}
         isValidConnection={(conn) => {
           return validateConnectionSimple(conn, nodeManager, edges).valid;
         }}
         onReconnect={(oldEdge, newConnection) => {
-          const newEdge = tryCreateEdge(newConnection, oldEdge.id);
-          if (newEdge) {
-            oldEdge.type = newEdge.type;
-            oldEdge.data = newEdge.data;
-            setEdges((prev) => reconnectEdge(oldEdge, newConnection, prev));
-          }
+          void (async () => {
+            const newEdge = await tryCreateCompatibleEdge(
+              newConnection,
+              oldEdge.id,
+            );
+            if (newEdge) {
+              oldEdge.type = newEdge.type;
+              oldEdge.data = newEdge.data;
+              setEdges((prev) => reconnectEdge(oldEdge, newConnection, prev));
+            }
+          })();
         }}
         onConnectEnd={(event, connectionState) => {
           if (!connectionState.fromHandle) {
@@ -899,47 +882,55 @@ function DiagramEditor() {
           // use a custom component to prevent the popover from creating an invisible element that blocks clicks
           component={NonCapturingPopoverContainer}
         >
-          <AddOperation
-            parentId={addOperationPopover.parentId || undefined}
-            newNodePosition={addOperationNewNodePosition}
-            sourceConnection={addOperationPopover.sourceConnection}
-            onAdd={({ changes, primaryNodeId }) => {
-              handleNodeChanges(changes);
-              if (addOperationPopover.sourceConnection) {
-                const targetNode =
-                  changes.find((change) => change.item.id === primaryNodeId)
-                    ?.item || null;
-                if (targetNode) {
-                  const newEdge = tryCreateEdge(
-                    addOperationPopover.sourceConnection.sourceHandleType ===
-                      'source'
-                      ? {
-                          source:
-                            addOperationPopover.sourceConnection.sourceNodeId,
-                          sourceHandle:
-                            addOperationPopover.sourceConnection.sourceHandle,
-                          target: targetNode.id,
-                          targetHandle: null,
-                        }
-                      : {
-                          source: targetNode.id,
-                          sourceHandle: null,
-                          target:
-                            addOperationPopover.sourceConnection.sourceNodeId,
-                          targetHandle:
-                            addOperationPopover.sourceConnection.sourceHandle,
-                        },
-                    undefined,
-                    targetNode,
-                  );
-                  if (newEdge) {
-                    setEdges((prev) => addEdge(newEdge, prev));
+          {addOperationPopover.sourceConnection ? (
+            <CompatibleAddOperation
+              parentId={addOperationPopover.parentId || undefined}
+              newNodePosition={addOperationNewNodePosition}
+              sourceConnection={addOperationPopover.sourceConnection}
+              onAdd={({ changes, primaryNodeId }) => {
+                void (async () => {
+                  const targetNode =
+                    changes.find((change) => change.item.id === primaryNodeId)
+                      ?.item || null;
+                  if (!targetNode || !addOperationPopover.sourceConnection) {
+                    return;
                   }
-                }
-              }
-              closeAllPopovers();
-            }}
-          />
+
+                  const connection = createConnectionFromDraggedHandle({
+                    fromNodeId:
+                      addOperationPopover.sourceConnection.sourceNodeId,
+                    fromHandleId:
+                      addOperationPopover.sourceConnection.sourceHandle,
+                    fromHandleType:
+                      addOperationPopover.sourceConnection.sourceHandleType,
+                    otherNodeId: targetNode.id,
+                    otherHandleId: null,
+                  });
+                  const newEdge = await tryCreateCompatibleEdge(
+                    connection,
+                    undefined,
+                    changes,
+                  );
+                  if (!newEdge) {
+                    return;
+                  }
+
+                  handleNodeChanges(changes);
+                  setEdges((prev) => addEdge(newEdge, prev));
+                  closeAllPopovers();
+                })();
+              }}
+            />
+          ) : (
+            <AddOperation
+              parentId={addOperationPopover.parentId || undefined}
+              newNodePosition={addOperationNewNodePosition}
+              onAdd={({ changes }) => {
+                handleNodeChanges(changes);
+                closeAllPopovers();
+              }}
+            />
+          )}
         </Popover>
         <Popover
           {...editOpFormPopoverProps}
