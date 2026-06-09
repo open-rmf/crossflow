@@ -57,7 +57,7 @@ function BaseNode({
                 `0 0 0 2px ${alpha(theme.palette.info.main, 0.28)}`,
                 `0 0 8px 3px ${alpha(theme.palette.info.main, 0.35)}`,
               ].join(', ')
-          : undefined,
+            : undefined,
         transition: theme.transitions.create(['box-shadow', 'outline-color'], {
           duration: theme.transitions.duration.shortest,
         }),
