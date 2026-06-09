@@ -347,10 +347,12 @@ pub fn register(registry: &mut DiagramElementRegistry) {
     );
 
     let delay_description = "Wait for a configured number of milliseconds, then \
-        pass the input through unchanged. This is useful for making example \
-        workflow progress visible in the diagram editor debugger.";
+        pass the input through unchanged. If not configured, the default delay \
+        is 1000 ms. This node is only intended for testing diagram editor \
+        progress visualization with examples like carry_object_progress.json; \
+        do not use it to introduce async delays in production workflows.";
     let delay_examples = [
-        ConfigExample::new("Wait for the default 750 ms.", json!(null)),
+        ConfigExample::new("Wait for the default 1000 ms.", json!(null)),
         ConfigExample::new("Wait for 1200 ms.", json!(1200)),
     ];
 
@@ -361,7 +363,7 @@ pub fn register(registry: &mut DiagramElementRegistry) {
             .with_config_examples(delay_examples),
         |builder, config: Option<u64>| {
             builder.create_map_block(move |req: JsonMessage| {
-                thread::sleep(Duration::from_millis(config.unwrap_or(750)));
+                thread::sleep(Duration::from_millis(config.unwrap_or(1000)));
                 req
             })
         },

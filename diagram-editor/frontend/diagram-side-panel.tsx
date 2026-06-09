@@ -122,15 +122,15 @@ function DiagramSidePanel({
             sx={{ minHeight: 40 }}
           >
             <Tab
-              value="run"
-              label="Run"
-              icon={<MaterialSymbol symbol="play_arrow" />}
-              iconPosition="start"
-            />
-            <Tab
               value="properties"
               label="Properties"
               icon={<MaterialSymbol symbol="info" />}
+              iconPosition="start"
+            />
+            <Tab
+              value="run"
+              label="Run"
+              icon={<MaterialSymbol symbol="play_arrow" />}
               iconPosition="start"
             />
           </Tabs>

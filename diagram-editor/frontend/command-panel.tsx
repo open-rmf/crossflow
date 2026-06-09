@@ -40,7 +40,7 @@ function CommandPanel({
     React.useState(false);
   const [openSidePanel, setOpenSidePanel] = React.useState(true);
   const [sidePanelTab, setSidePanelTab] =
-    React.useState<DiagramSidePanelTab>('run');
+    React.useState<DiagramSidePanelTab>('properties');
   const [runRequestJson, setRunRequestJson] = React.useState('');
   const [editorMode] = useEditorMode();
 

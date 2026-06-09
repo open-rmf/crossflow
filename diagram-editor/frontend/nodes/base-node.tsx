@@ -45,13 +45,18 @@ function BaseNode({
         outline: debugLatest
           ? `2px solid ${theme.palette.success.main}`
           : debugVisited
-            ? `1px solid ${alpha(theme.palette.info.main, 0.35)}`
+            ? `2px solid ${alpha(theme.palette.info.main, 0.35)}`
             : undefined,
         boxShadow: debugLatest
           ? [
               `0 0 0 4px ${alpha(theme.palette.success.main, 0.28)}`,
               `0 0 18px 6px ${alpha(theme.palette.success.main, 0.35)}`,
             ].join(', ')
+          : debugVisited
+            ? [
+                `0 0 0 2px ${alpha(theme.palette.info.main, 0.28)}`,
+                `0 0 8px 3px ${alpha(theme.palette.info.main, 0.35)}`,
+              ].join(', ')
           : undefined,
         transition: theme.transitions.create(['box-shadow', 'outline-color'], {
           duration: theme.transitions.duration.shortest,
