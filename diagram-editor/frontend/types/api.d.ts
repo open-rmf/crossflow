@@ -79,10 +79,16 @@ export type RetentionPolicy =
  * via the `definition` "DebugSessionMessage".
  */
 export type DebugSessionMessage =
-  | ({
-      operationStarted: string;
-      [k: string]: unknown;
-    } & {
+  | ((
+      | {
+          operationStarted: string;
+          [k: string]: unknown;
+        }
+      | {
+          operationFinished: string;
+          [k: string]: unknown;
+        }
+    ) & {
       type: 'feedback';
       [k: string]: unknown;
     })

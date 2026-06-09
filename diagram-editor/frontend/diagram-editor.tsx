@@ -219,17 +219,17 @@ function DiagramEditor() {
   const [debugActiveNodeIds, setDebugActiveNodeIds] = React.useState(
     () => new Set<string>(),
   );
-  const [debugLatestNodeId, setDebugLatestNodeId] = React.useState<
-    string | null
-  >(null);
+  const [debugVisitedNodeIds, setDebugVisitedNodeIds] = React.useState(
+    () => new Set<string>(),
+  );
   const clearDebugVisualization = React.useCallback(() => {
     setDebugActiveNodeIds(new Set());
-    setDebugLatestNodeId(null);
+    setDebugVisitedNodeIds(new Set());
   }, []);
   const markDebugFinished = React.useCallback(() => {
-    setDebugLatestNodeId(null);
+    setDebugActiveNodeIds(new Set());
   }, []);
-  const markDebugOperationStarted = React.useCallback(
+  const markDebugOperationFinished = React.useCallback(
     (operationId: string) => {
       const nodeId = getDebugNodeId(operationId, nodeManager);
       if (!nodeId) {
@@ -238,26 +238,52 @@ function DiagramEditor() {
 
       setDebugActiveNodeIds((prev) => {
         const next = new Set(prev);
+        next.delete(nodeId);
+        return next;
+      });
+      setDebugVisitedNodeIds((prev) => {
+        const next = new Set(prev);
         next.add(nodeId);
         return next;
       });
-      setDebugLatestNodeId(nodeId);
+    },
+    [nodeManager],
+  );
+  const markDebugOperationStarted = React.useCallback(
+    (operationId: string) => {
+      const nodeId = getDebugNodeId(operationId, nodeManager);
+      if (!nodeId) {
+        return;
+      }
+
+      setDebugVisitedNodeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(nodeId);
+        return next;
+      });
+      setDebugActiveNodeIds((prev) => {
+        const next = new Set(prev);
+        next.add(nodeId);
+        return next;
+      });
     },
     [nodeManager],
   );
   const debugVisualizationContext = React.useMemo<DebugVisualizationContext>(
     () => ({
       activeNodeIds: debugActiveNodeIds,
-      latestNodeId: debugLatestNodeId,
+      visitedNodeIds: debugVisitedNodeIds,
       clearDebugVisualization,
       markDebugFinished,
+      markDebugOperationFinished,
       markDebugOperationStarted,
     }),
     [
       clearDebugVisualization,
       debugActiveNodeIds,
-      debugLatestNodeId,
+      debugVisitedNodeIds,
       markDebugFinished,
+      markDebugOperationFinished,
       markDebugOperationStarted,
     ],
   );

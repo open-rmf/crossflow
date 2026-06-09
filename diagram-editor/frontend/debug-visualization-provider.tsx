@@ -2,17 +2,19 @@ import { createContext, type PropsWithChildren, useContext } from 'react';
 
 export interface DebugVisualizationContext {
   activeNodeIds: Set<string>;
-  latestNodeId: string | null;
+  visitedNodeIds: Set<string>;
   clearDebugVisualization: () => void;
   markDebugFinished: () => void;
+  markDebugOperationFinished: (operationId: string) => void;
   markDebugOperationStarted: (operationId: string) => void;
 }
 
 const DefaultDebugVisualizationContext: DebugVisualizationContext = {
   activeNodeIds: new Set(),
-  latestNodeId: null,
+  visitedNodeIds: new Set(),
   clearDebugVisualization: () => {},
   markDebugFinished: () => {},
+  markDebugOperationFinished: () => {},
   markDebugOperationStarted: () => {},
 };
 

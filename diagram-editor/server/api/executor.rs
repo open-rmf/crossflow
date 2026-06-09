@@ -138,6 +138,7 @@ impl DebugSessionEnd {
 #[serde(rename_all = "camelCase")]
 pub enum DebugSessionFeedback {
     OperationStarted(String),
+    OperationFinished(String),
 }
 
 #[cfg_attr(feature = "json_schema", derive(schemars::JsonSchema))]
@@ -277,15 +278,21 @@ async fn send_debug_feedback<W>(write: &mut W, feedback: &TracedEvent)
 where
     W: WebsocketSinkExt<DebugSessionMessage>,
 {
-    let Some(op_id) = operation_started_id(feedback) else {
-        return;
-    };
+    for op_id in operation_finished_ids(feedback) {
+        write
+            .send_json(&DebugSessionMessage::Feedback(
+                DebugSessionFeedback::OperationFinished(op_id),
+            ))
+            .await;
+    }
 
-    write
-        .send_json(&DebugSessionMessage::Feedback(
-            DebugSessionFeedback::OperationStarted(op_id),
-        ))
-        .await;
+    if let Some(op_id) = operation_started_id(feedback) {
+        write
+            .send_json(&DebugSessionMessage::Feedback(
+                DebugSessionFeedback::OperationStarted(op_id),
+            ))
+            .await;
+    }
 }
 
 #[cfg(feature = "router")]
@@ -304,6 +311,24 @@ fn operation_started_id(feedback: &TracedEvent) -> Option<String> {
             .and_then(|info| info.id().as_ref())
             .map(ToString::to_string),
         _ => None,
+    }
+}
+
+#[cfg(feature = "router")]
+fn operation_finished_ids(feedback: &TracedEvent) -> Vec<String> {
+    match &feedback.event {
+        TracedEventKind::MessageSent(message) => message
+            .output
+            .iter()
+            .filter_map(|source| {
+                source
+                    .info
+                    .as_ref()
+                    .and_then(|info| info.id().as_ref())
+                    .map(ToString::to_string)
+            })
+            .collect(),
+        _ => Vec::new(),
     }
 }
 
@@ -675,8 +700,9 @@ mod tests {
             .await
             .unwrap();
 
-        // there should be 2 feedback messages
-        for _ in 0..2 {
+        // There should be 3 feedback messages: add7 starts, add7 finishes,
+        // and terminate starts.
+        for _ in 0..3 {
             let msg = test_rx.next().await.unwrap();
             let feedback_msg: DebugSessionMessage =
                 serde_json::from_slice(msg.into_text().unwrap().as_bytes()).unwrap();
@@ -689,6 +715,7 @@ mod tests {
             assert!(matches!(
                 feedback,
                 DebugSessionFeedback::OperationStarted(_)
+                    | DebugSessionFeedback::OperationFinished(_)
             ));
         }
 

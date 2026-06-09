@@ -68,6 +68,7 @@ export function RunPanel({
   const {
     clearDebugVisualization,
     markDebugFinished,
+    markDebugOperationFinished,
     markDebugOperationStarted,
   } = useDebugVisualization();
   const [templates] = useTemplates();
@@ -171,7 +172,11 @@ export function RunPanel({
       debugSessionRef.current = debugSession;
       debugSubscriptionRef.current = debugSession.debugFeedback$.subscribe({
         next: (msg) => {
-          if (msg.type === 'feedback' && 'operationStarted' in msg) {
+          if (
+            msg.type === 'feedback' &&
+            'operationStarted' in msg &&
+            typeof msg.operationStarted === 'string'
+          ) {
             if (!showProgressRef.current) {
               return;
             }
@@ -184,6 +189,18 @@ export function RunPanel({
             setExecutionTimeline((prev) =>
               [...prev, entry].slice(-MaxExecutionTimelineEntries),
             );
+            return;
+          }
+
+          if (
+            msg.type === 'feedback' &&
+            'operationFinished' in msg &&
+            typeof msg.operationFinished === 'string'
+          ) {
+            if (!showProgressRef.current) {
+              return;
+            }
+            markDebugOperationFinished(msg.operationFinished);
             return;
           }
 

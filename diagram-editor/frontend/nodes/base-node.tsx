@@ -29,9 +29,9 @@ function BaseNode({
   selected,
   id,
 }: BaseNodeProps) {
-  const { activeNodeIds, latestNodeId } = useDebugVisualization();
-  const debugLatest = latestNodeId === id;
-  const debugVisited = activeNodeIds.has(id) && !debugLatest;
+  const { activeNodeIds, visitedNodeIds } = useDebugVisualization();
+  const debugActive = activeNodeIds.has(id);
+  const debugVisited = visitedNodeIds.has(id) && !debugActive;
   const icon =
     typeof materialIconOrSymbol === 'string' ? (
       <span className={`material-symbols-${materialIconOrSymbol}`} />
@@ -42,12 +42,12 @@ function BaseNode({
   return (
     <Paper
       sx={(theme) => ({
-        outline: debugLatest
+        outline: debugActive
           ? `2px solid ${theme.palette.success.main}`
           : debugVisited
             ? `2px solid ${alpha(theme.palette.info.main, 0.35)}`
             : undefined,
-        boxShadow: debugLatest
+        boxShadow: debugActive
           ? [
               `0 0 0 4px ${alpha(theme.palette.success.main, 0.28)}`,
               `0 0 18px 6px ${alpha(theme.palette.success.main, 0.35)}`,
