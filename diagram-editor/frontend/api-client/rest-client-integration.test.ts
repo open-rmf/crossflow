@@ -46,18 +46,14 @@ describe('REST API Executor Integration Tests', () => {
     // Start the calculator executor server in the background on port 3001
     const calculatorCwd = path.join(calculatorDiagramsDir, '..');
 
-    backendProcess = spawn(
-      'cargo',
-      ['run', '--', 'serve', '--port', '3001'],
-      {
-        cwd: calculatorCwd,
-        env: {
-          ...process.env,
-          BUILD_FRONTEND: '1', // Prevent build-script blocking
-        },
-        stdio: 'ignore', // Ignore server output
+    backendProcess = spawn('cargo', ['run', '--', 'serve', '--port', '3001'], {
+      cwd: calculatorCwd,
+      env: {
+        ...process.env,
+        BUILD_FRONTEND: '1', // Prevent build-script blocking
       },
-    );
+      stdio: 'ignore', // Ignore server output
+    });
 
     // Wait until the server is online and ready
     await waitForServer('http://localhost:3001/api/registry', 120000);
