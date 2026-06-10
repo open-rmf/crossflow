@@ -48,7 +48,7 @@ describe('REST API Executor Integration Tests', () => {
 
     backendProcess = spawn(
       'cargo',
-      ['run', '--features', 'python', '--', 'serve', '--port', '3001'],
+      ['run', '--', 'serve', '--port', '3001'],
       {
         cwd: calculatorCwd,
         env: {
