@@ -141,7 +141,6 @@ if threading.current_thread() is threading.main_thread():
             py.run(disable_signal_handling, None, None)
         })?;
 
-
         let event_loop = PythonEventLoop::new()?;
 
         crate::register_crossflow_pymod()?;
