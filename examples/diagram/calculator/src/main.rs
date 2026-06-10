@@ -26,9 +26,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     calculator_ops_catalog::register(&mut registry);
 
     // Enable Python scripting
-    let py_event_loop = crossflow::process_bound_python::PythonEventLoop::new().unwrap();
+    let py_event_loop = registry.enable_python().unwrap();
     py_event_loop.spawn_thread_and_run();
-    registry.enable_python(&py_event_loop).unwrap();
 
     // Run the basic executor
     let result = basic_executor::run(registry);
