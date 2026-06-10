@@ -170,8 +170,7 @@ impl BasicExecutorSetup {
     pub fn minimal(mut registry: DiagramElementRegistry) -> Self {
         #[cfg(feature = "python")]
         {
-            let py_event_loop = crossflow::process_bound_python::PythonEventLoop::new().unwrap();
-            registry.enable_python(&py_event_loop).unwrap();
+            let py_event_loop = registry.enable_python().unwrap();
             py_event_loop.spawn_thread_and_run();
         }
 

@@ -35,6 +35,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Error as Anyhow, anyhow};
 
+#[must_use = "You need to run the PythonEventLoop or else Python scripts will not be able to execute"]
 #[derive(Clone)]
 pub struct PythonEventLoop {
     asyncio_event_loop: Arc<Py<PyAny>>,
@@ -123,7 +124,26 @@ pub struct PythonConfig {
 impl DiagramElementRegistry {
     /// Enable script environment support for Python using pyo3 and the CPython
     /// interpreter.
-    pub fn enable_python(&mut self, event_loop: &PythonEventLoop) -> pyo3::PyResult<()> {
+    pub fn enable_python(&mut self) -> pyo3::PyResult<PythonEventLoop> {
+        // Initialize the Python interpreter **with signal handling disabled**
+        Python::initialize();
+
+        Python::attach(|py| {
+            // This is a crude attempt to prevent the Python interpreter from
+            // automatically enabling SIGINT signal handling. This might not
+            // always work perfectly, but it appears to cover the basic use cases.
+            let disable_signal_handling = cr###"
+import threading
+if threading.current_thread() is threading.main_thread():
+    import signal
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+"###;
+            py.run(disable_signal_handling, None, None)
+        })?;
+
+
+        let event_loop = PythonEventLoop::new()?;
+
         crate::register_crossflow_pymod()?;
 
         let interpreter = Python::attach(|py| {
@@ -231,7 +251,7 @@ async def execute(input: Input):
             },
         );
 
-        Ok(())
+        Ok(event_loop)
     }
 }
 
@@ -389,7 +409,6 @@ impl SharedPythonExecution {
                 let run = run.bind(py);
 
                 let ScriptMessage { data, accessors } = input.request;
-                // input.streams.send(data);
 
                 let data = pythonize(py, &data)
                     .map_err(|err| anyhow!("failed to pythonize input data: {err}"))?;
@@ -511,8 +530,7 @@ mod tests {
     fn test_script_message_conversion() {
         let mut fixture = DiagramTestFixture::new();
 
-        let py_event_loop = PythonEventLoop::new().unwrap();
-        fixture.registry.enable_python(&py_event_loop).unwrap();
+        let py_event_loop = fixture.registry.enable_python().unwrap();
         py_event_loop.spawn_thread_and_run();
 
         let env_script = r###"
@@ -575,8 +593,7 @@ async def execute_async(input):
     fn test_python_script_streams() {
         let mut fixture = DiagramTestFixture::new();
 
-        let py_event_loop = PythonEventLoop::new().unwrap();
-        fixture.registry.enable_python(&py_event_loop).unwrap();
+        let py_event_loop = fixture.registry.enable_python().unwrap();
         py_event_loop.spawn_thread_and_run();
 
         let env_script = r###"
@@ -643,8 +660,7 @@ def filter_values(input: Input):
     fn test_python_buffer_listen() {
         let mut fixture = DiagramTestFixture::new();
 
-        let py_event_loop = PythonEventLoop::new().unwrap();
-        fixture.registry.enable_python(&py_event_loop).unwrap();
+        let py_event_loop = fixture.registry.enable_python().unwrap();
         py_event_loop.spawn_thread_and_run();
 
         let env_script = r###"
@@ -747,8 +763,7 @@ def check_equal(access):
     fn test_python_buffer_access() {
         let mut fixture = DiagramTestFixture::new();
 
-        let py_event_loop = PythonEventLoop::new().unwrap();
-        fixture.registry.enable_python(&py_event_loop).unwrap();
+        let py_event_loop = fixture.registry.enable_python().unwrap();
         py_event_loop.spawn_thread_and_run();
 
         let env_script = r###"
@@ -778,9 +793,7 @@ async def fetch_by_name(input: Input):
     #[test]
     fn test_python_buffer_accessor_apis() {
         let mut fixture = DiagramTestFixture::new();
-
-        let py_event_loop = PythonEventLoop::new().unwrap();
-        fixture.registry.enable_python(&py_event_loop).unwrap();
+        let py_event_loop = fixture.registry.enable_python().unwrap();
         py_event_loop.spawn_thread_and_run();
 
         let env_script = r###"
@@ -974,8 +987,7 @@ async def test_python_buffer_apis(input: Input):
     fn test_python_accessors_remap() {
         let mut fixture = DiagramTestFixture::new();
 
-        let py_event_loop = PythonEventLoop::new().unwrap();
-        fixture.registry.enable_python(&py_event_loop).unwrap();
+        let py_event_loop = fixture.registry.enable_python().unwrap();
         py_event_loop.spawn_thread_and_run();
 
         let env_script = r###"

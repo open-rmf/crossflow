@@ -1444,6 +1444,7 @@ mod crossflow {
 
         #[test]
         fn test_running_script() {
+            Python::initialize();
             let python_script = cr###"
 a = 0
 b = 1
