@@ -61,6 +61,7 @@ function DiagramPropertiesDrawer({
     setDiagramProperties({
       description: loadContext?.diagram.description ?? '',
       input_examples: examples,
+      script_environments: loadContext?.diagram.script_environments ?? {},
     });
   }, [loadContext, setDiagramProperties]);
 
@@ -125,6 +126,7 @@ function DiagramPropertiesDrawer({
             sx={{ backgroundColor: theme.palette.background.paper }}
           />
           <Divider />
+
           <Stack direction="row">
             <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
               <Typography variant="h6">Input Examples</Typography>

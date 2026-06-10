@@ -17,7 +17,7 @@
 
 use variadics_please::all_tuples;
 
-use std::{collections::HashMap, hash::Hash};
+use std::{collections::HashMap, hash::Hash, sync::Arc};
 
 use thiserror::Error as ThisError;
 
@@ -27,9 +27,10 @@ use bevy_ecs::{
 };
 
 use crate::{
-    Accessing, Buffer, BufferAccessMut, BufferError, BufferKey, BufferMap, BufferMapLayout,
-    BufferMut, BufferView, BufferWorldAccess, Builder, Chain, IncompatibleLayout,
-    ManageBufferSessions, Node, RequestId, Sendish, Seq, format_vertical_list,
+    Accessing, AnyBufferKey, AwaitingHandle, Buffer, BufferAccessMut, BufferError, BufferKey,
+    BufferMap, BufferMapLayout, BufferMut, BufferView, BufferWorldAccess, Builder, Chain,
+    CloneError, Identifiable, IdentifierRef, IncompatibleLayout, ManageBufferSessions, Node,
+    NotifyAwaitingBuffer, RequestId, Sendish, Seq, format_vertical_list, is_buffer_reachable,
 };
 
 use futures_concurrency::future::Race;
@@ -88,13 +89,23 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
         Ok(buffers.listen(builder))
     }
 
-    fn try_buffer_access<T: 'static + Send + Sync>(
+    fn try_buffer_access<InputMessage, OutputMessage>(
         buffers: &BufferMap,
         builder: &mut Builder,
-    ) -> Result<Node<T, (T, Self)>, IncompatibleLayout> {
+    ) -> Result<Node<InputMessage, OutputMessage>, IncompatibleLayout>
+    where
+        InputMessage: 'static + Send + Sync,
+        OutputMessage: 'static + Send + Sync + From<(InputMessage, Self)>,
+    {
         let buffers: Self::Buffers = Self::Buffers::try_from_buffer_map(buffers)?;
-        Ok(buffers.access(builder))
+        Ok(buffers.access_into(builder))
     }
+
+    fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey>;
+
+    fn try_from_any_keys(
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<Self, IncompatibleLayout>;
 
     /// Wait for a change to occur in any one of the buffer sessions that this
     /// accessor refers to.
@@ -129,6 +140,14 @@ pub trait Accessor: 'static + Send + Sync + Sized + Clone {
 
     /// Check if the buffer is in a state that it's ready to be fetched from.
     fn can_join(&self, world: &World) -> Result<bool, AccessError>;
+
+    /// Notify the buffer that a value is being awaited for it.
+    fn notify_awaiting(
+        &self,
+        req: RequestId,
+        handles: &mut Vec<Arc<AwaitingHandle>>,
+        world: &mut World,
+    );
 
     type Joined: 'static + Send + Sync;
     /// Fetch a value from the buffer. For a normal [`BufferKey`] this will
@@ -170,6 +189,10 @@ pub enum AccessError {
     NotDisjoint(#[from] OverlapError),
     #[error("Failed to access one of the buffers: {0}")]
     Inaccessible(#[from] BufferError),
+    #[error("{0}")]
+    NotCloneable(#[from] CloneError),
+    #[error("The buffer is empty and nothing in the workflow will be able to provide a value")]
+    Unreachable,
     #[error("Multiple access errors occurred:{}", format_vertical_list(.0))]
     Multiple(Vec<AccessError>),
 }
@@ -215,6 +238,8 @@ pub trait AccessKey: Accessor {
     where
         'w: 's;
 
+    fn to_any_key(&self) -> AnyBufferKey;
+
     /// Get the SystemState used to access the buffer
     fn get_state(&self, world: &mut World) -> Self::State;
 
@@ -251,6 +276,10 @@ impl<T> AccessKey for BufferKey<T>
 where
     T: Send + Sync + 'static,
 {
+    fn to_any_key(&self) -> AnyBufferKey {
+        self.clone().into()
+    }
+
     fn validate_disjoint(&self, included: &mut HashMap<BufferInstanceId, usize>) -> bool {
         let entry = included.entry(self.tag().instance()).or_default();
         *entry += 1;
@@ -297,6 +326,25 @@ where
 {
     type Buffers = Buffer<T>;
 
+    fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
+        let mut map = HashMap::new();
+        map.insert(IdentifierRef::Index(0), self.clone().into());
+        map
+    }
+
+    fn try_from_any_keys(
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<Self, IncompatibleLayout> {
+        let mut compatibility = IncompatibleLayout::default();
+        if let Ok(downcast_key) =
+            compatibility.require_buffer_key_for_identifier::<BufferKey<T>>(0, keys)
+        {
+            return Ok(downcast_key);
+        }
+
+        Err(compatibility)
+    }
+
     async fn wait_for_change(&mut self) {
         let _ = self.body.receiver.changed().await;
     }
@@ -321,12 +369,39 @@ where
 
     fn can_join(&self, world: &World) -> Result<bool, AccessError> {
         let view = world.buffer_view_untraced::<T>(self.tag())?;
-        Ok(view.oldest().is_some())
+        let can_join = view.oldest().is_some();
+        if !can_join {
+            // Check if this will ever be reachable
+            let r = is_buffer_reachable(self.tag(), world);
+            if r.is_err() || r.is_ok_and(|ok| !ok) {
+                // We cannot ensure that the buffer is reachable anymore, so we
+                // should return an error here.
+                return Err(AccessError::Unreachable);
+            }
+        }
+
+        Ok(can_join)
+    }
+
+    fn notify_awaiting(
+        &self,
+        req: RequestId,
+        handles: &mut Vec<Arc<AwaitingHandle>>,
+        world: &mut World,
+    ) {
+        if let Some(handle) = world.awaiting_buffer(self.tag(), req) {
+            handles.push(handle);
+        }
     }
 
     type Joined = T;
     fn join(&self, req: RequestId, world: &mut World) -> Result<Option<Self::Joined>, AccessError> {
-        Ok(world.buffer_mut(req, self, |mut buffer| buffer.pull())?)
+        if !self.can_join(world)? {
+            return Ok(None);
+        }
+
+        let fetch = self.fetch_settings.fetch;
+        Ok(world.buffer_mut(req, self, fetch)?)
     }
 
     fn distribute(
@@ -372,6 +447,30 @@ where
 {
     type Buffers = Vec<A::Buffers>;
 
+    fn try_from_any_keys(
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<Self, IncompatibleLayout> {
+        let mut downcast_keys = Vec::new();
+        let mut compatibility = IncompatibleLayout::default();
+        for i in 0..keys.len() {
+            if let Ok(downcast) = compatibility.require_buffer_key_for_identifier::<A>(i, keys) {
+                downcast_keys.push(downcast);
+            }
+        }
+
+        compatibility.as_result()?;
+        Ok(downcast_keys)
+    }
+
+    fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
+        let mut map = HashMap::new();
+        for (i, key) in self.iter().enumerate() {
+            map.insert(IdentifierRef::Index(i), key.to_any_key());
+        }
+
+        map
+    }
+
     async fn wait_for_change(&mut self) {
         let futures: Vec<_> = self.iter_mut().map(|a| a.wait_for_change()).collect();
         futures.race().await;
@@ -410,13 +509,25 @@ where
 
     fn can_join(&self, world: &World) -> Result<bool, AccessError> {
         self.is_disjoint()?;
+        let mut can_join = true;
         for key in self {
             if !key.can_join(world)? {
-                return Ok(false);
+                can_join = false;
             }
         }
 
-        Ok(true)
+        Ok(can_join)
+    }
+
+    fn notify_awaiting(
+        &self,
+        req: RequestId,
+        handles: &mut Vec<Arc<AwaitingHandle>>,
+        world: &mut World,
+    ) {
+        for key in self {
+            key.notify_awaiting(req, handles, world);
+        }
     }
 
     type Joined = Vec<A::Joined>;
@@ -561,11 +672,39 @@ where
 
 impl<K, A: AccessKey> Accessor for HashMap<K, A>
 where
-    K: 'static + Send + Sync + Clone + Eq + Hash,
+    K: 'static + Send + Sync + Clone + Eq + Hash + Identifiable + std::fmt::Debug,
     HashMap<K, A::Buffers>:
         'static + BufferMapLayout + Accessing<Key = HashMap<K, A>> + Send + Sync,
 {
     type Buffers = HashMap<K, A::Buffers>;
+
+    fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
+        self.iter()
+            .map(|(id, key)| (id.clone().into_id(), key.to_any_key()))
+            .collect()
+    }
+
+    fn try_from_any_keys(
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<Self, IncompatibleLayout> {
+        let mut downcast_keys = HashMap::new();
+        let mut compatibility = IncompatibleLayout::default();
+        for identifier in keys.keys() {
+            let Some(key) = K::try_from_id(identifier) else {
+                compatibility.forbidden_buffers.push(identifier.clone());
+                continue;
+            };
+
+            if let Ok(downcast) =
+                compatibility.require_buffer_key_for_identifier::<A>(identifier.clone(), keys)
+            {
+                downcast_keys.insert(key, downcast);
+            }
+        }
+
+        compatibility.as_result()?;
+        Ok(downcast_keys)
+    }
 
     async fn wait_for_change(&mut self) {
         let futures: Vec<_> = self.values_mut().map(|a| a.wait_for_change()).collect();
@@ -607,13 +746,25 @@ where
 
     fn can_join(&self, world: &World) -> Result<bool, AccessError> {
         self.is_disjoint()?;
+        let mut can_join = true;
         for key in self.values() {
             if !key.can_join(world)? {
-                return Ok(false);
+                can_join = false;
             }
         }
 
-        Ok(true)
+        Ok(can_join)
+    }
+
+    fn notify_awaiting(
+        &self,
+        req: RequestId,
+        handles: &mut Vec<Arc<AwaitingHandle>>,
+        world: &mut World,
+    ) {
+        for key in self.values() {
+            key.notify_awaiting(req, handles, world);
+        }
     }
 
     type Joined = HashMap<K, A::Joined>;
@@ -775,6 +926,39 @@ macro_rules! impl_accessor_for_tuple {
         {
             type Buffers = ($($A::Buffers,)*);
 
+            fn to_any_keys(&self) -> HashMap<IdentifierRef<'static>, AnyBufferKey> {
+                let mut map = HashMap::new();
+                let ($($A,)*) = self;
+                let mut _next = 0;
+                $(
+                    map.insert(IdentifierRef::Index(_next), $A.to_any_key());
+                    _next += 1;
+                )*
+
+                map
+            }
+
+            fn try_from_any_keys(keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>) -> Result<Self, IncompatibleLayout> {
+                let mut compatibility = IncompatibleLayout::default();
+                let mut _index = 0;
+                let downcast_keys = ($(
+                    {
+                        let key = match compatibility.require_buffer_key_for_identifier::<$A>(_index, keys) {
+                            Ok(downcast) => Some(downcast),
+                            Err(_) => None,
+                        };
+                        _index += 1;
+                        key
+                    },
+                )*);
+
+                let ($(Some($a),)*) = downcast_keys else {
+                    return Err(compatibility);
+                };
+
+                Ok(($($a,)*))
+            }
+
             async fn wait_for_change(&mut self) {
                 let ($($A,)*) = self;
                 let ($($a,)*) = ($($A.wait_for_change(),)*);
@@ -816,14 +1000,27 @@ macro_rules! impl_accessor_for_tuple {
 
             fn can_join(&self, world: &World) -> Result<bool, AccessError> {
                 self.is_disjoint()?;
+                let mut can_join = true;
                 let ($($A,)*) = self;
                 $(
                     if !$A.can_join(world)? {
-                        return Ok(false);
+                        can_join = false;
                     }
                 )*
 
-                Ok(true)
+                Ok(can_join)
+            }
+
+            fn notify_awaiting(
+                &self,
+                req: RequestId,
+                handles: &mut Vec<Arc<AwaitingHandle>>,
+                world: &mut World,
+            ) {
+                let ($($A,)*) = self;
+                $(
+                    $A.notify_awaiting(req, handles, world);
+                )*
             }
 
             type Joined = ($($A::Joined,)*);
@@ -1299,7 +1496,7 @@ mod tests {
         assert_eq!(resolved, values);
     }
 
-    #[cfg(feature = "diagram")]
+    #[cfg(feature = "json")]
     mod json_tests {
         use super::*;
         use crate::AddBufferToMap;
