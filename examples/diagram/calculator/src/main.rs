@@ -25,7 +25,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Register calculator-inspired node builders from the calculator_ops_catalog library.
     calculator_ops_catalog::register(&mut registry);
 
+    // Enable Python scripting
+    let py_event_loop = crossflow::process_bound_python::PythonEventLoop::new().unwrap();
+    py_event_loop.spawn_thread_and_run();
+    registry.enable_python(&py_event_loop).unwrap();
+
     // Run the basic executor
-    basic_executor::run(registry)
+    let result = basic_executor::run(registry);
+
+    // Shut down the python event loop
+    py_event_loop.stop().unwrap();
+
+    // Return the result of the executor's run
+    result
 }
 // ANCHOR_END: calculator_example

@@ -167,13 +167,7 @@ pub struct BasicExecutorSetup {
 
 impl BasicExecutorSetup {
     /// Use a minimal setup.
-    pub fn minimal(mut registry: DiagramElementRegistry) -> Self {
-        #[cfg(feature = "python")]
-        {
-            let py_event_loop = registry.enable_python().unwrap();
-            py_event_loop.spawn_thread_and_run();
-        }
-
+    pub fn minimal(registry: DiagramElementRegistry) -> Self {
         Self {
             app: App::new(),
             registry,
