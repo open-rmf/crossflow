@@ -63,7 +63,7 @@ function getSubOperations(
 
 function syncStreamOut(
   nodeManager: NodeManager,
-  sourceOp: Extract<DiagramOperation, { type: 'node' | 'scope' }>,
+  sourceOp: Extract<DiagramOperation, { type: 'node' | 'scope' | 'script' }>,
   edge: StreamOutEdge,
 ) {
   sourceOp.stream_out = sourceOp.stream_out ? sourceOp.stream_out : {};
@@ -223,7 +223,7 @@ function syncEdge(
   const sourceNode = nodeManager.getNode(edge.source);
 
   if (isOperationNode(sourceNode)) {
-    const sourceOp = sourceNode.data.op;
+    const sourceOp = sourceNode.data.op as DiagramOperation;
 
     switch (sourceOp.type) {
       case 'node': {
@@ -243,6 +243,14 @@ function syncEdge(
         }
 
         sourceOp.next = nodeManager.getTargetNextOp(edge);
+        break;
+      }
+      case 'script': {
+        if (edge.type === 'streamOut') {
+          syncStreamOut(nodeManager, sourceOp, edge);
+        } else if (edge.type === 'default') {
+          sourceOp.next = nodeManager.getTargetNextOp(edge);
+        }
         break;
       }
       case 'section': {
@@ -390,6 +398,11 @@ function clearConnections(nodeManager: NodeManager, root: SubOperations) {
         node.data.op.next = { builtin: 'dispose' };
         break;
       }
+      case 'script': {
+        node.data.op.next = { builtin: 'dispose' };
+        delete node.data.op.stream_out;
+        break;
+      }
       case 'join': {
         node.data.op.next = { builtin: 'dispose' };
         node.data.op.buffers = [];
@@ -459,14 +472,19 @@ function syncEdges(
     // so we need to rely on the registry to cross reference.
     if (edge.type === 'streamOut') {
       const sourceNode = nodeManager.getNode(edge.source);
-      const builderMetadata =
-        isOperationNode(sourceNode) && sourceNode.data.op.type === 'node'
-          ? registry.nodes[sourceNode.data.op.builder]
-          : null;
-      const hasStreams = builderMetadata?.streams
-        ? Object.keys(builderMetadata.streams).length > 0
-        : false;
-      return hasStreams;
+      if (isOperationNode(sourceNode)) {
+        if (sourceNode.data.op.type === 'script') {
+          return true;
+        }
+        if (sourceNode.data.op.type === 'node') {
+          const builderMetadata = registry.nodes[sourceNode.data.op.builder];
+          const hasStreams = builderMetadata?.streams
+            ? Object.keys(builderMetadata.streams).length > 0
+            : false;
+          return hasStreams;
+        }
+      }
+      return false;
     }
 
     return true;
@@ -525,6 +543,7 @@ export function exportDiagram(
 
   diagram.description = diagramProperties.description;
   diagram.input_examples = diagramProperties.input_examples;
+  diagram.script_environments = diagramProperties.script_environments;
   return diagram;
 }
 

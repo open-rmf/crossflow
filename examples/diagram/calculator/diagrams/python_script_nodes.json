@@ -1,0 +1,69 @@
+{
+  "$schema": "https://raw.githubusercontent.com/open-rmf/crossflow/refs/heads/main/diagram.schema.json",
+  "version": "0.1.0",
+  "description": "An example workflow that demonstrates dynamic scripting with parallel Python streams and matching listener.",
+  "input_examples": [
+    {
+      "description": "Stream left/right lists and stop when they meet at 5",
+      "value": "[[0, 1, 2, 3, 4, 5], [10, 9, 8, 7, 6, 5]]"
+    }
+  ],
+  "script_environments": {
+    "test_env": {
+      "builder": "process-bound-python",
+      "config": {
+        "script": "import asyncio\nfrom crossflow import *\n\nasync def slow_stream(input: Input):\n    delay = input.config['delay']\n    for value in input.data:\n        input.stream_out('value', value)\n        await asyncio.sleep(delay)\n\nasync def success_when_equal(input: Input):\n    equal_value = await input.accessors.access(check_equal)\n    if equal_value is not None:\n        input.stream_out('equal', Message(data = equal_value))\n\ndef check_equal(access):\n    a = access[0].get_oldest()\n    b = access[1].get_oldest()\n    if a is not None and b is not None:\n        if a == b:\n            return a\n    return None\n"
+      }
+    }
+  },
+  "start": "split",
+  "ops": {
+    "split": {
+      "type": "split",
+      "sequential": [
+        "left_stream",
+        "right_stream"
+      ]
+    },
+    "left_stream": {
+      "type": "script",
+      "environment": "test_env",
+      "run": "slow_stream",
+      "config": {
+        "delay": 0.002
+      },
+      "stream_out": {
+        "value": "left_buffer"
+      },
+      "next": { "builtin": "dispose" }
+    },
+    "left_buffer": { "type": "buffer" },
+    "right_stream": {
+      "type": "script",
+      "environment": "test_env",
+      "run": "slow_stream",
+      "config": {
+        "delay": 0.002
+      },
+      "stream_out": {
+        "value": "right_buffer"
+      },
+      "next": { "builtin": "dispose" }
+    },
+    "right_buffer": { "type": "buffer" },
+    "listen": {
+      "type": "listen",
+      "buffers": ["left_buffer", "right_buffer"],
+      "next": "success_when_equal"
+    },
+    "success_when_equal": {
+      "type": "script",
+      "environment": "test_env",
+      "run": "success_when_equal",
+      "stream_out": {
+        "equal": { "builtin": "terminate" }
+      },
+      "next": { "builtin": "dispose" }
+    }
+  }
+}

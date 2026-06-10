@@ -21,6 +21,7 @@ import {
   ListenIcon,
   NodeIcon,
   ScopeIcon,
+  ScriptIcon,
   SectionBufferIcon,
   SectionIcon,
   SectionInputIcon,
@@ -58,6 +59,7 @@ const OPERATION_ICONS: Record<AddOperationKey, React.ReactNode> = {
   stream_out: <StreamOutIcon />,
   scope: <ScopeIcon />,
   section: <SectionIcon />,
+  script: <ScriptIcon />,
 };
 
 export interface AddOperationSelection {

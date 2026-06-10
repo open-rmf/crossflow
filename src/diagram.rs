@@ -368,12 +368,12 @@ impl BuildDiagramOperation for DiagramOperation {
             Self::Listen(op) => op.build_diagram_operation(id, ctx),
             Self::Node(op) => op.build_diagram_operation(id, ctx),
             Self::Scope(op) => op.build_diagram_operation(id, ctx),
+            Self::Script(op) => op.build_diagram_operation(id, ctx),
             Self::Section(op) => op.build_diagram_operation(id, ctx),
             Self::Split(op) => op.build_diagram_operation(id, ctx),
             Self::StreamOut(op) => op.build_diagram_operation(id, ctx),
             Self::Transform(op) => op.build_diagram_operation(id, ctx),
             Self::Unzip(op) => op.build_diagram_operation(id, ctx),
-            Self::Script(op) => op.build_diagram_operation(id, ctx),
         }
     }
 
@@ -391,12 +391,12 @@ impl BuildDiagramOperation for DiagramOperation {
             Self::Listen(op) => op.apply_message_type_constraints(id, ctx),
             Self::Node(op) => op.apply_message_type_constraints(id, ctx),
             Self::Scope(op) => op.apply_message_type_constraints(id, ctx),
+            Self::Script(op) => op.apply_message_type_constraints(id, ctx),
             Self::Section(op) => op.apply_message_type_constraints(id, ctx),
             Self::Split(op) => op.apply_message_type_constraints(id, ctx),
             Self::StreamOut(op) => op.apply_message_type_constraints(id, ctx),
             Self::Transform(op) => op.apply_message_type_constraints(id, ctx),
             Self::Unzip(op) => op.apply_message_type_constraints(id, ctx),
-            Self::Script(op) => op.apply_message_type_constraints(id, ctx),
         }
     }
 
@@ -413,12 +413,12 @@ impl BuildDiagramOperation for DiagramOperation {
             Self::Listen(op) => op.child_operations(templates),
             Self::Node(op) => op.child_operations(templates),
             Self::Scope(op) => op.child_operations(templates),
+            Self::Script(op) => op.child_operations(templates),
             Self::Section(op) => op.child_operations(templates),
             Self::Split(op) => op.child_operations(templates),
             Self::StreamOut(op) => op.child_operations(templates),
             Self::Transform(op) => op.child_operations(templates),
             Self::Unzip(op) => op.child_operations(templates),
-            Self::Script(op) => op.child_operations(templates),
         }
     }
 }
