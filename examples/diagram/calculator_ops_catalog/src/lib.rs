@@ -1,4 +1,4 @@
-use std::{fmt::Write, thread, time::Duration};
+use std::{fmt::Write, time::Duration};
 
 use crossflow::{
     Async, ConfigExample, DiagramElementRegistry, JsonMessage, NodeBuilderOptions, StreamPack,
@@ -346,7 +346,7 @@ pub fn register(registry: &mut DiagramElementRegistry) {
         },
     );
 
-    let delay_description = "Wait for a configured number of milliseconds, then \
+    let delay_description = "Asynchronously wait for a configured number of milliseconds, then \
         pass the input through unchanged. If not configured, the default delay \
         is 1000 ms. This node is only intended for testing diagram editor \
         progress visualization with examples like carry_object_progress.json; \
@@ -362,8 +362,8 @@ pub fn register(registry: &mut DiagramElementRegistry) {
             .with_description(delay_description)
             .with_config_examples(delay_examples),
         |builder, config: Option<u64>| {
-            builder.create_map_block(move |req: JsonMessage| {
-                thread::sleep(Duration::from_millis(config.unwrap_or(1000)));
+            builder.create_map_async(move |req: JsonMessage| async move {
+                async_std::task::sleep(Duration::from_millis(config.unwrap_or(1000))).await;
                 req
             })
         },
