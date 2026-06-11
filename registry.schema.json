@@ -22,6 +22,12 @@
       "type": "object",
       "additionalProperties": true
     },
+    "scripting": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/ScriptEnvironmentMetadata"
+      }
+    },
     "sections": {
       "type": "object",
       "additionalProperties": {
@@ -35,6 +41,7 @@
   "required": [
     "nodes",
     "sections",
+    "scripting",
     "messages",
     "schemas",
     "reverse_message_lookup",
@@ -220,6 +227,12 @@
           },
           "uniqueItems": true
         },
+        "from_script_message": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
         "into": {
           "type": "array",
           "items": {
@@ -228,6 +241,12 @@
             "minimum": 0
           },
           "uniqueItems": true
+        },
+        "into_script_message": {
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "join": {
           "anyOf": [
@@ -423,6 +442,14 @@
             ]
           }
         },
+        "script_message": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0
+        },
         "split": {
           "description": "Map from the message type of the item that comes out of a split to all\nmessage types that can be split into it.",
           "type": "array",
@@ -482,6 +509,77 @@
       "type": [
         "object",
         "boolean"
+      ]
+    },
+    "ScriptConfigExample": {
+      "description": "An example of how to configure an environment",
+      "type": "object",
+      "properties": {
+        "config": {
+          "description": "The example configuration"
+        },
+        "description": {
+          "description": "A description of this example",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name of this example",
+          "type": "string"
+        },
+        "run": {
+          "description": "How to run this example environment, i.e. what goes into the `run` field\nof the [`ScriptSchema`][1].\n\n[1]: crate::ScriptSchema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "config",
+        "run"
+      ]
+    },
+    "ScriptEnvironmentMetadata": {
+      "type": "object",
+      "properties": {
+        "config_examples": {
+          "description": "Examples of valid configurations for this builder",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ScriptConfigExample"
+          }
+        },
+        "config_schema": {
+          "description": "The schema for configuring an environment made by this builder",
+          "$ref": "#/$defs/Schema"
+        },
+        "description": {
+          "description": "A description of what kind of environments are made by this builder",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display_text": {
+          "description": "Human-friendly name for the script environment builder",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "interpreter": {
+          "description": "The interpreter that will be used to process the scripting language",
+          "type": "string"
+        },
+        "language": {
+          "description": "The scripting language that will be used for this environment",
+          "type": "string"
+        }
+      },
+      "required": [
+        "language",
+        "interpreter",
+        "config_schema",
+        "config_examples"
       ]
     },
     "SectionBuffer": {

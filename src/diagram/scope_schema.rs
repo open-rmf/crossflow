@@ -209,6 +209,13 @@ impl BuildDiagramOperation for ScopeSchema {
         ctx.scope(id, self);
         Ok(())
     }
+
+    fn child_operations(
+        &self,
+        _: &super::Templates,
+    ) -> Result<Option<Operations>, DiagramErrorCode> {
+        Ok(Some(self.ops.clone()))
+    }
 }
 
 impl ScopeSchema {

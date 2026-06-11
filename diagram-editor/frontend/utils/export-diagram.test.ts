@@ -27,6 +27,7 @@ const stubRegistry: DiagramElementMetadata = {
   schemas: {},
   sections: {},
   trace_supported: false,
+  scripting: {},
 };
 
 test('export diagram', async () => {

@@ -33,7 +33,8 @@ export type AddOperationKey =
   | 'listen'
   | 'stream_out'
   | 'scope'
-  | 'section';
+  | 'section'
+  | 'script';
 
 type AddOperationDefinition = {
   key: AddOperationKey;
@@ -416,6 +417,30 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
       createNodeChange(namespace, parentId, newNodePosition, {
         type: 'section',
         template: '',
+      }),
+  },
+  {
+    key: 'script',
+    label: 'Script',
+    createPreviewNode: (namespace, parentId) =>
+      createOperationNode(
+        namespace,
+        parentId,
+        { x: 0, y: 0 },
+        {
+          type: 'script',
+          environment: '',
+          run: '',
+          next: { builtin: 'dispose' },
+        },
+        'preview_script',
+      ),
+    createChanges: ({ namespace, parentId, newNodePosition }) =>
+      createNodeChange(namespace, parentId, newNodePosition, {
+        type: 'script',
+        environment: '',
+        run: '',
+        next: { builtin: 'dispose' },
       }),
   },
 ];

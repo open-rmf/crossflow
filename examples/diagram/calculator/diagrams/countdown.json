@@ -4,11 +4,11 @@
   "description": "Basic workflow that counts down from the input number by subtracting 1 each time and printing it out. The remainder will be in the response.",
   "input_examples": [
     {
-      "description": "Counts dwon from 123",
+      "description": "Counts down from 123",
       "value": "123"
     },
     {
-      "description": "Counts dwon from 456",
+      "description": "Counts down from 456",
       "value": "456"
     }
   ],

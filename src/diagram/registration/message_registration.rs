@@ -390,8 +390,66 @@ impl MessageRegistry {
     ) -> Result<Option<DynForkResult>, DiagramErrorCode> {
         self.get_operations(target_type)?
             .deserialize
-            .map(|deserialize| deserialize(builder))
+            .as_ref()
+            .map(|deserialize| (deserialize.create_node)(builder))
             .transpose()
+    }
+
+    pub fn from_script_message(
+        &self,
+        target_type: &TypeInfo,
+        builder: &mut Builder,
+    ) -> Result<DynForkResult, DiagramErrorCode> {
+        self.try_from_script_message(target_type, builder)?
+            .ok_or_else(|| DiagramErrorCode::NotScriptable(*target_type))
+    }
+
+    pub fn try_from_script_message(
+        &self,
+        target_type: &TypeInfo,
+        builder: &mut Builder,
+    ) -> Result<Option<DynForkResult>, DiagramErrorCode> {
+        let ops = self.get_operations(target_type)?;
+
+        let script_msg_idx = self
+            .registration
+            .get_index_dyn(&TypeInfo::of::<ScriptMessage>())?;
+        if let Some(try_from_impl) = ops.try_from_impls.get(&script_msg_idx) {
+            let fork = (try_from_impl)(builder);
+            return Ok(Some(fork));
+        }
+
+        if let Some(access) = &ops.buffer_access {
+            let req = access.metadata.request_message;
+            let req_ops = self.registration.get_by_index(req)?.get_operations()?;
+            if let Some(req_deserialization) = &req_ops.deserialize {
+                let req_deserialize = req_deserialization.deserialize.clone();
+                return Ok(Some((access.from_script_message)(
+                    builder,
+                    req_deserialize,
+                )?));
+            }
+        }
+
+        if let Some(listen) = &ops.listen {
+            return Ok(Some((listen.from_script_message)(builder)?));
+        }
+
+        if let Some(deserialization) = &ops.deserialize {
+            let script_to_json = builder.create_map_block(|script: ScriptMessage| script.data);
+            let json_output: DynOutput = script_to_json.output.into();
+
+            let deserialize = (deserialization.create_node)(builder)?;
+            json_output.connect_to(&deserialize.input, builder)?;
+
+            return Ok(Some(DynForkResult {
+                input: script_to_json.input.into(),
+                ok: deserialize.ok,
+                err: deserialize.err,
+            }));
+        }
+
+        Ok(None)
     }
 
     /// Register a deserialize function if not already registered, returns true if the new
@@ -420,7 +478,8 @@ impl MessageRegistry {
     ) -> Result<Option<DynForkResult>, DiagramErrorCode> {
         let ops = self.get_operations(incoming_type)?;
         ops.serialize
-            .map(|serialize| serialize(builder))
+            .as_ref()
+            .map(|serialize| (serialize.into_json_message)(builder))
             .transpose()
     }
 
@@ -430,7 +489,57 @@ impl MessageRegistry {
         builder: &mut Builder,
     ) -> Result<Option<DynNode>, DiagramErrorCode> {
         let ops = self.get_operations(incoming_type)?;
-        Ok(ops.to_string_impl.map(|f| f(builder)))
+        Ok(ops.to_string.map(|f| f(builder)))
+    }
+
+    pub fn try_into_script_message(
+        &self,
+        incoming_type: &TypeInfo,
+        builder: &mut Builder,
+    ) -> Result<Option<DynForkResult>, DiagramErrorCode> {
+        let ops = self.get_operations(incoming_type)?;
+
+        let script_msg_idx = self
+            .registration
+            .get_index_dyn(&TypeInfo::of::<ScriptMessage>())?;
+        if let Some(try_into_impl) = ops.try_into_impls.get(&script_msg_idx) {
+            let fork = (try_into_impl)(builder);
+            return Ok(Some(fork));
+        }
+
+        if let Some(access) = &ops.buffer_access {
+            // The message type has buffer access, so check if its base request
+            // can be serialized.
+            let req = access.metadata.request_message;
+            let req_ops = self.registration.get_by_index(req)?.get_operations()?;
+            if let Some(req_serialization) = &req_ops.serialize {
+                let req_serialize = req_serialization.serialize.clone();
+                return Ok(Some((access.into_script_message)(builder, req_serialize)?));
+            }
+        }
+
+        if let Some(listen) = &ops.listen {
+            return Ok(Some((listen.into_script_message)(builder)?));
+        }
+
+        if let Some(serialization) = &ops.serialize {
+            let serialize = (serialization.into_json_message)(builder)?;
+            let json_to_script = builder.create_map_block(|data: JsonMessage| ScriptMessage {
+                data,
+                accessors: Default::default(),
+            });
+
+            let json_input: DynInputSlot = json_to_script.input.into();
+            serialize.ok.connect_to(&json_input, builder)?;
+            return Ok(Some(DynForkResult {
+                input: serialize.input,
+                ok: json_to_script.output.into(),
+                err: serialize.err,
+            }));
+        }
+
+        // There seems to be no known way of converting the type into a script message
+        Ok(None)
     }
 
     /// Register a serialize function if not already registered, returns true if the new
@@ -708,8 +817,7 @@ impl MessageRegistry {
     {
         let ops = &mut self.registration.get_or_insert_operations::<T>();
 
-        ops.to_string_impl =
-            Some(|builder| builder.create_map_block(|msg: T| msg.to_string()).into());
+        ops.to_string = Some(|builder| builder.create_map_block(|msg: T| msg.to_string()).into());
     }
 
     pub(crate) fn get_operations(
@@ -760,6 +868,10 @@ pub struct ReverseMessageLookup {
     #[serde_as(as = "_")]
     #[schemars(with = "Option<usize>")]
     pub(crate) json_message: Option<usize>,
+
+    #[serde_as(as = "_")]
+    #[schemars(with = "Option<usize>")]
+    pub(crate) script_message: Option<usize>,
 }
 
 impl MessageRegistrations {
@@ -873,12 +985,16 @@ impl MessageRegistrations {
         registration: MessageRegistration,
     ) -> usize {
         let index = self.messages.len();
-        self.indices.insert(message_info, index);
-        self.messages.push(registration);
-
         if message_info == TypeInfo::of::<JsonMessage>() {
             self.reverse_lookup.json_message = Some(index);
         }
+
+        if message_info == TypeInfo::of::<ScriptMessage>() {
+            self.reverse_lookup.script_message = Some(index);
+        }
+
+        self.indices.insert(message_info, index);
+        self.messages.push(registration);
 
         index
     }
@@ -887,7 +1003,7 @@ impl MessageRegistrations {
     pub fn metadata(&self) -> Vec<MessageMetadata> {
         let mut metadata = Vec::new();
         for message in &self.messages {
-            let operations = message.operations.as_ref().map(|ops| ops.metadata());
+            let operations = message.operations.as_ref().map(|ops| ops.metadata(self));
 
             metadata.push(MessageMetadata {
                 type_name: Cow::Borrowed(message.type_info.type_name),

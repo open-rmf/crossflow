@@ -7,6 +7,7 @@ import DiagramSidePanel, {
 } from './diagram-side-panel';
 import EditTemplatesDialog from './edit-templates-dialog';
 import { EditorMode, useEditorMode } from './editor-mode';
+import { ScriptEnvironmentManagerDialog } from './forms/script-environment-manager-dialog';
 import type { DiagramEditorNode } from './nodes';
 import { MaterialSymbol } from './nodes';
 
@@ -42,6 +43,7 @@ function CommandPanel({
   const [sidePanelTab, setSidePanelTab] =
     React.useState<DiagramSidePanelTab>('properties');
   const [runRequestJson, setRunRequestJson] = React.useState('');
+  const [openScriptEnvManager, setOpenScriptEnvManager] = React.useState(false);
   const [editorMode] = useEditorMode();
 
   const showSidePanelTab = (tab: DiagramSidePanelTab) => {
@@ -73,6 +75,13 @@ function CommandPanel({
                 }
               >
                 <MaterialSymbol symbol="play_arrow" />
+              </Button>
+            </Tooltip>
+          )}
+          {editorMode.mode === EditorMode.Normal && (
+            <Tooltip title="Script Environment Manager">
+              <Button onClick={() => setOpenScriptEnvManager(true)}>
+                <MaterialSymbol symbol="code" />
               </Button>
             </Tooltip>
           )}
@@ -145,6 +154,10 @@ function CommandPanel({
         onClose={() => setOpenSidePanel(false)}
         onRunRequestJsonChange={setRunRequestJson}
         onTabChange={(tab) => showSidePanelTab(tab)}
+      />
+      <ScriptEnvironmentManagerDialog
+        open={openScriptEnvManager}
+        onClose={() => setOpenScriptEnvManager(false)}
       />
     </>
   );

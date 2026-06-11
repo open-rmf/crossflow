@@ -18,6 +18,7 @@ export interface BaseNodeProps extends NodeProps {
   label: string;
   caption?: string;
   handles?: JSX.Element;
+  highlight?: boolean;
 }
 
 function BaseNode({
@@ -28,6 +29,7 @@ function BaseNode({
   handles,
   selected,
   id,
+  highlight,
 }: BaseNodeProps) {
   const { activeNodeIds, visitedNodeIds } = useDebugVisualization();
   const debugActive = activeNodeIds.has(id);
@@ -46,7 +48,9 @@ function BaseNode({
           ? `2px solid ${theme.palette.success.main}`
           : debugVisited
             ? `2px solid ${alpha(theme.palette.info.main, 0.35)}`
-            : undefined,
+            : highlight
+              ? `2px solid ${theme.palette.warning.main}`
+              : undefined,
         boxShadow: debugActive
           ? [
               `0 0 0 4px ${alpha(theme.palette.success.main, 0.28)}`,

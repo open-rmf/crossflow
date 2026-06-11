@@ -30,8 +30,10 @@ use crate::{
 
 use super::*;
 
-pub(crate) type DeserializeFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
-pub(crate) type SerializeFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
+pub(crate) type DeserializeNodeFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
+pub(crate) type DeserializeFn<T> = fn(&JsonMessage) -> Result<T, String>;
+pub(crate) type SerializeNodeFn = fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
+pub(crate) type SerializeFn<T> = fn(T) -> Result<JsonMessage, String>;
 pub(crate) type ForkCloneFn = fn(&mut Builder) -> Result<DynForkClone, DiagramErrorCode>;
 pub(crate) type CreateBufferFn = fn(BufferSettings, &mut Builder) -> AnyBuffer;
 pub(crate) type CreateTriggerFn = fn(&mut Builder) -> DynNode;
@@ -40,10 +42,21 @@ pub(crate) type CreateIntoFn =
 pub(crate) type CreateTryIntoFn =
     Arc<dyn Fn(&mut Builder) -> DynForkResult + 'static + Send + Sync>;
 pub(crate) type ToStringFn = fn(&mut Builder) -> DynNode;
+pub(crate) type ArcAny = Arc<dyn Any + 'static + Send + Sync>;
+
+pub(crate) struct Serialization {
+    pub(crate) into_json_message: SerializeNodeFn,
+    pub(crate) serialize: ArcAny,
+}
+
+pub(crate) struct Deserialization {
+    pub(crate) create_node: DeserializeNodeFn,
+    pub(crate) deserialize: ArcAny,
+}
 
 pub struct MessageOperations {
-    pub(crate) deserialize: Option<DeserializeFn>,
-    pub(crate) serialize: Option<SerializeFn>,
+    pub(crate) deserialize: Option<Deserialization>,
+    pub(crate) serialize: Option<Serialization>,
     pub(crate) fork_clone: Option<ForkCloneFn>,
     pub(crate) unzip: Option<UnzipRegistration>,
     pub(crate) fork_result: Option<ForkResultRegistration>,
@@ -51,7 +64,7 @@ pub struct MessageOperations {
     pub(crate) join: Option<JoinRegistration>,
     pub(crate) buffer_access: Option<BufferAccessRegistration>,
     pub(crate) listen: Option<ListenRegistration>,
-    pub(crate) to_string_impl: Option<ToStringFn>,
+    pub(crate) to_string: Option<ToStringFn>,
     pub(crate) create_buffer_impl: CreateBufferFn,
     pub(crate) create_trigger_impl: CreateTriggerFn,
     pub(crate) into_impls: HashMap<usize, CreateIntoFn>,
@@ -79,7 +92,7 @@ impl MessageOperations {
             join: None,
             buffer_access: None,
             listen: None,
-            to_string_impl: None,
+            to_string: None,
             create_buffer_impl: |settings, builder| {
                 builder.create_buffer::<T>(settings).as_any_buffer()
             },
@@ -95,8 +108,89 @@ impl MessageOperations {
         }
     }
 
-    pub fn metadata(&self) -> MessageOperationsMetadata {
-        MessageOperationsMetadata::new(self)
+    pub fn metadata(&self, registrations: &MessageRegistrations) -> MessageOperationsMetadata {
+        MessageOperationsMetadata::new(self, registrations)
+    }
+
+    pub fn supports_into_script_message(&self, registrations: &MessageRegistrations) -> bool {
+        if let Ok(script_idx) = registrations.get_index_dyn(&TypeInfo::of::<ScriptMessage>()) {
+            if self.into_impls.contains_key(&script_idx) {
+                return true;
+            }
+
+            if self.try_into_impls.contains_key(&script_idx) {
+                return true;
+            }
+        }
+
+        if let Some(access) = &self.buffer_access {
+            let req = access.metadata.request_message;
+            if let Ok(req) = registrations.get_by_index(req) {
+                if let Some(req_ops) = &req.operations {
+                    if req_ops.serialize.is_some() {
+                        // This is a buffer accessing message and its incoming
+                        // request message type is serializable, so we can turn
+                        // this message into a script message.
+                        return true;
+                    }
+                }
+            }
+        }
+
+        if self.listen.is_some() {
+            // If this is a purely listening type then that means it's made
+            // entirely of buffer keys, so it can be turned into a script message.
+            return true;
+        }
+
+        if self.serialize.is_some() {
+            // If this message is serializable, then it can be turned into a
+            // script message.
+            return true;
+        }
+
+        false
+    }
+
+    pub fn supports_from_script_message(&self, registrations: &MessageRegistrations) -> bool {
+        if let Ok(script_idx) = registrations.get_index_dyn(&TypeInfo::of::<ScriptMessage>()) {
+            if self.from_impls.contains_key(&script_idx) {
+                return true;
+            }
+
+            if self.try_from_impls.contains_key(&script_idx) {
+                return true;
+            }
+        }
+
+        if let Some(access) = &self.buffer_access {
+            let req = access.metadata.request_message;
+            if let Ok(req) = registrations.get_by_index(req) {
+                if let Some(req_ops) = &req.operations {
+                    if req_ops.deserialize.is_some() {
+                        // This is a buffer accessing message and its incoming
+                        // request message type is serializable, so we can turn
+                        // this message into a script message.
+                        return true;
+                    }
+                }
+            }
+        }
+
+        if self.listen.is_some() {
+            // If this is a purely listening type then that means it's made
+            // entirely of buffer keys, so we can attempt to create it from a
+            // script message.
+            return true;
+        }
+
+        if self.deserialize.is_some() {
+            // If this message is deserializable, then we can attempt to create
+            // it from a script message.
+            return true;
+        }
+
+        false
     }
 }
 
@@ -104,6 +198,8 @@ impl MessageOperations {
 pub struct MessageOperationsMetadata {
     deserialize: Option<JsEmptyObject>,
     serialize: Option<JsEmptyObject>,
+    into_script_message: Option<JsEmptyObject>,
+    from_script_message: Option<JsEmptyObject>,
     fork_clone: Option<JsEmptyObject>,
     unzip: Option<Vec<usize>>,
     fork_result: Option<[usize; 2]>,
@@ -118,10 +214,19 @@ pub struct MessageOperationsMetadata {
 }
 
 impl MessageOperationsMetadata {
-    fn new(ops: &MessageOperations) -> Self {
+    fn new(ops: &MessageOperations, registrations: &MessageRegistrations) -> Self {
+        let into_script_message = ops
+            .supports_into_script_message(registrations)
+            .then(|| JsEmptyObject);
+        let from_script_message = ops
+            .supports_from_script_message(registrations)
+            .then(|| JsEmptyObject);
+
         Self {
             deserialize: ops.deserialize.is_some().then(|| JsEmptyObject),
             serialize: ops.serialize.is_some().then(|| JsEmptyObject),
+            into_script_message,
+            from_script_message,
             fork_clone: ops.fork_clone.is_some().then(|| JsEmptyObject),
             unzip: ops.unzip.as_ref().map(|unzip| unzip.output_types.clone()),
             fork_result: ops.fork_result.as_ref().map(|r| r.output_types),
@@ -144,6 +249,14 @@ impl MessageOperationsMetadata {
 
     pub fn can_serialize(&self) -> bool {
         self.serialize.is_some()
+    }
+
+    pub fn into_script_message(&self) -> bool {
+        self.into_script_message.is_some()
+    }
+
+    pub fn from_script_message(&self) -> bool {
+        self.from_script_message.is_some()
     }
 
     pub fn can_fork_clone(&self) -> bool {

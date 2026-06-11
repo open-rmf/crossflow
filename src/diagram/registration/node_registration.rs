@@ -19,8 +19,8 @@ use std::{any::Any, borrow::Cow, cell::RefCell, collections::HashMap, marker::Ph
 
 pub use crate::dyn_node::*;
 use crate::{
-    Accessor, Builder, BuilderId, DiagramElementRegistry, DiagramErrorCode, DisplayText, DynType,
-    Joined, JsonMessage, MessageRegistrationBuilder, RegisterSplit, diagram::supported::*,
+    Accessor, Builder, BuilderId, DiagramElementRegistry, DiagramErrorCode, DynType, Joined,
+    JsonMessage, MessageRegistrationBuilder, RegisterSplit, Text, diagram::supported::*,
 };
 
 use super::{BufferAccessRequest, ConfigExample, RegisterForkResult, RegisterUnzip};
@@ -51,11 +51,11 @@ impl NodeRegistration {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct NodeMetadata {
     /// If the user does not specify a default display text, the node ID will
     /// be used here.
-    pub(super) default_display_text: DisplayText,
+    pub(super) default_display_text: Text,
     pub(super) request: usize,
     pub(super) response: usize,
     pub(super) streams: HashMap<Cow<'static, str>, usize>,
@@ -65,7 +65,7 @@ pub struct NodeMetadata {
 }
 
 impl NodeMetadata {
-    pub fn default_display_text(&self) -> &DisplayText {
+    pub fn default_display_text(&self) -> &Text {
         &self.default_display_text
     }
 

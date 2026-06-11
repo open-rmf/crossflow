@@ -27,10 +27,11 @@ use serde::{Deserialize, Serialize};
 
 use super::{BuilderId, DiagramErrorCode, TypeInfo};
 
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DiagramElementMetadata {
     nodes: HashMap<BuilderId, NodeMetadata>,
     sections: HashMap<BuilderId, SectionMetadata>,
+    scripting: HashMap<BuilderId, ScriptEnvironmentMetadata>,
     messages: Vec<MessageMetadata>,
     schemas: serde_json::Map<String, JsonMessage>,
     reverse_message_lookup: ReverseMessageLookup,
@@ -71,6 +72,12 @@ impl DiagramElementMetadata {
             .map(|(id, section)| (Arc::clone(id), section.metadata.clone()))
             .collect();
 
+        let scripting = registry
+            .scripting
+            .iter()
+            .map(|(id, builder)| (Arc::clone(id), builder.metadata.clone()))
+            .collect();
+
         let messages = registry.messages.registration.metadata();
         let schemas = registry.messages.schema_generator.definitions().clone();
         let reverse_message_lookup = registry.messages.registration.reverse_lookup.clone();
@@ -78,6 +85,7 @@ impl DiagramElementMetadata {
         DiagramElementMetadata {
             nodes,
             sections,
+            scripting,
             messages,
             schemas,
             reverse_message_lookup,
@@ -109,6 +117,8 @@ impl DiagramElementMetadata {
 /// into a single interface sufficient for message type inference.
 pub trait MetadataAccess {
     fn json_message_index(&self) -> Result<usize, DiagramErrorCode>;
+
+    fn script_message_index(&self) -> Result<usize, DiagramErrorCode>;
 
     fn node_metadata(&self, builder: &str) -> Result<&NodeMetadata, DiagramErrorCode>;
 
@@ -145,6 +155,10 @@ pub trait MetadataAccess {
 
     fn can_deserialize(&self, message_index: usize) -> Result<bool, DiagramErrorCode>;
 
+    fn into_script_message(&self, message_index: usize) -> Result<bool, DiagramErrorCode>;
+
+    fn from_script_message(&self, message_index: usize) -> Result<bool, DiagramErrorCode>;
+
     fn fork_result_output_types(
         &self,
         message_index: usize,
@@ -168,6 +182,18 @@ impl MetadataAccess for DiagramElementRegistry {
             .ok_or_else(|| {
                 DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(
                     TypeInfo::of::<JsonMessage>().type_name,
+                )])
+            })
+    }
+
+    fn script_message_index(&self) -> Result<usize, DiagramErrorCode> {
+        self.messages
+            .registration
+            .reverse_lookup
+            .script_message
+            .ok_or_else(|| {
+                DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(
+                    TypeInfo::of::<ScriptMessage>().type_name,
                 )])
             })
     }
@@ -280,6 +306,16 @@ impl MetadataAccess for DiagramElementRegistry {
             .is_some())
     }
 
+    fn into_script_message(&self, message_index: usize) -> Result<bool, DiagramErrorCode> {
+        let ops = self.get_message_operations_by_index(message_index)?;
+        Ok(ops.supports_into_script_message(&self.messages.registration))
+    }
+
+    fn from_script_message(&self, message_index: usize) -> Result<bool, DiagramErrorCode> {
+        let ops = self.get_message_operations_by_index(message_index)?;
+        Ok(ops.supports_from_script_message(&self.messages.registration))
+    }
+
     fn fork_result_output_types(
         &self,
         message_index: usize,
@@ -333,6 +369,14 @@ impl MetadataAccess for DiagramElementMetadata {
         self.reverse_message_lookup.json_message.ok_or_else(|| {
             DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(
                 TypeInfo::of::<JsonMessage>().type_name,
+            )])
+        })
+    }
+
+    fn script_message_index(&self) -> Result<usize, DiagramErrorCode> {
+        self.reverse_message_lookup.script_message.ok_or_else(|| {
+            DiagramErrorCode::UnregisteredTypes(vec![Cow::Borrowed(
+                TypeInfo::of::<ScriptMessage>().type_name,
             )])
         })
     }
@@ -437,6 +481,18 @@ impl MetadataAccess for DiagramElementMetadata {
         Ok(self
             .message_operations_for(message_index)?
             .can_deserialize())
+    }
+
+    fn into_script_message(&self, message_index: usize) -> Result<bool, DiagramErrorCode> {
+        Ok(self
+            .message_operations_for(message_index)?
+            .into_script_message())
+    }
+
+    fn from_script_message(&self, message_index: usize) -> Result<bool, DiagramErrorCode> {
+        Ok(self
+            .message_operations_for(message_index)?
+            .from_script_message())
     }
 
     fn fork_result_output_types(

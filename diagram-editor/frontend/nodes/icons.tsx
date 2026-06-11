@@ -35,6 +35,10 @@ export function TransformIcon(): React.JSX.Element {
   return <MaterialSymbol symbol="change_circle" />;
 }
 
+export function ScriptIcon(): React.JSX.Element {
+  return <MaterialSymbol symbol="code" />;
+}
+
 export function BufferIcon(): React.JSX.Element {
   return <MaterialSymbol symbol="database" />;
 }
@@ -107,6 +111,8 @@ export function getIcon(op: DiagramOperation): React.ComponentType {
       return JoinIcon;
     case 'transform':
       return TransformIcon;
+    case 'script':
+      return ScriptIcon;
     case 'buffer':
       return BufferIcon;
     case 'buffer_access':

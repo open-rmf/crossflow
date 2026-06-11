@@ -23,18 +23,19 @@ use std::{
 
 use crate::{
     AnyBuffer, BufferMap, Builder, BuilderScopeContext, IdentifierRef, JsonMessage, PortRef, Scope,
-    StreamPack, dyn_node::DynStreamInputPack,
+    ScriptMessage, StreamPack, diagram::script_environment_registration::ArcScriptEnvironment,
+    dyn_node::DynStreamInputPack,
 };
 
 #[cfg(feature = "trace")]
 use crate::{OperationInfo, Trace};
 
 use super::{
-    BufferSelection, Diagram, DiagramContext, DiagramElementRegistry, DiagramError,
+    BufferSelection, BuilderId, Diagram, DiagramContext, DiagramElementRegistry, DiagramError,
     DiagramErrorCode, DynInputSlot, DynOutput, FinishingErrors, ImplicitDeserialization,
-    ImplicitSerialization, ImplicitStringify, InferenceBoundaryConditions, InferenceContext,
-    NamedOperationRef, NamespaceList, NextOperation, OperationName, OperationRef, Operations,
-    TraceToggle, TypeInfo, TypeMismatch,
+    ImplicitScriptMessage, ImplicitSerialization, ImplicitStringify, InferenceBoundaryConditions,
+    InferenceContext, NamedOperationRef, NamespaceList, NextOperation, OperationName, OperationRef,
+    Operations, Templates, TraceToggle, TypeInfo, TypeMismatch,
 };
 
 use bevy_ecs::prelude::Entity;
@@ -51,6 +52,8 @@ struct DiagramConstruction {
     buffers: HashMap<OperationRef, BufferRef>,
     /// Operations that were spawned by another operation.
     generated_operations: Vec<UnfinishedOperation>,
+    /// Scripting environments that have been built
+    script_environments: HashMap<BuilderId, ArcScriptEnvironment>,
 }
 
 impl<'a> DiagramConstruction {
@@ -451,6 +454,49 @@ impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
 
         (exposed, inner)
     }
+
+    pub fn get_script_environment(
+        &mut self,
+        environment: &OperationName,
+    ) -> Result<ArcScriptEnvironment, DiagramErrorCode> {
+        let env = match self
+            .construction
+            .script_environments
+            .entry(environment.clone())
+        {
+            Entry::Occupied(entry) => entry.get().clone(),
+            Entry::Vacant(entry) => {
+                let env_description = self
+                    .diagram_context
+                    .script_environments
+                    .get(&*environment)
+                    .ok_or_else(|| {
+                        DiagramErrorCode::UnknownScriptEnvironment(environment.clone())
+                    })?;
+
+                let env_builder = self
+                    .registry
+                    .scripting
+                    .get(&*env_description.builder)
+                    .ok_or_else(|| {
+                        DiagramErrorCode::UnknownScriptEnvironmentBuilder(
+                            env_description.builder.clone(),
+                        )
+                    })?;
+
+                let mut f = env_builder.create_environment_impl.borrow_mut();
+                let env = (*f)((*env_description.config).clone()).map_err(|error| {
+                    DiagramErrorCode::ScriptEnvironmentBuildingError {
+                        builder: env_description.builder.clone(),
+                        error: Arc::new(error),
+                    }
+                })?;
+                entry.insert(env).clone()
+            }
+        };
+
+        Ok(env)
+    }
 }
 
 impl<'a, 'c, 'w, 's, 'b> Deref for BuilderContext<'a, 'c, 'w, 's, 'b> {
@@ -541,6 +587,11 @@ pub trait BuildDiagramOperation {
         id: &OperationName,
         ctx: &mut InferenceContext,
     ) -> Result<(), DiagramErrorCode>;
+
+    fn child_operations(
+        &self,
+        templates: &Templates,
+    ) -> Result<Option<Operations>, DiagramErrorCode>;
 }
 
 /// This trait is used to connect outputs to their target operations. This trait
@@ -594,6 +645,7 @@ where
             diagram_context: DiagramContext {
                 operations: diagram.ops.clone(),
                 templates: &diagram.templates,
+                script_environments: &diagram.script_environments,
                 default_trace: diagram.default_trace,
                 on_implicit_error: &root_on_implicit_error,
                 namespaces: NamespaceList::default(),
@@ -640,6 +692,7 @@ where
                 diagram_context: DiagramContext {
                     operations: unfinished.sibling_ops.clone(),
                     templates: &diagram.templates,
+                    script_environments: &diagram.script_environments,
                     default_trace: diagram.default_trace,
                     on_implicit_error: &unfinished.on_implicit_error,
                     namespaces: unfinished.namespaces.clone(),
@@ -695,6 +748,7 @@ where
                     diagram_context: DiagramContext {
                         operations: diagram.ops.clone(),
                         templates: &diagram.templates,
+                        script_environments: &diagram.script_environments,
                         default_trace: diagram.default_trace,
                         on_implicit_error: &root_on_implicit_error,
                         // TODO(@mxgrey): The namespace while connecting into targets
@@ -864,7 +918,7 @@ where
     for (name, input) in streams.named {
         // TODO(@mxgrey): The trace settings for stream_out are not properly
         // based on whatever the user sets in the StreamOutSchema.
-        let name: Arc<str> = name.as_ref().into();
+        let name: OperationName = name.as_ref().into();
         ctx.set_input_for_target(OperationRef::stream_out(&name), input, TraceInfo::default())?;
     }
 
@@ -906,6 +960,10 @@ pub fn standard_input_connection(
     input_slot: DynInputSlot,
     registry: &DiagramElementRegistry,
 ) -> Result<Box<dyn ConnectIntoTarget + 'static>, DiagramErrorCode> {
+    if input_slot.message_info() == &TypeInfo::of::<ScriptMessage>() {
+        return Ok(Box::new(ImplicitScriptMessage::new(input_slot)?));
+    }
+
     if input_slot.message_info() == &TypeInfo::of::<JsonMessage>() {
         return Ok(Box::new(ImplicitSerialization::new(input_slot)?));
     }
@@ -930,6 +988,16 @@ impl ConnectIntoTarget for ImplicitSerialization {
     }
 }
 
+impl ConnectIntoTarget for ImplicitScriptMessage {
+    fn connect_into_target(
+        &mut self,
+        output: DynOutput,
+        ctx: &mut BuilderContext,
+    ) -> Result<(), DiagramErrorCode> {
+        self.implicit_conversion(output, ctx)
+    }
+}
+
 impl ConnectIntoTarget for ImplicitDeserialization {
     fn connect_into_target(
         &mut self,
@@ -951,6 +1019,10 @@ impl BasicConnect {
         incoming: &TypeInfo,
         ctx: &BuilderContext,
     ) -> Result<bool, DiagramErrorCode> {
+        if incoming == self.input_slot.message_info() {
+            return Ok(true);
+        }
+
         let incoming_index = ctx.registry.messages.registration.get_index_dyn(incoming)?;
         let r = ctx
             .registry

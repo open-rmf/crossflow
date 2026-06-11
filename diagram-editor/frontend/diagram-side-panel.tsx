@@ -81,6 +81,7 @@ function DiagramSidePanel({
     setDiagramProperties({
       description: loadContext?.diagram.description ?? '',
       input_examples: examples,
+      script_environments: loadContext?.diagram.script_environments ?? {},
     });
   }, [loadContext, setDiagramProperties]);
 

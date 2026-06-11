@@ -62,6 +62,7 @@ import {
   type OperationNode,
   TERMINATE_ID,
 } from './nodes';
+import { NotificationProvider } from './notification-provider';
 import { useRegistry } from './registry-provider';
 import { useTemplates } from './templates-provider';
 import { EdgesProvider } from './use-edges';
@@ -148,7 +149,9 @@ function Providers({
         <NodeManagerProvider value={nodeManager}>
           <EdgesProvider value={edges}>
             <DebugVisualizationProvider value={debugVisualizationContext}>
-              <DiagramPropertiesProvider>{children}</DiagramPropertiesProvider>
+              <DiagramPropertiesProvider>
+                <NotificationProvider>{children}</NotificationProvider>
+              </DiagramPropertiesProvider>
             </DebugVisualizationProvider>
           </EdgesProvider>
         </NodeManagerProvider>
