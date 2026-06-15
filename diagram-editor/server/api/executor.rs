@@ -700,9 +700,9 @@ mod tests {
             .await
             .unwrap();
 
-        // There should be 3 feedback messages: add7 starts, add7 finishes,
-        // and terminate starts.
-        for _ in 0..3 {
+        // There should be 4 feedback messages: add7 starts, add7 finishes,
+        // terminate starts, and terminate finishes.
+        for _ in 0..4 {
             let msg = test_rx.next().await.unwrap();
             let feedback_msg: DebugSessionMessage =
                 serde_json::from_slice(msg.into_text().unwrap().as_bytes()).unwrap();
