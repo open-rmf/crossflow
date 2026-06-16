@@ -31,10 +31,6 @@ import React, { Suspense } from 'react';
 import AddOperation from './add-operation';
 import CommandPanel from './command-panel';
 import { ConnectionHintPanel } from './connection-hint-panel';
-import {
-  type DebugVisualizationContext,
-  DebugVisualizationProvider,
-} from './debug-visualization-provider';
 import { DiagramPropertiesProvider } from './diagram-properties-provider';
 import type { DiagramEditorEdge } from './edges';
 import {
@@ -52,6 +48,10 @@ import {
 import { ExportDiagramDialog } from './export-diagram-dialog';
 import { defaultEdgeData, EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
+import {
+  type InteractionVisualizationContext,
+  InteractionVisualizationProvider,
+} from './interaction-visualization-provider';
 import { type LoadContext, LoadContextProvider } from './load-context-provider';
 import { NodeManager, NodeManagerProvider } from './node-manager';
 import {
@@ -129,7 +129,7 @@ export type MaybeValid = { ok: true } | { ok: false; errorMessage: string };
 
 interface ProvidersProps {
   editorModeContext: UseEditorModeContext;
-  debugVisualizationContext: DebugVisualizationContext;
+  interactionVisualizationContext: InteractionVisualizationContext;
   loadContext: LoadContext | null;
   nodeManager: NodeManager;
   edges: DiagramEditorEdge[];
@@ -137,7 +137,7 @@ interface ProvidersProps {
 
 function Providers({
   editorModeContext,
-  debugVisualizationContext,
+  interactionVisualizationContext,
   loadContext,
   nodeManager,
   edges,
@@ -148,11 +148,13 @@ function Providers({
       <LoadContextProvider value={loadContext}>
         <NodeManagerProvider value={nodeManager}>
           <EdgesProvider value={edges}>
-            <DebugVisualizationProvider value={debugVisualizationContext}>
+            <InteractionVisualizationProvider
+              value={interactionVisualizationContext}
+            >
               <DiagramPropertiesProvider>
                 <NotificationProvider>{children}</NotificationProvider>
               </DiagramPropertiesProvider>
-            </DebugVisualizationProvider>
+            </InteractionVisualizationProvider>
           </EdgesProvider>
         </NodeManagerProvider>
       </LoadContextProvider>
@@ -160,7 +162,7 @@ function Providers({
   );
 }
 
-function getDebugNodeId(
+function getInteractionNodeId(
   operationId: string,
   nodeManager: NodeManager,
 ): string | null {
@@ -219,32 +221,30 @@ function DiagramEditor() {
     () => loadEmpty().nodes,
   );
   const nodeManager = React.useMemo(() => new NodeManager(nodes), [nodes]);
-  const [debugActiveNodeIds, setDebugActiveNodeIds] = React.useState(
-    () => new Set<string>(),
-  );
-  const [debugVisitedNodeIds, setDebugVisitedNodeIds] = React.useState(
-    () => new Set<string>(),
-  );
-  const clearDebugVisualization = React.useCallback(() => {
-    setDebugActiveNodeIds(new Set());
-    setDebugVisitedNodeIds(new Set());
+  const [interactionActiveNodeIds, setInteractionActiveNodeIds] =
+    React.useState(() => new Set<string>());
+  const [interactionVisitedNodeIds, setInteractionVisitedNodeIds] =
+    React.useState(() => new Set<string>());
+  const clearInteractionVisualization = React.useCallback(() => {
+    setInteractionActiveNodeIds(new Set());
+    setInteractionVisitedNodeIds(new Set());
   }, []);
-  const markDebugFinished = React.useCallback(() => {
-    setDebugActiveNodeIds(new Set());
+  const markInteractionFinished = React.useCallback(() => {
+    setInteractionActiveNodeIds(new Set());
   }, []);
-  const markDebugOperationFinished = React.useCallback(
+  const markInteractionOperationFinished = React.useCallback(
     (operationId: string) => {
-      const nodeId = getDebugNodeId(operationId, nodeManager);
+      const nodeId = getInteractionNodeId(operationId, nodeManager);
       if (!nodeId) {
         return;
       }
 
-      setDebugActiveNodeIds((prev) => {
+      setInteractionActiveNodeIds((prev) => {
         const next = new Set(prev);
         next.delete(nodeId);
         return next;
       });
-      setDebugVisitedNodeIds((prev) => {
+      setInteractionVisitedNodeIds((prev) => {
         const next = new Set(prev);
         next.add(nodeId);
         return next;
@@ -252,19 +252,19 @@ function DiagramEditor() {
     },
     [nodeManager],
   );
-  const markDebugOperationStarted = React.useCallback(
+  const markInteractionOperationStarted = React.useCallback(
     (operationId: string) => {
-      const nodeId = getDebugNodeId(operationId, nodeManager);
+      const nodeId = getInteractionNodeId(operationId, nodeManager);
       if (!nodeId) {
         return;
       }
 
-      setDebugVisitedNodeIds((prev) => {
+      setInteractionVisitedNodeIds((prev) => {
         const next = new Set(prev);
         next.delete(nodeId);
         return next;
       });
-      setDebugActiveNodeIds((prev) => {
+      setInteractionActiveNodeIds((prev) => {
         const next = new Set(prev);
         next.add(nodeId);
         return next;
@@ -272,24 +272,25 @@ function DiagramEditor() {
     },
     [nodeManager],
   );
-  const debugVisualizationContext = React.useMemo<DebugVisualizationContext>(
-    () => ({
-      activeNodeIds: debugActiveNodeIds,
-      visitedNodeIds: debugVisitedNodeIds,
-      clearDebugVisualization,
-      markDebugFinished,
-      markDebugOperationFinished,
-      markDebugOperationStarted,
-    }),
-    [
-      clearDebugVisualization,
-      debugActiveNodeIds,
-      debugVisitedNodeIds,
-      markDebugFinished,
-      markDebugOperationFinished,
-      markDebugOperationStarted,
-    ],
-  );
+  const interactionVisualizationContext =
+    React.useMemo<InteractionVisualizationContext>(
+      () => ({
+        activeNodeIds: interactionActiveNodeIds,
+        visitedNodeIds: interactionVisitedNodeIds,
+        clearInteractionVisualization,
+        markInteractionFinished,
+        markInteractionOperationFinished,
+        markInteractionOperationStarted,
+      }),
+      [
+        clearInteractionVisualization,
+        interactionActiveNodeIds,
+        interactionVisitedNodeIds,
+        markInteractionFinished,
+        markInteractionOperationFinished,
+        markInteractionOperationStarted,
+      ],
+    );
   const savedNodes = React.useRef<DiagramEditorNode[]>([]);
 
   const [edges, setEdges] = React.useState<DiagramEditorEdge[]>([]);
@@ -666,7 +667,7 @@ function DiagramEditor() {
     async (jsonStr: string, filename: string | null) => {
       try {
         const [diagram, { graph, isRestored }] = await loadDiagramJson(jsonStr);
-        clearDebugVisualization();
+        clearInteractionVisualization();
         setLoadContext({ diagram });
         // do not perform auto layout if the diagram is restored from previous state.
         if (!isRestored) {
@@ -684,7 +685,7 @@ function DiagramEditor() {
         showErrorToast(`failed to load diagram: ${e}`);
       }
     },
-    [clearDebugVisualization, closeAllPopovers, showErrorToast],
+    [clearInteractionVisualization, closeAllPopovers, showErrorToast],
   );
 
   const [openExportDiagramDialog, setOpenExportDiagramDialog] =
@@ -793,7 +794,7 @@ function DiagramEditor() {
   return (
     <Providers
       editorModeContext={[editorMode, updateEditorModeAction]}
-      debugVisualizationContext={debugVisualizationContext}
+      interactionVisualizationContext={interactionVisualizationContext}
       loadContext={loadContext}
       nodeManager={nodeManager}
       edges={edges}

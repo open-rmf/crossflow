@@ -120,13 +120,13 @@ pub async fn post_run(
 #[cfg_attr(test, derive(serde::Deserialize))]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub enum DebugSessionEnd {
+pub enum InteractionSessionEnd {
     Ok(serde_json::Value),
     Err(String),
 }
 
 #[cfg(feature = "router")]
-impl DebugSessionEnd {
+impl InteractionSessionEnd {
     fn err_from_status_code(status_code: StatusCode) -> Self {
         Self::Err(status_code.to_string())
     }
@@ -136,7 +136,7 @@ impl DebugSessionEnd {
 #[cfg_attr(test, derive(serde::Deserialize))]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub enum DebugSessionFeedback {
+pub enum InteractionSessionFeedback {
     OperationStarted(String),
     OperationFinished(String),
 }
@@ -145,16 +145,16 @@ pub enum DebugSessionFeedback {
 #[cfg_attr(test, derive(serde::Deserialize))]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase", tag = "type")]
-pub enum DebugSessionMessage {
-    Feedback(DebugSessionFeedback),
-    Finish(DebugSessionEnd),
+pub enum InteractionSessionMessage {
+    Feedback(InteractionSessionFeedback),
+    Finish(InteractionSessionEnd),
 }
 
-/// Start a debug session.
+/// Start an interaction session.
 #[cfg(feature = "router")]
-async fn ws_debug<W, R, Text>(mut write: W, mut read: R, state: State<ExecutorState>)
+async fn ws_interaction<W, R, Text>(mut write: W, mut read: R, state: State<ExecutorState>)
 where
-    W: WebsocketSinkExt<DebugSessionMessage>,
+    W: WebsocketSinkExt<InteractionSessionMessage>,
     R: WebsocketStreamExt<PostRunRequest, Text>,
     Text: std::ops::Deref<Target = str>,
 {
@@ -179,8 +179,8 @@ where
     {
         error!("{}", err);
         write
-            .send_json(&DebugSessionMessage::Finish(
-                DebugSessionEnd::err_from_status_code(StatusCode::INTERNAL_SERVER_ERROR),
+            .send_json(&InteractionSessionMessage::Finish(
+                InteractionSessionEnd::err_from_status_code(StatusCode::INTERNAL_SERVER_ERROR),
             ))
             .await;
         return;
@@ -193,7 +193,9 @@ where
             Ok(response) => response,
             Err(err) => {
                 error!("{}", err);
-                return DebugSessionEnd::err_from_status_code(StatusCode::INTERNAL_SERVER_ERROR);
+                return InteractionSessionEnd::err_from_status_code(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                );
             }
         };
 
@@ -205,15 +207,16 @@ where
                 }
 
                 // Brief yield so already-queued feedback reaches the socket
-                // before the finish message; drain_debug_feedback handles the rest.
+                // before the finish message; drain_interaction_feedback handles
+                // the rest.
                 tokio::time::sleep(Duration::from_millis(100)).await;
 
                 match result {
-                    Ok(result) => DebugSessionEnd::Ok(result),
-                    Err(err) => DebugSessionEnd::Err(err.to_string()),
+                    Ok(result) => InteractionSessionEnd::Ok(result),
+                    Err(err) => InteractionSessionEnd::Err(err.to_string()),
                 }
             }
-            Err(err) => DebugSessionEnd::Err(err.to_string()),
+            Err(err) => InteractionSessionEnd::Err(err.to_string()),
         }
     };
     tokio::pin!(response);
@@ -225,7 +228,7 @@ where
                 feedback = feedback_rx.recv() => {
                     match feedback {
                         Ok(feedback) => {
-                            send_debug_feedback(&mut write, &feedback).await;
+                            send_interaction_feedback(&mut write, &feedback).await;
                         }
                         Err(e) => match e {
                             BroadcastRecvError::Closed => {
@@ -239,57 +242,59 @@ where
                     }
                 }
                 result = &mut response => {
-                    drain_debug_feedback(&mut write, &mut feedback_rx).await;
+                    drain_interaction_feedback(&mut write, &mut feedback_rx).await;
                     write
-                        .send_json(&DebugSessionMessage::Finish(result))
+                        .send_json(&InteractionSessionMessage::Finish(result))
                         .await;
                     break;
                 }
             }
         } else {
             let result = response.await;
-            write.send_json(&DebugSessionMessage::Finish(result)).await;
+            write
+                .send_json(&InteractionSessionMessage::Finish(result))
+                .await;
             break;
         }
     }
 }
 
 #[cfg(feature = "router")]
-async fn drain_debug_feedback<W>(
+async fn drain_interaction_feedback<W>(
     write: &mut W,
     feedback_rx: &mut tokio::sync::broadcast::Receiver<WorkflowFeedback>,
 ) where
-    W: WebsocketSinkExt<DebugSessionMessage>,
+    W: WebsocketSinkExt<InteractionSessionMessage>,
 {
     loop {
         match feedback_rx.try_recv() {
-            Ok(feedback) => send_debug_feedback(write, &feedback).await,
+            Ok(feedback) => send_interaction_feedback(write, &feedback).await,
             Err(tokio::sync::broadcast::error::TryRecvError::Empty) => break,
             Err(tokio::sync::broadcast::error::TryRecvError::Closed) => break,
             Err(tokio::sync::broadcast::error::TryRecvError::Lagged(skipped)) => {
-                warn!("debug feedback lagged by {skipped} messages");
+                warn!("interaction feedback lagged by {skipped} messages");
             }
         }
     }
 }
 
 #[cfg(feature = "router")]
-async fn send_debug_feedback<W>(write: &mut W, feedback: &TracedEvent)
+async fn send_interaction_feedback<W>(write: &mut W, feedback: &TracedEvent)
 where
-    W: WebsocketSinkExt<DebugSessionMessage>,
+    W: WebsocketSinkExt<InteractionSessionMessage>,
 {
     for op_id in operation_finished_ids(feedback) {
         write
-            .send_json(&DebugSessionMessage::Feedback(
-                DebugSessionFeedback::OperationFinished(op_id),
+            .send_json(&InteractionSessionMessage::Feedback(
+                InteractionSessionFeedback::OperationFinished(op_id),
             ))
             .await;
     }
 
     if let Some(op_id) = operation_started_id(feedback) {
         write
-            .send_json(&DebugSessionMessage::Feedback(
-                DebugSessionFeedback::OperationStarted(op_id),
+            .send_json(&InteractionSessionMessage::Feedback(
+                InteractionSessionFeedback::OperationStarted(op_id),
             ))
             .await;
     }
@@ -375,7 +380,7 @@ fn execute_requests(
     }
 }
 
-fn debug_feedback(
+fn interaction_feedback(
     trigger: bevy_ecs::prelude::Trigger<trace::TracedEvent>,
     feedback_query: bevy_ecs::system::Query<(Entity, &FeedbackSender)>,
 ) {
@@ -425,7 +430,7 @@ pub fn setup_bevy_app(
     app.insert_resource(RequestReceiver(request_rx));
     app.insert_resource(WorkflowDespawnReceiver(despawn_rx));
     app.add_systems(bevy_app::Update, execute_requests);
-    app.world_mut().add_observer(debug_feedback);
+    app.world_mut().add_observer(interaction_feedback);
     app.add_systems(bevy_app::Update, despawn_workflows);
 
     ExecutorState {
@@ -483,14 +488,14 @@ pub(super) fn new_router(
     let router = Router::new().route("/run", post(post_run));
 
     let router = router.route(
-        "/debug",
+        "/interaction",
         routing::any(
             async |ws: ws::WebSocketUpgrade, state: State<ExecutorState>| {
                 ws.on_upgrade(|socket| {
                     use futures_util::StreamExt;
 
                     let (write, read) = socket.split();
-                    ws_debug(write, read, state)
+                    ws_interaction(write, read, state)
                 })
             },
         ),
@@ -670,7 +675,7 @@ mod tests {
     #[ignore = "tracing events in `crossflow` is delayed"]
     #[tokio::test]
     #[test_log::test]
-    async fn test_ws_debug() {
+    async fn test_ws_interaction() {
         use futures_util::StreamExt;
 
         let WsTestFixture {
@@ -691,7 +696,11 @@ mod tests {
         let (socket_write, mut test_rx) = futures_channel::mpsc::channel(1024);
         let (mut test_tx, socket_read) = futures_channel::mpsc::channel(1024);
 
-        tokio::spawn(ws_debug(socket_write, socket_read, State(executor_state)));
+        tokio::spawn(ws_interaction(
+            socket_write,
+            socket_read,
+            State(executor_state),
+        ));
 
         test_tx
             .send(Ok(ws::Message::Text(
@@ -704,26 +713,27 @@ mod tests {
         // terminate starts, and terminate finishes.
         for _ in 0..4 {
             let msg = test_rx.next().await.unwrap();
-            let feedback_msg: DebugSessionMessage =
+            let feedback_msg: InteractionSessionMessage =
                 serde_json::from_slice(msg.into_text().unwrap().as_bytes()).unwrap();
             let feedback = match feedback_msg {
-                DebugSessionMessage::Feedback(feedback) => feedback,
+                InteractionSessionMessage::Feedback(feedback) => feedback,
                 _ => {
                     panic!("expected feedback message");
                 }
             };
             assert!(matches!(
                 feedback,
-                DebugSessionFeedback::OperationStarted(_)
-                    | DebugSessionFeedback::OperationFinished(_)
+                InteractionSessionFeedback::OperationStarted(_)
+                    | InteractionSessionFeedback::OperationFinished(_)
             ));
         }
 
         let resp_msg = test_rx.next().await.unwrap();
         let resp_text = resp_msg.into_text().unwrap();
-        let resp_msg: DebugSessionMessage = serde_json::from_slice(resp_text.as_bytes()).unwrap();
+        let resp_msg: InteractionSessionMessage =
+            serde_json::from_slice(resp_text.as_bytes()).unwrap();
         let resp = match resp_msg {
-            DebugSessionMessage::Finish(DebugSessionEnd::Ok(resp)) => resp,
+            InteractionSessionMessage::Finish(InteractionSessionEnd::Ok(resp)) => resp,
             _ => {
                 panic!("expected response to be Ok");
             }

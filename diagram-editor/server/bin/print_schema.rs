@@ -1,6 +1,6 @@
 use crossflow_diagram_editor::api::{
     RegistryResponse,
-    executor::{DebugSessionMessage, PostRunRequest},
+    executor::{InteractionSessionMessage, PostRunRequest},
 };
 use indexmap::IndexMap;
 use schemars::SchemaGenerator;
@@ -9,7 +9,7 @@ fn main() {
     let mut schema_generator = SchemaGenerator::default();
     schema_generator.subschema_for::<PostRunRequest>();
     schema_generator.subschema_for::<RegistryResponse>();
-    schema_generator.subschema_for::<DebugSessionMessage>();
+    schema_generator.subschema_for::<InteractionSessionMessage>();
 
     // using `IndexMap` to preserve ordering
     let schema: IndexMap<&'static str, serde_json::Value> = IndexMap::from_iter([
