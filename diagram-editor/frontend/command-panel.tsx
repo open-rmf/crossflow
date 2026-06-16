@@ -2,13 +2,14 @@ import { Button, ButtonGroup, styled, Tooltip, useTheme } from '@mui/material';
 import { type NodeChange, Panel } from '@xyflow/react';
 import React from 'react';
 import AutoLayoutButton from './auto-layout-button';
-import DiagramPropertiesDrawer from './diagram-properties-drawer';
+import DiagramSidePanel, {
+  type DiagramSidePanelTab,
+} from './diagram-side-panel';
 import EditTemplatesDialog from './edit-templates-dialog';
 import { EditorMode, useEditorMode } from './editor-mode';
 import { ScriptEnvironmentManagerDialog } from './forms/script-environment-manager-dialog';
 import type { DiagramEditorNode } from './nodes';
 import { MaterialSymbol } from './nodes';
-import { RunButton } from './run-button';
 
 export interface CommandPanelProps {
   onNodeChanges: (changes: NodeChange<DiagramEditorNode>[]) => void;
@@ -38,17 +39,44 @@ function CommandPanel({
   const theme = useTheme();
   const [openEditTemplatesDialog, setOpenEditTemplatesDialog] =
     React.useState(false);
-  const [openDiagramPropertiesDrawer, setOpenDiagramPropertiesDrawer] =
-    React.useState(true);
+  const [openSidePanel, setOpenSidePanel] = React.useState(true);
+  const [sidePanelTab, setSidePanelTab] =
+    React.useState<DiagramSidePanelTab>('properties');
+  const [runRequestJson, setRunRequestJson] = React.useState('');
   const [openScriptEnvManager, setOpenScriptEnvManager] = React.useState(false);
   const [editorMode] = useEditorMode();
+
+  const showSidePanelTab = (tab: DiagramSidePanelTab) => {
+    setSidePanelTab(tab);
+    setOpenSidePanel(true);
+  };
+
+  const toggleSidePanelTab = (tab: DiagramSidePanelTab) => {
+    if (openSidePanel && sidePanelTab === tab) {
+      setOpenSidePanel(false);
+      return;
+    }
+
+    showSidePanelTab(tab);
+  };
 
   return (
     <>
       <Panel position="top-center">
         <ButtonGroup variant="contained">
           {editorMode.mode === EditorMode.Normal && (
-            <RunButton requestJsonString="" />
+            <Tooltip title="Run Workflow">
+              <Button
+                onClick={() => toggleSidePanelTab('run')}
+                sx={
+                  openSidePanel && sidePanelTab === 'run'
+                    ? { backgroundColor: theme.palette.primary.light }
+                    : undefined
+                }
+              >
+                <MaterialSymbol symbol="play_arrow" />
+              </Button>
+            </Tooltip>
           )}
           {editorMode.mode === EditorMode.Normal && (
             <Tooltip title="Script Environment Manager">
@@ -60,9 +88,9 @@ function CommandPanel({
           {editorMode.mode === EditorMode.Normal && (
             <Tooltip title="Diagram properties">
               <Button
-                onClick={() => setOpenDiagramPropertiesDrawer((prev) => !prev)}
+                onClick={() => toggleSidePanelTab('properties')}
                 sx={
-                  openDiagramPropertiesDrawer
+                  openSidePanel && sidePanelTab === 'properties'
                     ? { backgroundColor: theme.palette.primary.light }
                     : undefined
                 }
@@ -119,9 +147,13 @@ function CommandPanel({
         open={openEditTemplatesDialog}
         onClose={() => setOpenEditTemplatesDialog(false)}
       />
-      <DiagramPropertiesDrawer
-        open={openDiagramPropertiesDrawer}
-        onClose={() => setOpenDiagramPropertiesDrawer(false)}
+      <DiagramSidePanel
+        open={openSidePanel}
+        tab={sidePanelTab}
+        runRequestJson={runRequestJson}
+        onClose={() => setOpenSidePanel(false)}
+        onRunRequestJsonChange={setRunRequestJson}
+        onTabChange={(tab) => showSidePanelTab(tab)}
       />
       <ScriptEnvironmentManagerDialog
         open={openScriptEnvManager}

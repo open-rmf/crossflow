@@ -6,12 +6,14 @@ use axum::{
 };
 #[cfg(feature = "router")]
 use axum::{Router, routing::post};
-#[cfg(feature = "debug")]
+#[cfg(feature = "router")]
 use axum::{
     extract::ws,
     routing::{self},
 };
 use bevy_ecs::{prelude::Entity, schedule::IntoScheduleConfigs};
+#[cfg(feature = "router")]
+use crossflow::TracedEventKind;
 use crossflow::{Diagram, DiagramElementRegistry, Outcome, RequestExt, TracedEvent, trace};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -21,14 +23,14 @@ use std::{
 };
 use tokio::sync::mpsc::error::TryRecvError;
 use tracing::error;
-#[cfg(feature = "debug")]
+#[cfg(feature = "router")]
 use tracing::warn;
 
-#[cfg(feature = "debug")]
+#[cfg(feature = "router")]
 use super::websocket::{WebsocketSinkExt, WebsocketStreamExt};
 use crate::api::error_responses::WorkflowCancelledResponse;
 
-#[cfg(feature = "debug")]
+#[cfg(feature = "router")]
 type BroadcastRecvError = tokio::sync::broadcast::error::RecvError;
 
 type WorkflowResponseResult =
@@ -123,7 +125,7 @@ pub enum DebugSessionEnd {
     Err(String),
 }
 
-#[cfg(feature = "debug")]
+#[cfg(feature = "router")]
 impl DebugSessionEnd {
     fn err_from_status_code(status_code: StatusCode) -> Self {
         Self::Err(status_code.to_string())
@@ -136,6 +138,7 @@ impl DebugSessionEnd {
 #[serde(rename_all = "camelCase")]
 pub enum DebugSessionFeedback {
     OperationStarted(String),
+    OperationFinished(String),
 }
 
 #[cfg_attr(feature = "json_schema", derive(schemars::JsonSchema))]
@@ -148,7 +151,7 @@ pub enum DebugSessionMessage {
 }
 
 /// Start a debug session.
-#[cfg(feature = "debug")]
+#[cfg(feature = "router")]
 async fn ws_debug<W, R, Text>(mut write: W, mut read: R, state: State<ExecutorState>)
 where
     W: WebsocketSinkExt<DebugSessionMessage>,
@@ -183,97 +186,150 @@ where
         return;
     }
 
-    let write = tokio::sync::Mutex::new(write);
-
-    let process_response = async || {
+    let response = async {
         let response_result = response_rx.await;
 
         let workflow_response = match response_result {
             Ok(response) => response,
             Err(err) => {
                 error!("{}", err);
-                write
-                    .lock()
-                    .await
-                    .send_json(&DebugSessionMessage::Finish(
-                        DebugSessionEnd::err_from_status_code(StatusCode::INTERNAL_SERVER_ERROR),
-                    ))
-                    .await;
-                return;
+                return DebugSessionEnd::err_from_status_code(StatusCode::INTERNAL_SERVER_ERROR);
             }
         };
 
         match workflow_response {
-            // type annotations needed on `promise.await`
-            Ok(promise) => match promise.await.available() {
-                Some(result) => {
-                    write
-                        .lock()
-                        .await
-                        .send_json(&DebugSessionMessage::Finish(DebugSessionEnd::Ok(result)))
-                        .await;
+            Ok((outcome, workflow)) => {
+                let result = outcome.await;
+                if let Err(err) = state.despawn_chan.send(workflow).await {
+                    error!("Failed to request workflow despawn: {err}");
                 }
-                None => {
-                    write
-                        .lock()
-                        .await
-                        .send_json(&DebugSessionMessage::Finish(
-                            DebugSessionEnd::err_from_status_code(
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                            ),
-                        ))
-                        .await;
-                    return;
+
+                // Brief yield so already-queued feedback reaches the socket
+                // before the finish message; drain_debug_feedback handles the rest.
+                tokio::time::sleep(Duration::from_millis(100)).await;
+
+                match result {
+                    Ok(result) => DebugSessionEnd::Ok(result),
+                    Err(err) => DebugSessionEnd::Err(err.to_string()),
                 }
-            },
-            Err(err) => {
-                write
-                    .lock()
-                    .await
-                    .send_json(&DebugSessionMessage::Finish(DebugSessionEnd::Err(
-                        err.to_string(),
-                    )))
-                    .await;
-                return;
             }
-        };
-    };
-
-    let mut process_feedback = async || loop {
-        let feedback = feedback_rx.recv().await;
-
-        match feedback {
-            Ok(feedback) => {
-                let op_id = if let Some(id) = feedback.info.id() {
-                    id.to_string()
-                } else {
-                    "[unknown]".to_string()
-                };
-
-                write
-                    .lock()
-                    .await
-                    .send_json(&DebugSessionMessage::Feedback(
-                        DebugSessionFeedback::OperationStarted(op_id),
-                    ))
-                    .await;
-            }
-            Err(e) => match e {
-                BroadcastRecvError::Closed => {
-                    break;
-                }
-                BroadcastRecvError::Lagged(_) => {
-                    warn!("{}", e);
-                    break;
-                }
-            },
+            Err(err) => DebugSessionEnd::Err(err.to_string()),
         }
     };
+    tokio::pin!(response);
 
-    tokio::select! {
-        _ = process_response() => {},
-        _ = process_feedback() => {},
-    };
+    let mut feedback_open = true;
+    loop {
+        if feedback_open {
+            tokio::select! {
+                feedback = feedback_rx.recv() => {
+                    match feedback {
+                        Ok(feedback) => {
+                            send_debug_feedback(&mut write, &feedback).await;
+                        }
+                        Err(e) => match e {
+                            BroadcastRecvError::Closed => {
+                                feedback_open = false;
+                            }
+                            BroadcastRecvError::Lagged(_) => {
+                                warn!("{}", e);
+                                feedback_open = false;
+                            }
+                        },
+                    }
+                }
+                result = &mut response => {
+                    drain_debug_feedback(&mut write, &mut feedback_rx).await;
+                    write
+                        .send_json(&DebugSessionMessage::Finish(result))
+                        .await;
+                    break;
+                }
+            }
+        } else {
+            let result = response.await;
+            write.send_json(&DebugSessionMessage::Finish(result)).await;
+            break;
+        }
+    }
+}
+
+#[cfg(feature = "router")]
+async fn drain_debug_feedback<W>(
+    write: &mut W,
+    feedback_rx: &mut tokio::sync::broadcast::Receiver<WorkflowFeedback>,
+) where
+    W: WebsocketSinkExt<DebugSessionMessage>,
+{
+    loop {
+        match feedback_rx.try_recv() {
+            Ok(feedback) => send_debug_feedback(write, &feedback).await,
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty) => break,
+            Err(tokio::sync::broadcast::error::TryRecvError::Closed) => break,
+            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(skipped)) => {
+                warn!("debug feedback lagged by {skipped} messages");
+            }
+        }
+    }
+}
+
+#[cfg(feature = "router")]
+async fn send_debug_feedback<W>(write: &mut W, feedback: &TracedEvent)
+where
+    W: WebsocketSinkExt<DebugSessionMessage>,
+{
+    for op_id in operation_finished_ids(feedback) {
+        write
+            .send_json(&DebugSessionMessage::Feedback(
+                DebugSessionFeedback::OperationFinished(op_id),
+            ))
+            .await;
+    }
+
+    if let Some(op_id) = operation_started_id(feedback) {
+        write
+            .send_json(&DebugSessionMessage::Feedback(
+                DebugSessionFeedback::OperationStarted(op_id),
+            ))
+            .await;
+    }
+}
+
+#[cfg(feature = "router")]
+fn operation_started_id(feedback: &TracedEvent) -> Option<String> {
+    match &feedback.event {
+        TracedEventKind::MessageSent(message) => message
+            .input
+            .info
+            .as_ref()
+            .and_then(|info| info.id().as_ref())
+            .map(ToString::to_string),
+        TracedEventKind::BufferEvent(event) => event
+            .accessor
+            .info
+            .as_ref()
+            .and_then(|info| info.id().as_ref())
+            .map(ToString::to_string),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "router")]
+fn operation_finished_ids(feedback: &TracedEvent) -> Vec<String> {
+    match &feedback.event {
+        TracedEventKind::MessageSent(message) => message
+            .output
+            .iter()
+            .filter_map(|source| {
+                source
+                    .info
+                    .as_ref()
+                    .and_then(|info| info.id().as_ref())
+                    .map(ToString::to_string)
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 #[derive(bevy_ecs::prelude::Resource)]
@@ -320,14 +376,13 @@ fn execute_requests(
 }
 
 fn debug_feedback(
-    mut op_started: bevy_ecs::event::EventReader<trace::TracedEvent>,
+    trigger: bevy_ecs::prelude::Trigger<trace::TracedEvent>,
     feedback_query: bevy_ecs::system::Query<(Entity, &FeedbackSender)>,
 ) {
-    for ev in op_started.read() {
-        for (session, channel) in &feedback_query {
-            if ev.event.is_for_session(session) {
-                let _ = channel.0.send(ev.clone());
-            }
+    let ev = trigger.event();
+    for (session, channel) in &feedback_query {
+        if ev.event.is_for_session(session) {
+            let _ = channel.0.send(ev.clone());
         }
     }
 }
@@ -370,7 +425,7 @@ pub fn setup_bevy_app(
     app.insert_resource(RequestReceiver(request_rx));
     app.insert_resource(WorkflowDespawnReceiver(despawn_rx));
     app.add_systems(bevy_app::Update, execute_requests);
-    app.add_systems(bevy_app::Update, debug_feedback.after(execute_requests));
+    app.world_mut().add_observer(debug_feedback);
     app.add_systems(bevy_app::Update, despawn_workflows);
 
     ExecutorState {
@@ -427,7 +482,6 @@ pub(super) fn new_router(
 
     let router = Router::new().route("/run", post(post_run));
 
-    #[cfg(feature = "debug")]
     let router = router.route(
         "/debug",
         routing::any(
@@ -449,14 +503,12 @@ pub(super) fn new_router(
 #[cfg(feature = "router")]
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "debug")]
     use axum::extract::ws;
     use axum::{
         body,
         http::{Request, header},
     };
     use crossflow::{CrossflowExecutorApp, NodeBuilderOptions};
-    #[cfg(feature = "debug")]
     use futures_util::SinkExt;
     use mime_guess::mime;
     use serde_json::json;
@@ -568,35 +620,43 @@ mod tests {
         cleanup_test();
     }
 
-    #[cfg(feature = "debug")]
     struct WsTestFixture<CleanupFn> {
         executor_state: ExecutorState,
         cleanup_test: CleanupFn,
     }
 
-    #[cfg(feature = "debug")]
     fn setup_ws_test() -> WsTestFixture<impl FnOnce()> {
-        let mut app = bevy_app::App::new();
-        app.add_plugins(CrossflowExecutorApp::default());
         let (send_stop, mut recv_stop) = tokio::sync::oneshot::channel::<()>();
-        app.add_systems(
-            bevy_app::Update,
-            move |mut app_exit: bevy_ecs::event::EventWriter<bevy_app::AppExit>| {
-                if let Ok(_) = recv_stop.try_recv() {
-                    app_exit.send_default();
-                }
-            },
-        );
-
-        let mut registry = DiagramElementRegistry::new();
-        registry.register_node_builder(NodeBuilderOptions::new("add7"), |builder, _config: ()| {
-            builder.create_map_block(|req: i32| req + 7)
-        });
-        let executor_state = setup_bevy_app(&mut app, registry, &ExecutorOptions::default());
+        let (state_sender, state_receiver) = std::sync::mpsc::channel();
 
         let join_handle = thread::spawn(move || {
+            let mut app = bevy_app::App::new();
+            app.add_plugins(CrossflowExecutorApp::default());
+            app.add_systems(
+                bevy_app::Update,
+                move |mut app_exit: bevy_ecs::event::EventWriter<bevy_app::AppExit>| {
+                    if let Ok(_) = recv_stop.try_recv() {
+                        app_exit.write_default();
+                    }
+                },
+            );
+
+            let mut registry = DiagramElementRegistry::new();
+            registry
+                .register_node_builder(NodeBuilderOptions::new("add7"), |builder, _config: ()| {
+                    builder.create_map_block(|req: i32| req + 7)
+                });
+            let executor_state = setup_bevy_app(
+                &mut app.sub_apps_mut().main,
+                registry,
+                &ExecutorOptions::default(),
+            );
+            state_sender.send(executor_state).unwrap();
+
             app.run();
         });
+
+        let executor_state = state_receiver.recv().unwrap();
 
         WsTestFixture {
             executor_state,
@@ -607,7 +667,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "debug")]
     #[ignore = "tracing events in `crossflow` is delayed"]
     #[tokio::test]
     #[test_log::test]
@@ -641,8 +700,9 @@ mod tests {
             .await
             .unwrap();
 
-        // there should be 2 feedback messages
-        for _ in 0..2 {
+        // There should be 4 feedback messages: add7 starts, add7 finishes,
+        // terminate starts, and terminate finishes.
+        for _ in 0..4 {
             let msg = test_rx.next().await.unwrap();
             let feedback_msg: DebugSessionMessage =
                 serde_json::from_slice(msg.into_text().unwrap().as_bytes()).unwrap();
@@ -655,14 +715,15 @@ mod tests {
             assert!(matches!(
                 feedback,
                 DebugSessionFeedback::OperationStarted(_)
+                    | DebugSessionFeedback::OperationFinished(_)
             ));
         }
 
         let resp_msg = test_rx.next().await.unwrap();
         let resp_text = resp_msg.into_text().unwrap();
-        let resp: DebugSessionEnd = serde_json::from_slice(resp_text.as_bytes()).unwrap();
-        let resp = match resp {
-            DebugSessionEnd::Ok(resp) => resp,
+        let resp_msg: DebugSessionMessage = serde_json::from_slice(resp_text.as_bytes()).unwrap();
+        let resp = match resp_msg {
+            DebugSessionMessage::Finish(DebugSessionEnd::Ok(resp)) => resp,
             _ => {
                 panic!("expected response to be Ok");
             }

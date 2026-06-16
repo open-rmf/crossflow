@@ -1,4 +1,5 @@
 import {
+  alpha,
   Box,
   Button,
   type ButtonProps,
@@ -8,6 +9,7 @@ import {
 } from '@mui/material';
 import type { NodeProps } from '@xyflow/react';
 import { type JSX, memo } from 'react';
+import { useDebugVisualization } from '../debug-visualization-provider';
 import { LAYOUT_OPTIONS } from '../utils/layout';
 
 export interface BaseNodeProps extends NodeProps {
@@ -26,8 +28,12 @@ function BaseNode({
   caption,
   handles,
   selected,
+  id,
   highlight,
 }: BaseNodeProps) {
+  const { activeNodeIds, visitedNodeIds } = useDebugVisualization();
+  const debugActive = activeNodeIds.has(id);
+  const debugVisited = visitedNodeIds.has(id) && !debugActive;
   const icon =
     typeof materialIconOrSymbol === 'string' ? (
       <span className={`material-symbols-${materialIconOrSymbol}`} />
@@ -37,7 +43,29 @@ function BaseNode({
 
   return (
     <Paper
-      sx={highlight ? { border: '2px solid', borderColor: 'warning.main' } : {}}
+      sx={(theme) => ({
+        outline: debugActive
+          ? `2px solid ${theme.palette.success.main}`
+          : debugVisited
+            ? `2px solid ${alpha(theme.palette.info.main, 0.35)}`
+            : highlight
+              ? `2px solid ${theme.palette.warning.main}`
+              : undefined,
+        boxShadow: debugActive
+          ? [
+              `0 0 0 4px ${alpha(theme.palette.success.main, 0.28)}`,
+              `0 0 18px 6px ${alpha(theme.palette.success.main, 0.35)}`,
+            ].join(', ')
+          : debugVisited
+            ? [
+                `0 0 0 2px ${alpha(theme.palette.info.main, 0.28)}`,
+                `0 0 8px 3px ${alpha(theme.palette.info.main, 0.35)}`,
+              ].join(', ')
+            : undefined,
+        transition: theme.transitions.create(['box-shadow', 'outline-color'], {
+          duration: theme.transitions.duration.shortest,
+        }),
+      })}
     >
       <Button
         title={label}

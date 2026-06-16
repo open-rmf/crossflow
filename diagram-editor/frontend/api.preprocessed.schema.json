@@ -216,6 +216,17 @@
                     "operationStarted"
                   ],
                   "type": "object"
+                },
+                {
+                  "properties": {
+                    "operationFinished": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operationFinished"
+                  ],
+                  "type": "object"
                 }
               ]
             },

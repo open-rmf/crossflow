@@ -1,6 +1,6 @@
 mod error_responses;
 pub mod executor;
-#[cfg(feature = "debug")]
+#[cfg(feature = "router")]
 mod websocket;
 
 #[cfg(feature = "router")]

@@ -8,6 +8,7 @@ description = "catalog of reusable calculator operations"
 bevy_app = { workspace = true }
 crossflow = { version = "0.0.7", path = "../../..", features = ["diagram"] }
 bevy_time = { workspace = true }
+async-std = { version = "1.12" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 schemars = { workspace = true }

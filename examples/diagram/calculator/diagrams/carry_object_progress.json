@@ -1,0 +1,104 @@
+{
+  "$schema": "https://raw.githubusercontent.com/open-rmf/crossflow/refs/heads/main/diagram.schema.json",
+  "version": "0.1.0",
+  "description": "Progress visualization workflow that carries an object through uneven parallel branches and joins their buffered results.",
+  "input_examples": [
+    {
+      "description": "Carry box-1 from the shelf to station A",
+      "value": {
+        "object": "box-1",
+        "from": "shelf",
+        "to": "station_a"
+      }
+    },
+    {
+      "description": "Carry tote-7 from receiving to quality control",
+      "value": {
+        "object": "tote-7",
+        "from": "receiving",
+        "to": "quality_control"
+      }
+    }
+  ],
+  "templates": {},
+  "start": "pick_object",
+  "ops": {
+    "pick_object": {
+      "type": "node",
+      "builder": "delay_ms",
+      "config": 700,
+      "display_text": "Pick object",
+      "next": "carry_branches"
+    },
+    "carry_branches": {
+      "type": "fork_clone",
+      "next": [
+        "reserve_route",
+        "prepare_station",
+        "scan_label"
+      ]
+    },
+    "reserve_route": {
+      "type": "node",
+      "builder": "delay_ms",
+      "config": 900,
+      "display_text": "Reserve route",
+      "next": "route_buffer"
+    },
+    "prepare_station": {
+      "type": "node",
+      "builder": "delay_ms",
+      "config": 500,
+      "display_text": "Prepare station",
+      "next": "clear_drop_zone"
+    },
+    "clear_drop_zone": {
+      "type": "node",
+      "builder": "delay_ms",
+      "config": 800,
+      "display_text": "Clear drop zone",
+      "next": "station_buffer"
+    },
+    "scan_label": {
+      "type": "node",
+      "builder": "delay_ms",
+      "config": 400,
+      "display_text": "Scan label",
+      "next": "check_weight"
+    },
+    "check_weight": {
+      "type": "node",
+      "builder": "delay_ms",
+      "config": 700,
+      "display_text": "Check weight",
+      "next": "place_object"
+    },
+    "place_object": {
+      "type": "node",
+      "builder": "delay_ms",
+      "config": 600,
+      "display_text": "Place object",
+      "next": "delivery_buffer"
+    },
+    "route_buffer": {
+      "type": "buffer"
+    },
+    "station_buffer": {
+      "type": "buffer"
+    },
+    "delivery_buffer": {
+      "type": "buffer"
+    },
+    "confirm_delivery": {
+      "type": "join",
+      "buffers": {
+        "route": "route_buffer",
+        "station": "station_buffer",
+        "delivery": "delivery_buffer"
+      },
+      "next": {
+        "builtin": "terminate"
+      }
+    }
+  }
+}
