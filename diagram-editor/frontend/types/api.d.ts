@@ -80,9 +80,9 @@ export type RetentionPolicy =
   | 'keep_all';
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "DebugSessionMessage".
+ * via the `definition` "InteractionSessionMessage".
  */
-export type DebugSessionMessage =
+export type InteractionSessionMessage =
   | ((
       | {
           operationStarted: string;

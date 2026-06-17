@@ -12,8 +12,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Subscription } from 'rxjs';
 import { useApiClient } from './api-client-provider';
-import { useDebugVisualization } from './debug-visualization-provider';
 import { useDiagramProperties } from './diagram-properties-provider';
+import { useInteractionVisualization } from './interaction-visualization-provider';
 import { useNodeManager } from './node-manager';
 import { MaterialSymbol } from './nodes';
 import { useRegistry } from './registry-provider';
@@ -33,20 +33,20 @@ interface ExecutionTimelineEntry {
 const DefaultResponseContent: ResponseContent = { raw: '' };
 const MaxExecutionTimelineEntries = 200;
 
-function enableDebugTraceForOps(ops: Record<string, DiagramOperation>) {
+function enableInteractionTraceForOps(ops: Record<string, DiagramOperation>) {
   for (const op of Object.values(ops)) {
     op.trace = 'on';
     if (op.type === 'scope') {
-      enableDebugTraceForOps(op.ops);
+      enableInteractionTraceForOps(op.ops);
     }
   }
 }
 
-function enableDebugTrace(diagram: Diagram): Diagram {
-  const debugDiagram = JSON.parse(JSON.stringify(diagram)) as Diagram;
-  debugDiagram.default_trace = 'on';
-  enableDebugTraceForOps(debugDiagram.ops);
-  return debugDiagram;
+function enableInteractionTrace(diagram: Diagram): Diagram {
+  const interactionDiagram = JSON.parse(JSON.stringify(diagram)) as Diagram;
+  interactionDiagram.default_trace = 'on';
+  enableInteractionTraceForOps(interactionDiagram.ops);
+  return interactionDiagram;
 }
 
 export interface RunPanelProps {
@@ -66,11 +66,11 @@ export function RunPanel({
   );
   const apiClient = useApiClient();
   const {
-    clearDebugVisualization,
-    markDebugFinished,
-    markDebugOperationFinished,
-    markDebugOperationStarted,
-  } = useDebugVisualization();
+    clearInteractionVisualization,
+    markInteractionFinished,
+    markInteractionOperationFinished,
+    markInteractionOperationStarted,
+  } = useInteractionVisualization();
   const [templates] = useTemplates();
   const registry = useRegistry();
   const [runningMode, setRunningMode] = useState<RunningMode>(null);
@@ -79,31 +79,31 @@ export function RunPanel({
   const [executionTimeline, setExecutionTimeline] = useState<
     ExecutionTimelineEntry[]
   >([]);
-  const debugEventCounter = useRef(0);
-  const debugSessionRef = useRef<Awaited<
-    ReturnType<NonNullable<typeof apiClient.wsDebugWorkflow>>
+  const interactionEventCounter = useRef(0);
+  const interactionSessionRef = useRef<Awaited<
+    ReturnType<NonNullable<typeof apiClient.wsInteractWithWorkflow>>
   > | null>(null);
-  const debugSubscriptionRef = useRef<Subscription | null>(null);
+  const interactionSubscriptionRef = useRef<Subscription | null>(null);
   const [diagramProperties] = useDiagramProperties();
 
-  const closeDebugSession = useCallback(() => {
-    debugSubscriptionRef.current?.unsubscribe();
-    debugSubscriptionRef.current = null;
-    debugSessionRef.current?.close();
-    debugSessionRef.current = null;
+  const closeInteractionSession = useCallback(() => {
+    interactionSubscriptionRef.current?.unsubscribe();
+    interactionSubscriptionRef.current = null;
+    interactionSessionRef.current?.close();
+    interactionSessionRef.current = null;
   }, []);
 
   useEffect(() => {
-    return closeDebugSession;
-  }, [closeDebugSession]);
+    return closeInteractionSession;
+  }, [closeInteractionSession]);
 
   useEffect(() => {
     showProgressRef.current = showProgress;
     if (!showProgress) {
-      clearDebugVisualization();
+      clearInteractionVisualization();
       setExecutionTimeline([]);
     }
-  }, [clearDebugVisualization, showProgress]);
+  }, [clearInteractionVisualization, showProgress]);
 
   const requestError = useMemo(() => {
     try {
@@ -143,10 +143,10 @@ export function RunPanel({
   };
 
   const handleRunClick = async () => {
-    closeDebugSession();
-    clearDebugVisualization();
+    closeInteractionSession();
+    clearInteractionVisualization();
     setExecutionTimeline([]);
-    debugEventCounter.current = 0;
+    interactionEventCounter.current = 0;
 
     try {
       const request = JSON.parse(requestJsonString);
@@ -160,75 +160,76 @@ export function RunPanel({
       setResponseContent(DefaultResponseContent);
       setRunningMode('run');
 
-      if (!showProgress || !apiClient.wsDebugWorkflow) {
+      if (!showProgress || !apiClient.wsInteractWithWorkflow) {
         runWithPost(diagram, request);
         return;
       }
 
-      const debugSession = await apiClient.wsDebugWorkflow(
-        enableDebugTrace(diagram),
+      const interactionSession = await apiClient.wsInteractWithWorkflow(
+        enableInteractionTrace(diagram),
         request,
       );
-      debugSessionRef.current = debugSession;
-      debugSubscriptionRef.current = debugSession.debugFeedback$.subscribe({
-        next: (msg) => {
-          if (
-            msg.type === 'feedback' &&
-            'operationStarted' in msg &&
-            typeof msg.operationStarted === 'string'
-          ) {
-            if (!showProgressRef.current) {
+      interactionSessionRef.current = interactionSession;
+      interactionSubscriptionRef.current =
+        interactionSession.interactionMessages$.subscribe({
+          next: (msg) => {
+            if (
+              msg.type === 'feedback' &&
+              'operationStarted' in msg &&
+              typeof msg.operationStarted === 'string'
+            ) {
+              if (!showProgressRef.current) {
+                return;
+              }
+              const operationId = msg.operationStarted;
+              markInteractionOperationStarted(operationId);
+              const entry = {
+                seq: ++interactionEventCounter.current,
+                operationId,
+              };
+              setExecutionTimeline((prev) =>
+                [...prev, entry].slice(-MaxExecutionTimelineEntries),
+              );
               return;
             }
-            const operationId = msg.operationStarted;
-            markDebugOperationStarted(operationId);
-            const entry = {
-              seq: ++debugEventCounter.current,
-              operationId,
-            };
-            setExecutionTimeline((prev) =>
-              [...prev, entry].slice(-MaxExecutionTimelineEntries),
-            );
-            return;
-          }
 
-          if (
-            msg.type === 'feedback' &&
-            'operationFinished' in msg &&
-            typeof msg.operationFinished === 'string'
-          ) {
-            if (!showProgressRef.current) {
+            if (
+              msg.type === 'feedback' &&
+              'operationFinished' in msg &&
+              typeof msg.operationFinished === 'string'
+            ) {
+              if (!showProgressRef.current) {
+                return;
+              }
+              markInteractionOperationFinished(msg.operationFinished);
               return;
             }
-            markDebugOperationFinished(msg.operationFinished);
-            return;
-          }
 
-          if (msg.type === 'finish') {
-            markDebugFinished();
-            if ('ok' in msg) {
-              setResponseContent({ raw: JSON.stringify(msg.ok, null, 2) });
-            } else {
-              setResponseContent({ err: msg.err });
+            if (msg.type === 'finish') {
+              markInteractionFinished();
+              if ('ok' in msg) {
+                setResponseContent({ raw: JSON.stringify(msg.ok, null, 2) });
+              } else {
+                setResponseContent({ err: msg.err });
+              }
+              setRunningMode(null);
+              closeInteractionSession();
             }
+          },
+          error: (err) => {
+            markInteractionFinished();
+            setResponseContent({ err: (err as Error).message });
             setRunningMode(null);
-            closeDebugSession();
-          }
-        },
-        error: (err) => {
-          markDebugFinished();
-          setResponseContent({ err: (err as Error).message });
-          setRunningMode(null);
-          closeDebugSession();
-        },
-        complete: () => {
-          setRunningMode(null);
-        },
-      });
+            closeInteractionSession();
+          },
+          complete: () => {
+            setRunningMode(null);
+          },
+        });
     } catch (e) {
       setResponseContent({ err: (e as Error).message });
       setRunningMode(null);
-      closeDebugSession();
+      closeInteractionSession();
     }
   };
 

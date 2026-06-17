@@ -200,7 +200,7 @@
       ],
       "type": "object"
     },
-    "DebugSessionMessage": {
+    "InteractionSessionMessage": {
       "oneOf": [
         {
           "allOf": [
