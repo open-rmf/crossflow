@@ -6,8 +6,12 @@ import {
 } from '@xyflow/react';
 import React from 'react';
 import { useConnectionCompatibility } from './connection-compatibility-provider';
-import { createConnectionFromDraggedHandle } from './utils/connection';
+import {
+  createConnectionFromDraggedHandle,
+  validateDraggedHandlePair,
+} from './utils/connection';
 import { exhaustiveCheck } from './utils/exhaustive-check';
+import type { CompatibilityResult } from './types/api';
 
 export enum HandleId {
   DataStream = 'dataStream',
@@ -61,9 +65,12 @@ export function Handle({ id, variant, className, ...baseProps }: HandleProps) {
   const nodeId = useNodeId();
   const connection = useConnection();
   const handleType = baseProps.type || 'source';
-  const candidateConnection = React.useMemo(() => {
+  const candidate = React.useMemo((): {
+    connection: ReturnType<typeof createConnectionFromDraggedHandle> | null;
+    localCompatibility: CompatibilityResult | null;
+  } => {
     if (!nodeId || !connection.inProgress || !connection.fromHandle) {
-      return null;
+      return { connection: null, localCompatibility: null };
     }
 
     if (
@@ -71,21 +78,40 @@ export function Handle({ id, variant, className, ...baseProps }: HandleProps) {
       (connection.fromHandle.id || null) === (id || null) &&
       connection.fromHandle.type === handleType
     ) {
-      return null;
+      return { connection: null, localCompatibility: null };
     }
 
-    return createConnectionFromDraggedHandle({
-      fromNodeId: connection.fromHandle.nodeId,
-      fromHandleId: connection.fromHandle.id,
+    const direction = validateDraggedHandlePair({
       fromHandleType: connection.fromHandle.type,
-      otherNodeId: nodeId,
-      otherHandleId: id,
+      otherHandleType: handleType,
     });
+    if (!direction.valid) {
+      return {
+        connection: null,
+        localCompatibility: {
+          id: `handle:${nodeId}:${handleType}:${id ?? ''}`,
+          status: 'incompatible',
+          reason: direction.error,
+        },
+      };
+    }
+
+    return {
+      connection: createConnectionFromDraggedHandle({
+        fromNodeId: connection.fromHandle.nodeId,
+        fromHandleId: connection.fromHandle.id,
+        fromHandleType: connection.fromHandle.type,
+        otherNodeId: nodeId,
+        otherHandleId: id,
+      }),
+      localCompatibility: null,
+    };
   }, [connection, handleType, id, nodeId]);
-  const compatibility = useConnectionCompatibility(
-    candidateConnection,
+  const remoteCompatibility = useConnectionCompatibility(
+    candidate.connection,
     `handle:${nodeId ?? ''}:${handleType}:${id ?? ''}`,
   );
+  const compatibility = candidate.localCompatibility ?? remoteCompatibility;
 
   const classNames: string[] = [];
   const variantClass = variantClassName(variant);

@@ -65,6 +65,7 @@ import {
   createConnectionFromDraggedHandle,
   getValidEdgeTypes,
   validateConnectionSimple,
+  validateDraggedHandlePair,
   validateSourceOutputCapacity,
 } from './utils/connection';
 import {
@@ -726,6 +727,15 @@ function DiagramEditor() {
           }
 
           if (connectionState.isValid === false && connectionState.toHandle) {
+            const direction = validateDraggedHandlePair({
+              fromHandleType: connectionState.fromHandle.type,
+              otherHandleType: connectionState.toHandle.type,
+            });
+            if (!direction.valid) {
+              showErrorToast(direction.error);
+              return;
+            }
+
             const result = validateConnectionSimple(
               createConnectionFromDraggedHandle({
                 fromNodeId: connectionState.fromHandle.nodeId,

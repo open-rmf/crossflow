@@ -230,6 +230,21 @@ export function createConnectionFromDraggedHandle(args: {
       };
 }
 
+export function validateDraggedHandlePair(args: {
+  fromHandleType: 'source' | 'target';
+  otherHandleType: 'source' | 'target';
+}): ConnectionValidationResult {
+  if (args.fromHandleType === args.otherHandleType) {
+    return createValidationError(
+      args.fromHandleType === 'source'
+        ? 'Cannot connect an output to another output'
+        : 'Cannot connect an input to another input',
+    );
+  }
+
+  return { valid: true };
+}
+
 /**
  * Perform a quick check if an edge is valid.
  * This only checks if the edge type is valid, does not check for conflicting edges, data correctness etc.

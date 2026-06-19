@@ -18,6 +18,7 @@ import {
   createConnectionFromDraggedHandle,
   getValidEdgeTypes,
   validateConnectionSimple,
+  validateDraggedHandlePair,
   validateEdgeQuick,
   validateEdgeSimple,
   validateSourceOutputCapacity,
@@ -55,6 +56,33 @@ describe('connection helpers', () => {
       target: 'target-node',
       targetHandle: 'in',
     });
+  });
+
+  test('rejects dragged handle pairs with the same direction', () => {
+    expect(
+      validateDraggedHandlePair({
+        fromHandleType: 'source',
+        otherHandleType: 'source',
+      }),
+    ).toEqual({
+      valid: false,
+      error: 'Cannot connect an output to another output',
+    });
+    expect(
+      validateDraggedHandlePair({
+        fromHandleType: 'target',
+        otherHandleType: 'target',
+      }),
+    ).toEqual({
+      valid: false,
+      error: 'Cannot connect an input to another input',
+    });
+    expect(
+      validateDraggedHandlePair({
+        fromHandleType: 'source',
+        otherHandleType: 'target',
+      }),
+    ).toEqual({ valid: true });
   });
 
   test('detects single-output capacity conflicts', () => {
