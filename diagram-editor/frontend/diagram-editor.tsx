@@ -34,10 +34,7 @@ import CommandPanel from './command-panel';
 import { CompatibleAddOperation } from './compatible-add-operation';
 import { ConnectionCompatibilityProvider } from './connection-compatibility-provider';
 import { ConnectionHintPanel } from './connection-hint-panel';
-import {
-  DiagramPropertiesProvider,
-  useDiagramProperties,
-} from './diagram-properties-provider';
+import { useDiagramProperties } from './diagram-properties-provider';
 import type { DiagramEditorEdge } from './edges';
 import { EDGE_TYPES } from './edges';
 import {
@@ -153,18 +150,16 @@ function Providers({
       <LoadContextProvider value={loadContext}>
         <NodeManagerProvider value={nodeManager}>
           <EdgesProvider value={edges}>
-            <DiagramPropertiesProvider>
-              <ConnectionCompatibilityProvider
-                nodeManager={nodeManager}
-                edges={edges}
+            <ConnectionCompatibilityProvider
+              nodeManager={nodeManager}
+              edges={edges}
+            >
+              <InteractionVisualizationProvider
+                value={interactionVisualizationContext}
               >
-                <InteractionVisualizationProvider
-                  value={interactionVisualizationContext}
-                >
-                  <NotificationProvider>{children}</NotificationProvider>
-                </InteractionVisualizationProvider>
-              </ConnectionCompatibilityProvider>
-            </DiagramPropertiesProvider>
+                <NotificationProvider>{children}</NotificationProvider>
+              </InteractionVisualizationProvider>
+            </ConnectionCompatibilityProvider>
           </EdgesProvider>
         </NodeManagerProvider>
       </LoadContextProvider>
