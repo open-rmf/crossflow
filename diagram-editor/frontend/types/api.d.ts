@@ -247,13 +247,28 @@ export type OutputKey = (string | number)[];
 export type CompatibilityStatus = 'compatible' | 'incompatible' | 'unknown';
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "DebugSessionMessage".
+ * via the `definition` "Schema".
  */
-export type DebugSessionMessage =
-  | ({
-      operationStarted: string;
+export type Schema =
+  | {
       [k: string]: unknown;
-    } & {
+    }
+  | boolean;
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "InteractionSessionMessage".
+ */
+export type InteractionSessionMessage =
+  | ((
+      | {
+          operationStarted: string;
+          [k: string]: unknown;
+        }
+      | {
+          operationFinished: string;
+          [k: string]: unknown;
+        }
+    ) & {
       type: 'feedback';
       [k: string]: unknown;
     })
@@ -270,15 +285,6 @@ export type DebugSessionMessage =
       type: 'finish';
       [k: string]: unknown;
     });
-/**
- * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "Schema".
- */
-export type Schema =
-  | {
-      [k: string]: unknown;
-    }
-  | boolean;
 
 export interface DiagramEditorApi {
   [k: string]: unknown;

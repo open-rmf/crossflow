@@ -5,6 +5,7 @@ import type {
   Diagram,
   DiagramElementMetadata,
 } from '../types/api';
+import type { InteractionSession } from './interaction-session';
 
 export interface BaseApiClient {
   getRegistry(): Observable<DiagramElementMetadata>;
@@ -12,6 +13,8 @@ export interface BaseApiClient {
   checkCompatibility(
     request: CompatibilityRequest,
   ): Observable<CompatibilityResponse>;
-  // WIP
-  // wsDebugWorkflow(diagram: Diagram, request: unknown): Promise<DebugSession>;
+  wsInteractWithWorkflow?(
+    diagram: Diagram,
+    request: unknown,
+  ): Promise<InteractionSession>;
 }

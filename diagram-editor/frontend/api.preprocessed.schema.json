@@ -312,81 +312,6 @@
       ],
       "type": "object"
     },
-    "DebugSessionMessage": {
-      "oneOf": [
-        {
-          "allOf": [
-            {
-              "oneOf": [
-                {
-                  "properties": {
-                    "operationStarted": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "operationStarted"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            {
-              "properties": {
-                "type": {
-                  "const": "feedback",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type"
-              ],
-              "type": "object"
-            }
-          ]
-        },
-        {
-          "allOf": [
-            {
-              "oneOf": [
-                {
-                  "properties": {
-                    "ok": true
-                  },
-                  "required": [
-                    "ok"
-                  ],
-                  "type": "object"
-                },
-                {
-                  "properties": {
-                    "err": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "err"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            {
-              "properties": {
-                "type": {
-                  "const": "finish",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type"
-              ],
-              "type": "object"
-            }
-          ]
-        }
-      ]
-    },
     "Diagram": {
       "properties": {
         "default_trace": {
@@ -921,6 +846,92 @@
           },
           "description": "Rename an operation inside the section to expose it externally. The key\nof the map is what siblings of the section can connect to, and the value\nof the entry is the identifier of the input inside the section that is\nbeing exposed.\n\nThis allows a section to expose inputs and buffers that are provided\nby inner sections.",
           "type": "object"
+        }
+      ]
+    },
+    "InteractionSessionMessage": {
+      "oneOf": [
+        {
+          "allOf": [
+            {
+              "oneOf": [
+                {
+                  "properties": {
+                    "operationStarted": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operationStarted"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "operationFinished": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operationFinished"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "feedback",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "oneOf": [
+                {
+                  "properties": {
+                    "ok": true
+                  },
+                  "required": [
+                    "ok"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "err": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "err"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "finish",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          ]
         }
       ]
     },

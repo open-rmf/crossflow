@@ -8,7 +8,7 @@ import type {
 } from '../types/api';
 import { getSchema } from '../utils/ajv';
 import type { BaseApiClient } from './base-api-client';
-import { DebugSession } from './debug-session';
+import { InteractionSession } from './interaction-session';
 
 const validateRegistry = getSchema<DiagramElementMetadata>(
   'DiagramElementMetadata',
@@ -78,22 +78,24 @@ export class ApiClient implements BaseApiClient {
     );
   }
 
-  async wsDebugWorkflow(
+  async wsInteractWithWorkflow(
     diagram: Diagram,
     request: unknown,
-  ): Promise<DebugSession> {
-    const ws = new WebSocket('/api/executor/debug');
-    await new Promise((resolve, reject) => {
+  ): Promise<InteractionSession> {
+    const url = new URL('/api/executor/interaction', window.location.href);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(url);
+    return new Promise((resolve, reject) => {
       ws.onopen = () => {
+        const session = new InteractionSession(ws);
         const body: PostRunRequest = {
           diagram,
           request,
         };
         ws.send(JSON.stringify(body));
-        resolve(ws);
+        resolve(session);
       };
-      ws.onerror = reject;
+      ws.onerror = () => reject(new Error('interaction websocket error'));
     });
-    return new DebugSession(ws);
   }
 }
