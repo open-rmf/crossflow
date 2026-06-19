@@ -233,6 +233,14 @@ function portRefsForEdge(
 ): Pick<BuiltCompatibilityCandidate, 'focusPorts' | 'sourcePort' | 'targetPort'> {
   const sourceNode = nodeManager.getNode(edge.source);
   const targetNode = nodeManager.getNode(edge.target);
+
+  if (edge.type === 'buffer') {
+    const bufferPort = operationOutputPort(sourceNode, edge, edges);
+    const focusPorts = bufferPort ? [bufferPort] : [];
+
+    return { focusPorts };
+  }
+
   const sourcePort = operationOutputPort(sourceNode, edge, edges) ?? undefined;
   const targetPort = operationInputPort(targetNode, edge) ?? undefined;
   const focusPorts = [sourcePort, targetPort].filter(
@@ -301,7 +309,10 @@ export function buildCompatibilityCandidate({
     };
   }
 
-  const candidateEdges = [...cloneJson(edges), edge];
+  const candidateEdges = [
+    ...cloneJson(edges).filter((candidateEdge) => candidateEdge.id !== edge.id),
+    edge,
+  ];
   const simpleValidation = validateConnectionSimple(
     edge,
     candidateManager,

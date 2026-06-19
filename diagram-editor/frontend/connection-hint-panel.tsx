@@ -68,7 +68,9 @@ export function ConnectionHintPanel({ nodeManager }: ConnectionHintPanelProps) {
   if (connection.toHandle && connection.toNode && compatibility) {
     if (compatibility.status === 'compatible') {
       tone = 'success';
-      message = compatibility.reason;
+      message = compatibility.provisional
+        ? `${compatibility.reason} This connection is allowed provisionally; final compilation may still need more type context.`
+        : compatibility.reason;
     } else {
       tone = 'error';
       message = compatibility.reason;

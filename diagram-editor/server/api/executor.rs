@@ -102,6 +102,8 @@ pub struct CompatibilityResult {
     pub id: String,
     pub status: CompatibilityStatus,
     pub reason: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub provisional: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -115,6 +117,10 @@ pub enum CompatibilityStatus {
     Compatible,
     Incompatible,
     Unknown,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Sends a request to the executor system and wait for the response.
@@ -197,6 +203,7 @@ fn check_compatibility_candidate(
                 id: candidate.id,
                 status: CompatibilityStatus::Unknown,
                 reason: err.to_string(),
+                provisional: false,
                 source_type: None,
                 target_type: None,
             };
@@ -218,6 +225,7 @@ fn check_compatibility_candidate(
             id: candidate.id,
             status: CompatibilityStatus::Unknown,
             reason: "no ports were provided for compatibility checking".to_string(),
+            provisional: false,
             source_type: None,
             target_type: None,
         };
@@ -230,10 +238,22 @@ fn check_compatibility_candidate(
         {
             Ok(inference) => inference,
             Err(err) => {
+                if is_missing_context_error(&err) {
+                    return CompatibilityResult {
+                        id: candidate.id,
+                        status: CompatibilityStatus::Compatible,
+                        reason: format!("connection needs more type context: {err}"),
+                        provisional: true,
+                        source_type: None,
+                        target_type: None,
+                    };
+                }
+
                 return CompatibilityResult {
                     id: candidate.id,
                     status: compatibility_error_status(&err),
                     reason: err.to_string(),
+                    provisional: false,
                     source_type: None,
                     target_type: None,
                 };
@@ -263,10 +283,17 @@ fn check_compatibility_candidate(
     });
 
     let (Some(source_type), Some(target_type)) = (source_type, target_type) else {
+        let provisional = candidate.source_port.is_some() || candidate.target_port.is_some();
         return CompatibilityResult {
             id: candidate.id,
             status: CompatibilityStatus::Compatible,
-            reason: "focused ports can be inferred".to_string(),
+            reason: if provisional {
+                "focused ports can be inferred, but the connection needs more peer type context"
+                    .to_string()
+            } else {
+                "focused ports can be inferred".to_string()
+            },
+            provisional,
             source_type: source_type_name,
             target_type: target_type_name,
         };
@@ -277,6 +304,7 @@ fn check_compatibility_candidate(
             id: candidate.id,
             status: CompatibilityStatus::Compatible,
             reason,
+            provisional: false,
             source_type: source_type_name,
             target_type: target_type_name,
         },
@@ -292,6 +320,7 @@ fn check_compatibility_candidate(
                     .as_deref()
                     .unwrap_or("[unknown target type]"),
             ),
+            provisional: false,
             source_type: source_type_name,
             target_type: target_type_name,
         },
@@ -299,18 +328,27 @@ fn check_compatibility_candidate(
             id: candidate.id,
             status: CompatibilityStatus::Unknown,
             reason: err.to_string(),
+            provisional: false,
             source_type: source_type_name,
             target_type: target_type_name,
         },
     }
 }
 
-fn compatibility_error_status(error: &DiagramError) -> CompatibilityStatus {
-    match &error.code {
+fn is_missing_context_error(error: &DiagramError) -> bool {
+    matches!(
+        &error.code,
         DiagramErrorCode::CannotInferType(_)
-        | DiagramErrorCode::NoConnection(_)
-        | DiagramErrorCode::UnknownPort(_) => CompatibilityStatus::Unknown,
-        _ => CompatibilityStatus::Incompatible,
+            | DiagramErrorCode::NoConnection(_)
+            | DiagramErrorCode::UnknownPort(_)
+    )
+}
+
+fn compatibility_error_status(error: &DiagramError) -> CompatibilityStatus {
+    if is_missing_context_error(error) {
+        CompatibilityStatus::Unknown
+    } else {
+        CompatibilityStatus::Incompatible
     }
 }
 
@@ -386,7 +424,10 @@ fn root_stream_names(diagram: &Diagram) -> Vec<String> {
 #[cfg(test)]
 mod compatibility_tests {
     use super::*;
-    use crossflow::{Builder, JsonMessage, NextOperation, NodeBuilderOptions, output_ref};
+    use crossflow::{
+        Blocking, BufferAccess, BufferKey, Builder, IntoCallback, JsonMessage, NextOperation, Node,
+        NodeBuilderOptions, output_ref,
+    };
     use serde_json::json;
 
     fn test_registry() -> DiagramElementRegistry {
@@ -468,6 +509,7 @@ mod compatibility_tests {
     fn compatibility_exact_node_to_node_match() {
         let result = status_for("json_to_i64", "i64_to_json");
         assert_eq!(result.status, CompatibilityStatus::Compatible);
+        assert!(!result.provisional);
         assert!(result.reason.contains("match"));
     }
 
@@ -475,6 +517,7 @@ mod compatibility_tests {
     fn compatibility_registered_conversion() {
         let result = status_for("json_to_i64", "f64_to_json");
         assert_eq!(result.status, CompatibilityStatus::Compatible);
+        assert!(!result.provisional);
         assert!(result.reason.contains("conversion"));
     }
 
@@ -506,6 +549,7 @@ mod compatibility_tests {
             node_pair_candidate("candidate", "json_to_i64", "bool_to_json"),
         );
         assert_eq!(result.status, CompatibilityStatus::Incompatible);
+        assert!(!result.provisional);
     }
 
     #[test]
@@ -553,7 +597,232 @@ mod compatibility_tests {
             node_pair_candidate("candidate", "json_to_i64", "missing_builder"),
         );
         assert_eq!(result.status, CompatibilityStatus::Incompatible);
+        assert!(!result.provisional);
         assert!(result.reason.contains("missing_builder"));
+    }
+
+    #[test]
+    fn compatibility_one_sided_message_port_is_provisional() {
+        let source_port: PortRef = output_ref(&"source".into()).next().into();
+        let result = check_compatibility_candidate(
+            &test_registry(),
+            CompatibilityCandidate {
+                id: "one-sided".to_string(),
+                diagram: node_pair_diagram("json_to_i64", "i64_to_json"),
+                focus_ports: vec![source_port.clone()],
+                source_port: Some(source_port),
+                target_port: None,
+            },
+        );
+
+        assert_eq!(result.status, CompatibilityStatus::Compatible);
+        assert!(result.provisional);
+    }
+
+    #[test]
+    fn compatibility_allows_incomplete_buffer_connections_provisionally() {
+        for operation_type in ["listen", "join", "buffer_access"] {
+            let buffer_port: PortRef = (&NextOperation::Name("buffer".into())).into();
+            let diagram = Diagram::from_json(json!({
+                "version": "0.1.0",
+                "start": { "builtin": "dispose" },
+                "ops": {
+                    "buffer": {
+                        "type": "buffer"
+                    },
+                    "consumer": {
+                        "type": operation_type,
+                        "buffers": ["buffer"],
+                        "next": { "builtin": "dispose" }
+                    }
+                }
+            }))
+            .unwrap();
+
+            let result = check_compatibility_candidate(
+                &test_registry(),
+                CompatibilityCandidate {
+                    id: operation_type.to_string(),
+                    diagram,
+                    focus_ports: vec![buffer_port.clone()],
+                    source_port: None,
+                    target_port: None,
+                },
+            );
+
+            assert_eq!(result.status, CompatibilityStatus::Compatible);
+            assert!(result.provisional);
+            assert!(result.reason.contains("more type context"));
+        }
+    }
+
+    #[test]
+    fn compatibility_allows_listen_output_missing_context_provisionally() {
+        let source_port: PortRef = output_ref(&"listen".into()).next().into();
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "start": "buffer",
+            "ops": {
+                "buffer": {
+                    "type": "buffer"
+                },
+                "listen": {
+                    "type": "listen",
+                    "buffers": ["buffer"],
+                    "next": { "builtin": "dispose" }
+                }
+            }
+        }))
+        .unwrap();
+
+        let result = check_compatibility_candidate(
+            &test_registry(),
+            CompatibilityCandidate {
+                id: "listen-output".to_string(),
+                diagram,
+                focus_ports: vec![source_port.clone()],
+                source_port: Some(source_port),
+                target_port: None,
+            },
+        );
+
+        assert_eq!(result.status, CompatibilityStatus::Compatible);
+        assert!(result.provisional);
+        assert!(result.reason.contains("more type context"));
+    }
+
+    #[test]
+    fn compatibility_allows_buffer_access_output_missing_context_provisionally() {
+        let source_port: PortRef = output_ref(&"buffer_access".into()).next().into();
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "start": "buffer",
+            "ops": {
+                "buffer": {
+                    "type": "buffer"
+                },
+                "buffer_access": {
+                    "type": "buffer_access",
+                    "buffers": ["buffer"],
+                    "next": { "builtin": "dispose" }
+                }
+            }
+        }))
+        .unwrap();
+
+        let result = check_compatibility_candidate(
+            &test_registry(),
+            CompatibilityCandidate {
+                id: "buffer-access-output".to_string(),
+                diagram,
+                focus_ports: vec![source_port.clone()],
+                source_port: Some(source_port),
+                target_port: None,
+            },
+        );
+
+        assert_eq!(result.status, CompatibilityStatus::Compatible);
+        assert!(result.provisional);
+        assert!(result.reason.contains("more type context"));
+    }
+
+    #[test]
+    fn compatibility_does_not_allow_hard_buffer_layout_mismatch_provisionally() {
+        let mut registry = test_registry();
+        registry
+            .opt_out()
+            .no_serializing()
+            .no_deserializing()
+            .register_node_builder(
+                NodeBuilderOptions::new("listen_string_buffer"),
+                |builder: &mut Builder, _config: ()| -> Node<Vec<BufferKey<String>>, usize, ()> {
+                    builder.create_node(
+                        (|Blocking { request, .. }: Blocking<Vec<BufferKey<String>>>,
+                          _access: BufferAccess<String>| {
+                            request.len()
+                        })
+                        .into_callback(),
+                    )
+                },
+            )
+            .with_listen();
+
+        let source_port: PortRef = output_ref(&"listen".into()).next().into();
+        let target_port: PortRef = (&NextOperation::Name("listen_string_buffer".into())).into();
+        let buffer_port: PortRef = (&NextOperation::Name("buffer".into())).into();
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "start": { "builtin": "dispose" },
+            "ops": {
+                "buffer": {
+                    "type": "buffer"
+                },
+                "listen": {
+                    "type": "listen",
+                    "buffers": { "foo": "buffer" },
+                    "next": "listen_string_buffer"
+                },
+                "listen_string_buffer": {
+                    "type": "node",
+                    "builder": "listen_string_buffer",
+                    "next": { "builtin": "terminate" }
+                }
+            }
+        }))
+        .unwrap();
+
+        let result = check_compatibility_candidate(
+            &registry,
+            CompatibilityCandidate {
+                id: "hard-buffer-mismatch".to_string(),
+                diagram,
+                focus_ports: vec![
+                    source_port.clone(),
+                    target_port.clone(),
+                    buffer_port.clone(),
+                ],
+                source_port: Some(source_port),
+                target_port: Some(target_port),
+            },
+        );
+
+        assert_eq!(result.status, CompatibilityStatus::Incompatible);
+        assert!(!result.provisional);
+    }
+
+    #[test]
+    fn compatibility_allows_incomplete_buffer_connection() {
+        let buffer_port: PortRef = (&NextOperation::Name("buffer".into())).into();
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "start": { "builtin": "dispose" },
+            "ops": {
+                "buffer": {
+                    "type": "buffer"
+                },
+                "listen": {
+                    "type": "listen",
+                    "buffers": ["buffer"],
+                    "next": { "builtin": "dispose" }
+                }
+            }
+        }))
+        .unwrap();
+
+        let result = check_compatibility_candidate(
+            &test_registry(),
+            CompatibilityCandidate {
+                id: "candidate".to_string(),
+                diagram,
+                focus_ports: vec![buffer_port],
+                source_port: None,
+                target_port: None,
+            },
+        );
+
+        assert_eq!(result.status, CompatibilityStatus::Compatible);
+        assert!(result.provisional);
+        assert!(result.reason.contains("more type context"));
     }
 }
 
@@ -916,7 +1185,9 @@ mod tests {
         body,
         http::{Request, header},
     };
-    use crossflow::{CrossflowExecutorApp, NodeBuilderOptions, OperationRef, output_ref};
+    use crossflow::{
+        CrossflowExecutorApp, NextOperation, NodeBuilderOptions, OperationRef, output_ref,
+    };
     #[cfg(feature = "debug")]
     use futures_util::SinkExt;
     use mime_guess::mime;
@@ -1065,6 +1336,63 @@ mod tests {
         let resp: CompatibilityResponse = serde_json::from_str(resp_str).unwrap();
         assert_eq!(resp.results.len(), 1);
         assert_eq!(resp.results[0].status, CompatibilityStatus::Compatible);
+        assert!(!resp.results[0].provisional);
+
+        cleanup_test();
+    }
+
+    #[tokio::test]
+    #[test_log::test]
+    async fn test_post_compatibility_serializes_provisional_result() {
+        let TestFixture {
+            router,
+            cleanup_test,
+        } = setup_test().await;
+
+        let buffer_port: PortRef = (&NextOperation::Name("buffer".into())).into();
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "start": { "builtin": "dispose" },
+            "ops": {
+                "buffer": {
+                    "type": "buffer"
+                },
+                "listen": {
+                    "type": "listen",
+                    "buffers": ["buffer"],
+                    "next": { "builtin": "dispose" }
+                }
+            }
+        }))
+        .unwrap();
+        let request_body = CompatibilityRequest {
+            candidates: vec![CompatibilityCandidate {
+                id: "buffer-to-listen".to_string(),
+                diagram,
+                focus_ports: vec![buffer_port],
+                source_port: None,
+                target_port: None,
+            }],
+        };
+        let response = router
+            .oneshot(
+                Request::post("/compatibility")
+                    .header(header::CONTENT_TYPE, mime::APPLICATION_JSON.to_string())
+                    .body(serde_json::to_string(&request_body).unwrap())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let resp_bytes = body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let resp_str = str::from_utf8(&resp_bytes).unwrap();
+        assert!(resp_str.contains("\"provisional\":true"));
+        let resp: CompatibilityResponse = serde_json::from_str(resp_str).unwrap();
+        assert_eq!(resp.results.len(), 1);
+        assert_eq!(resp.results[0].status, CompatibilityStatus::Compatible);
+        assert!(resp.results[0].provisional);
 
         cleanup_test();
     }

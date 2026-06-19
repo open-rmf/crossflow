@@ -540,8 +540,6 @@ export interface Diagram {
    *
    * Script environment builders may have automatic configs, which you should
    * consider using before creating a custom environment.
-   *
-   * [1]: ScriptEnvironmentMetadata
    */
   script_environments?: {
     [k: string]: ScriptEnvironmentSchema;
@@ -1463,6 +1461,7 @@ export interface CompatibilityResponse {
  */
 export interface CompatibilityResult {
   id: string;
+  provisional?: boolean;
   reason: string;
   sourceType?: string | null;
   status: CompatibilityStatus;

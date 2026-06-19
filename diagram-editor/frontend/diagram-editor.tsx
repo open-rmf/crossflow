@@ -614,9 +614,17 @@ function DiagramEditor() {
         return null;
       }
 
-      const results = await checkCompatibilityCandidates(apiClient, [
-        built.candidate,
-      ]);
+      let results: Awaited<ReturnType<typeof checkCompatibilityCandidates>>;
+      try {
+        results = await checkCompatibilityCandidates(apiClient, [
+          built.candidate,
+        ]);
+      } catch (error) {
+        showErrorToast(
+          error instanceof Error ? error.message : 'compatibility check failed',
+        );
+        return null;
+      }
       const compatibility = results.get(built.candidate.id);
       if (compatibility?.status !== 'compatible') {
         showErrorToast(
@@ -736,7 +744,7 @@ function DiagramEditor() {
             return;
           }
 
-          if (connectionState.toHandle || connectionState.isValid) {
+          if (connectionState.toHandle) {
             return;
           }
 

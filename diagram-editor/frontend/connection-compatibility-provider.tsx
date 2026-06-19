@@ -31,6 +31,47 @@ interface ConnectionCompatibilityContextValue {
 const ConnectionCompatibilityContext =
   React.createContext<ConnectionCompatibilityContextValue | null>(null);
 
+const MAX_COMPATIBILITY_CACHE_ENTRIES = 500;
+
+function setCachedCompatibilityResult(
+  cache: Map<string, Promise<CompatibilityResult>>,
+  key: string,
+  value: Promise<CompatibilityResult>,
+) {
+  if (!cache.has(key) && cache.size >= MAX_COMPATIBILITY_CACHE_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey) {
+      cache.delete(oldestKey);
+    }
+  }
+  cache.set(key, value);
+}
+
+function compatibilityErrorResult(
+  id: string,
+  error: unknown,
+): CompatibilityResult {
+  return {
+    id,
+    status: 'unknown',
+    reason:
+      error instanceof Error ? error.message : 'compatibility check failed',
+  };
+}
+
+function connectionKey(connection: Connection | null): string {
+  if (!connection) {
+    return 'null';
+  }
+
+  return JSON.stringify({
+    source: connection.source ?? null,
+    sourceHandle: connection.sourceHandle ?? null,
+    target: connection.target ?? null,
+    targetHandle: connection.targetHandle ?? null,
+  });
+}
+
 export function ConnectionCompatibilityProvider({
   nodeManager,
   edges,
@@ -55,16 +96,29 @@ export function ConnectionCompatibilityProvider({
       }[] = [];
 
       for (const input of inputs) {
-        const built = buildCompatibilityCandidate({
-          id: input.id,
-          registry,
-          nodeManager,
-          edges,
-          templates,
-          diagramProperties,
-          connection: input.connection,
-          nodeChanges: input.nodeChanges,
-        });
+        let built: ReturnType<typeof buildCompatibilityCandidate>;
+        try {
+          built = buildCompatibilityCandidate({
+            id: input.id,
+            registry,
+            nodeManager,
+            edges,
+            templates,
+            diagramProperties,
+            connection: input.connection,
+            nodeChanges: input.nodeChanges,
+          });
+        } catch (error) {
+          results.set(input.id, {
+            id: input.id,
+            status: 'incompatible',
+            reason:
+              error instanceof Error
+                ? error.message
+                : 'failed to build compatibility candidate',
+          });
+          continue;
+        }
 
         if (!built.ok) {
           results.set(input.id, localFailureToCompatibilityResult(built.result));
@@ -90,30 +144,26 @@ export function ConnectionCompatibilityProvider({
           apiClient,
           misses.map((miss) => miss.candidate),
         );
-        for (const miss of misses) {
-          cache.current.set(
-            miss.key,
-            batch.then(
+        const pendingResults = misses.map((miss) => {
+          const pending = batch
+            .then(
               (batchResults) =>
                 batchResults.get(miss.id) ?? {
                   id: miss.id,
-                  status: 'unknown',
+                  status: 'unknown' as const,
                   reason: 'compatibility result was not returned',
                 },
-            ),
-          );
-        }
+            )
+            .catch((error) => {
+              cache.current.delete(miss.key);
+              return compatibilityErrorResult(miss.id, error);
+            });
+          setCachedCompatibilityResult(cache.current, miss.key, pending);
+          return pending.then((result) => [miss.id, result] as const);
+        });
 
-        const batchResults = await batch;
-        for (const miss of misses) {
-          results.set(
-            miss.id,
-            batchResults.get(miss.id) ?? {
-              id: miss.id,
-              status: 'unknown',
-              reason: 'compatibility result was not returned',
-            },
-          );
+        for (const [id, result] of await Promise.all(pendingResults)) {
+          results.set(id, result);
         }
       }
 
@@ -140,7 +190,7 @@ export function useConnectionCompatibility(
 ): CompatibilityResult | null {
   const context = React.useContext(ConnectionCompatibilityContext);
   const [result, setResult] = React.useState<CompatibilityResult | null>(null);
-  const key = JSON.stringify(connection);
+  const key = connectionKey(connection);
 
   React.useEffect(() => {
     if (!connection || !context) {
@@ -150,11 +200,18 @@ export function useConnectionCompatibility(
 
     let active = true;
     setResult(null);
-    context.checkConnections([{ id, connection }]).then((results) => {
-      if (active) {
-        setResult(results.get(id) ?? null);
-      }
-    });
+    context
+      .checkConnections([{ id, connection }])
+      .then((results) => {
+        if (active) {
+          setResult(results.get(id) ?? null);
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setResult(compatibilityErrorResult(id, error));
+        }
+      });
 
     return () => {
       active = false;

@@ -259,6 +259,9 @@
         "id": {
           "type": "string"
         },
+        "provisional": {
+          "type": "boolean"
+        },
         "reason": {
           "type": "string"
         },
@@ -428,7 +431,7 @@
             "$ref": "#/$defs/ScriptEnvironmentSchema"
           },
           "default": {},
-          "description": "Custom script environments used by this diagram.\n\nTo run a script operation you will need to specify what its environment\nis. A script environment determines the language and interpreter for the\nscript, as well as any other factors specific to the environment.\n\nScript environment builders may have automatic configs, which you should\nconsider using before creating a custom environment.\n\n[1]: ScriptEnvironmentMetadata",
+          "description": "Custom script environments used by this diagram.\n\nTo run a script operation you will need to specify what its environment\nis. A script environment determines the language and interpreter for the\nscript, as well as any other factors specific to the environment.\n\nScript environment builders may have automatic configs, which you should\nconsider using before creating a custom environment.",
           "type": "object"
         },
         "start": {

@@ -172,5 +172,49 @@ mod tests {
             response.results[0].status,
             api::executor::CompatibilityStatus::Compatible
         );
+        assert!(!response.results[0].provisional);
+    }
+
+    #[wasm_bindgen_test]
+    async fn test_check_compatibility_provisional() {
+        setup_test();
+
+        let buffer_port: PortRef = (&NextOperation::Name("buffer".into())).into();
+        let diagram = Diagram::from_json(serde_json::json!({
+            "version": "0.1.0",
+            "start": { "builtin": "dispose" },
+            "ops": {
+                "buffer": {
+                    "type": "buffer"
+                },
+                "listen": {
+                    "type": "listen",
+                    "buffers": ["buffer"],
+                    "next": { "builtin": "dispose" }
+                }
+            }
+        }))
+        .unwrap();
+
+        let result = check_compatibility(CompatibilityRequestWasm(CompatibilityRequest {
+            candidates: vec![api::executor::CompatibilityCandidate {
+                id: "buffer-to-listen".to_string(),
+                diagram,
+                focus_ports: vec![buffer_port],
+                source_port: None,
+                target_port: None,
+            }],
+        }))
+        .await
+        .unwrap();
+
+        let response: api::executor::CompatibilityResponse =
+            serde_wasm_bindgen::from_value(result).unwrap();
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(
+            response.results[0].status,
+            api::executor::CompatibilityStatus::Compatible
+        );
+        assert!(response.results[0].provisional);
     }
 }

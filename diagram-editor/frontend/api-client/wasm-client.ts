@@ -1,4 +1,4 @@
-import { from, type Observable, of } from 'rxjs';
+import { from, type Observable } from 'rxjs';
 import type {
   CompatibilityRequest,
   CompatibilityResponse,
@@ -19,11 +19,15 @@ export class ApiClient implements BaseApiClient {
   }
 
   getRegistry(): Observable<DiagramElementMetadata> {
-    const registry = wasmApi.get_registry();
-    if (!validateRegistry(registry)) {
-      throw validateRegistry.errors;
-    }
-    return of(registry);
+    return from(
+      (async () => {
+        const registry = wasmApi.get_registry();
+        if (!validateRegistry(registry)) {
+          throw validateRegistry.errors;
+        }
+        return registry;
+      })(),
+    );
   }
 
   postRunWorkflow(diagram: Diagram, request: unknown): Observable<unknown> {

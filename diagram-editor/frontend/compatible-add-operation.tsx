@@ -129,16 +129,23 @@ export function CompatibleAddOperation({
       ];
     });
 
-    checker.checkConnections(checks).then((results) => {
-      if (!active) {
-        return;
-      }
-      setCompatibleCandidates(
-        candidates.filter(
-          (candidate) => results.get(candidate.key)?.status === 'compatible',
-        ),
-      );
-    });
+    checker
+      .checkConnections(checks)
+      .then((results) => {
+        if (!active) {
+          return;
+        }
+        setCompatibleCandidates(
+          candidates.filter(
+            (candidate) => results.get(candidate.key)?.status === 'compatible',
+          ),
+        );
+      })
+      .catch(() => {
+        if (active) {
+          setCompatibleCandidates([]);
+        }
+      });
 
     return () => {
       active = false;
