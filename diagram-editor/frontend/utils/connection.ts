@@ -9,7 +9,7 @@ import {
 import { defaultEdgeData } from '../forms/edit-edge-form';
 import { HandleId } from '../handles';
 import type { NodeManager } from '../node-manager';
-import type { DiagramEditorNode, NodeTypes } from '../nodes';
+import { type DiagramEditorNode, isOperationNode, type NodeTypes } from '../nodes';
 import { exhaustiveCheck } from './exhaustive-check';
 
 /**
@@ -391,6 +391,52 @@ export function validateConnectionSimple(
   );
 }
 
+function nextBufferKey(
+  sourceNode: DiagramEditorNode,
+  existingBuffers: Record<string, unknown>,
+): string {
+  const baseKey = isOperationNode(sourceNode) ? sourceNode.data.opId : 'buffer';
+  if (!(baseKey in existingBuffers)) {
+    return baseKey;
+  }
+
+  let suffix = 1;
+  while (`${baseKey}_${suffix}` in existingBuffers) {
+    suffix++;
+  }
+  return `${baseKey}_${suffix}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function adjustBufferEdgeInputForTarget(
+  edge: DiagramEditorEdge,
+  sourceNode: DiagramEditorNode,
+  targetNode: DiagramEditorNode,
+) {
+  if (
+    edge.type !== 'buffer' ||
+    !isOperationNode(targetNode) ||
+    (targetNode.type !== 'buffer_access' &&
+      targetNode.type !== 'join' &&
+      targetNode.type !== 'listen')
+  ) {
+    return;
+  }
+
+  const buffers = targetNode.data.op.buffers;
+  if (Array.isArray(buffers)) {
+    edge.data.input = { type: 'bufferSeq', seq: buffers.length };
+  } else if (isRecord(buffers)) {
+    edge.data.input = {
+      type: 'bufferKey',
+      key: nextBufferKey(sourceNode, buffers),
+    };
+  }
+}
+
 export function createEdgeFromConnection(
   conn: Connection,
   nodeManager: NodeManager,
@@ -439,6 +485,8 @@ export function createEdgeFromConnection(
       };
     }
   }
+
+  adjustBufferEdgeInputForTarget(newEdge, sourceNode, targetNode);
 
   return newEdge;
 }

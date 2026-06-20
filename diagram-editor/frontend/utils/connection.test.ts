@@ -15,6 +15,7 @@ import {
   createTerminateNode,
 } from '../nodes';
 import {
+  createEdgeFromConnection,
   createConnectionFromDraggedHandle,
   getValidEdgeTypes,
   validateConnectionSimple,
@@ -132,6 +133,51 @@ describe('connection helpers', () => {
     // Keep the second target live so this test also documents that the capacity
     // check only depends on source edges, not target nodes.
     expect(secondTarget.id).toBeTruthy();
+  });
+
+  test('creates keyed buffer edge for targets that already use keyed buffers', () => {
+    const buffer = createOperationNode(
+      ROOT_NAMESPACE,
+      undefined,
+      { x: 0, y: 0 },
+      { type: 'buffer' },
+      'buffer_three',
+    );
+    const join = createOperationNode(
+      ROOT_NAMESPACE,
+      undefined,
+      { x: 0, y: 0 },
+      {
+        type: 'join',
+        buffers: {
+          route: 'buffer_one',
+          station: 'buffer_two',
+        },
+        next: { builtin: 'dispose' },
+      },
+      'join',
+    );
+    const nodeManager = new NodeManager([buffer, join]);
+
+    const edge = createEdgeFromConnection(
+      {
+        source: buffer.id,
+        sourceHandle: null,
+        target: join.id,
+        targetHandle: null,
+      },
+      nodeManager,
+    );
+
+    expect('valid' in edge).toBe(false);
+    if ('valid' in edge) {
+      return;
+    }
+    expect(edge.type).toBe('buffer');
+    expect(edge.data.input).toEqual({
+      type: 'bufferKey',
+      key: 'buffer_three',
+    });
   });
 });
 
