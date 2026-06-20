@@ -3,7 +3,9 @@
 /* eslint-disable */
 export function init_wasm(): void;
 export function post_run(request: PostRunRequestWasm): Promise<any>;
-export function check_compatibility(request: CompatibilityRequestWasm): Promise<any>;
+export function check_compatibility(
+  request: CompatibilityRequestWasm,
+): Promise<any>;
 export function get_registry(): any;
 type PostRunRequest = import('../../types/api').PostRunRequest;
 type CompatibilityRequest = import('../../types/api').CompatibilityRequest;

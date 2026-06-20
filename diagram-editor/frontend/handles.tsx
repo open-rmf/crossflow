@@ -6,12 +6,12 @@ import {
 } from '@xyflow/react';
 import React from 'react';
 import { useConnectionCompatibility } from './connection-compatibility-provider';
+import type { CompatibilityResult } from './types/api';
 import {
   createConnectionFromDraggedHandle,
   validateDraggedHandlePair,
 } from './utils/connection';
 import { exhaustiveCheck } from './utils/exhaustive-check';
-import type { CompatibilityResult } from './types/api';
 
 export enum HandleId {
   DataStream = 'dataStream',

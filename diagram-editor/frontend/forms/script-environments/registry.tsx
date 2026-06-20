@@ -1,6 +1,11 @@
 import type { ComponentType } from 'react';
 import { PythonPropertiesForm } from './python-form';
 
+export type ScriptEnvironmentRegistry = {
+  schemas?: Record<string, unknown>;
+  scripting?: Record<string, { config_schema?: unknown }>;
+};
+
 export interface ScriptEnvironmentFormProps {
   /** The current raw JSON configuration string */
   config: string;
@@ -11,7 +16,7 @@ export interface ScriptEnvironmentFormProps {
   /** The current dialog mode */
   mode: 'view' | 'edit' | 'create';
   /** The dynamic backend registry metadata */
-  registry: any;
+  registry: ScriptEnvironmentRegistry;
   /** The current python/script text being edited in the main editor */
   scriptText: string;
 }

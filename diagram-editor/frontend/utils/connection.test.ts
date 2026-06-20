@@ -15,8 +15,8 @@ import {
   createTerminateNode,
 } from '../nodes';
 import {
-  createEdgeFromConnection,
   createConnectionFromDraggedHandle,
+  createEdgeFromConnection,
   getValidEdgeTypes,
   validateConnectionSimple,
   validateDraggedHandlePair,
@@ -108,7 +108,12 @@ describe('connection helpers', () => {
       { type: 'node', builder: 'test_builder', next: { builtin: 'dispose' } },
       'second_target',
     );
-    const existingEdge = createDefaultEdge(source.id, null, firstTarget.id, null);
+    const existingEdge = createDefaultEdge(
+      source.id,
+      null,
+      firstTarget.id,
+      null,
+    );
 
     expect(validateSourceOutputCapacity(source, null, [])).toEqual({
       valid: true,

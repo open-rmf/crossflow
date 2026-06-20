@@ -3,7 +3,7 @@ import React from 'react';
 import { useApiClient } from './api-client-provider';
 import { useDiagramProperties } from './diagram-properties-provider';
 import type { DiagramEditorEdge } from './edges';
-import { NodeManager } from './node-manager';
+import type { NodeManager } from './node-manager';
 import type { DiagramEditorNode } from './nodes';
 import { useRegistry } from './registry-provider';
 import { useTemplates } from './templates-provider';
@@ -59,19 +59,6 @@ function compatibilityErrorResult(
   };
 }
 
-function connectionKey(connection: Connection | null): string {
-  if (!connection) {
-    return 'null';
-  }
-
-  return JSON.stringify({
-    source: connection.source ?? null,
-    sourceHandle: connection.sourceHandle ?? null,
-    target: connection.target ?? null,
-    targetHandle: connection.targetHandle ?? null,
-  });
-}
-
 export function ConnectionCompatibilityProvider({
   nodeManager,
   edges,
@@ -121,7 +108,10 @@ export function ConnectionCompatibilityProvider({
         }
 
         if (!built.ok) {
-          results.set(input.id, localFailureToCompatibilityResult(built.result));
+          results.set(
+            input.id,
+            localFailureToCompatibilityResult(built.result),
+          );
           continue;
         }
 
@@ -172,10 +162,7 @@ export function ConnectionCompatibilityProvider({
     [apiClient, registry, nodeManager, edges, templates, diagramProperties],
   );
 
-  const value = React.useMemo(
-    () => ({ checkConnections }),
-    [checkConnections],
-  );
+  const value = React.useMemo(() => ({ checkConnections }), [checkConnections]);
 
   return (
     <ConnectionCompatibilityContext.Provider value={value}>
@@ -190,7 +177,6 @@ export function useConnectionCompatibility(
 ): CompatibilityResult | null {
   const context = React.useContext(ConnectionCompatibilityContext);
   const [result, setResult] = React.useState<CompatibilityResult | null>(null);
-  const key = connectionKey(connection);
 
   React.useEffect(() => {
     if (!connection || !context) {
@@ -216,7 +202,7 @@ export function useConnectionCompatibility(
     return () => {
       active = false;
     };
-  }, [context, key, id]);
+  }, [context, connection, id]);
 
   return result;
 }

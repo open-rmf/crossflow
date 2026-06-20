@@ -2,8 +2,8 @@ import { Paper, Stack, Typography } from '@mui/material';
 import { Panel, useConnection } from '@xyflow/react';
 import React from 'react';
 import { useConnectionCompatibility } from './connection-compatibility-provider';
-import type { CompatibilityResult } from './types/api';
 import type { NodeManager } from './node-manager';
+import type { CompatibilityResult } from './types/api';
 import { useEdges } from './use-edges';
 import {
   createConnectionFromDraggedHandle,

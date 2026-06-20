@@ -116,7 +116,8 @@ async function generate(name, schema, outputPath, preprocessedOutputPath) {
   writeFileSync(preprocessedOutputPath, JSON.stringify(schema, undefined, 2));
 }
 
-const { BUILD_FRONTEND, ...schemaEnv } = process.env;
+const schemaEnv = { ...process.env };
+delete schemaEnv.BUILD_FRONTEND;
 
 const apiSchema = execSync(
   'cargo run -p crossflow_diagram_editor --no-default-features -F json_schema --bin print_schema',

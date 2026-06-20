@@ -22,12 +22,12 @@ import type {
   PortRef,
   SectionTemplate,
 } from '../types/api';
-import { exportDiagram } from './export-diagram';
-import { ROOT_NAMESPACE, splitNamespaces } from './namespace';
 import {
   createEdgeFromConnection,
   validateConnectionSimple,
 } from './connection';
+import { exportDiagram } from './export-diagram';
+import { ROOT_NAMESPACE, splitNamespaces } from './namespace';
 
 export interface BuiltCompatibilityCandidate {
   id: string;
@@ -129,9 +129,7 @@ function operationInputPort(
   }
 
   if (node.type === 'sectionOutput') {
-    return inputPort(
-      namedOperation([], node.data.outputId),
-    );
+    return inputPort(namedOperation([], node.data.outputId));
   }
 
   return null;
@@ -230,7 +228,10 @@ function portRefsForEdge(
   nodeManager: NodeManager,
   edge: DiagramEditorEdge,
   edges: DiagramEditorEdge[],
-): Pick<BuiltCompatibilityCandidate, 'focusPorts' | 'sourcePort' | 'targetPort'> {
+): Pick<
+  BuiltCompatibilityCandidate,
+  'focusPorts' | 'sourcePort' | 'targetPort'
+> {
   const sourceNode = nodeManager.getNode(edge.source);
   const targetNode = nodeManager.getNode(edge.target);
 
@@ -243,8 +244,8 @@ function portRefsForEdge(
 
   const sourcePort = operationOutputPort(sourceNode, edge, edges) ?? undefined;
   const targetPort = operationInputPort(targetNode, edge) ?? undefined;
-  const focusPorts = [sourcePort, targetPort].filter(
-    (port): port is PortRef => Boolean(port),
+  const focusPorts = [sourcePort, targetPort].filter((port): port is PortRef =>
+    Boolean(port),
   );
 
   return { focusPorts, sourcePort, targetPort };

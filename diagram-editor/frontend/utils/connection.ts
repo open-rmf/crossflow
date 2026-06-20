@@ -9,7 +9,11 @@ import {
 import { defaultEdgeData } from '../forms/edit-edge-form';
 import { HandleId } from '../handles';
 import type { NodeManager } from '../node-manager';
-import { type DiagramEditorNode, isOperationNode, type NodeTypes } from '../nodes';
+import {
+  type DiagramEditorNode,
+  isOperationNode,
+  type NodeTypes,
+} from '../nodes';
 import { exhaustiveCheck } from './exhaustive-check';
 
 /**

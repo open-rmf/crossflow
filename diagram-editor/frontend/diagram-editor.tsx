@@ -67,16 +67,16 @@ import { EdgesProvider } from './use-edges';
 import { autoLayout } from './utils/auto-layout';
 import { isRemoveChange } from './utils/change';
 import {
+  buildCompatibilityCandidate,
+  checkCompatibilityCandidates,
+} from './utils/compatibility';
+import {
   createConnectionFromDraggedHandle,
   getValidEdgeTypes,
   validateConnectionSimple,
   validateDraggedHandlePair,
   validateSourceOutputCapacity,
 } from './utils/connection';
-import {
-  buildCompatibilityCandidate,
-  checkCompatibilityCandidates,
-} from './utils/compatibility';
 import { exhaustiveCheck } from './utils/exhaustive-check';
 import { exportTemplate } from './utils/export-diagram';
 import { calculateScopeBounds, LAYOUT_OPTIONS } from './utils/layout';
@@ -722,8 +722,10 @@ function DiagramEditor() {
     async (
       conn: Connection,
       id?: string,
-      nodeChanges: Extract<NodeChange<DiagramEditorNode>, { type: 'add' }>[] =
-        [],
+      nodeChanges: Extract<
+        NodeChange<DiagramEditorNode>,
+        { type: 'add' }
+      >[] = [],
     ): Promise<DiagramEditorEdge | null> => {
       const built = buildCompatibilityCandidate({
         id: id || 'new-edge',
@@ -755,9 +757,7 @@ function DiagramEditor() {
       }
       const compatibility = results.get(built.candidate.id);
       if (compatibility?.status !== 'compatible') {
-        showErrorToast(
-          compatibility?.reason || 'connection is not compatible',
-        );
+        showErrorToast(compatibility?.reason || 'connection is not compatible');
         return null;
       }
 

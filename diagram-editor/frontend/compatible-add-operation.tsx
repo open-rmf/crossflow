@@ -17,10 +17,10 @@ import { useNodeManager } from './node-manager';
 import { isOperationNode, NodeIcon } from './nodes';
 import { useRegistry } from './registry-provider';
 import {
+  type AddOperationCandidate,
   filterCompatibleAddOperations,
   getAddOperationCandidates,
   getVisibleAddOperations,
-  type AddOperationCandidate,
 } from './utils/add-operation-catalog';
 import { createConnectionFromDraggedHandle } from './utils/connection';
 import { joinNamespaces, ROOT_NAMESPACE } from './utils/namespace';
@@ -184,7 +184,9 @@ export function CompatibleAddOperation({
     return (
       <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
         <CircularProgress size={16} />
-        <Typography variant="body2">Checking compatible operations...</Typography>
+        <Typography variant="body2">
+          Checking compatible operations...
+        </Typography>
       </Box>
     );
   }
