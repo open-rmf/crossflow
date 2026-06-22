@@ -1,15 +1,9 @@
 import { Paper, Stack, Typography } from '@mui/material';
 import { Panel, useConnection } from '@xyflow/react';
-import React from 'react';
-import { useConnectionCompatibility } from './connection-compatibility-provider';
+import { useDraggedConnectionCompatibility } from './connection-compatibility-provider';
 import type { NodeManager } from './node-manager';
-import type { CompatibilityResult } from './types/api';
 import { useEdges } from './use-edges';
-import {
-  createConnectionFromDraggedHandle,
-  validateDraggedHandlePair,
-  validateSourceOutputCapacity,
-} from './utils/connection';
+import { validateSourceOutputCapacity } from './utils/connection';
 
 export interface ConnectionHintPanelProps {
   nodeManager: NodeManager;
@@ -18,49 +12,12 @@ export interface ConnectionHintPanelProps {
 export function ConnectionHintPanel({ nodeManager }: ConnectionHintPanelProps) {
   const connection = useConnection();
   const edges = useEdges();
-  const candidate = React.useMemo((): {
-    connection: ReturnType<typeof createConnectionFromDraggedHandle> | null;
-    localCompatibility: CompatibilityResult | null;
-  } => {
-    if (
-      !connection.inProgress ||
-      !connection.fromHandle ||
-      !connection.toHandle
-    ) {
-      return { connection: null, localCompatibility: null };
-    }
-
-    const direction = validateDraggedHandlePair({
-      fromHandleType: connection.fromHandle.type,
-      otherHandleType: connection.toHandle.type,
-    });
-    if (!direction.valid) {
-      return {
-        connection: null,
-        localCompatibility: {
-          id: 'hovered-handle',
-          status: 'incompatible',
-          reason: direction.error,
-        },
-      };
-    }
-
-    return {
-      connection: createConnectionFromDraggedHandle({
-        fromNodeId: connection.fromHandle.nodeId,
-        fromHandleId: connection.fromHandle.id,
-        fromHandleType: connection.fromHandle.type,
-        otherNodeId: connection.toHandle.nodeId,
-        otherHandleId: connection.toHandle.id,
-      }),
-      localCompatibility: null,
-    };
-  }, [connection]);
-  const remoteCompatibility = useConnectionCompatibility(
-    candidate.connection,
-    'hovered-handle',
-  );
-  const compatibility = candidate.localCompatibility ?? remoteCompatibility;
+  const compatibility = useDraggedConnectionCompatibility({
+    id: 'hovered-handle',
+    otherNodeId: connection.toHandle?.nodeId,
+    otherHandleId: connection.toHandle?.id,
+    otherHandleType: connection.toHandle?.type ?? 'target',
+  });
 
   if (!connection.inProgress || !connection.fromHandle) {
     return null;

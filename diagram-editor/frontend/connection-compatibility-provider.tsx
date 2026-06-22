@@ -1,4 +1,5 @@
 import type { Connection, NodeAddChange } from '@xyflow/react';
+import { useConnection } from '@xyflow/react';
 import React from 'react';
 import { useApiClient } from './api-client-provider';
 import { useDiagramProperties } from './diagram-properties-provider';
@@ -8,6 +9,10 @@ import type { DiagramEditorNode } from './nodes';
 import { useRegistry } from './registry-provider';
 import { useTemplates } from './templates-provider';
 import type { CompatibilityResult } from './types/api';
+import {
+  createConnectionFromHandles,
+  validateDraggedHandlePair,
+} from './utils/connection';
 import {
   type BuiltCompatibilityCandidate,
   buildCompatibilityCandidate,
@@ -59,6 +64,28 @@ function compatibilityErrorResult(
   };
 }
 
+function unknownCompatibilityResult(
+  id: string,
+  reason: string,
+): CompatibilityResult {
+  return {
+    id,
+    status: 'unknown',
+    reason,
+  };
+}
+
+function incompatibleCompatibilityResult(
+  id: string,
+  reason: string,
+): CompatibilityResult {
+  return {
+    id,
+    status: 'incompatible',
+    reason,
+  };
+}
+
 export function ConnectionCompatibilityProvider({
   nodeManager,
   edges,
@@ -96,14 +123,15 @@ export function ConnectionCompatibilityProvider({
             nodeChanges: input.nodeChanges,
           });
         } catch (error) {
-          results.set(input.id, {
-            id: input.id,
-            status: 'incompatible',
-            reason:
+          results.set(
+            input.id,
+            incompatibleCompatibilityResult(
+              input.id,
               error instanceof Error
                 ? error.message
                 : 'failed to build compatibility candidate',
-          });
+            ),
+          );
           continue;
         }
 
@@ -138,11 +166,11 @@ export function ConnectionCompatibilityProvider({
           const pending = batch
             .then(
               (batchResults) =>
-                batchResults.get(miss.id) ?? {
-                  id: miss.id,
-                  status: 'unknown' as const,
-                  reason: 'compatibility result was not returned',
-                },
+                batchResults.get(miss.id) ??
+                unknownCompatibilityResult(
+                  miss.id,
+                  'compatibility result was not returned',
+                ),
             )
             .catch((error) => {
               cache.current.delete(miss.key);
@@ -205,6 +233,92 @@ export function useConnectionCompatibility(
   }, [context, connection, id]);
 
   return result;
+}
+
+export function useDraggedConnectionCompatibility({
+  id,
+  otherNodeId,
+  otherHandleId,
+  otherHandleType,
+  skipSelf = false,
+}: {
+  id: string;
+  otherNodeId: string | null | undefined;
+  otherHandleId: string | null | undefined;
+  otherHandleType: 'source' | 'target';
+  skipSelf?: boolean;
+}): CompatibilityResult | null {
+  const connection = useConnection();
+  const fromHandle = connection.fromHandle;
+  const fromNodeId = fromHandle?.nodeId;
+  const fromHandleId = fromHandle?.id;
+  const fromHandleType = fromHandle?.type;
+
+  const candidate = React.useMemo((): {
+    connection: Connection | null;
+    localCompatibility: CompatibilityResult | null;
+  } => {
+    if (
+      !connection.inProgress ||
+      !fromNodeId ||
+      !fromHandleType ||
+      !otherNodeId
+    ) {
+      return { connection: null, localCompatibility: null };
+    }
+
+    if (
+      skipSelf &&
+      fromNodeId === otherNodeId &&
+      (fromHandleId || null) === (otherHandleId || null) &&
+      fromHandleType === otherHandleType
+    ) {
+      return { connection: null, localCompatibility: null };
+    }
+
+    const direction = validateDraggedHandlePair({
+      fromHandleType,
+      otherHandleType,
+    });
+    if (!direction.valid) {
+      return {
+        connection: null,
+        localCompatibility: incompatibleCompatibilityResult(
+          id,
+          direction.error,
+        ),
+      };
+    }
+
+    return {
+      connection: createConnectionFromHandles(
+        {
+          nodeId: fromNodeId,
+          id: fromHandleId,
+          type: fromHandleType,
+        },
+        otherNodeId,
+        otherHandleId,
+      ),
+      localCompatibility: null,
+    };
+  }, [
+    connection.inProgress,
+    fromHandleId,
+    fromHandleType,
+    fromNodeId,
+    id,
+    otherHandleId,
+    otherHandleType,
+    otherNodeId,
+    skipSelf,
+  ]);
+
+  const remoteCompatibility = useConnectionCompatibility(
+    candidate.connection,
+    id,
+  );
+  return candidate.localCompatibility ?? remoteCompatibility;
 }
 
 export function useCompatibilityChecker() {

@@ -49,6 +49,20 @@ export type CompatibilityBuildResult =
   | { ok: true; candidate: BuiltCompatibilityCandidate }
   | { ok: false; result: LocalCompatibilityFailure };
 
+function incompatibleBuildResult(
+  id: string,
+  reason: string,
+): CompatibilityBuildResult {
+  return {
+    ok: false,
+    result: {
+      id,
+      status: 'incompatible',
+      reason,
+    },
+  };
+}
+
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -300,14 +314,7 @@ export function buildCompatibilityCandidate({
   const candidateManager = new NodeManager(candidateNodes);
   const edge = createEdgeFromConnection(connection, candidateManager, edgeId);
   if ('valid' in edge) {
-    return {
-      ok: false,
-      result: {
-        id,
-        status: 'incompatible',
-        reason: edge.error,
-      },
-    };
+    return incompatibleBuildResult(id, edge.error);
   }
 
   const candidateEdges = [
@@ -320,14 +327,7 @@ export function buildCompatibilityCandidate({
     candidateEdges.filter((candidateEdge) => candidateEdge.id !== edge.id),
   );
   if (!simpleValidation.valid) {
-    return {
-      ok: false,
-      result: {
-        id,
-        status: 'incompatible',
-        reason: simpleValidation.error,
-      },
-    };
+    return incompatibleBuildResult(id, simpleValidation.error);
   }
 
   const diagram = exportDiagram(
@@ -340,14 +340,10 @@ export function buildCompatibilityCandidate({
   const ports = portRefsForEdge(candidateManager, edge, candidateEdges);
 
   if (ports.focusPorts.length === 0) {
-    return {
-      ok: false,
-      result: {
-        id,
-        status: 'incompatible',
-        reason: 'connection does not expose compatible message ports',
-      },
-    };
+    return incompatibleBuildResult(
+      id,
+      'connection does not expose compatible message ports',
+    );
   }
 
   return {

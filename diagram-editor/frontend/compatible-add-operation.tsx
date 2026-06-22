@@ -22,7 +22,7 @@ import {
   getAddOperationCandidates,
   getVisibleAddOperations,
 } from './utils/add-operation-catalog';
-import { createConnectionFromDraggedHandle } from './utils/connection';
+import { createConnectionFromHandles } from './utils/connection';
 import { joinNamespaces, ROOT_NAMESPACE } from './utils/namespace';
 
 const StyledOperationButton = styled(Button)({
@@ -117,13 +117,15 @@ export function CompatibleAddOperation({
       return [
         {
           id: candidate.key,
-          connection: createConnectionFromDraggedHandle({
-            fromNodeId: sourceConnection.sourceNodeId,
-            fromHandleId: sourceConnection.sourceHandle,
-            fromHandleType: sourceConnection.sourceHandleType,
-            otherNodeId: primaryNode.id,
-            otherHandleId: null,
-          }),
+          connection: createConnectionFromHandles(
+            {
+              nodeId: sourceConnection.sourceNodeId,
+              id: sourceConnection.sourceHandle,
+              type: sourceConnection.sourceHandleType,
+            },
+            primaryNode.id,
+            null,
+          ),
           nodeChanges: changes,
         },
       ];

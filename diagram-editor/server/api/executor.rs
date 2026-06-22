@@ -112,6 +112,61 @@ pub struct CompatibilityResult {
     pub target_type: Option<String>,
 }
 
+impl CompatibilityResult {
+    fn terminal(id: String, status: CompatibilityStatus, reason: impl Into<String>) -> Self {
+        Self {
+            id,
+            status,
+            reason: reason.into(),
+            provisional: false,
+            source_type: None,
+            target_type: None,
+        }
+    }
+
+    fn provisional(id: String, reason: impl Into<String>) -> Self {
+        Self {
+            provisional: true,
+            ..Self::terminal(id, CompatibilityStatus::Compatible, reason)
+        }
+    }
+
+    fn with_types(
+        id: String,
+        status: CompatibilityStatus,
+        reason: impl Into<String>,
+        source_type: Option<String>,
+        target_type: Option<String>,
+    ) -> Self {
+        Self {
+            id,
+            status,
+            reason: reason.into(),
+            provisional: false,
+            source_type,
+            target_type,
+        }
+    }
+
+    fn provisional_with_types(
+        id: String,
+        reason: impl Into<String>,
+        source_type: Option<String>,
+        target_type: Option<String>,
+    ) -> Self {
+        Self {
+            provisional: true,
+            ..Self::with_types(
+                id,
+                CompatibilityStatus::Compatible,
+                reason,
+                source_type,
+                target_type,
+            )
+        }
+    }
+}
+
 #[cfg_attr(feature = "json_schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -201,14 +256,11 @@ fn check_compatibility_candidate(
     let boundary = match InferenceBoundaryConditions::json_messages(registry, stream_names) {
         Ok(boundary) => boundary,
         Err(err) => {
-            return CompatibilityResult {
-                id: candidate.id,
-                status: CompatibilityStatus::Unknown,
-                reason: err.to_string(),
-                provisional: false,
-                source_type: None,
-                target_type: None,
-            };
+            return CompatibilityResult::terminal(
+                candidate.id,
+                CompatibilityStatus::Unknown,
+                err.to_string(),
+            );
         }
     };
 
@@ -223,14 +275,11 @@ fn check_compatibility_candidate(
     focus_ports.dedup();
 
     if focus_ports.is_empty() {
-        return CompatibilityResult {
-            id: candidate.id,
-            status: CompatibilityStatus::Unknown,
-            reason: "no ports were provided for compatibility checking".to_string(),
-            provisional: false,
-            source_type: None,
-            target_type: None,
-        };
+        return CompatibilityResult::terminal(
+            candidate.id,
+            CompatibilityStatus::Unknown,
+            "no ports were provided for compatibility checking",
+        );
     }
 
     let inference =
@@ -241,24 +290,17 @@ fn check_compatibility_candidate(
             Ok(inference) => inference,
             Err(err) => {
                 if is_missing_context_error(&err) {
-                    return CompatibilityResult {
-                        id: candidate.id,
-                        status: CompatibilityStatus::Compatible,
-                        reason: format!("connection needs more type context: {err}"),
-                        provisional: true,
-                        source_type: None,
-                        target_type: None,
-                    };
+                    return CompatibilityResult::provisional(
+                        candidate.id,
+                        format!("connection needs more type context: {err}"),
+                    );
                 }
 
-                return CompatibilityResult {
-                    id: candidate.id,
-                    status: compatibility_error_status(&err),
-                    reason: err.to_string(),
-                    provisional: false,
-                    source_type: None,
-                    target_type: None,
-                };
+                return CompatibilityResult::terminal(
+                    candidate.id,
+                    compatibility_error_status(&err),
+                    err.to_string(),
+                );
             }
         };
 
@@ -286,34 +328,36 @@ fn check_compatibility_candidate(
 
     let (Some(source_type), Some(target_type)) = (source_type, target_type) else {
         let provisional = candidate.source_port.is_some() || candidate.target_port.is_some();
-        return CompatibilityResult {
-            id: candidate.id,
-            status: CompatibilityStatus::Compatible,
-            reason: if provisional {
-                "focused ports can be inferred, but the connection needs more peer type context"
-                    .to_string()
-            } else {
-                "focused ports can be inferred".to_string()
-            },
-            provisional,
-            source_type: source_type_name,
-            target_type: target_type_name,
-        };
+        if provisional {
+            return CompatibilityResult::provisional_with_types(
+                candidate.id,
+                "focused ports can be inferred, but the connection needs more peer type context",
+                source_type_name,
+                target_type_name,
+            );
+        }
+
+        return CompatibilityResult::with_types(
+            candidate.id,
+            CompatibilityStatus::Compatible,
+            "focused ports can be inferred",
+            source_type_name,
+            target_type_name,
+        );
     };
 
     match can_connect_message_types(registry, source_type, target_type) {
-        Ok(Some(reason)) => CompatibilityResult {
-            id: candidate.id,
-            status: CompatibilityStatus::Compatible,
+        Ok(Some(reason)) => CompatibilityResult::with_types(
+            candidate.id,
+            CompatibilityStatus::Compatible,
             reason,
-            provisional: false,
-            source_type: source_type_name,
-            target_type: target_type_name,
-        },
-        Ok(None) => CompatibilityResult {
-            id: candidate.id,
-            status: CompatibilityStatus::Incompatible,
-            reason: format!(
+            source_type_name,
+            target_type_name,
+        ),
+        Ok(None) => CompatibilityResult::with_types(
+            candidate.id,
+            CompatibilityStatus::Incompatible,
+            format!(
                 "{} cannot be delivered to {}",
                 source_type_name
                     .as_deref()
@@ -322,18 +366,16 @@ fn check_compatibility_candidate(
                     .as_deref()
                     .unwrap_or("[unknown target type]"),
             ),
-            provisional: false,
-            source_type: source_type_name,
-            target_type: target_type_name,
-        },
-        Err(err) => CompatibilityResult {
-            id: candidate.id,
-            status: CompatibilityStatus::Unknown,
-            reason: err.to_string(),
-            provisional: false,
-            source_type: source_type_name,
-            target_type: target_type_name,
-        },
+            source_type_name,
+            target_type_name,
+        ),
+        Err(err) => CompatibilityResult::with_types(
+            candidate.id,
+            CompatibilityStatus::Unknown,
+            err.to_string(),
+            source_type_name,
+            target_type_name,
+        ),
     }
 }
 

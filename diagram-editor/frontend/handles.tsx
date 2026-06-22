@@ -4,13 +4,7 @@ import {
   useConnection,
   useNodeId,
 } from '@xyflow/react';
-import React from 'react';
-import { useConnectionCompatibility } from './connection-compatibility-provider';
-import type { CompatibilityResult } from './types/api';
-import {
-  createConnectionFromDraggedHandle,
-  validateDraggedHandlePair,
-} from './utils/connection';
+import { useDraggedConnectionCompatibility } from './connection-compatibility-provider';
 import { exhaustiveCheck } from './utils/exhaustive-check';
 
 export enum HandleId {
@@ -65,53 +59,13 @@ export function Handle({ id, variant, className, ...baseProps }: HandleProps) {
   const nodeId = useNodeId();
   const connection = useConnection();
   const handleType = baseProps.type || 'source';
-  const candidate = React.useMemo((): {
-    connection: ReturnType<typeof createConnectionFromDraggedHandle> | null;
-    localCompatibility: CompatibilityResult | null;
-  } => {
-    if (!nodeId || !connection.inProgress || !connection.fromHandle) {
-      return { connection: null, localCompatibility: null };
-    }
-
-    if (
-      connection.fromHandle.nodeId === nodeId &&
-      (connection.fromHandle.id || null) === (id || null) &&
-      connection.fromHandle.type === handleType
-    ) {
-      return { connection: null, localCompatibility: null };
-    }
-
-    const direction = validateDraggedHandlePair({
-      fromHandleType: connection.fromHandle.type,
-      otherHandleType: handleType,
-    });
-    if (!direction.valid) {
-      return {
-        connection: null,
-        localCompatibility: {
-          id: `handle:${nodeId}:${handleType}:${id ?? ''}`,
-          status: 'incompatible',
-          reason: direction.error,
-        },
-      };
-    }
-
-    return {
-      connection: createConnectionFromDraggedHandle({
-        fromNodeId: connection.fromHandle.nodeId,
-        fromHandleId: connection.fromHandle.id,
-        fromHandleType: connection.fromHandle.type,
-        otherNodeId: nodeId,
-        otherHandleId: id,
-      }),
-      localCompatibility: null,
-    };
-  }, [connection, handleType, id, nodeId]);
-  const remoteCompatibility = useConnectionCompatibility(
-    candidate.connection,
-    `handle:${nodeId ?? ''}:${handleType}:${id ?? ''}`,
-  );
-  const compatibility = candidate.localCompatibility ?? remoteCompatibility;
+  const compatibility = useDraggedConnectionCompatibility({
+    id: `handle:${nodeId ?? ''}:${handleType}:${id ?? ''}`,
+    otherNodeId: nodeId,
+    otherHandleId: id,
+    otherHandleType: handleType,
+    skipSelf: true,
+  });
 
   const classNames: string[] = [];
   const variantClass = variantClassName(variant);

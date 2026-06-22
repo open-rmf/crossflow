@@ -71,7 +71,7 @@ import {
   checkCompatibilityCandidates,
 } from './utils/compatibility';
 import {
-  createConnectionFromDraggedHandle,
+  createConnectionFromHandles,
   getValidEdgeTypes,
   validateConnectionSimple,
   validateDraggedHandlePair,
@@ -865,13 +865,11 @@ function DiagramEditor() {
             }
 
             const result = validateConnectionSimple(
-              createConnectionFromDraggedHandle({
-                fromNodeId: connectionState.fromHandle.nodeId,
-                fromHandleId: connectionState.fromHandle.id,
-                fromHandleType: connectionState.fromHandle.type,
-                otherNodeId: connectionState.toHandle.nodeId,
-                otherHandleId: connectionState.toHandle.id,
-              }),
+              createConnectionFromHandles(
+                connectionState.fromHandle,
+                connectionState.toHandle.nodeId,
+                connectionState.toHandle.id,
+              ),
               nodeManager,
               edges,
             );
@@ -1042,16 +1040,17 @@ function DiagramEditor() {
                     return;
                   }
 
-                  const connection = createConnectionFromDraggedHandle({
-                    fromNodeId:
-                      addOperationPopover.sourceConnection.sourceNodeId,
-                    fromHandleId:
-                      addOperationPopover.sourceConnection.sourceHandle,
-                    fromHandleType:
-                      addOperationPopover.sourceConnection.sourceHandleType,
-                    otherNodeId: targetNode.id,
-                    otherHandleId: null,
-                  });
+                  const connection = createConnectionFromHandles(
+                    {
+                      nodeId:
+                        addOperationPopover.sourceConnection.sourceNodeId,
+                      id: addOperationPopover.sourceConnection.sourceHandle,
+                      type: addOperationPopover.sourceConnection
+                        .sourceHandleType,
+                    },
+                    targetNode.id,
+                    null,
+                  );
                   const newEdge = await tryCreateCompatibleEdge(
                     connection,
                     undefined,

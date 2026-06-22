@@ -33,7 +33,6 @@ import {
 } from './nodes';
 import {
   type AddOperationKey,
-  filterCompatibleAddOperations,
   getVisibleAddOperations,
 } from './utils/add-operation-catalog';
 import { joinNamespaces, ROOT_NAMESPACE } from './utils/namespace';
@@ -70,18 +69,12 @@ export interface AddOperationSelection {
 export interface AddOperationProps {
   parentId?: string;
   newNodePosition: XYPosition;
-  sourceConnection?: {
-    sourceNodeId: string;
-    sourceHandle: string | null;
-    sourceHandleType: 'source' | 'target';
-  } | null;
   onAdd?: (selection: AddOperationSelection) => void;
 }
 
 function AddOperation({
   parentId,
   newNodePosition,
-  sourceConnection,
   onAdd,
 }: AddOperationProps) {
   const [editorMode] = useEditorMode();
@@ -94,34 +87,12 @@ function AddOperation({
     }
     return joinNamespaces(parentNode.data.namespace, parentNode.data.opId);
   }, [parentId, nodeManager]);
-  const sourceNode = sourceConnection
-    ? nodeManager.tryGetNode(sourceConnection.sourceNodeId)
-    : null;
   const compatibleOperations = React.useMemo(() => {
-    let visible = getVisibleAddOperations({
+    return getVisibleAddOperations({
       isTemplateMode: editorMode.mode === EditorMode.Template,
       namespace,
     });
-
-    if (sourceNode) {
-      visible = filterCompatibleAddOperations(
-        visible,
-        sourceNode,
-        sourceConnection?.sourceHandle,
-        { namespace, parentId },
-        sourceConnection?.sourceHandleType,
-      );
-    }
-
-    return visible;
-  }, [
-    editorMode.mode,
-    namespace,
-    sourceNode,
-    sourceConnection?.sourceHandle,
-    sourceConnection?.sourceHandleType,
-    parentId,
-  ]);
+  }, [editorMode.mode, namespace]);
 
   const operations = React.useMemo(() => {
     const trimmedSearch = search.trim().toLowerCase();
@@ -139,30 +110,14 @@ function AddOperation({
       return null;
     }
 
-    if (search.trim()) {
-      return sourceConnection
-        ? sourceConnection.sourceHandleType === 'target'
-          ? 'No compatible input operations match this filter.'
-          : 'No compatible output operations match this filter.'
-        : 'No operations match this filter.';
-    }
-
-    return sourceConnection
-      ? sourceConnection.sourceHandleType === 'target'
-        ? 'No compatible operations are available for this input yet.'
-        : 'No compatible operations are available for this output yet.'
+    return search.trim()
+      ? 'No operations match this filter.'
       : 'No operations are available here yet.';
-  }, [operations.length, search, sourceConnection]);
-
-  const title = sourceConnection
-    ? sourceConnection.sourceHandleType === 'target'
-      ? 'Compatible previous operations'
-      : 'Compatible next operations'
-    : 'Add operation';
+  }, [operations.length, search]);
 
   return (
     <Stack spacing={1} sx={{ px: 1.5, pt: 1.5, pb: 1.5, width: 260 }}>
-      <Typography variant="subtitle2">{title}</Typography>
+      <Typography variant="subtitle2">Add operation</Typography>
       <TextField
         size="small"
         placeholder="Filter operations"

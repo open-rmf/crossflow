@@ -234,6 +234,26 @@ export function createConnectionFromDraggedHandle(args: {
       };
 }
 
+export interface DraggedHandleRef {
+  nodeId: string;
+  id: string | null | undefined;
+  type: 'source' | 'target';
+}
+
+export function createConnectionFromHandles(
+  fromHandle: DraggedHandleRef,
+  otherNodeId: string,
+  otherHandleId: string | null | undefined,
+): Connection {
+  return createConnectionFromDraggedHandle({
+    fromNodeId: fromHandle.nodeId,
+    fromHandleId: fromHandle.id,
+    fromHandleType: fromHandle.type,
+    otherNodeId,
+    otherHandleId,
+  });
+}
+
 export function validateDraggedHandlePair(args: {
   fromHandleType: 'source' | 'target';
   otherHandleType: 'source' | 'target';
