@@ -10,16 +10,16 @@ import { useRegistry } from './registry-provider';
 import { useTemplates } from './templates-provider';
 import type { CompatibilityResult } from './types/api';
 import {
-  createConnectionFromHandles,
-  validateDraggedHandlePair,
-} from './utils/connection';
-import {
   type BuiltCompatibilityCandidate,
   buildCompatibilityCandidate,
   checkCompatibilityCandidates,
   compatibilityCandidateKey,
   localFailureToCompatibilityResult,
 } from './utils/compatibility';
+import {
+  createConnectionFromHandles,
+  validateDraggedHandlePair,
+} from './utils/connection';
 
 interface CompatibilityCheckInput {
   id: string;

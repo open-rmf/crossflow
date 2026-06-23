@@ -72,11 +72,7 @@ export interface AddOperationProps {
   onAdd?: (selection: AddOperationSelection) => void;
 }
 
-function AddOperation({
-  parentId,
-  newNodePosition,
-  onAdd,
-}: AddOperationProps) {
+function AddOperation({ parentId, newNodePosition, onAdd }: AddOperationProps) {
   const [editorMode] = useEditorMode();
   const nodeManager = useNodeManager();
   const [search, setSearch] = React.useState('');

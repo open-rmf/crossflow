@@ -1042,8 +1042,7 @@ function DiagramEditor() {
 
                   const connection = createConnectionFromHandles(
                     {
-                      nodeId:
-                        addOperationPopover.sourceConnection.sourceNodeId,
+                      nodeId: addOperationPopover.sourceConnection.sourceNodeId,
                       id: addOperationPopover.sourceConnection.sourceHandle,
                       type: addOperationPopover.sourceConnection
                         .sourceHandleType,
