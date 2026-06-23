@@ -236,7 +236,7 @@ export function createConnectionFromDraggedHandle(args: {
 
 export interface DraggedHandleRef {
   nodeId: string;
-  id: string | null | undefined;
+  id?: string | null;
   type: 'source' | 'target';
 }
 
