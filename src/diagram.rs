@@ -74,9 +74,9 @@ use std::{borrow::Cow, collections::HashMap, fmt::Display, io::Read, sync::Arc};
 
 pub use crate::type_info::TypeInfo;
 use crate::{
-    Builder, DuplicateBuffer, IdentifierRef, IncompatibleLayout, IncrementalScopeError, JsonMessage,
-    MessageTypeHint, Scope, Service, SpawnWorkflowExt, SplitConnectionError, StreamPack,
-    TryJoinError, format_list, is_default,
+    Builder, DuplicateBuffer, IdentifierRef, IncompatibleLayout, IncrementalScopeError,
+    JsonMessage, MessageTypeHint, Scope, Service, SpawnWorkflowExt, SplitConnectionError,
+    StreamPack, TryJoinError, format_list, is_default,
 };
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
