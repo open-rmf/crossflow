@@ -299,4 +299,25 @@ mod tests {
         let r = test_for_count(5);
         assert_eq!(r, vec![(1, 1), (2, 2), (3, 3), (4, 4), (5, 5)]);
     }
+
+    #[test]
+    fn test_safe_join_rejects_duplicate_buffer() {
+        let mut context = TestingContext::minimal_plugins();
+        let mut is_err = false;
+        context.spawn_io_workflow(|_scope: Scope<(), ()>, builder| {
+            let buffer: Buffer<f64> = builder.create_buffer(BufferSettings::default());
+            is_err = builder.safe_join((buffer, buffer)).is_err();
+        });
+        assert!(is_err);
+    }
+
+    #[test]
+    #[should_panic(expected = "was given more than once in a single join operation")]
+    fn test_join_panics_on_duplicate_buffer() {
+        let mut context = TestingContext::minimal_plugins();
+        context.spawn_io_workflow(|scope: Scope<(), (f64, f64)>, builder| {
+            let buffer: Buffer<f64> = builder.create_buffer(BufferSettings::default());
+            builder.join((buffer, buffer)).connect(scope.terminate);
+        });
+    }
 }

@@ -74,9 +74,9 @@ use std::{borrow::Cow, collections::HashMap, fmt::Display, io::Read, sync::Arc};
 
 pub use crate::type_info::TypeInfo;
 use crate::{
-    Builder, IdentifierRef, IncompatibleLayout, IncrementalScopeError, JsonMessage,
-    MessageTypeHint, Scope, Service, SpawnWorkflowExt, SplitConnectionError, StreamPack,
-    format_list, is_default,
+    Builder, DuplicateBuffer, IdentifierRef, IncompatibleLayout, IncrementalScopeError,
+    JsonMessage, MessageTypeHint, Scope, Service, SpawnWorkflowExt, SplitConnectionError,
+    StreamPack, TryJoinError, format_list, is_default,
 };
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -1058,6 +1058,9 @@ pub enum DiagramErrorCode {
     #[error("Empty join is not allowed.")]
     EmptyJoin,
 
+    #[error(transparent)]
+    DuplicateBufferInJoin(#[from] DuplicateBuffer),
+
     #[error("Unknown buffer identifier [{unknown}] used for join containing {}", format_list(.available))]
     UnknownJoinField {
         unknown: IdentifierRef<'static>,
@@ -1229,6 +1232,15 @@ impl std::fmt::Display for MessageTypeInferenceFailure {
         }
 
         Ok(())
+    }
+}
+
+impl From<TryJoinError> for DiagramErrorCode {
+    fn from(value: TryJoinError) -> Self {
+        match value {
+            TryJoinError::IncompatibleLayout(err) => DiagramErrorCode::IncompatibleBuffers(err),
+            TryJoinError::DuplicateBuffer(err) => DiagramErrorCode::DuplicateBufferInJoin(err),
+        }
     }
 }
 
