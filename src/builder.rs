@@ -395,12 +395,13 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
     /// Try to create access to some buffers. Same as [`Self::create_buffer_access`]
     /// except it will return an error if the buffers in the [`BufferMap`] are not
     /// compatible with the keys that are being asked for.
-    pub fn try_create_buffer_access<T, Keys: Accessor>(
+    pub fn try_create_buffer_access<InputMessage, Keys: Accessor, OutputMessage>(
         &mut self,
         buffers: &BufferMap,
-    ) -> Result<Node<T, (T, Keys)>, IncompatibleLayout>
+    ) -> Result<Node<InputMessage, OutputMessage>, IncompatibleLayout>
     where
-        T: 'static + Send + Sync,
+        InputMessage: 'static + Send + Sync,
+        OutputMessage: 'static + Send + Sync + From<(InputMessage, Keys)>,
     {
         Keys::try_buffer_access(buffers, self)
     }

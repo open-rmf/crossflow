@@ -16,7 +16,7 @@
 */
 
 mod derive_buffer;
-use derive_buffer::{impl_buffer_key_map, impl_joined_value};
+use derive_buffer::{impl_buffer_accessor, impl_joined_value};
 
 mod derive_section;
 use derive_section::impl_section;
@@ -84,10 +84,10 @@ pub fn derive_joined_value(input: TokenStream) -> TokenStream {
     }
 }
 
-#[proc_macro_derive(Accessor, attributes(key))]
-pub fn derive_buffer_key_map(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(Accessor, attributes(accessor))]
+pub fn derive_buffer_accessor(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as ItemStruct);
-    match impl_buffer_key_map(&input) {
+    match impl_buffer_accessor(&input) {
         Ok(tokens) => tokens.into(),
         Err(msg) => quote! {
             compile_error!(#msg);

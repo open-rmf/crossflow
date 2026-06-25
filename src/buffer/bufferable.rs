@@ -19,8 +19,8 @@ use smallvec::SmallVec;
 use variadics_please::all_tuples;
 
 use crate::{
-    Accessing, Buffer, BufferSettings, Buffering, Builder, Chain, CloneFromBuffer, DuplicateBuffer,
-    Joining, Output,
+    Accessing, AddOperation, Buffer, BufferSettings, Buffering, Builder, Chain, CloneFromBuffer, DuplicateBuffer,
+    Join, Joining, Output, UnusedTarget,
 };
 
 pub type BufferKeys<B> = <<B as Bufferable>::BufferType as Accessing>::Key;

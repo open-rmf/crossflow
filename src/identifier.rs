@@ -19,17 +19,17 @@ use std::{borrow::Cow, hash::Hash, sync::Arc};
 
 pub use crossflow_derive::{Accessor, Joined};
 
-use crate::{ListSplitKey, MapSplitKey};
+use crate::{ListSplitKey, MapSplitKey, NameSplitKey};
 
-#[cfg(feature = "diagram")]
+#[cfg(feature = "json")]
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "diagram")]
+#[cfg(feature = "json")]
 use schemars::JsonSchema;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(
-    feature = "diagram",
+    feature = "json",
     derive(Serialize, Deserialize, JsonSchema),
     serde(untagged)
 )]
@@ -152,6 +152,15 @@ where
     }
 }
 
+impl Identification<NameSplitKey> for BasicIdentification {
+    fn to_identifier(value: NameSplitKey) -> Vec<Identifier> {
+        match value {
+            NameSplitKey::Specific(name) => vec!["specific".into(), name.into()],
+            NameSplitKey::Remaining => vec!["remaining".into()],
+        }
+    }
+}
+
 /// Uniquely identify something by a borrowed name or index.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(
@@ -177,6 +186,20 @@ impl<'a> IdentifierRef<'a> {
 
     pub fn is_index(&self) -> bool {
         matches!(self, Self::Index(_))
+    }
+
+    pub fn index(&self) -> Option<usize> {
+        match self {
+            Self::Index(index) => Some(*index),
+            _ => None,
+        }
+    }
+
+    pub fn name(&self) -> Option<&'_ str> {
+        match self {
+            Self::Name(name) => Some(name.as_ref()),
+            _ => None,
+        }
     }
 
     pub fn to_owned(&self) -> IdentifierRef<'static> {
@@ -211,7 +234,7 @@ impl IdentifierRef<'static> {
     }
 
     /// Use an index as an identifier.
-    pub fn index(index: usize) -> Self {
+    pub fn from_index(index: usize) -> Self {
         IdentifierRef::Index(index)
     }
 }
@@ -274,6 +297,90 @@ impl<'a> PartialEq<Identifier> for IdentifierRef<'a> {
 }
 
 pub type OutputPort<'a> = &'a [IdentifierRef<'a>];
+
+pub trait Identifiable {
+    fn try_from_id(id: &IdentifierRef<'static>) -> Option<Self>
+    where
+        Self: Sized;
+    fn indexable() -> bool;
+    fn nameable() -> bool;
+    fn into_id(self) -> IdentifierRef<'static>;
+}
+
+impl<'a> Identifiable for IdentifierRef<'a> {
+    fn try_from_id(id: &IdentifierRef<'static>) -> Option<Self> {
+        Some(id.clone())
+    }
+
+    fn indexable() -> bool {
+        true
+    }
+
+    fn nameable() -> bool {
+        true
+    }
+
+    fn into_id(self) -> IdentifierRef<'static> {
+        self.to_owned()
+    }
+}
+
+impl Identifiable for Identifier {
+    fn try_from_id(id: &IdentifierRef<'static>) -> Option<Self> {
+        Some(id.clone().into())
+    }
+
+    fn indexable() -> bool {
+        true
+    }
+
+    fn nameable() -> bool {
+        true
+    }
+
+    fn into_id(self) -> IdentifierRef<'static> {
+        self.into()
+    }
+}
+
+impl Identifiable for usize {
+    fn try_from_id(id: &IdentifierRef<'static>) -> Option<Self> {
+        id.index()
+    }
+
+    fn indexable() -> bool {
+        true
+    }
+
+    fn nameable() -> bool {
+        false
+    }
+
+    fn into_id(self) -> IdentifierRef<'static> {
+        IdentifierRef::Index(self)
+    }
+}
+
+impl Identifiable for String {
+    fn try_from_id(id: &IdentifierRef<'static>) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        id.name().map(ToString::to_string)
+    }
+
+    fn indexable() -> bool {
+        false
+    }
+
+    fn nameable() -> bool {
+        true
+    }
+
+    fn into_id(self) -> IdentifierRef<'static> {
+        IdentifierRef::Name(Cow::Owned(self))
+    }
+}
 
 /// The output_port module provides utility functions for easily creating
 /// [`OutputPort`] instances that avoid any memory allocations.
@@ -343,10 +450,6 @@ pub mod output_port {
 
     pub const fn listen() -> [IdentifierRef<'static>; 1] {
         name_str("listen")
-    }
-
-    pub const fn update() -> [IdentifierRef<'static>; 1] {
-        name_str("update")
     }
 
     pub const fn start() -> [IdentifierRef<'static>; 1] {

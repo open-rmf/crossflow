@@ -28,8 +28,8 @@ use crate::{
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode, DynInputSlot, DynOutput,
-    MessageRegistry, NextOperation, OperationName, RegisterClone, SerializeMessage, TraceInfo,
-    TraceSettings, supported::*,
+    MessageRegistry, NextOperation, OperationName, Operations, RegisterClone, SerializeMessage,
+    Templates, TraceInfo, TraceSettings, supported::*,
 };
 
 /// If the input message is a list-like or map-like object, split it into
@@ -142,6 +142,10 @@ impl BuildDiagramOperation for SplitSchema {
     ) -> Result<(), DiagramErrorCode> {
         ctx.split(id, &self.sequential, &self.keyed, &self.remaining);
         Ok(())
+    }
+
+    fn child_operations(&self, _: &Templates) -> Result<Option<Operations>, DiagramErrorCode> {
+        Ok(None)
     }
 }
 

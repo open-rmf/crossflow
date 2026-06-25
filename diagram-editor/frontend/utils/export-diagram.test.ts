@@ -27,6 +27,7 @@ const stubRegistry: DiagramElementMetadata = {
   schemas: {},
   sections: {},
   trace_supported: false,
+  scripting: {},
 };
 
 test('export diagram', async () => {
@@ -53,7 +54,13 @@ test('export diagram with scope', async () => {
       graph: { nodes, edges },
     },
   ] = await loadDiagramJson(JSON.stringify(testDiagramScope));
-  let diagram = exportDiagram(stubRegistry, new NodeManager(nodes), edges, {}, {});
+  let diagram = exportDiagram(
+    stubRegistry,
+    new NodeManager(nodes),
+    edges,
+    {},
+    {},
+  );
   expect(diagram).toEqual(testDiagramScope);
 
   const nodeManager = new NodeManager(nodes);

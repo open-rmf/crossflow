@@ -26,12 +26,15 @@ use tokio::sync::{
     oneshot,
 };
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, atomic::Ordering};
 
 use crate::{
-    OperationError, OperationRoster, Outcome, Promise, ProvideOnce, Reply, RequestExt, RequestId,
-    Seq, StreamPack,
+    AccessError, Accessor, BufferWorldAccess, MiscellaneousFailure, OperationError,
+    OperationRoster, Outcome, Promise, ProvideOnce, Reply, RequestExt, RequestId, Seq, StreamPack,
+    UnhandledErrors, async_execution::spawn_task,
 };
+
+use anyhow::anyhow;
 
 /// Provides asynchronous access to the [`World`], allowing you to issue queries
 /// or commands and then await the result.
@@ -63,6 +66,116 @@ impl Channel {
         outcome
     }
 
+    /// Get mutable access to one or more buffers and then receive a reply.
+    ///
+    /// This must run asynchronously because access to the buffers requires
+    /// exclusive world access.
+    pub fn access<A: Accessor, U: 'static + Send>(
+        &self,
+        accessor: A,
+        f: impl FnOnce(A::Access<'_, '_, '_>) -> U + 'static + Send,
+    ) -> Reply<Result<U, AccessError>> {
+        let req = self.inner.request_id;
+        self.world(move |world| world.buffers_mut(req, &accessor, f))
+    }
+
+    /// This is a two-stage approach to accessing buffers:
+    /// * `when` - The first stage tests whether some conditions for the buffers
+    ///   and/or the world are being met. You get to view the buffers of this
+    ///   accessor and also get to view the entire world. If the conditions that
+    ///   you are waiting for are met, return Some(_). Otherwise return None to
+    ///   keep waiting.
+    /// * `then` - The first time that the first stage passes (returns Some(_)),
+    ///   the value produced by the first stage will be passed to this stage,
+    ///   along with mutable access to the buffers.
+    ///
+    /// `when` will be run each time there is a change in any of the relevant
+    /// buffers, until its condition passes. It will not be run for any other
+    /// world updates. Since it needs to be run multiple times, it needs `FnMut`.
+    ///
+    /// `then` will be run at most once, so it supports `FnOnce`.
+    ///
+    /// If you detach the [`Reply`] given by this function, then the callbacks
+    /// will keep running until they finish. Otherwise the callbacks will stop
+    /// trying after the [`Reply`] and its underlying receiver are dropped.
+    #[must_use = "If the reply is dropped without being detached, the access callback might not be executed."]
+    pub fn wait_for_access<A: Accessor, V: 'static, U: 'static + Send>(
+        &self,
+        accessor: A,
+        mut when: impl FnMut(A::View<'_>, &World) -> Option<V> + 'static + Send,
+        then: impl FnOnce(A::Access<'_, '_, '_>, V) -> U + 'static + Send,
+    ) -> Reply<Result<U, AccessError>> {
+        let req = self.inner.request_id;
+        let mut then = Some(then);
+        let f = {
+            let accessor = accessor.clone();
+            move |world: &mut World| -> Option<Result<U, AccessError>> {
+                let view = match world.buffers_view_untraced(&accessor) {
+                    Ok(view) => view,
+                    Err(err) => return Some(Err(err.into())),
+                };
+
+                if let Some(v) = when(view, world) {
+                    if let Some(then) = then.take() {
+                        let f = move |access: A::Access<'_, '_, '_>| then(access, v);
+                        return Some(world.buffers_mut(req, &accessor, f));
+                    } else {
+                        world
+                            .get_resource_or_init::<UnhandledErrors>()
+                            .miscellaneous
+                            .push(MiscellaneousFailure {
+                                error: Arc::new(anyhow!("Access callback gone before it was used")),
+                                backtrace: Some(backtrace::Backtrace::new()),
+                            });
+
+                        // We don't want this to run forever, but there is no
+                        // other fitting error to return. This shouldn't happen
+                        // anyway.
+                        return Some(Err(AccessError::Multiple(vec![])));
+                    }
+                }
+
+                None
+            }
+        };
+
+        self.wait_for(accessor, f)
+    }
+
+    /// Try to join values from the buffers of this accessor. If one or more of
+    /// the buffers are not ready to join, then this will return `Ok(None)`.
+    pub fn try_join<A: Accessor>(
+        &self,
+        accessor: A,
+    ) -> Reply<Result<Option<A::Joined>, AccessError>> {
+        let req = self.inner.request_id;
+        self.world(move |world| accessor.join(req, world))
+    }
+
+    /// Keep trying to join until all the buffers are ready.
+    #[must_use = "If the Reply is dropped without being detached, the join might not happen."]
+    pub fn wait_for_join<A: Accessor>(&self, accessor: A) -> Reply<Result<A::Joined, AccessError>> {
+        let f = {
+            let req = self.inner.request_id;
+            let accessor = accessor.clone();
+            move |world: &mut World| -> Option<Result<A::Joined, AccessError>> {
+                accessor.join(req, world).transpose()
+            }
+        };
+
+        self.wait_for(accessor, f)
+    }
+
+    /// Distribute values to a set of buffers
+    pub fn distribute<A: Accessor>(
+        &self,
+        accessor: A,
+        values: A::Joined,
+    ) -> Reply<Result<(), AccessError>> {
+        let req = self.inner.request_id;
+        self.world(move |world| accessor.distribute(values, req, world))
+    }
+
     /// Run a query in the world and receive the promise of the query's output.
     #[deprecated(since = "0.0.6", note = "Use .request_outcome() instead")]
     pub fn query<P>(&self, request: P::Request, provider: P) -> Promise<P::Response>
@@ -76,6 +189,17 @@ impl Channel {
         #[allow(deprecated)]
         self.command(move |commands| commands.request(request, provider).take().response)
             .flatten()
+    }
+
+    /// Check whether the accessors are able to be joined. That means every buffer
+    /// contains at least one value.
+    ///
+    /// This method can also be used to test whether any buffers are unreachable.
+    /// If a buffer is empty and no other active part of the workflow will be
+    /// able to give it a value, then this will return [`AccessError::Unreachable`].
+    #[must_use = "This method does not affect anything. Await the Reply to find out if the accessors can be joined."]
+    pub fn can_join<A: Accessor>(&self, accessor: A) -> Reply<Result<bool, AccessError>> {
+        self.world(move |world| accessor.can_join(world))
     }
 
     /// Get access to a [`Commands`] for the [`World`].
@@ -151,6 +275,40 @@ impl Channel {
         Reply::new(receiver)
     }
 
+    /// Trigger a callback until it returns `Some(u)` then reply with the `u`.
+    /// The callback will be triggered each time a change happens in any of the
+    /// buffers included in the `dependencies` [`Accessor`].
+    #[must_use = "If the Reply is dropped without being detached, the callback might not be triggered."]
+    pub fn wait_for<A: Accessor, U: 'static + Send>(
+        &self,
+        dependencies: A,
+        mut f: impl FnMut(&mut World) -> Option<U> + 'static + Send,
+    ) -> Reply<U> {
+        let req = self.request_id();
+        let accessors = dependencies.clone();
+        let mut awaiting_handles = None;
+
+        let wait = move |world: &mut World| {
+            let done = f(world);
+
+            if done.is_none() && awaiting_handles.is_none() {
+                let mut handles = Vec::new();
+                accessors.notify_awaiting(req, &mut handles, world);
+                awaiting_handles = Some(handles);
+            }
+
+            done
+        };
+
+        wait_for(self.inner.clone(), dependencies, wait)
+    }
+
+    /// Get the [`RequestId`] that this channel is serving.
+    #[must_use = "No reason to call this if you are not using it"]
+    pub fn request_id(&self) -> RequestId {
+        self.inner.request_id()
+    }
+
     pub(crate) fn for_streams<Streams: StreamPack>(
         &self,
         world: &World,
@@ -212,11 +370,113 @@ impl Default for ChannelQueue {
     }
 }
 
+fn wait_for<A: Accessor, U: 'static + Send>(
+    channel: Arc<InnerChannel>,
+    mut accessor: A,
+    mut callback: impl FnMut(&mut World) -> Option<U> + 'static + Send,
+) -> Reply<U> {
+    let (sender, receiver) = oneshot::channel();
+    let reply = Reply::new(receiver);
+    let detached = reply.detached();
+    let channel_clone = Arc::clone(&channel);
+    let _ = channel_clone.sender.send(Box::new(
+        move |world: &mut World, _: &mut OperationRoster| {
+            if let Some(u) = callback(world) {
+                let _ = sender.send(u);
+                return;
+            }
+
+            let seen = accessor.make_seen(world);
+            accessor.seen(seen);
+
+            let shared_callback = Arc::new(Mutex::new(callback));
+            let shared_sender = Arc::new(Mutex::new(Some(sender)));
+            let _ = spawn_task(
+                async move {
+                    loop {
+                        if detached.load(Ordering::Acquire) {
+                            // The Reply is detached, so we can ignore responding to
+                            // whether or not it's dropped.
+                            let _ = accessor.wait_for_change();
+                        } else {
+                            let Ok(Some(mut sender)) = shared_sender.lock().map(|mut l| l.take())
+                            else {
+                                // For some reason the sender is no longer available.
+                                // This suggests that the join was already performed
+                                // somehow, even though that shouldn't be the case.
+                                return;
+                            };
+
+                            tokio::select! {
+                                _ = accessor.wait_for_change() => { },
+                                _ = sender.closed() => {
+                                    if !detached.load(Ordering::Acquire) {
+                                        // The receiver was dropped without being
+                                        // detached, so just return at this point.
+                                        return;
+                                    }
+                                }
+                            }
+
+                            // Restore the sender to its shared mutex
+                            match shared_sender.lock() {
+                                Ok(mut shared_sender) => {
+                                    *shared_sender = Some(sender);
+                                }
+                                Err(poison) => {
+                                    *poison.into_inner() = Some(sender);
+                                }
+                            }
+                            shared_sender.clear_poison();
+                        }
+
+                        let sender = shared_sender.clone();
+                        let callback = shared_callback.clone();
+                        let (seen_sender, seen_receiver) = oneshot::channel();
+                        let a = accessor.clone();
+                        let _ = channel.sender.send(Box::new(
+                            move |world: &mut World, _: &mut OperationRoster| {
+                                let Ok(mut callback) = callback.lock() else {
+                                    return;
+                                };
+
+                                if let Some(u) = (*callback)(world) {
+                                    // We have the value to return
+                                    if let Ok(Some(sender)) = sender.lock().map(|mut l| l.take()) {
+                                        let _ = sender.send(u);
+                                    }
+                                    return;
+                                }
+
+                                // The world was not ready, so update the waiting
+                                // task with the new seen value.
+                                let seen = a.make_seen(world);
+                                let _ = seen_sender.send(seen);
+                            },
+                        ));
+
+                        let Ok(seen) = seen_receiver.await else {
+                            // We aren't receiving a new seen update, so that
+                            // means the task is finished.
+                            return;
+                        };
+                        accessor.seen(seen);
+                    }
+                },
+                world,
+            )
+            .detach();
+        },
+    ));
+
+    reply
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::*, testing::*};
+    use crate::{AccessError, prelude::*, testing::*};
     use bevy_ecs::system::EntityCommands;
-    use std::time::Duration;
+    use std::{collections::HashMap, time::Duration};
 
     #[test]
     fn test_channel_request() {
@@ -266,5 +526,406 @@ mod tests {
             .unwrap()
             .0;
         assert_eq!(count, 5);
+    }
+
+    #[test]
+    fn test_channel_join() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffers = TestKeys::select_buffers(
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+            );
+
+            builder
+                .chain(scope.start)
+                .with_access(buffers.clone())
+                .then(async_distribute_values.into_callback())
+                .with_access(buffers.clone())
+                .then(async_join_values.into_callback())
+                .connect(scope.terminate);
+        });
+
+        let values = TestJoined {
+            integer: 9,
+            float: 2.71828,
+            string: String::from("hi"),
+        };
+
+        let result = context.resolve_request(values.clone(), workflow);
+        assert_eq!(result.integer, values.integer);
+        assert_eq!(result.float, values.float);
+        assert_eq!(result.string, values.string);
+
+        let delay = context.spawn_delay(Duration::from_secs_f32(0.05));
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffers = TestKeys::select_buffers(
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+            );
+
+            let (values, trigger) = builder
+                .chain(scope.start)
+                .map_block(|values| (values, ()))
+                .unzip();
+
+            builder
+                .chain(values)
+                .then(delay)
+                .with_access(buffers.clone())
+                .then(async_distribute_values.into_callback())
+                .unused();
+
+            builder
+                .chain(trigger)
+                .with_access(buffers.clone())
+                .then(async_wait_for_join_values.into_callback())
+                .connect(scope.terminate);
+        });
+
+        let result = context.resolve_request(values.clone(), workflow);
+        assert_eq!(result.integer, values.integer);
+        assert_eq!(result.float, values.float);
+        assert_eq!(result.string, values.string);
+    }
+
+    #[test]
+    fn test_struct_wait_for_access() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffers = TestKeys::select_buffers(
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+            );
+
+            let (integers, floats, string) = builder.chain(scope.start).unzip();
+            let integers_node = builder
+                .chain(integers)
+                .then_node(slowly_stream_values.into_callback());
+            builder.connect(integers_node.streams, buffers.integer.input_slot());
+
+            let floats_node = builder
+                .chain(floats)
+                .then_node(slowly_stream_values.into_callback());
+            builder.connect(floats_node.streams, buffers.float.input_slot());
+
+            builder
+                .chain(string)
+                .with_access(buffers)
+                .map(
+                    |Async {
+                         request: (string, keys),
+                         channel,
+                         ..
+                     }: Async<_>| {
+                        async move {
+                            channel
+                                .wait_for_access(
+                                    keys,
+                                    |view: TestView<'_>, _| {
+                                        if let (Some(i), Some(f)) =
+                                            (view.integer.newest(), view.float.newest())
+                                        {
+                                            if *i > 2 && *f > 2.0 {
+                                                let product = *i * *f as i64;
+                                                return Some(product);
+                                            }
+                                        }
+
+                                        None
+                                    },
+                                    move |mut access: TestAccess<'_, '_, '_>, product| {
+                                        access.string.push(string);
+                                        product
+                                    },
+                                )
+                                .await
+                                .unwrap()
+                        }
+                    },
+                )
+                .connect(scope.terminate);
+        });
+
+        let integers: Vec<i64> = vec![0, 1, 2, 3, 4, 5];
+        let floats: Vec<f32> = vec![1.1, 0.3, 2.2, 3.4, -10.0, 5.0];
+        let string = String::from("hello");
+
+        let result = context.resolve_request((integers, floats, string), workflow);
+        assert!(result > 4);
+    }
+
+    #[test]
+    fn test_tuple_wait_for_access() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffers: (Buffer<i32>, Buffer<Vec<i32>>, Buffer<String>) = (
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+                builder.create_buffer(Default::default()),
+            );
+            type Keys = (BufferKey<i32>, BufferKey<Vec<i32>>, BufferKey<String>);
+
+            let (values, trigger) = builder
+                .chain(scope.start)
+                .map_block(|value| (value, ()))
+                .unzip();
+
+            builder
+                .chain(trigger)
+                .with_access(buffers)
+                .map(
+                    |Async {
+                         request: (_, keys),
+                         channel,
+                         id,
+                         ..
+                     }: Async<((), Keys)>| {
+                        async move {
+                            channel
+                                .wait_for(keys.clone(), move |world| {
+                                    world
+                                        .buffers_mut(id, &keys, |mut buffers| {
+                                            let value = buffers.0.pull()?;
+                                            // Note: Using the ? above means that this function will
+                                            // return None until it manages to pull a value from the
+                                            // first buffer.
+
+                                            let mut values = buffers.1.oldest_mut().unwrap();
+                                            values.push(value);
+
+                                            // Put a value back into the first buffer so we
+                                            // can join all the buffers again later.
+                                            buffers.0.push(*values.first().unwrap());
+
+                                            // Return Some to end this wait_for
+                                            Some(())
+                                        })
+                                        .unwrap()
+                                })
+                                .await;
+                        }
+                    },
+                )
+                .with_access(buffers)
+                .then(async_join_values.into_callback())
+                .connect(scope.terminate);
+
+            builder
+                .chain(values)
+                .with_access(buffers)
+                .then(async_distribute_values.into_callback())
+                .unused();
+        });
+
+        let values = (5, vec![0, 1, 2, 3, 4], String::from("hello"));
+
+        let result = context.resolve_request(values.clone(), workflow);
+        assert_eq!(result.0, 0);
+        assert_eq!(result.1, vec![0, 1, 2, 3, 4, 5]);
+        assert_eq!(result.2, values.2);
+    }
+
+    #[test]
+    fn test_hashmap_wait_for_access() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let mut buffers = HashMap::new();
+            buffers.insert(
+                String::from("alice"),
+                builder.create_buffer(Default::default()),
+            );
+            buffers.insert(
+                String::from("bob"),
+                builder.create_buffer(Default::default()),
+            );
+            buffers.insert(
+                String::from("chris"),
+                builder.create_buffer(Default::default()),
+            );
+
+            let (values, trigger) = builder
+                .chain(scope.start)
+                .map_block(|value| (value, ()))
+                .unzip();
+
+            builder
+                .chain(trigger)
+                .with_access(buffers.clone())
+                .map(
+                    |Async {
+                         request: (_, keys),
+                         channel,
+                         id,
+                         ..
+                     }: Async<((), HashMap<String, BufferKey<i32>>)>| {
+                        async move {
+                            channel
+                                .wait_for(keys.clone(), move |world| {
+                                    world
+                                        .buffers_mut(id, &keys, |mut buffers| {
+                                            let [alice, bob, chris] =
+                                                buffers.get_disjoint_mut(["alice", "bob", "chris"]);
+                                            let mut alice = alice?.oldest_mut()?;
+                                            let mut bob = bob?.oldest_mut()?;
+                                            let chris = chris?.oldest_mut()?;
+                                            *alice = *alice - *bob;
+                                            *bob = *bob - *chris;
+
+                                            Some(())
+                                        })
+                                        .unwrap()
+                                })
+                                .await;
+                        }
+                    },
+                )
+                .with_access(buffers.clone())
+                .then(async_join_values.into_callback())
+                .connect(scope.terminate);
+
+            builder
+                .chain(values)
+                .with_access(buffers)
+                .then(async_distribute_values.into_callback())
+                .unused();
+        });
+
+        let mut values = HashMap::new();
+        values.insert(String::from("alice"), 42);
+        values.insert(String::from("bob"), 67);
+        values.insert(String::from("chris"), 88);
+
+        let resolved = context.resolve_request(values.clone(), workflow);
+
+        // Manipulate the values in the same way they should have been manipulated by the accessor
+        let [alice, bob, chris] = values.get_disjoint_mut(["alice", "bob", "chris"]);
+        let alice = alice.unwrap();
+        let bob = bob.unwrap();
+        let chris = chris.unwrap();
+        *alice = *alice - *bob;
+        *bob = *bob - *chris;
+
+        // Now check that the resolved values are what they are supposed to be
+        assert_eq!(resolved, values);
+    }
+
+    #[test]
+    fn test_unreachable_wait_for_join() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffer = builder.create_buffer(Default::default());
+            let (value, trigger) = builder
+                .chain(scope.start)
+                .map_block(|value| (value, ()))
+                .unzip();
+
+            builder
+                .chain(trigger)
+                .with_access(buffer)
+                .map(|input: Async<((), BufferKey<i32>)>| {
+                    let key = input.request.1;
+                    let channel = input.channel;
+                    async move {
+                        let joined = channel.wait_for_join(key.clone()).await.unwrap();
+                        assert_eq!(joined, 5);
+
+                        let failed_join = channel.wait_for_join(key).await;
+                        assert!(matches!(failed_join, Err(AccessError::Unreachable)));
+                    }
+                })
+                .connect(scope.terminate);
+
+            builder
+                .chain(value)
+                .with_access(buffer)
+                .map(|input: Async<(i32, BufferKey<i32>)>| {
+                    let value = input.request.0;
+                    let key = input.request.1;
+                    let channel = input.channel;
+                    async move {
+                        channel.distribute(key, value).detach();
+                    }
+                })
+                .unused();
+        });
+
+        context.resolve_request(5, workflow);
+    }
+
+    async fn async_distribute_values<A: Accessor>(
+        Async {
+            request, channel, ..
+        }: Async<(A::Joined, A)>,
+    ) {
+        let (values, keys) = request;
+        channel.distribute(keys, values).await.unwrap();
+    }
+
+    async fn async_join_values<A: Accessor>(
+        Async {
+            request, channel, ..
+        }: Async<((), A)>,
+    ) -> A::Joined {
+        let (_, keys) = request;
+        channel.try_join(keys).await.unwrap().unwrap()
+    }
+
+    async fn async_wait_for_join_values<A: Accessor>(
+        Async {
+            request, channel, ..
+        }: Async<((), A)>,
+    ) -> A::Joined {
+        let (_, keys) = request;
+        channel.wait_for_join(keys).await.unwrap()
+    }
+
+    async fn slowly_stream_values<T: 'static + Send + Sync>(
+        Async {
+            request, streams, ..
+        }: Async<Vec<T>, StreamOf<T>>,
+    ) {
+        for value in request {
+            let start = Instant::now();
+            let duration = Duration::from_secs_f32(0.01);
+            let mut elapsed = start.elapsed();
+            while elapsed < duration {
+                let never = async_std::future::pending::<()>();
+                let timeout = duration - elapsed;
+                let _ = async_std::future::timeout(timeout, never).await;
+                elapsed = start.elapsed();
+            }
+
+            streams.send(value);
+        }
+    }
+
+    #[derive(Accessor, Clone)]
+    #[accessor(
+        buffers_struct_name = TestBuffers,
+        use_as_joined = TestJoined,
+        view_struct_name = TestView,
+        access_struct_name = TestAccess,
+    )]
+    struct TestKeys {
+        integer: BufferKey<i64>,
+        float: BufferKey<f32>,
+        string: BufferKey<String>,
+    }
+
+    #[derive(Clone)]
+    struct TestJoined {
+        integer: i64,
+        float: f32,
+        string: String,
     }
 }

@@ -23,7 +23,7 @@ use crate::{
 
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{
-    prelude::{ChildOf, Commands, Component, Entity, Event, Query, Res, Resource, World},
+    prelude::{ChildOf, Command, Commands, Component, Entity, Event, Query, Res, Resource, World},
     system::SystemParam,
 };
 use schemars::JsonSchema;
@@ -32,6 +32,7 @@ use smallvec::SmallVec;
 use std::{
     any::Any,
     borrow::Cow,
+    collections::VecDeque,
     sync::Arc,
     time::{Instant, SystemTime},
 };
@@ -311,7 +312,7 @@ impl MessageSent {
             input,
             message,
         };
-        world.trigger(TracedEvent::now(event));
+        world.write_trace(TracedEvent::now(event));
     }
 }
 
@@ -339,12 +340,13 @@ impl OutputDisposed {
         if tracer.is_on() {
             let trigger = TraceSource::new(trigger, world);
             let disposed_in_session = get_session_stack_from_world(disposed_in_session, world);
-            world.trigger(TracedEvent::now(Self {
+            let event = TracedEvent::now(Self {
                 trigger,
                 disposed_operation,
                 disposed_in_session,
                 disposal,
-            }));
+            });
+            world.write_trace(event);
         }
     }
 }
@@ -509,7 +511,7 @@ impl<'w, 's> BufferTracer<'w, 's> {
             access,
         };
 
-        self.commands.trigger(TracedEvent::now(buffer_event));
+        self.commands.write_trace(TracedEvent::now(buffer_event));
     }
 
     pub(crate) fn get_message_tracer(&self, key: &BufferKeyTag) -> MessageTracer<'_> {
@@ -578,7 +580,7 @@ impl SessionEvent {
             change: SessionChange::Spawned { scope },
         };
 
-        world.trigger(TracedEvent::now(event));
+        world.write_trace(TracedEvent::now(event));
     }
 
     pub(crate) fn despawned(session: Entity, world: &mut World) {
@@ -588,7 +590,7 @@ impl SessionEvent {
             change: SessionChange::Despawned,
         };
 
-        world.trigger(TracedEvent::now(event));
+        world.write_trace(TracedEvent::now(event));
     }
 
     pub(crate) fn cancelled(
@@ -607,7 +609,7 @@ impl SessionEvent {
             },
         };
 
-        world.trigger(TracedEvent::now(event));
+        world.write_trace(TracedEvent::now(event));
     }
 
     pub(crate) fn paused_by_user(session: Entity, world: &mut World) {
@@ -617,7 +619,7 @@ impl SessionEvent {
             change: SessionChange::Paused(PauseCause::UserRequest),
         };
 
-        world.trigger(TracedEvent::now(event));
+        world.write_trace(TracedEvent::now(event));
     }
 
     pub(crate) fn paused_by_breakpoint(session: Entity, breakpoint: Entity, world: &mut World) {
@@ -627,7 +629,7 @@ impl SessionEvent {
             change: SessionChange::Paused(PauseCause::Breakpoint(breakpoint)),
         };
 
-        world.trigger(TracedEvent::now(event));
+        world.write_trace(TracedEvent::now(event));
     }
 
     pub(crate) fn unpaused(session: Entity, world: &mut World) {
@@ -637,7 +639,7 @@ impl SessionEvent {
             change: SessionChange::Unpaused,
         };
 
-        world.trigger(TracedEvent::now(event));
+        world.write_trace(TracedEvent::now(event));
     }
 
     pub(crate) fn cleanup(session: Entity, world: &mut World) {
@@ -647,7 +649,7 @@ impl SessionEvent {
             change: SessionChange::BeginCleanup,
         };
 
-        world.trigger(TracedEvent::now(event));
+        world.write_trace(TracedEvent::now(event));
     }
 }
 
@@ -780,7 +782,7 @@ impl TracedEvent {
 
     pub fn trace(event: impl Into<TracedEventKind>, world: &mut World) {
         let event = event.into();
-        world.trigger(Self::now(event));
+        world.write_trace(Self::now(event));
     }
 }
 
@@ -844,6 +846,33 @@ fn get_session_stack_from_world(session: Entity, world: &mut World) -> SmallVec<
     let mut child_of_state = world.query::<&ChildOf>();
     let child_of = child_of_state.query(world);
     get_session_stack(session, &child_of)
+}
+
+#[derive(Resource, Default, Debug, Deref, DerefMut)]
+pub(crate) struct TraceLog(pub(crate) VecDeque<TracedEvent>);
+
+struct WriteToTraceLogCmd(TracedEvent);
+
+impl Command for WriteToTraceLogCmd {
+    fn apply(self, world: &mut World) -> () {
+        world.get_resource_or_init::<TraceLog>().push_back(self.0);
+    }
+}
+
+pub(crate) trait WriteToTraceLog {
+    fn write_trace(&mut self, event: TracedEvent);
+}
+
+impl WriteToTraceLog for World {
+    fn write_trace(&mut self, event: TracedEvent) {
+        self.get_resource_or_init::<TraceLog>().push_back(event);
+    }
+}
+
+impl<'w, 's> WriteToTraceLog for Commands<'w, 's> {
+    fn write_trace(&mut self, event: TracedEvent) {
+        self.queue(WriteToTraceLogCmd(event));
+    }
 }
 
 #[cfg(test)]

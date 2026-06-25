@@ -31,7 +31,7 @@
 #![allow(unused)]
 
 use crossflow::bevy_app::{App, Update};
-use crossflow::prelude::*;
+use crossflow::{prelude::*, AccessError};
 
 use async_std::future::{pending, timeout};
 use bevy_ecs::prelude::*;
@@ -1413,6 +1413,13 @@ struct Pickup {
 
 enum NavigationError {
     MissingGraph,
+    AccessError(AccessError),
+}
+
+impl From<AccessError> for NavigationError {
+    fn from(value: AccessError) -> Self {
+        Self::AccessError(value)
+    }
 }
 
 #[derive(Clone, Resource)]
@@ -1442,15 +1449,6 @@ fn navigate(
     // async block.
     let nav_graph = (*nav_graph).clone();
 
-    // Create a callback for fetching the latest position
-    let get_position = |
-        Blocking { request: key, id, .. }: Blocking<BufferKey<Vec2>>,
-        mut access: BufferAccess<Vec2>,
-    | {
-        access.get_newest(id, &key).cloned()
-    };
-    let get_position = get_position.into_callback();
-
     // Unpack the input into simpler variables
     let NavigationRequest { destination, robot_position_key } = request;
     let location_stream = streams.location;
@@ -1458,19 +1456,9 @@ fn navigate(
     // Begin an async block that will run in the AsyncComputeTaskPool
     async move {
         loop {
-            // Fetch the latest position using the async channel
-            let position = channel.request_outcome(
-                robot_position_key.clone(),
-                get_position.clone()
-            )
-                .await
-                .ok()
-                .flatten();
-
-            let Some(position) = position else {
-                // Position has not been reported yet, so just try again later.
-                continue;
-            };
+            // Fetch the latest position using the async channel.
+            // "Joining" a single buffer is the same as fetching its value.
+            let position = channel.wait_for_join(robot_position_key.clone()).await?;
 
             // Send the current position out over an async stream
             location_stream.send(position);

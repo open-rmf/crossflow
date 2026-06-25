@@ -39,7 +39,7 @@ use crate::{
 use crate::async_execution::SingleThreadedExecution;
 
 #[cfg(feature = "trace")]
-use crate::{Debug, DebugRoster};
+use crate::{Debug, DebugRoster, TraceLog};
 
 #[derive(Resource, Default, Clone, Copy)]
 pub struct FlushParameters {
@@ -199,6 +199,21 @@ fn flush_execution_impl(
 fn garbage_cleanup(world: &mut World, roster: &mut OperationRoster) {
     while let Some(cleanup) = roster.cleanup_finished.pop() {
         cleanup.trigger(world, roster);
+    }
+
+    #[cfg(feature = "trace")]
+    {
+        // We must only trigger traces during the flush because we can't predict
+        // what the user's custom observer might do that would disrupt the
+        // execution of workflows. It's possible that the observer could choose
+        // to cancel sessions or make changes to buffers. Those activities are
+        // only safe to do during the execution flush. Basic assumptions made by
+        // operation implementations could be violated if an arbitrary system has
+        // full world access while an operation is in the middle of its synced
+        // execution.
+        while let Some(trace) = world.get_resource_or_init::<TraceLog>().pop_front() {
+            world.trigger(trace);
+        }
     }
 }
 

@@ -32,6 +32,7 @@ const ALLOWED_OUTPUT_EDGES: Record<NodeTypes, EdgeTypes[]> = {
   listen: ['default'],
   node: ['default', 'streamOut'],
   scope: ['default', 'streamOut'],
+  script: ['default', 'streamOut'],
   section: ['section'],
   sectionInput: ['default'],
   sectionOutput: [],
@@ -53,6 +54,7 @@ const ALLOWED_INPUT_EDGE_CATEGORIES: Record<NodeTypes, EdgeCategory[]> = {
   listen: [EdgeCategory.Buffer],
   node: [EdgeCategory.Data],
   scope: [EdgeCategory.Data],
+  script: [EdgeCategory.Data],
   section: [EdgeCategory.Data, EdgeCategory.Buffer],
   sectionInput: [],
   sectionOutput: [EdgeCategory.Data],
@@ -106,7 +108,8 @@ export function getValidEdgeTypes(
   targetNode: DiagramEditorNode,
   targetHandle: string | null | undefined,
 ): EdgeTypes[] {
-  let allowedOutputEdges: EdgeTypes[] = ALLOWED_OUTPUT_EDGES[sourceNode.type];
+  let allowedOutputEdges: EdgeTypes[] =
+    ALLOWED_OUTPUT_EDGES[sourceNode.type as NodeTypes];
   if (sourceHandle) {
     const allowedHandleOutput = ALLOWED_HANDLE_OUTPUT_EDGES[sourceHandle];
     if (allowedHandleOutput) {
@@ -126,7 +129,7 @@ export function getValidEdgeTypes(
   }
 
   let allowedInputEdgeCategories =
-    ALLOWED_INPUT_EDGE_CATEGORIES[targetNode.type];
+    ALLOWED_INPUT_EDGE_CATEGORIES[targetNode.type as NodeTypes];
   if (targetHandle) {
     const allowedHandleInput =
       ALLOWED_HANDLE_INPUT_EDGE_CATEGORIES[targetHandle];
@@ -157,7 +160,7 @@ function getOutputCardinality(
   handleId: string | null | undefined,
 ): CardinalityType {
   if (handleId === HandleId.DataStream) {
-    return CardinalityType.Single;
+    return CardinalityType.Many;
   }
 
   switch (type) {
@@ -174,6 +177,7 @@ function getOutputCardinality(
     case 'join':
     case 'listen':
     case 'scope':
+    case 'script':
     case 'stream_out':
     case 'transform':
     case 'start':
@@ -200,6 +204,28 @@ export type EdgeValidationResult =
 
 function createValidationError(error: string): ValidationError {
   return { valid: false, error };
+}
+
+export function createConnectionFromDraggedHandle(args: {
+  fromNodeId: string;
+  fromHandleId: string | null | undefined;
+  fromHandleType: 'source' | 'target';
+  otherNodeId: string;
+  otherHandleId: string | null | undefined;
+}): Connection {
+  return args.fromHandleType === 'source'
+    ? {
+        source: args.fromNodeId,
+        sourceHandle: args.fromHandleId || null,
+        target: args.otherNodeId,
+        targetHandle: args.otherHandleId || null,
+      }
+    : {
+        source: args.otherNodeId,
+        sourceHandle: args.otherHandleId || null,
+        target: args.fromNodeId,
+        targetHandle: args.fromHandleId || null,
+      };
 }
 
 /**
@@ -274,6 +300,80 @@ export function validateConnectionQuick(
   return { valid: true };
 }
 
+export function validateSourceOutputCapacity(
+  sourceNode: DiagramEditorNode,
+  sourceHandle: string | null | undefined,
+  edges: DiagramEditorEdge[],
+  edgeId?: string,
+): ConnectionValidationResult {
+  // Check if the source supports emitting multiple outputs.
+  // NOTE: All nodes supports "Many" inputs so we don't need to check that.
+  const outputCardinality = getOutputCardinality(sourceNode.type, sourceHandle);
+  switch (outputCardinality) {
+    case CardinalityType.Single: {
+      if (
+        edges.some(
+          (e) =>
+            e.source === sourceNode.id &&
+            (sourceHandle || null) === (e.sourceHandle || null) &&
+            edgeId !== e.id,
+        )
+      ) {
+        return createValidationError(
+          'This output can only be connected to one input',
+        );
+      }
+      break;
+    }
+    case CardinalityType.Pair: {
+      let count = 0;
+      for (const e of edges) {
+        if (e.source === sourceNode.id && edgeId !== e.id) {
+          count++;
+        }
+        if (count > 1) {
+          return createValidationError(
+            'This output can only be connected to two inputs',
+          );
+        }
+      }
+      break;
+    }
+    case CardinalityType.Many: {
+      break;
+    }
+    default: {
+      exhaustiveCheck(outputCardinality);
+      throw new Error('unknown output cardinality');
+    }
+  }
+
+  return { valid: true };
+}
+
+export function validateConnectionSimple(
+  conn: Connection | DiagramEditorEdge,
+  nodeManager: NodeManager,
+  edges: DiagramEditorEdge[],
+): ConnectionValidationResult {
+  const quickCheck = validateConnectionQuick(conn, nodeManager);
+  if (!quickCheck.valid) {
+    return quickCheck;
+  }
+
+  const sourceNode = nodeManager.tryGetNode(conn.source);
+  if (!sourceNode) {
+    return createValidationError('cannot find source or target node');
+  }
+
+  return validateSourceOutputCapacity(
+    sourceNode,
+    conn.sourceHandle,
+    edges,
+    'id' in conn ? conn.id : undefined,
+  );
+}
+
 /**
  * Perform a simple check of the validity of edges.
  * Includes the checks in `validateEdgeQuick` and the following:
@@ -316,49 +416,14 @@ export function validateEdgeSimple(
     }
   }
 
-  // Check if the source supports emitting multiple outputs.
-  // NOTE: All nodes supports "Many" inputs so we don't need to check that.
-  const outputCardinality = getOutputCardinality(
-    sourceNode.type,
+  const outputCapacity = validateSourceOutputCapacity(
+    sourceNode,
     edge.sourceHandle,
+    edges,
+    edge.id,
   );
-  switch (outputCardinality) {
-    case CardinalityType.Single: {
-      if (
-        edges.some(
-          (e) =>
-            e.source === sourceNode.id &&
-            (edge.sourceHandle || null) === (e.sourceHandle || null) &&
-            edge.id !== e.id,
-        )
-      ) {
-        return createValidationError(
-          'This output can only be connected to one input',
-        );
-      }
-      break;
-    }
-    case CardinalityType.Pair: {
-      let count = 0;
-      for (const e of edges) {
-        if (e.source === sourceNode.id && edge.id !== e.id) {
-          count++;
-        }
-        if (count > 1) {
-          return createValidationError(
-            'This output can only be connected to two inputs',
-          );
-        }
-      }
-      break;
-    }
-    case CardinalityType.Many: {
-      break;
-    }
-    default: {
-      exhaustiveCheck(outputCardinality);
-      throw new Error('unknown output cardinality');
-    }
+  if (!outputCapacity.valid) {
+    return outputCapacity;
   }
 
   return { valid: true, validEdgeTypes: quickCheck.validEdgeTypes };

@@ -12,3 +12,8 @@ node_modules
 # storybook
 *storybook.log
 storybook-static
+
+.DS_Store
+
+.env/
+venv/

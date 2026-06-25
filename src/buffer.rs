@@ -24,16 +24,22 @@ use bevy_ecs::{
 use std::{
     any::TypeId,
     collections::HashMap,
+    num::Wrapping,
     ops::RangeBounds,
     sync::{Arc, Mutex, OnceLock},
 };
 
 use thiserror::Error as ThisError;
 
-use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationError, OrBroken, RequestId};
+use crate::{GateState, InputSlot, NotifyBufferUpdate, OperationResult, OrBroken, RequestId, Seq};
+
+pub type BufferChangeReceiver = tokio::sync::watch::Receiver<Wrapping<Seq>>;
 
 #[cfg(feature = "trace")]
 use crate::{BufferAccessRecord, BufferTracer};
+
+mod accessor;
+pub use accessor::*;
 
 mod any_buffer;
 pub use any_buffer::*;
@@ -63,9 +69,9 @@ pub use bufferable::*;
 mod inspect_buffer_sessions;
 pub use inspect_buffer_sessions::*;
 
-#[cfg(feature = "diagram")]
+#[cfg(feature = "json")]
 mod json_buffer;
-#[cfg(feature = "diagram")]
+#[cfg(feature = "json")]
 pub use json_buffer::*;
 
 mod fetch_from_buffer;
@@ -196,6 +202,8 @@ impl<T: Clone + Send + Sync + 'static> CloneFromBuffer<T> {
             interface.register_cloning(
                 clone_for_any_join::<T>,
                 &(clone_for_join::<T> as FetchFromBufferFn<T>),
+                &(clone_from_buffer::<T> as FetchFn<T>),
+                clone_any::<T>,
             );
             interface.register_buffer_downcast(
                 TypeId::of::<CloneFromBuffer<T>>(),
@@ -211,7 +219,7 @@ fn clone_for_any_join<T: 'static + Send + Sync + Clone>(
     request_id: RequestId,
     key: &BufferKeyTag,
     world: &mut World,
-) -> Result<AnyMessageBox, OperationError> {
+) -> OperationResult<AnyMessageBox> {
     // In general we expect pulling to imply pulling the oldest since the most
     // typical pattern when information is being pulled from a source would be
     // FIFO. It's very unlikely that someone pulling information would want the
@@ -234,6 +242,12 @@ fn clone_for_any_join<T: 'static + Send + Sync + Clone>(
         .or_broken()
         .cloned()
         .map(to_any_message)
+}
+
+fn clone_any<T: Clone + 'static + Send + Sync>(value: AnyMessageRef) -> AnyMessageBox {
+    // SAFETY: The API prevents the user from passing any value into this
+    // which isn't the underlying type T.
+    Box::new(value.downcast_ref::<T>().unwrap().clone())
 }
 
 impl<T: Clone + Send + Sync> From<CloneFromBuffer<T>> for Buffer<T> {
@@ -324,79 +338,171 @@ impl Default for RetentionPolicy {
 ///
 /// [1]: crate::Chain::with_access
 /// [2]: crate::Accessible::listen
-pub struct BufferKey<T> {
-    tag: BufferKeyTag,
-    _ignore: std::marker::PhantomData<fn(T)>,
+pub struct BufferKey<T: 'static + Send + Sync> {
+    body: BufferKeyBody,
+    pub fetch_settings: FetchSettings<T>,
 }
 
-impl<T> Clone for BufferKey<T> {
+impl<T: 'static + Send + Sync> Clone for BufferKey<T> {
     fn clone(&self) -> Self {
         Self {
-            tag: self.tag.clone(),
-            _ignore: Default::default(),
+            body: self.body.clone(),
+            fetch_settings: self.fetch_settings.clone(),
         }
     }
 }
 
-impl<T> BufferKey<T> {
+impl<T: 'static + Send + Sync> BufferKey<T> {
+    /// Make a copy of this key that will fetch values from a buffer by pulling
+    /// a value out.
+    #[must_use = "This creates a new key. The original key is unchanged."]
+    pub fn fetch_by_pull(&self) -> Self {
+        let mut key = self.clone();
+        key.fetch_settings.fetch_by_pull();
+        key
+    }
+
+    /// Make a copy of this key that will fetch values from a buffer by cloning
+    /// a value. The contents of the buffer will be unchanged by any fetch or
+    /// join done using this key.
+    #[must_use = "This creates a new key. The original key is unchanged."]
+    pub fn fetch_by_clone(&self) -> Self
+    where
+        T: Clone,
+    {
+        let mut key = self.clone();
+        key.fetch_settings.fetch_by_clone();
+        key
+    }
+
     /// The buffer ID of this key.
     pub fn buffer(&self) -> Entity {
-        self.tag.buffer
+        self.body.tag.buffer
     }
 
     /// The session that this key belongs to.
     pub fn session(&self) -> Entity {
-        self.tag.session
+        self.body.tag.session
     }
 
     pub fn tag(&self) -> &BufferKeyTag {
-        &self.tag
+        &self.body.tag
     }
 }
 
 impl<T: 'static + Send + Sync> BufferKeyLifecycle for BufferKey<T> {
     type TargetBuffer = Buffer<T>;
 
-    fn create_key(buffer: &Self::TargetBuffer, builder: &BufferKeyBuilder) -> Self {
-        BufferKey {
-            tag: builder.make_tag(buffer.id()),
-            _ignore: Default::default(),
-        }
+    fn create_key(
+        buffer: &Self::TargetBuffer,
+        builder: &mut BufferKeyBuilder,
+    ) -> OperationResult<Self> {
+        Ok(BufferKey {
+            body: builder.make_body(buffer.id())?,
+            fetch_settings: Default::default(),
+        })
     }
 
     fn is_in_use(&self) -> bool {
-        self.tag.is_in_use()
+        self.body.is_in_use()
     }
 
     fn deep_clone(&self) -> Self {
         Self {
-            tag: self.tag.deep_clone(),
-            _ignore: Default::default(),
+            body: self.body.deep_clone(),
+            fetch_settings: self.fetch_settings.clone(),
         }
     }
 }
 
-impl<T> std::fmt::Debug for BufferKey<T> {
+impl<T: 'static + Send + Sync> std::fmt::Debug for BufferKey<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BufferKey")
             .field("message_type_name", &std::any::type_name::<T>())
-            .field("tag", &self.tag)
+            .field("tag", &self.body)
+            .field("fetch_settings", &self.fetch_settings)
             .finish()
     }
 }
 
-/// The identifying information for a buffer key. This does not indicate
-/// anything about the type of messages that the buffer can contain.
-#[derive(Clone)]
-pub struct BufferKeyTag {
-    pub buffer: Entity,
-    pub session: Entity,
-    /// Which buffer listener operation was this key originally sent to
-    pub accessor: Entity,
-    pub lifecycle: Option<Arc<BufferAccessLifecycle>>,
+pub(crate) type FetchFn<T> = fn(BufferMut<T>) -> Option<T>;
+
+pub struct FetchSettings<T: 'static + Send + Sync> {
+    behavior: FetchBehavior,
+    fetch: FetchFn<T>,
 }
 
-impl BufferKeyTag {
+impl<T: 'static + Send + Sync> FetchSettings<T> {
+    /// Change the fetch settings of the key so that it fetches value by pulling
+    /// them out of the buffer.
+    pub fn fetch_by_pull(&mut self) {
+        self.behavior = FetchBehavior::Pull;
+        self.fetch = pull_from_buffer::<T>;
+    }
+
+    /// Change the fetch settings of the key so that it fetches values by cloning
+    /// them. The buffer will be left unchanged by the fetch.
+    pub fn fetch_by_clone(&mut self)
+    where
+        T: Clone,
+    {
+        CloneFromBuffer::<T>::register_clone_for_join();
+        self.behavior = FetchBehavior::Clone;
+        self.fetch = clone_from_buffer::<T>;
+    }
+
+    /// What is the current fetching behavior
+    pub fn behavior(&self) -> &FetchBehavior {
+        &self.behavior
+    }
+}
+
+impl<T: 'static + Send + Sync> Clone for FetchSettings<T> {
+    fn clone(&self) -> Self {
+        Self {
+            behavior: self.behavior,
+            fetch: self.fetch,
+        }
+    }
+}
+
+impl<T: 'static + Send + Sync> Default for FetchSettings<T> {
+    fn default() -> Self {
+        Self {
+            behavior: FetchBehavior::Pull,
+            fetch: pull_from_buffer::<T>,
+        }
+    }
+}
+
+impl<T: 'static + Send + Sync> std::fmt::Debug for FetchSettings<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FetchSettings")
+            .field("behavior", &self.behavior)
+            .finish()
+    }
+}
+
+fn pull_from_buffer<T: 'static + Send + Sync>(mut buffer: BufferMut<T>) -> Option<T> {
+    buffer.pull()
+}
+
+fn clone_from_buffer<T: 'static + Send + Sync + Clone>(buffer: BufferMut<T>) -> Option<T> {
+    buffer.oldest().map(|v| v.clone())
+}
+
+#[derive(Clone)]
+pub struct BufferKeyBody {
+    tag: BufferKeyTag,
+    /// The lifecycle is tracked for keys within a regular session, but it does
+    /// not get tracked for keys within a cleanup session, so this field will be
+    /// None for the keys passed to cleanup workflows.
+    lifecycle: Option<Arc<BufferAccessLifecycle>>,
+    /// Provides async notification when the buffer value changes for this session.
+    receiver: BufferChangeReceiver,
+}
+
+impl BufferKeyBody {
     pub fn is_in_use(&self) -> bool {
         self.lifecycle.as_ref().is_some_and(|l| l.is_in_use())
     }
@@ -411,14 +517,31 @@ impl BufferKeyTag {
     }
 }
 
-impl std::fmt::Debug for BufferKeyTag {
+impl std::fmt::Debug for BufferKeyBody {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BufferKeyTag")
-            .field("buffer", &self.buffer)
-            .field("session", &self.session)
-            .field("accessor", &self.accessor)
+            .field("tag", &self.tag)
             .field("in_use", &self.is_in_use())
             .finish()
+    }
+}
+
+/// The identifying information for a buffer key. This does not indicate
+/// anything about the type of messages that the buffer can contain.
+#[derive(Debug, Clone, Copy)]
+pub struct BufferKeyTag {
+    pub buffer: Entity,
+    pub session: Entity,
+    /// Which buffer listener operation was this key originally sent to
+    pub accessor: Entity,
+}
+
+impl BufferKeyTag {
+    pub fn instance(&self) -> BufferInstanceId {
+        BufferInstanceId {
+            buffer: self.buffer,
+            session: self.session,
+        }
     }
 }
 
@@ -689,6 +812,46 @@ pub trait BufferWorldAccess {
     where
         T: 'static + Send + Sync;
 
+    /// A generalization of [`Self::buffer_view`] that allows you to view
+    /// multiple buffers at once using an [`Accessor`].
+    fn buffers_view<'a, A: Accessor>(
+        &'a mut self,
+        req: RequestId,
+        accessor: &A,
+    ) -> Result<A::View<'a>, BufferError>;
+
+    /// A generalization of [`Self::buffer_view_untraced`] that allows you to
+    /// view multiple buffers simultaneously using an [`Accessor`].
+    fn buffers_view_untraced<'a, A: Accessor>(
+        &'a self,
+        accessor: &A,
+    ) -> Result<A::View<'a>, BufferError>;
+
+    /// A generalization of [`Self::buffer_mut`] that allows you to get mutable
+    /// access to multiple buffers simultaneously using an [`Accessor`].
+    fn buffers_mut<A: Accessor, U>(
+        &mut self,
+        req: RequestId,
+        accessor: &A,
+        f: impl FnOnce(A::Access<'_, '_, '_>) -> U,
+    ) -> Result<U, AccessError>;
+
+    /// Join the values from a set of buffers into a single value.
+    fn join_from_buffers<A: Accessor>(
+        &mut self,
+        req: RequestId,
+        accessor: &A,
+    ) -> Result<Option<A::Joined>, AccessError>;
+
+    /// Distribute a set of values to a set of buffers. This is the inverse of
+    /// [`Self::join_from_buffers`].
+    fn distribute_to_buffers<A: Accessor>(
+        &mut self,
+        value: A::Joined,
+        req: RequestId,
+        accessor: &A,
+    ) -> Result<(), AccessError>;
+
     /// Call this to get mutable access to the gate of a buffer.
     ///
     /// Pass in a callback that will receive [`BufferGateMut`], allowing it to
@@ -736,12 +899,10 @@ impl BufferWorldAccess for World {
     where
         T: 'static + Send + Sync,
     {
-        let buffer_ref = self
-            .get_entity(key.buffer)
-            .map_err(|_| BufferError::BufferMissing)?;
+        let buffer_ref = self.get_entity(key.buffer)?;
         let storage = buffer_ref
             .get::<BufferStorage<T>>()
-            .ok_or(BufferError::BufferMissing)?;
+            .ok_or(BufferError::BufferStorageMissing)?;
         Ok(BufferView {
             storage,
             session: key.session,
@@ -753,15 +914,13 @@ impl BufferWorldAccess for World {
         key: impl Into<AnyBufferKey>,
     ) -> Result<BufferGateView<'_>, BufferError> {
         let key: AnyBufferKey = key.into();
-        let buffer_ref = self
-            .get_entity(key.tag.buffer)
-            .or(Err(BufferError::BufferMissing))?;
+        let buffer_ref = self.get_entity(key.tag().buffer)?;
         let gate = buffer_ref
             .get::<GateState>()
-            .ok_or(BufferError::BufferMissing)?;
+            .ok_or(BufferError::GateStorageMissing)?;
         Ok(BufferGateView {
             gate,
-            session: key.tag.session,
+            session: key.tag().session,
         })
     }
 
@@ -787,13 +946,55 @@ impl BufferWorldAccess for World {
         T: 'static + Send + Sync,
     {
         let mut state = SystemState::<BufferAccessMut<T>>::new(self);
-        let mut buffer_access_mut = state.get_mut(self);
-        let buffer_mut = buffer_access_mut
-            .unchecked_get_mut(req, key)
-            .map_err(|_| BufferError::BufferMissing)?;
-        let r = f(buffer_mut);
+        let r = {
+            let mut buffer_access_mut = state.get_mut(self);
+            let buffer_mut = buffer_access_mut.unchecked_get_mut(req, key)?;
+            f(buffer_mut)
+        };
+
         state.apply(self);
         Ok(r)
+    }
+
+    fn buffers_view<'a, A: Accessor>(
+        &'a mut self,
+        req: RequestId,
+        accessor: &A,
+    ) -> Result<A::View<'a>, BufferError> {
+        accessor.view(req, self)
+    }
+
+    fn buffers_view_untraced<'a, A: Accessor>(
+        &'a self,
+        accessor: &A,
+    ) -> Result<A::View<'a>, BufferError> {
+        accessor.view_untraced(self)
+    }
+
+    fn buffers_mut<A: Accessor, U>(
+        &mut self,
+        req: RequestId,
+        accessor: &A,
+        f: impl FnOnce(A::Access<'_, '_, '_>) -> U,
+    ) -> Result<U, AccessError> {
+        accessor.access(req, self, f)
+    }
+
+    fn join_from_buffers<A: Accessor>(
+        &mut self,
+        req: RequestId,
+        accessor: &A,
+    ) -> Result<Option<A::Joined>, AccessError> {
+        accessor.join(req, self)
+    }
+
+    fn distribute_to_buffers<A: Accessor>(
+        &mut self,
+        value: A::Joined,
+        req: RequestId,
+        accessor: &A,
+    ) -> Result<(), AccessError> {
+        accessor.distribute(value, req, self)
     }
 
     fn buffer_gate_mut<U>(
@@ -804,9 +1005,7 @@ impl BufferWorldAccess for World {
     ) -> Result<U, BufferError> {
         let mut state = SystemState::<BufferGateAccessMut>::new(self);
         let mut buffer_gate_access_mut = state.get_mut(self);
-        let buffer_mut = buffer_gate_access_mut
-            .get_mut(req, key)
-            .map_err(|_| BufferError::BufferMissing)?;
+        let buffer_mut = buffer_gate_access_mut.get_mut(req, key)?;
         let r = f(buffer_mut);
         state.apply(self);
         Ok(r)
@@ -821,6 +1020,17 @@ where
     storage: &'a BufferStorage<T>,
     session: Entity,
 }
+
+impl<'a, T: 'static + Send + Sync> Clone for BufferView<'a, T> {
+    fn clone(&self) -> Self {
+        Self {
+            storage: self.storage,
+            session: self.session,
+        }
+    }
+}
+
+impl<'a, T: 'static + Send + Sync> Copy for BufferView<'a, T> {}
 
 impl<'a, T> BufferView<'a, T>
 where
@@ -1042,7 +1252,9 @@ where
 {
     fn drop(&mut self) {
         if self.modified {
-            self.manager.commands.queue(NotifyBufferUpdate::new(
+            // SAFETY: The commands pointer in the manager comes from a valid
+            // reference that outlives this BufferMut, so it is safe to dereference.
+            unsafe { &mut *self.manager.commands }.queue(NotifyBufferUpdate::new(
                 self.buffer,
                 self.manager.req,
                 self.manager.key_session(),
@@ -1054,8 +1266,18 @@ where
 
 #[derive(ThisError, Debug, Clone)]
 pub enum BufferError {
-    #[error("The key was unable to identify a buffer")]
-    BufferMissing,
+    #[error("Querying for the buffer entity failed: {0}")]
+    QueryFailed(#[from] QueryEntityError),
+    #[error("The BufferStorage is missing from the buffer entity")]
+    BufferStorageMissing,
+    #[error("The GateStorage is missing from the buffer entity")]
+    GateStorageMissing,
+}
+
+impl From<bevy_ecs::entity::EntityDoesNotExistError> for BufferError {
+    fn from(value: bevy_ecs::entity::EntityDoesNotExistError) -> Self {
+        Self::QueryFailed(QueryEntityError::EntityDoesNotExist(value))
+    }
 }
 
 #[cfg(test)]
@@ -1582,5 +1804,113 @@ mod tests {
 
         let r = context.resolve_request(vec![-3, 2, 10], workflow);
         assert_eq!(r.unwrap(), 10);
+    }
+
+    #[test]
+    fn test_fetch_by_clone() {
+        let mut context = TestingContext::minimal_plugins();
+
+        // ----- Test explicit behavior conversion via .fetch_by_clone
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffer = builder.create_buffer(BufferSettings::keep_last(1));
+            builder
+                .chain(scope.start)
+                .then_push(buffer)
+                .with_access(buffer)
+                .map(|input: Async<((), BufferKey<i32>)>| {
+                    let key = input.request.1.fetch_by_clone();
+                    let channel = input.channel;
+
+                    async move {
+                        let mut x = None;
+                        for _ in 0..10 {
+                            x = channel.try_join(key.clone()).await.unwrap();
+                        }
+                        x
+                    }
+                })
+                .connect(scope.terminate);
+        });
+
+        let r = context.resolve_request(5, workflow).unwrap();
+        assert_eq!(r, 5);
+
+        // ----- Test using CloneFromBuffer to implicitly make the fetch_by_clone behavior
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffer = builder.create_buffer(BufferSettings::keep_last(1));
+            builder
+                .chain(scope.start)
+                .then_push(buffer)
+                .with_access(buffer.join_by_cloning())
+                .map(|input: Async<((), BufferKey<i32>)>| {
+                    let key = input.request.1;
+                    let channel = input.channel;
+
+                    async move {
+                        let mut x = None;
+                        for _ in 0..10 {
+                            x = channel.try_join(key.clone()).await.unwrap();
+                        }
+                        x
+                    }
+                })
+                .connect(scope.terminate);
+        });
+
+        let r = context.resolve_request(5, workflow).unwrap();
+        assert_eq!(r, 5);
+
+        // ----- Test fetch by clone with AnyBufferKey
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let buffer = builder.create_buffer(BufferSettings::keep_last(1));
+            builder
+                .chain(scope.start)
+                .then_push(buffer)
+                .with_access(buffer.join_by_cloning())
+                .map(|input: Async<((), BufferKey<i32>)>| {
+                    let key: AnyBufferKey = input.request.1.into();
+                    let channel = input.channel;
+
+                    async move {
+                        let mut x = None;
+                        for _ in 0..10 {
+                            x = channel.try_join(key.clone()).await.unwrap();
+                        }
+                        x
+                    }
+                })
+                .connect(scope.terminate);
+        });
+
+        let r = context.resolve_request(5, workflow).unwrap();
+        assert_eq!(*r.downcast::<i32>().unwrap(), 5);
+
+        // ----- Test fetch by clone with JsonBufferKey
+        #[cfg(feature = "json")]
+        {
+            let workflow = context.spawn_io_workflow(|scope, builder| {
+                let buffer = builder.create_buffer(BufferSettings::keep_last(1));
+                builder
+                    .chain(scope.start)
+                    .then_push(buffer)
+                    .with_access(buffer.join_by_cloning())
+                    .map(|input: Async<((), BufferKey<i32>)>| {
+                        let key: JsonBufferKey = input.request.1.into();
+                        let channel = input.channel;
+
+                        async move {
+                            let mut x = None;
+                            for _ in 0..10 {
+                                x = channel.try_join(key.clone()).await.unwrap();
+                            }
+                            x
+                        }
+                    })
+                    .connect(scope.terminate);
+            });
+
+            let r = context.resolve_request(5, workflow).unwrap();
+            assert_eq!(r.as_number().unwrap().as_i64().unwrap(), 5);
+        }
     }
 }
