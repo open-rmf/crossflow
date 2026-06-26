@@ -75,6 +75,12 @@ pub struct StreamOutSchema {
     pub trace_settings: TraceSettings,
 }
 
+impl StreamOutSchema {
+    pub fn name(&self) -> &OperationName {
+        &self.name
+    }
+}
+
 impl BuildDiagramOperation for StreamOutSchema {
     fn build_diagram_operation(
         &self,

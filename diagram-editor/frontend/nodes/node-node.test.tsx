@@ -91,9 +91,9 @@ describe('NodeNode', () => {
         unzip: [],
       },
       schemas: {},
+      scripting: {},
       sections: {},
       trace_supported: false,
-      scripting: {},
     };
     const fixture = render(<NodeNode {...nodeProps} />, registry);
 

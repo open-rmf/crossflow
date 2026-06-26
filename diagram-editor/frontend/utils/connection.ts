@@ -1,13 +1,19 @@
 import type { Connection } from '@xyflow/react';
 import {
+  createBaseEdge,
   type DiagramEditorEdge,
   EDGE_CATEGORIES,
   EdgeCategory,
   type EdgeTypes,
 } from '../edges';
+import { defaultEdgeData } from '../forms/edit-edge-form';
 import { HandleId } from '../handles';
 import type { NodeManager } from '../node-manager';
-import type { DiagramEditorNode, NodeTypes } from '../nodes';
+import {
+  type DiagramEditorNode,
+  isOperationNode,
+  type NodeTypes,
+} from '../nodes';
 import { exhaustiveCheck } from './exhaustive-check';
 
 /**
@@ -228,6 +234,41 @@ export function createConnectionFromDraggedHandle(args: {
       };
 }
 
+export interface DraggedHandleRef {
+  nodeId: string;
+  id?: string | null;
+  type: 'source' | 'target';
+}
+
+export function createConnectionFromHandles(
+  fromHandle: DraggedHandleRef,
+  otherNodeId: string,
+  otherHandleId: string | null | undefined,
+): Connection {
+  return createConnectionFromDraggedHandle({
+    fromNodeId: fromHandle.nodeId,
+    fromHandleId: fromHandle.id,
+    fromHandleType: fromHandle.type,
+    otherNodeId,
+    otherHandleId,
+  });
+}
+
+export function validateDraggedHandlePair(args: {
+  fromHandleType: 'source' | 'target';
+  otherHandleType: 'source' | 'target';
+}): ConnectionValidationResult {
+  if (args.fromHandleType === args.otherHandleType) {
+    return createValidationError(
+      args.fromHandleType === 'source'
+        ? 'Cannot connect an output to another output'
+        : 'Cannot connect an input to another input',
+    );
+  }
+
+  return { valid: true };
+}
+
 /**
  * Perform a quick check if an edge is valid.
  * This only checks if the edge type is valid, does not check for conflicting edges, data correctness etc.
@@ -372,6 +413,106 @@ export function validateConnectionSimple(
     edges,
     'id' in conn ? conn.id : undefined,
   );
+}
+
+function nextBufferKey(
+  sourceNode: DiagramEditorNode,
+  existingBuffers: Record<string, unknown>,
+): string {
+  const baseKey = isOperationNode(sourceNode) ? sourceNode.data.opId : 'buffer';
+  if (!(baseKey in existingBuffers)) {
+    return baseKey;
+  }
+
+  let suffix = 1;
+  while (`${baseKey}_${suffix}` in existingBuffers) {
+    suffix++;
+  }
+  return `${baseKey}_${suffix}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function adjustBufferEdgeInputForTarget(
+  edge: DiagramEditorEdge,
+  sourceNode: DiagramEditorNode,
+  targetNode: DiagramEditorNode,
+) {
+  if (
+    edge.type !== 'buffer' ||
+    !isOperationNode(targetNode) ||
+    (targetNode.type !== 'buffer_access' &&
+      targetNode.type !== 'join' &&
+      targetNode.type !== 'listen')
+  ) {
+    return;
+  }
+
+  const buffers = targetNode.data.op.buffers;
+  if (Array.isArray(buffers)) {
+    edge.data.input = { type: 'bufferSeq', seq: buffers.length };
+  } else if (isRecord(buffers)) {
+    edge.data.input = {
+      type: 'bufferKey',
+      key: nextBufferKey(sourceNode, buffers),
+    };
+  }
+}
+
+export function createEdgeFromConnection(
+  conn: Connection,
+  nodeManager: NodeManager,
+  id?: string,
+): DiagramEditorEdge | ValidationError {
+  const sourceNode = nodeManager.tryGetNode(conn.source);
+  const targetNode = nodeManager.tryGetNode(conn.target);
+  if (!sourceNode || !targetNode) {
+    return createValidationError('cannot find source or target node');
+  }
+
+  const validEdges = getValidEdgeTypes(
+    sourceNode,
+    conn.sourceHandle,
+    targetNode,
+    conn.targetHandle,
+  );
+  if (validEdges.length === 0) {
+    return createValidationError(
+      `cannot connect "${sourceNode.type}" to "${targetNode.type}"`,
+    );
+  }
+
+  const newEdge = {
+    ...createBaseEdge(
+      conn.source,
+      conn.sourceHandle,
+      conn.target,
+      conn.targetHandle,
+      id,
+    ),
+    type: validEdges[0],
+    data: defaultEdgeData(validEdges[0]),
+  } as DiagramEditorEdge;
+
+  if (targetNode.type === 'section') {
+    if (EDGE_CATEGORIES[newEdge.type] === EdgeCategory.Buffer) {
+      newEdge.data.input = {
+        type: 'sectionBuffer',
+        inputId: '',
+      };
+    } else if (EDGE_CATEGORIES[newEdge.type] === EdgeCategory.Data) {
+      newEdge.data.input = {
+        type: 'sectionInput',
+        inputId: '',
+      };
+    }
+  }
+
+  adjustBufferEdgeInputForTarget(newEdge, sourceNode, targetNode);
+
+  return newEdge;
 }
 
 /**

@@ -16,49 +16,177 @@ import {
 } from '../nodes';
 import {
   createConnectionFromDraggedHandle,
+  createEdgeFromConnection,
   getValidEdgeTypes,
   validateConnectionSimple,
+  validateDraggedHandlePair,
   validateEdgeQuick,
   validateEdgeSimple,
   validateSourceOutputCapacity,
 } from './connection';
 import { ROOT_NAMESPACE } from './namespace';
 
-describe('validate edges', () => {
-  test('createConnectionFromDraggedHandle normalizes source drags', () => {
+describe('connection helpers', () => {
+  test('normalizes a drag that starts from a source handle', () => {
+    const connection = createConnectionFromDraggedHandle({
+      fromNodeId: 'source-node',
+      fromHandleId: 'out',
+      fromHandleType: 'source',
+      otherNodeId: 'target-node',
+      otherHandleId: 'in',
+    });
+    expect(connection).toEqual({
+      source: 'source-node',
+      sourceHandle: 'out',
+      target: 'target-node',
+      targetHandle: 'in',
+    });
+  });
+
+  test('normalizes a drag that starts from a target handle', () => {
+    const connection = createConnectionFromDraggedHandle({
+      fromNodeId: 'target-node',
+      fromHandleId: 'in',
+      fromHandleType: 'target',
+      otherNodeId: 'source-node',
+      otherHandleId: 'out',
+    });
+    expect(connection).toEqual({
+      source: 'source-node',
+      sourceHandle: 'out',
+      target: 'target-node',
+      targetHandle: 'in',
+    });
+  });
+
+  test('rejects dragged handle pairs with the same direction', () => {
     expect(
-      createConnectionFromDraggedHandle({
-        fromNodeId: 'a',
-        fromHandleId: 'h1',
+      validateDraggedHandlePair({
         fromHandleType: 'source',
-        otherNodeId: 'b',
-        otherHandleId: 'h2',
+        otherHandleType: 'source',
       }),
     ).toEqual({
-      source: 'a',
-      sourceHandle: 'h1',
-      target: 'b',
-      targetHandle: 'h2',
+      valid: false,
+      error: 'Cannot connect an output to another output',
     });
-  });
-
-  test('createConnectionFromDraggedHandle normalizes target drags', () => {
     expect(
-      createConnectionFromDraggedHandle({
-        fromNodeId: 'b',
-        fromHandleId: 'h2',
+      validateDraggedHandlePair({
         fromHandleType: 'target',
-        otherNodeId: 'a',
-        otherHandleId: 'h1',
+        otherHandleType: 'target',
       }),
     ).toEqual({
-      source: 'a',
-      sourceHandle: 'h1',
-      target: 'b',
-      targetHandle: 'h2',
+      valid: false,
+      error: 'Cannot connect an input to another input',
     });
+    expect(
+      validateDraggedHandlePair({
+        fromHandleType: 'source',
+        otherHandleType: 'target',
+      }),
+    ).toEqual({ valid: true });
   });
 
+  test('detects single-output capacity conflicts', () => {
+    const source = createOperationNode(
+      ROOT_NAMESPACE,
+      undefined,
+      { x: 0, y: 0 },
+      { type: 'node', builder: 'test_builder', next: { builtin: 'dispose' } },
+      'source',
+    );
+    const firstTarget = createOperationNode(
+      ROOT_NAMESPACE,
+      undefined,
+      { x: 0, y: 0 },
+      { type: 'node', builder: 'test_builder', next: { builtin: 'dispose' } },
+      'first_target',
+    );
+    const secondTarget = createOperationNode(
+      ROOT_NAMESPACE,
+      undefined,
+      { x: 0, y: 0 },
+      { type: 'node', builder: 'test_builder', next: { builtin: 'dispose' } },
+      'second_target',
+    );
+    const existingEdge = createDefaultEdge(
+      source.id,
+      null,
+      firstTarget.id,
+      null,
+    );
+
+    expect(validateSourceOutputCapacity(source, null, [])).toEqual({
+      valid: true,
+    });
+    expect(
+      validateSourceOutputCapacity(source, null, [
+        existingEdge as DiagramEditorEdge,
+      ]),
+    ).toEqual({
+      valid: false,
+      error: 'This output can only be connected to one input',
+    });
+    expect(
+      validateSourceOutputCapacity(
+        source,
+        null,
+        [existingEdge as DiagramEditorEdge],
+        existingEdge.id,
+      ),
+    ).toEqual({ valid: true });
+
+    // Keep the second target live so this test also documents that the capacity
+    // check only depends on source edges, not target nodes.
+    expect(secondTarget.id).toBeTruthy();
+  });
+
+  test('creates keyed buffer edge for targets that already use keyed buffers', () => {
+    const buffer = createOperationNode(
+      ROOT_NAMESPACE,
+      undefined,
+      { x: 0, y: 0 },
+      { type: 'buffer' },
+      'buffer_three',
+    );
+    const join = createOperationNode(
+      ROOT_NAMESPACE,
+      undefined,
+      { x: 0, y: 0 },
+      {
+        type: 'join',
+        buffers: {
+          route: 'buffer_one',
+          station: 'buffer_two',
+        },
+        next: { builtin: 'dispose' },
+      },
+      'join',
+    );
+    const nodeManager = new NodeManager([buffer, join]);
+
+    const edge = createEdgeFromConnection(
+      {
+        source: buffer.id,
+        sourceHandle: null,
+        target: join.id,
+        targetHandle: null,
+      },
+      nodeManager,
+    );
+
+    expect('valid' in edge).toBe(false);
+    if ('valid' in edge) {
+      return;
+    }
+    expect(edge.type).toBe('buffer');
+    expect(edge.data.input).toEqual({
+      type: 'bufferKey',
+      key: 'buffer_three',
+    });
+  });
+});
+
+describe('validate edges', () => {
   test('"buffer" can only connect to operations that accepts a buffer', () => {
     const node = createOperationNode(
       ROOT_NAMESPACE,

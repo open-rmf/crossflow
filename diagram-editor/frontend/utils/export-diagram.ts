@@ -1,4 +1,3 @@
-import { useTheme } from '@mui/material';
 import { getConnectedEdges } from '@xyflow/react';
 import equal from 'fast-deep-equal';
 import type { DiagramProperties } from '../diagram-properties-provider';
@@ -26,14 +25,8 @@ import { exhaustiveCheck } from './exhaustive-check';
 import { ROOT_NAMESPACE, splitNamespaces } from './namespace';
 import { isArrayBufferSelection, isKeyedBufferSelection } from './operation';
 
-/**
- * Marks a diagram editor edge visibly to signify that there is an error. This
- * function must be called from a react component as it uses the theme palette.
- * @param edge A diagram editor edge.
- */
 function markEdgeError(edge: DiagramEditorEdge) {
-  const theme = useTheme();
-  edge.style = { ...edge.style, stroke: theme.palette.error.main };
+  edge.style = { ...edge.style, stroke: 'var(--mui-palette-error-main)' };
 }
 
 function markEdgeNormal(edge: DiagramEditorEdge) {

@@ -80,37 +80,6 @@ export type RetentionPolicy =
   | 'keep_all';
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "InteractionSessionMessage".
- */
-export type InteractionSessionMessage =
-  | ((
-      | {
-          operationStarted: string;
-          [k: string]: unknown;
-        }
-      | {
-          operationFinished: string;
-          [k: string]: unknown;
-        }
-    ) & {
-      type: 'feedback';
-      [k: string]: unknown;
-    })
-  | ((
-      | {
-          ok: unknown;
-          [k: string]: unknown;
-        }
-      | {
-          err: string;
-          [k: string]: unknown;
-        }
-    ) & {
-      type: 'finish';
-      [k: string]: unknown;
-    });
-/**
- * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "DiagramOperation".
  */
 export type DiagramOperation =
@@ -220,6 +189,64 @@ export type InputRemapping =
     };
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "PortRef".
+ */
+export type PortRef =
+  | {
+      Input: OperationRef;
+    }
+  | {
+      Output: OutputRef;
+    };
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "OperationRef".
+ */
+export type OperationRef =
+  | 'dispose'
+  | {
+      named: NamedOperationRef;
+    }
+  | {
+      terminate: NamespaceList;
+    }
+  | {
+      cancel: NamespaceList;
+    }
+  | {
+      implicit_cancel: NamespaceList;
+    }
+  | {
+      stream_out: StreamOutRef;
+    };
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "NamespaceList".
+ */
+export type NamespaceList = string[];
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "OutputRef".
+ */
+export type OutputRef =
+  | {
+      Named: NamedOutputRef;
+    }
+  | {
+      Start: NamespaceList;
+    };
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "OutputKey".
+ */
+export type OutputKey = (string | number)[];
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "CompatibilityStatus".
+ */
+export type CompatibilityStatus = 'compatible' | 'incompatible' | 'unknown';
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "Schema".
  */
 export type Schema =
@@ -227,6 +254,37 @@ export type Schema =
       [k: string]: unknown;
     }
   | boolean;
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "InteractionSessionMessage".
+ */
+export type InteractionSessionMessage =
+  | ((
+      | {
+          operationStarted: string;
+          [k: string]: unknown;
+        }
+      | {
+          operationFinished: string;
+          [k: string]: unknown;
+        }
+    ) & {
+      type: 'feedback';
+      [k: string]: unknown;
+    })
+  | ((
+      | {
+          ok: unknown;
+          [k: string]: unknown;
+        }
+      | {
+          err: string;
+          [k: string]: unknown;
+        }
+    ) & {
+      type: 'finish';
+      [k: string]: unknown;
+    });
 
 export interface DiagramEditorApi {
   [k: string]: unknown;
@@ -442,19 +500,14 @@ export interface BufferSettings {
 }
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
- * via the `definition` "ConfigExample".
+ * via the `definition` "CompatibilityCandidate".
  */
-export interface ConfigExample {
-  /**
-   * The value of the config
-   */
-  config: {
-    [k: string]: unknown;
-  };
-  /**
-   * A description of what this config is for
-   */
-  description: string;
+export interface CompatibilityCandidate {
+  diagram: Diagram;
+  focusPorts?: PortRef[];
+  id: string;
+  sourcePort?: PortRef | null;
+  targetPort?: PortRef | null;
   [k: string]: unknown;
 }
 /**
@@ -493,8 +546,6 @@ export interface Diagram {
    *
    * Script environment builders may have automatic configs, which you should
    * consider using before creating a custom environment.
-   *
-   * [1]: ScriptEnvironmentMetadata
    */
   script_environments?: {
     [k: string]: ScriptEnvironmentSchema;
@@ -1320,6 +1371,124 @@ export interface SectionTemplate {
    * them into siblings of the section.
    */
   outputs?: string[];
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "NamedOperationRef".
+ */
+export interface NamedOperationRef {
+  /**
+   * If this references an exposed operation, such as an exposed input or
+   * output of a session, this will contain the session name. Suppose we have
+   * a section named `sec` and it has an exposed output named `out`. Then
+   * there are two values of `NamedOperationRef` to consider:
+   *
+   * ```
+   * # use crossflow::diagram::{NamedOperationRef, NamespaceList};
+   * # use smallvec::smallvec;
+   *
+   * let op_id = NamedOperationRef {
+   *     namespaces: NamespaceList::for_child_of("sec".into()),
+   *     exposed_namespace: None,
+   *     name: "out".into(),
+   * };
+   * ```
+   *
+   * is the internal reference to `sec:out` that will be used by other
+   * operations inside of `sec`. On the other hand, operations that are
+   * siblings of `sec` would instead connect to
+   *
+   * ```
+   * # use crossflow::diagram::NamedOperationRef;
+   * # use smallvec::smallvec;
+   *
+   * let op_id = NamedOperationRef {
+   *     namespaces: Default::default(),
+   *     exposed_namespace: Some("sec".into()),
+   *     name: "out".into(),
+   * };
+   * ```
+   *
+   * We need to make this distinction because operations inside `sec` do not
+   * know which of their siblings are exposed, and we don't want operations
+   * outside of `sec` to accidentally connect to operations that are supposed
+   * to be internal to `sec`.
+   */
+  exposed_namespace?: string | null;
+  name: string;
+  namespaces: NamespaceList;
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "StreamOutRef".
+ */
+export interface StreamOutRef {
+  /**
+   * The name of the stream (within its scope) that is being referred to
+   */
+  name: string;
+  namespaces: NamespaceList;
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "NamedOutputRef".
+ */
+export interface NamedOutputRef {
+  key: OutputKey;
+  namespaces: NamespaceList;
+  /**
+   * The name of the output's operation within the scope of the namespaces
+   */
+  operation: string;
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "CompatibilityRequest".
+ */
+export interface CompatibilityRequest {
+  candidates: CompatibilityCandidate[];
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "CompatibilityResponse".
+ */
+export interface CompatibilityResponse {
+  results: CompatibilityResult[];
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "CompatibilityResult".
+ */
+export interface CompatibilityResult {
+  id: string;
+  provisional?: boolean;
+  reason: string;
+  sourceType?: string | null;
+  status: CompatibilityStatus;
+  targetType?: string | null;
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "ConfigExample".
+ */
+export interface ConfigExample {
+  /**
+   * The value of the config
+   */
+  config: {
+    [k: string]: unknown;
+  };
+  /**
+   * A description of what this config is for
+   */
+  description: string;
   [k: string]: unknown;
 }
 /**
