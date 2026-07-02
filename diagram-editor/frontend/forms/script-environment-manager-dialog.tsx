@@ -25,6 +25,7 @@ import { MaterialSymbol } from '../nodes';
 import { useNotification } from '../notification-provider';
 import { useRegistry } from '../registry-provider';
 import type { DiagramElementMetadata } from '../types/api';
+import { shouldIgnoreEscapeClose } from '../utils/editing-target';
 import { scriptEnvironmentPlugins } from './script-environments/registry';
 
 function scriptEnvironmentLanguage(env: { [key: string]: unknown }): string {
@@ -249,7 +250,15 @@ export function ScriptEnvironmentManagerDialog({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={(_event, reason) => {
+        if (
+          reason === 'escapeKeyDown' &&
+          shouldIgnoreEscapeClose(document.activeElement)
+        ) {
+          return;
+        }
+        onClose();
+      }}
       fullWidth
       maxWidth={isExpanded ? 'lg' : 'md'}
       sx={
