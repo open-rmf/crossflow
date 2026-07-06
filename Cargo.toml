@@ -43,6 +43,7 @@ bevy_time = "0.16"
 bevy_utils = "0.16"
 clap = { version = "4.5.23", features = ["derive"] }
 futures-concurrency = "7.7"
+glam = "0.29.3"
 mime_guess = "2.0.5"
 schemars = "1.2.0"
 serde = "1.0.219"
