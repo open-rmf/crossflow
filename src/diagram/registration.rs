@@ -20,7 +20,9 @@ use std::{any::Any, borrow::Borrow, cell::RefCell, collections::HashMap, sync::A
 use anyhow::Error as Anyhow;
 
 pub use crate::dyn_node::*;
-use crate::{AnyMessageBox, Builder, DisplayText, JsonBuffer, JsonMessage, Node, StreamPack};
+use crate::{
+    AnyMessageBox, Builder, JsonBuffer, JsonMessage, Node, ScriptMessage, StreamPack, Text,
+};
 
 #[cfg(feature = "trace")]
 use crate::Trace;
@@ -30,8 +32,9 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::SerializeMap};
 
 use super::{
     BuilderId, DeserializeMessage, DiagramErrorCode, DynForkClone, DynForkResult, DynSplit,
-    DynType, JsonRegistration, RegisterJson, RegisterSplit, Section, SectionInterface,
-    SectionInterfaceDescription, SerializeMessage, SplitSchema, TransformError, TypeInfo,
+    DynType, JsonRegistration, OperationName, RegisterJson, RegisterSplit, Script,
+    ScriptEnvironment, Section, SectionInterface, SectionInterfaceDescription, SerializeMessage,
+    SplitSchema, TransformError, TypeInfo,
     buffer_schema::BufferAccessRequest,
     fork_clone_schema::RegisterClone,
     fork_result_schema::{ForkResultRegistration, RegisterForkResult},
@@ -58,6 +61,9 @@ pub use registration_metadata::*;
 pub mod scope_registration;
 use scope_registration::*;
 
+pub mod script_environment_registration;
+use script_environment_registration::*;
+
 pub mod section_registration;
 pub use section_registration::*;
 
@@ -67,6 +73,7 @@ type EnableTraceSerializeFn = fn(&mut Trace);
 pub struct DiagramElementRegistry {
     pub(super) nodes: HashMap<BuilderId, NodeRegistration>,
     pub(super) sections: HashMap<BuilderId, SectionRegistration>,
+    pub(super) scripting: HashMap<BuilderId, ScriptEnvironmentRegistration>,
     pub(super) messages: MessageRegistry,
 }
 
@@ -79,6 +86,7 @@ impl Default for DiagramElementRegistry {
         let mut registry = DiagramElementRegistry {
             nodes: Default::default(),
             sections: Default::default(),
+            scripting: Default::default(),
             messages: MessageRegistry::new(),
         };
 
@@ -100,6 +108,7 @@ impl DiagramElementRegistry {
         DiagramElementRegistry {
             nodes: Default::default(),
             sections: Default::default(),
+            scripting: Default::default(),
             messages: MessageRegistry::new(),
         }
     }
@@ -135,12 +144,6 @@ impl DiagramElementRegistry {
     ///     |builder, _config: ()| builder.create_map_block(|msg: String| msg)
     /// );
     /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - Id of the builder, this must be unique.
-    /// * `name` - Friendly name for the builder, this is only used for display purposes.
-    /// * `f` - The node builder to register.
     pub fn register_node_builder<Config, Request, Response, Streams: StreamPack>(
         &mut self,
         options: NodeBuilderOptions,
@@ -239,23 +242,54 @@ impl DiagramElementRegistry {
                     .unwrap_or(&options.id)
                     .clone(),
                 interface: SectionT::interface_metadata(&mut self.messages.registration).clone(),
-                config_schema: self.messages.schema_generator.subschema_for::<()>(),
+                config_schema: self.messages.schema_generator.subschema_for::<Config>(),
                 description: options.description.clone(),
                 config_examples: options.config_examples.clone(),
             },
             create_section_impl: RefCell::new(Box::new(move |builder, config| {
-                let section =
-                    section_builder(builder, serde_json::from_value::<Config>(config).unwrap())
-                        .map_err(|error| DiagramErrorCode::NodeBuildingError {
-                            builder: Arc::clone(&builder_id),
-                            error: Arc::new(error),
-                        })?;
+                let config = serde_json::from_value::<Config>(config)
+                    .map_err(|err| DiagramErrorCode::ConfigError(Arc::new(err)))?;
+
+                let section = section_builder(builder, config).map_err(|error| {
+                    DiagramErrorCode::SectionBuildingError {
+                        builder: Arc::clone(&builder_id),
+                        error: Arc::new(error),
+                    }
+                })?;
                 Ok(Box::new(section))
             })),
         };
 
         self.sections.insert(options.id, registration);
         SectionT::on_register(self);
+    }
+
+    pub fn register_script_environment_builder<Config, Env>(
+        &mut self,
+        options: ScriptEnvironmentBuilderOptions,
+        mut environment_builder: impl FnMut(Config) -> Result<Arc<Env>, Anyhow> + 'static + Send + Sync,
+    ) where
+        Config: DeserializeOwned + JsonSchema,
+        Env: ScriptEnvironment + 'static + Send + Sync,
+    {
+        let builder_id = Arc::clone(&options.id);
+        let create_environment_impl = RefCell::new(Box::new(move |config: JsonMessage| {
+            let config = serde_json::from_value::<Config>(config)?;
+            environment_builder(config).map(|env| env as ArcScriptEnvironment)
+        }));
+
+        let registration = ScriptEnvironmentRegistration {
+            create_environment_impl,
+            metadata: ScriptEnvironmentMetadata {
+                language: options.language,
+                interpreter: options.interpreter,
+                config_schema: self.messages.schema_generator.subschema_for::<Config>(),
+                display_text: options.display_text,
+                description: options.description,
+                config_examples: options.config_examples,
+            },
+        };
+        self.scripting.insert(builder_id, registration);
     }
 
     /// In some cases the common operations of deserialization, serialization,
@@ -355,6 +389,11 @@ impl DiagramElementRegistry {
             .with_join()
             .with_split();
 
+        self.register_message::<ScriptMessage>()
+            .with_join()
+            .with_buffer_access()
+            .with_listen();
+
         self.opt_out()
             .no_cloning()
             .no_serializing()
@@ -428,12 +467,12 @@ pub struct NodeBuilderOptions {
     pub config_examples: Vec<ConfigExample>,
 }
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ConfigExample {
     /// A description of what this config is for
-    pub description: String,
+    pub description: Text,
     /// The value of the config
-    pub config: JsonMessage,
+    pub config: Arc<JsonMessage>,
 }
 
 impl ConfigExample {
@@ -447,10 +486,12 @@ impl ConfigExample {
     ///
     /// To construct a [`ConfigExample`] with no risk of panicking, you can
     /// directly use normal structure initialization.
-    pub fn new(description: impl ToString, config: impl Serialize) -> Self {
+    pub fn new(description: impl Into<Text>, config: impl Serialize) -> Self {
         Self {
-            description: description.to_string(),
-            config: serde_json::to_value(config).expect("failed to serialize example config"),
+            description: description.into(),
+            config: Arc::new(
+                serde_json::to_value(config).expect("failed to serialize example config"),
+            ),
         }
     }
 }
@@ -465,7 +506,7 @@ impl NodeBuilderOptions {
         }
     }
 
-    pub fn with_default_display_text(mut self, text: impl Into<DisplayText>) -> Self {
+    pub fn with_default_display_text(mut self, text: impl Into<Text>) -> Self {
         self.default_display_text = Some(text.into());
         self
     }
@@ -479,7 +520,7 @@ impl NodeBuilderOptions {
         mut self,
         config_examples: impl IntoIterator<Item = ConfigExample>,
     ) -> Self {
-        self.config_examples = config_examples.into_iter().collect();
+        self.config_examples.extend(config_examples);
         self
     }
 }
@@ -493,7 +534,7 @@ pub struct SectionBuilderOptions {
     /// display text.
     pub default_display_text: Option<BuilderId>,
     /// Optional text to describe the builder.
-    pub description: Option<String>,
+    pub description: Option<Text>,
     /// Examples of configurations that can be used with this section builder.
     pub config_examples: Vec<ConfigExample>,
 }
@@ -508,12 +549,12 @@ impl SectionBuilderOptions {
         }
     }
 
-    pub fn with_default_display_text(mut self, text: impl Into<DisplayText>) -> Self {
+    pub fn with_default_display_text(mut self, text: impl Into<Text>) -> Self {
         self.default_display_text = Some(text.into());
         self
     }
 
-    pub fn with_description(mut self, text: impl Into<String>) -> Self {
+    pub fn with_description(mut self, text: impl Into<Text>) -> Self {
         self.description = Some(text.into());
         self
     }
@@ -522,8 +563,93 @@ impl SectionBuilderOptions {
         mut self,
         config_examples: impl IntoIterator<Item = ConfigExample>,
     ) -> Self {
-        self.config_examples = config_examples.into_iter().collect();
+        self.config_examples.extend(config_examples);
         self
+    }
+}
+
+pub struct ScriptEnvironmentBuilderOptions {
+    /// The unique identifier for this script environment builder. Diagrams will
+    /// use this ID to refer to this script environment builder.
+    pub id: BuilderId,
+    /// The scripting language that will be used for this environment
+    pub language: OperationName,
+    /// The interpreter that will be used to process the scripting language
+    pub interpreter: OperationName,
+    /// Human-friendly name for the script environment builder
+    pub display_text: Option<Text>,
+    /// A description of what kind of environments are made by this builder
+    pub description: Option<Text>,
+    /// Examples of valid configurations for this builder
+    pub config_examples: Vec<ScriptConfigExample>,
+}
+
+impl ScriptEnvironmentBuilderOptions {
+    pub fn new(
+        id: impl Into<BuilderId>,
+        language: impl Into<OperationName>,
+        interpreter: impl Into<OperationName>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            language: language.into(),
+            interpreter: interpreter.into(),
+            display_text: Default::default(),
+            description: Default::default(),
+            config_examples: Default::default(),
+        }
+    }
+
+    pub fn with_display_text(mut self, text: impl Into<Text>) -> Self {
+        self.display_text = Some(text.into());
+        self
+    }
+
+    pub fn with_description(mut self, text: impl Into<Text>) -> Self {
+        self.description = Some(text.into());
+        self
+    }
+
+    pub fn with_config_examples(
+        mut self,
+        config_examples: impl IntoIterator<Item = ScriptConfigExample>,
+    ) -> Self {
+        self.config_examples.extend(config_examples);
+        self
+    }
+}
+
+/// An example of how to configure an environment
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ScriptConfigExample {
+    /// The name of this example
+    pub name: Text,
+    /// A description of this example
+    pub description: Text,
+    /// The example configuration
+    pub config: Arc<JsonMessage>,
+    /// How to run this example environment, i.e. what goes into the `run` field
+    /// of the [`ScriptSchema`][1].
+    ///
+    /// [1]: crate::ScriptSchema
+    pub run: Script,
+}
+
+impl ScriptConfigExample {
+    pub fn new(
+        name: impl Into<Text>,
+        description: impl Into<Text>,
+        config: impl Serialize,
+        run: Script,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            config: Arc::new(
+                serde_json::to_value(config).expect("failed to serialize example config"),
+            ),
+            run,
+        }
     }
 }
 

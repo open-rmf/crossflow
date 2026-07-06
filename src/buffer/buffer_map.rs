@@ -28,10 +28,10 @@ use smallvec::SmallVec;
 use bevy_ecs::prelude::{Entity, World};
 
 use crate::{
-    Accessing, AddOperation, AnyBuffer, AsAnyBuffer, Buffer, BufferKeyBuilder, Bufferable,
-    Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer, Gate, GateState, Identifiable,
-    IdentifierRef, Join, Joining, OperationError, OperationResult, OperationRoster, Output,
-    RequestId, TypeInfo, UnusedTarget, add_listener_to_source,
+    Accessing, AddOperation, AnyBuffer, AnyBufferKey, AsAnyBuffer, Buffer, BufferKeyBuilder,
+    Bufferable, Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer, Gate, GateState,
+    Identifiable, IdentifierRef, Join, Joining, OperationError, OperationResult, OperationRoster,
+    Output, RequestId, TypeInfo, UnusedTarget, add_listener_to_source,
 };
 
 use variadics_please::all_tuples;
@@ -46,6 +46,7 @@ use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 
 pub type BufferMap = HashMap<IdentifierRef<'static>, AnyBuffer>;
+pub type BufferKeyMap = HashMap<IdentifierRef<'static>, AnyBufferKey>;
 
 /// Extension trait that makes it more convenient to insert buffers into a [`BufferMap`].
 pub trait AddBufferToMap {
@@ -128,6 +129,29 @@ impl IncompatibleLayout {
                     identifier,
                     expected_buffer: std::any::type_name::<BufferType>(),
                     received_message_type: buffer.message_type_name(),
+                });
+            }
+        } else {
+            self.missing_buffers.push(identifier);
+        }
+
+        Err(())
+    }
+
+    pub fn require_buffer_key_for_identifier<BufferKeyType: 'static>(
+        &mut self,
+        identifier: impl Into<IdentifierRef<'static>>,
+        keys: &HashMap<IdentifierRef<'static>, AnyBufferKey>,
+    ) -> Result<BufferKeyType, ()> {
+        let identifier = identifier.into();
+        if let Some(key) = keys.get(&identifier) {
+            if let Some(key) = key.clone().downcast_buffer_key::<BufferKeyType>() {
+                return Ok(key);
+            } else {
+                self.incompatible_buffers.push(BufferIncompatibility {
+                    identifier,
+                    expected_buffer: std::any::type_name::<BufferKeyType>(),
+                    received_message_type: key.interface.message_type_name(),
                 });
             }
         } else {
@@ -964,7 +988,7 @@ all_tuples!(impl_buffer_map_layout_for_tuple, 1, 12, B, b);
 
 #[cfg(test)]
 mod tests {
-    use crate::{AddBufferToMap, BufferMap, prelude::*, testing::*};
+    use crate::{AddBufferToMap, BufferMap, TryJoinError, prelude::*, testing::*};
 
     #[derive(Joined)]
     struct TestJoinedValue<T: Send + Sync + 'static + Clone> {
@@ -974,6 +998,13 @@ mod tests {
         generic: T,
         #[joined(buffer = AnyBuffer)]
         any: AnyMessageBox,
+    }
+
+    #[derive(Joined)]
+    #[allow(dead_code)]
+    struct TestDuplicateJoinedValue {
+        first: i64,
+        second: i64,
     }
 
     #[test]
@@ -1015,6 +1046,27 @@ mod tests {
         assert_eq!(value.generic, "world");
         assert_eq!(*value.any.downcast::<i64>().unwrap(), 42);
         assert!(context.no_unhandled_errors());
+    }
+
+    #[test]
+    fn test_try_join_rejects_duplicate_buffer() {
+        let mut context = TestingContext::minimal_plugins();
+        let mut is_duplicate_error = false;
+
+        let _workflow = context.spawn_io_workflow(|_scope: Scope<(), ()>, builder| {
+            let buffer_i64 = builder.create_buffer::<i64>(BufferSettings::default());
+
+            let mut buffers = BufferMap::default();
+            buffers.insert_buffer("first", buffer_i64);
+            buffers.insert_buffer("second", buffer_i64);
+
+            is_duplicate_error = matches!(
+                builder.try_join::<TestDuplicateJoinedValue>(&buffers),
+                Err(TryJoinError::DuplicateBuffer(_))
+            );
+        });
+
+        assert!(is_duplicate_error);
     }
 
     #[test]

@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v6
 
     - name: Update apt index
       run: sudo apt-get update
@@ -35,12 +35,15 @@ jobs:
       run: rustup default ${{ matrix.rust-version }}
 
     - name: Setup pnpm
-      uses: pnpm/action-setup@v4
+      uses: pnpm/action-setup@v6
       with:
         version: latest
 
     - name: Setup nodejs
-      run: pnpm env use --global lts
+      uses: actions/setup-node@v6
+      with:
+        node-version: lts/*
+        cache: pnpm
 
     - name: Test default features
       run: |
@@ -68,4 +71,3 @@ jobs:
 
     - name: Build docs
       run: cargo doc --no-deps --all-features
-

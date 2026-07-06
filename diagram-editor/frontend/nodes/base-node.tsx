@@ -1,4 +1,5 @@
 import {
+  alpha,
   Box,
   Button,
   type ButtonProps,
@@ -8,6 +9,7 @@ import {
 } from '@mui/material';
 import type { NodeProps } from '@xyflow/react';
 import { type JSX, memo } from 'react';
+import { useInteractionVisualization } from '../interaction-visualization-provider';
 import { LAYOUT_OPTIONS } from '../utils/layout';
 
 export interface BaseNodeProps extends NodeProps {
@@ -16,6 +18,7 @@ export interface BaseNodeProps extends NodeProps {
   label: string;
   caption?: string;
   handles?: JSX.Element;
+  highlight?: boolean;
 }
 
 function BaseNode({
@@ -25,7 +28,12 @@ function BaseNode({
   caption,
   handles,
   selected,
+  id,
+  highlight,
 }: BaseNodeProps) {
+  const { activeNodeIds, visitedNodeIds } = useInteractionVisualization();
+  const interactionActive = activeNodeIds.has(id);
+  const interactionVisited = visitedNodeIds.has(id) && !interactionActive;
   const icon =
     typeof materialIconOrSymbol === 'string' ? (
       <span className={`material-symbols-${materialIconOrSymbol}`} />
@@ -34,7 +42,31 @@ function BaseNode({
     );
 
   return (
-    <Paper>
+    <Paper
+      sx={(theme) => ({
+        outline: interactionActive
+          ? `2px solid ${theme.palette.success.main}`
+          : interactionVisited
+            ? `2px solid ${alpha(theme.palette.info.main, 0.35)}`
+            : highlight
+              ? `2px solid ${theme.palette.warning.main}`
+              : undefined,
+        boxShadow: interactionActive
+          ? [
+              `0 0 0 4px ${alpha(theme.palette.success.main, 0.28)}`,
+              `0 0 18px 6px ${alpha(theme.palette.success.main, 0.35)}`,
+            ].join(', ')
+          : interactionVisited
+            ? [
+                `0 0 0 2px ${alpha(theme.palette.info.main, 0.28)}`,
+                `0 0 8px 3px ${alpha(theme.palette.info.main, 0.35)}`,
+              ].join(', ')
+            : undefined,
+        transition: theme.transitions.create(['box-shadow', 'outline-color'], {
+          duration: theme.transitions.duration.shortest,
+        }),
+      })}
+    >
       <Button
         title={label}
         color={color}

@@ -31,6 +31,7 @@ import React, { Suspense } from 'react';
 import AddOperation from './add-operation';
 import CommandPanel from './command-panel';
 import { ConnectionHintPanel } from './connection-hint-panel';
+import { DiagramPropertiesProvider } from './diagram-properties-provider';
 import type { DiagramEditorEdge } from './edges';
 import {
   createBaseEdge,
@@ -47,8 +48,11 @@ import {
 import { ExportDiagramDialog } from './export-diagram-dialog';
 import { defaultEdgeData, EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
+import {
+  type InteractionVisualizationContext,
+  InteractionVisualizationProvider,
+} from './interaction-visualization-provider';
 import { type LoadContext, LoadContextProvider } from './load-context-provider';
-import { DiagramPropertiesProvider } from './diagram-properties-provider';
 import { NodeManager, NodeManagerProvider } from './node-manager';
 import {
   type DiagramEditorNode,
@@ -56,7 +60,9 @@ import {
   MaterialSymbol,
   NODE_TYPES,
   type OperationNode,
+  TERMINATE_ID,
 } from './nodes';
+import { NotificationProvider } from './notification-provider';
 import { useRegistry } from './registry-provider';
 import { useTemplates } from './templates-provider';
 import { EdgesProvider } from './use-edges';
@@ -73,6 +79,7 @@ import { exhaustiveCheck } from './utils/exhaustive-check';
 import { exportTemplate } from './utils/export-diagram';
 import { calculateScopeBounds, LAYOUT_OPTIONS } from './utils/layout';
 import { loadDiagramJson, loadEmpty, loadTemplate } from './utils/load-diagram';
+import { joinNamespaces, ROOT_NAMESPACE } from './utils/namespace';
 
 const NonCapturingPopoverContainer = ({
   children,
@@ -118,10 +125,11 @@ function getChangeParentIdAndPosition(
   }
 }
 
-export type MaybeValid = { ok: true } | { ok: false, errorMessage: string };
+export type MaybeValid = { ok: true } | { ok: false; errorMessage: string };
 
 interface ProvidersProps {
   editorModeContext: UseEditorModeContext;
+  interactionVisualizationContext: InteractionVisualizationContext;
   loadContext: LoadContext | null;
   nodeManager: NodeManager;
   edges: DiagramEditorEdge[];
@@ -129,6 +137,7 @@ interface ProvidersProps {
 
 function Providers({
   editorModeContext,
+  interactionVisualizationContext,
   loadContext,
   nodeManager,
   edges,
@@ -139,14 +148,62 @@ function Providers({
       <LoadContextProvider value={loadContext}>
         <NodeManagerProvider value={nodeManager}>
           <EdgesProvider value={edges}>
-            <DiagramPropertiesProvider>
-              {children}
-            </DiagramPropertiesProvider>
+            <InteractionVisualizationProvider
+              value={interactionVisualizationContext}
+            >
+              <DiagramPropertiesProvider>
+                <NotificationProvider>{children}</NotificationProvider>
+              </DiagramPropertiesProvider>
+            </InteractionVisualizationProvider>
           </EdgesProvider>
         </NodeManagerProvider>
       </LoadContextProvider>
     </EditorModeProvider>
   );
+}
+
+function getInteractionNodeId(
+  operationId: string,
+  nodeManager: NodeManager,
+): string | null {
+  const normalizedId = operationId.startsWith(':')
+    ? operationId.slice(1)
+    : operationId;
+
+  if (normalizedId === '(terminate)') {
+    return (
+      nodeManager.tryGetNode(joinNamespaces(ROOT_NAMESPACE, TERMINATE_ID))
+        ?.id ?? null
+    );
+  }
+
+  if (normalizedId.endsWith(':(terminate)')) {
+    const namespace = normalizedId.slice(0, -':(terminate)'.length);
+    return (
+      nodeManager.tryGetNode(
+        joinNamespaces(ROOT_NAMESPACE, namespace, TERMINATE_ID),
+      )?.id ?? null
+    );
+  }
+
+  if (normalizedId.startsWith('(') || normalizedId.includes(':(exposed):')) {
+    return null;
+  }
+
+  const parts = normalizedId.split(':');
+  const opId = parts.at(-1);
+  if (!opId) {
+    return null;
+  }
+
+  try {
+    return nodeManager.getNodeFromNamespaceOpId(
+      joinNamespaces(ROOT_NAMESPACE, ...parts.slice(0, -1)),
+      opId,
+    ).id;
+  } catch {
+    return null;
+  }
 }
 
 function DiagramEditor() {
@@ -164,6 +221,76 @@ function DiagramEditor() {
     () => loadEmpty().nodes,
   );
   const nodeManager = React.useMemo(() => new NodeManager(nodes), [nodes]);
+  const [interactionActiveNodeIds, setInteractionActiveNodeIds] =
+    React.useState(() => new Set<string>());
+  const [interactionVisitedNodeIds, setInteractionVisitedNodeIds] =
+    React.useState(() => new Set<string>());
+  const clearInteractionVisualization = React.useCallback(() => {
+    setInteractionActiveNodeIds(new Set());
+    setInteractionVisitedNodeIds(new Set());
+  }, []);
+  const markInteractionFinished = React.useCallback(() => {
+    setInteractionActiveNodeIds(new Set());
+  }, []);
+  const markInteractionOperationFinished = React.useCallback(
+    (operationId: string) => {
+      const nodeId = getInteractionNodeId(operationId, nodeManager);
+      if (!nodeId) {
+        return;
+      }
+
+      setInteractionActiveNodeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(nodeId);
+        return next;
+      });
+      setInteractionVisitedNodeIds((prev) => {
+        const next = new Set(prev);
+        next.add(nodeId);
+        return next;
+      });
+    },
+    [nodeManager],
+  );
+  const markInteractionOperationStarted = React.useCallback(
+    (operationId: string) => {
+      const nodeId = getInteractionNodeId(operationId, nodeManager);
+      if (!nodeId) {
+        return;
+      }
+
+      setInteractionVisitedNodeIds((prev) => {
+        const next = new Set(prev);
+        next.delete(nodeId);
+        return next;
+      });
+      setInteractionActiveNodeIds((prev) => {
+        const next = new Set(prev);
+        next.add(nodeId);
+        return next;
+      });
+    },
+    [nodeManager],
+  );
+  const interactionVisualizationContext =
+    React.useMemo<InteractionVisualizationContext>(
+      () => ({
+        activeNodeIds: interactionActiveNodeIds,
+        visitedNodeIds: interactionVisitedNodeIds,
+        clearInteractionVisualization,
+        markInteractionFinished,
+        markInteractionOperationFinished,
+        markInteractionOperationStarted,
+      }),
+      [
+        clearInteractionVisualization,
+        interactionActiveNodeIds,
+        interactionVisitedNodeIds,
+        markInteractionFinished,
+        markInteractionOperationFinished,
+        markInteractionOperationStarted,
+      ],
+    );
   const savedNodes = React.useRef<DiagramEditorNode[]>([]);
 
   const [edges, setEdges] = React.useState<DiagramEditorEdge[]>([]);
@@ -532,13 +659,15 @@ function DiagramEditor() {
   const [loadContext, setLoadContext] = React.useState<LoadContext | null>(
     null,
   );
-  const [recentlyUsedFilename, setRecentlyUsedFilename] =
-    React.useState<string | null>(null);
+  const [recentlyUsedFilename, setRecentlyUsedFilename] = React.useState<
+    string | null
+  >(null);
 
   const loadDiagram = React.useCallback(
     async (jsonStr: string, filename: string | null) => {
       try {
         const [diagram, { graph, isRestored }] = await loadDiagramJson(jsonStr);
+        clearInteractionVisualization();
         setLoadContext({ diagram });
         // do not perform auto layout if the diagram is restored from previous state.
         if (!isRestored) {
@@ -556,7 +685,7 @@ function DiagramEditor() {
         showErrorToast(`failed to load diagram: ${e}`);
       }
     },
-    [closeAllPopovers, showErrorToast],
+    [clearInteractionVisualization, closeAllPopovers, showErrorToast],
   );
 
   const [openExportDiagramDialog, setOpenExportDiagramDialog] =
@@ -665,6 +794,7 @@ function DiagramEditor() {
   return (
     <Providers
       editorModeContext={[editorMode, updateEditorModeAction]}
+      interactionVisualizationContext={interactionVisualizationContext}
       loadContext={loadContext}
       nodeManager={nodeManager}
       edges={edges}
@@ -755,7 +885,9 @@ function DiagramEditor() {
             return;
           }
 
-          const sourceNode = nodeManager.tryGetNode(connectionState.fromHandle.nodeId);
+          const sourceNode = nodeManager.tryGetNode(
+            connectionState.fromHandle.nodeId,
+          );
           const clientPosition = getClientPosition(event);
           if (!sourceNode || !clientPosition) {
             return;
@@ -903,22 +1035,27 @@ function DiagramEditor() {
               handleNodeChanges(changes);
               if (addOperationPopover.sourceConnection) {
                 const targetNode =
-                  changes.find((change) => change.item.id === primaryNodeId)?.item ||
-                  null;
+                  changes.find((change) => change.item.id === primaryNodeId)
+                    ?.item || null;
                 if (targetNode) {
                   const newEdge = tryCreateEdge(
-                    addOperationPopover.sourceConnection.sourceHandleType === 'source'
+                    addOperationPopover.sourceConnection.sourceHandleType ===
+                      'source'
                       ? {
-                          source: addOperationPopover.sourceConnection.sourceNodeId,
-                          sourceHandle: addOperationPopover.sourceConnection.sourceHandle,
+                          source:
+                            addOperationPopover.sourceConnection.sourceNodeId,
+                          sourceHandle:
+                            addOperationPopover.sourceConnection.sourceHandle,
                           target: targetNode.id,
                           targetHandle: null,
                         }
                       : {
                           source: targetNode.id,
                           sourceHandle: null,
-                          target: addOperationPopover.sourceConnection.sourceNodeId,
-                          targetHandle: addOperationPopover.sourceConnection.sourceHandle,
+                          target:
+                            addOperationPopover.sourceConnection.sourceNodeId,
+                          targetHandle:
+                            addOperationPopover.sourceConnection.sourceHandle,
                         },
                     undefined,
                     targetNode,
@@ -977,8 +1114,8 @@ function DiagramEditor() {
           <ExportDiagramDialog
             open={openExportDiagramDialog}
             suggestedFilename={recentlyUsedFilename}
-            onExportedFilename={
-              (filename: string) => setRecentlyUsedFilename(filename)
+            onExportedFilename={(filename: string) =>
+              setRecentlyUsedFilename(filename)
             }
             onClose={() => setOpenExportDiagramDialog(false)}
             onValidDiagram={(maybeValid: MaybeValid) => {

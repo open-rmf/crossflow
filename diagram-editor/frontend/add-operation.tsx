@@ -1,4 +1,11 @@
-import { Button, ButtonGroup, Stack, TextField, Typography, styled } from '@mui/material';
+import {
+  Button,
+  ButtonGroup,
+  Stack,
+  styled,
+  TextField,
+  Typography,
+} from '@mui/material';
 import type { NodeAddChange, XYPosition } from '@xyflow/react';
 import React from 'react';
 import { EditorMode, useEditorMode } from './editor-mode';
@@ -14,6 +21,7 @@ import {
   ListenIcon,
   NodeIcon,
   ScopeIcon,
+  ScriptIcon,
   SectionBufferIcon,
   SectionIcon,
   SectionInputIcon,
@@ -51,6 +59,7 @@ const OPERATION_ICONS: Record<AddOperationKey, React.ReactNode> = {
   stream_out: <StreamOutIcon />,
   scope: <ScopeIcon />,
   section: <SectionIcon />,
+  script: <ScriptIcon />,
 };
 
 export interface AddOperationSelection {
@@ -191,11 +200,7 @@ function AddOperation({
           ))}
         </ButtonGroup>
       )}
-      {emptyMessage && (
-        <Typography variant="body2">
-          {emptyMessage}
-        </Typography>
-      )}
+      {emptyMessage && <Typography variant="body2">{emptyMessage}</Typography>}
     </Stack>
   );
 }

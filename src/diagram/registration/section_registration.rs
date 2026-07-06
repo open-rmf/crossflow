@@ -18,27 +18,27 @@
 use std::cell::RefCell;
 
 pub use crate::dyn_node::*;
-use crate::{Builder, ConfigExample, DisplayText};
+use crate::{Builder, ConfigExample, Text};
 
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 
-use super::{DiagramErrorCode, Section, SectionInterface};
+use super::{DiagramErrorCode, JsonMessage, Section, SectionInterface};
 
 type CreateSectionFn =
-    dyn FnMut(&mut Builder, serde_json::Value) -> Result<Box<dyn Section>, DiagramErrorCode> + Send;
+    dyn FnMut(&mut Builder, JsonMessage) -> Result<Box<dyn Section>, DiagramErrorCode> + Send;
 
 pub struct SectionRegistration {
     pub(crate) metadata: SectionMetadata,
     pub(crate) create_section_impl: RefCell<Box<CreateSectionFn>>,
 }
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SectionMetadata {
-    pub(crate) default_display_text: DisplayText,
+    pub(crate) default_display_text: Text,
     pub(crate) interface: SectionInterface,
     pub(crate) config_schema: Schema,
-    pub(crate) description: Option<String>,
+    pub(crate) description: Option<Text>,
     pub(crate) config_examples: Vec<ConfigExample>,
 }
 

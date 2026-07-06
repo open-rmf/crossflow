@@ -5,11 +5,11 @@ import {
   useNodeId,
 } from '@xyflow/react';
 import { useNodeManager } from './node-manager';
+import { useEdges } from './use-edges';
 import {
   createConnectionFromDraggedHandle,
   validateConnectionSimple,
 } from './utils/connection';
-import { useEdges } from './use-edges';
 import { exhaustiveCheck } from './utils/exhaustive-check';
 
 export enum HandleId {
@@ -91,11 +91,7 @@ export function Handle({ id, variant, className, ...baseProps }: HandleProps) {
       otherHandleId: id,
     });
 
-    const result = validateConnectionSimple(
-      conn,
-      nodeManager,
-      edges,
-    );
+    const result = validateConnectionSimple(conn, nodeManager, edges);
 
     if (result.valid) {
       classNames.push('handle-compatible');
