@@ -40,9 +40,9 @@
     "53642a5a-568d-46af-b068-9b55290c9514": {
       "type": "fork_clone",
       "next": [
-        "1a223192-94d1-4bed-a972-79e71e28fd10",
         "1799aad6-e0c0-4c8f-932e-add884124171",
-        "2dd3384a-2898-4156-8771-60a1fe06251b"
+        "0a1633d8-7912-4925-a2a3-3f84c8b95e8d",
+        "cbef12cb-481e-4527-ac87-bffa6964a927"
       ]
     },
     "73ab1393-a4a8-490e-9518-ae02b2acf6cc": {
@@ -80,22 +80,37 @@
     },
     "ebdee582-8c2f-40b5-a0f7-7bc22e93cc10": {
       "type": "buffer"
+    },
+    "0a1633d8-7912-4925-a2a3-3f84c8b95e8d": {
+      "type": "transform",
+      "cel": "null",
+      "next": "1a223192-94d1-4bed-a972-79e71e28fd10"
+    },
+    "cbef12cb-481e-4527-ac87-bffa6964a927": {
+      "type": "transform",
+      "cel": "null",
+      "next": "2dd3384a-2898-4156-8771-60a1fe06251b"
     }
   },
-  "description": "",
-  "input_examples": [],
+  "description": "Drive forward, avoiding any obstacles and stopping for traffic lights along the way. Runs for 10 seconds unless you input a different duration (in seconds).",
+  "input_examples": [
+    {
+      "description": "Run this workflow for 30 seconds",
+      "value": "30"
+    }
+  ],
   "script_environments": {
     "scripts": {
       "builder": "process-bound-python",
       "config": {
         "ownership": "shared",
-        "script": "import asyncio\nfrom crossflow import *\n\nasync def execute(input: Input):\n    stoplight = input.accessors['stoplight'].fetch_by_clone()\n    obstacles = input.accessors['obstacles'].fetch_by_clone()\n\n    previously_stopped = False\n    for i in range(120):\n        light = await stoplight.try_fetch()\n\n        stop = False\n        if light == 'red':\n            # Stop if we a see a red light\n            stop = True\n            if not previously_stopped:\n                print('Stopping for a red light')\n\n        if not stop:\n            current_obstacles = await obstacles.try_fetch()\n            if current_obstacles is not None:\n                for obs in current_obstacles:\n                    if abs(obs['x']) < 2.0:\n                        # Stop if an obstacle is in front of us\n                        stop = True\n                        if not previously_stopped:\n                            print('Stopping for an obstacle')\n                        break\n\n        if stop:\n            previously_stopped = True\n            stop = {\n                'target_speed': 0,\n                'max_acceleration': 100\n            }\n            input.stream_out('speed', stop)\n        else:\n            previously_stopped = False\n            input.stream_out('speed', 30)\n        await asyncio.sleep(0.1)\n\ndef print_messages(input: Input):\n    print(f'Traffic signal: {input.data}')\n\ndef stop(input: Input):\n    input.stream_out('speed', 0)"
+        "script": "import asyncio\nfrom crossflow import *\n\nasync def execute(input: Input):\n    stoplight = input.accessors['stoplight'].fetch_by_clone()\n    obstacles = input.accessors['obstacles'].fetch_by_clone()\n    duration = input.data\n    if duration is None:\n        duration = 10.0\n\n    previously_stopped = False\n    dt = 0.1\n    t = 0.0\n    while t < duration:\n        t += dt\n        light = await stoplight.try_fetch()\n\n        stop = False\n        if light == 'red':\n            # Stop if we a see a red light\n            stop = True\n            if not previously_stopped:\n                print('Stopping for a red light')\n\n        if not stop:\n            current_obstacles = await obstacles.try_fetch()\n            if current_obstacles is not None:\n                for obs in current_obstacles:\n                    if abs(obs['x']) < 2.0:\n                        # Stop if an obstacle is in front of us\n                        stop = True\n                        if not previously_stopped:\n                            print('Stopping for an obstacle')\n                        break\n\n        if stop:\n            previously_stopped = True\n            stop = {\n                'target_speed': 0,\n                'max_acceleration': 100\n            }\n            input.stream_out('speed', stop)\n        else:\n            previously_stopped = False\n            input.stream_out('speed', 30)\n        await asyncio.sleep(dt)\n\ndef print_messages(input: Input):\n    print(f'Traffic signal: {input.data}')\n\ndef stop(input: Input):\n    input.stream_out('speed', 0)"
       }
     }
   },
   "extensions": {
     "crossflow-diagram-editor-v1": {
-      "hash": "3c24733879708ce18f0f491b2e2308fdf78ae379",
+      "hash": "1e26b4451d8171dcc12546b42c4f48ff26e8028c",
       "state": {
         "nodes": [
           {
@@ -215,8 +230,8 @@
             "id": "ea7548cb-16bd-4f14-bed5-4f96e9c6c8e5",
             "type": "node",
             "position": {
-              "x": 468.79626302013367,
-              "y": 69.78213805369197
+              "x": 461.2599628658271,
+              "y": 138.68545375020952
             },
             "data": {
               "namespace": "",
@@ -252,9 +267,9 @@
               "op": {
                 "type": "fork_clone",
                 "next": [
-                  "1a223192-94d1-4bed-a972-79e71e28fd10",
                   "1799aad6-e0c0-4c8f-932e-add884124171",
-                  "2dd3384a-2898-4156-8771-60a1fe06251b"
+                  "0a1633d8-7912-4925-a2a3-3f84c8b95e8d",
+                  "cbef12cb-481e-4527-ac87-bffa6964a927"
                 ]
               }
             },
@@ -290,8 +305,8 @@
             "id": "66b6b822-73ea-471d-85b3-76fb876e0984",
             "type": "buffer_access",
             "position": {
-              "x": 59.641667126548384,
-              "y": 367.16798340206236
+              "x": 84.40379620498436,
+              "y": 318.72033955294853
             },
             "data": {
               "namespace": "",
@@ -390,6 +405,52 @@
             },
             "selected": false,
             "dragging": false
+          },
+          {
+            "id": "cdd8234d-1587-44fc-a732-cdfa2f81d102",
+            "type": "transform",
+            "position": {
+              "x": 476.18959239655624,
+              "y": 22.738784348722046
+            },
+            "data": {
+              "namespace": "",
+              "opId": "0a1633d8-7912-4925-a2a3-3f84c8b95e8d",
+              "op": {
+                "type": "transform",
+                "cel": "null",
+                "next": "1a223192-94d1-4bed-a972-79e71e28fd10"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          },
+          {
+            "id": "7c0f8f55-a335-4aa2-9999-2daefaf58fcf",
+            "type": "transform",
+            "position": {
+              "x": -346.343738730622,
+              "y": -13.866102115052904
+            },
+            "data": {
+              "namespace": "",
+              "opId": "cbef12cb-481e-4527-ac87-bffa6964a927",
+              "op": {
+                "type": "transform",
+                "cel": "null",
+                "next": "2dd3384a-2898-4156-8771-60a1fe06251b"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
           }
         ],
         "edges": [
@@ -455,24 +516,6 @@
             "id": "75db870c-9a4d-46d4-bde2-6a1d8e84280e",
             "source": ":__builtin_start__",
             "target": "27980010-ff2d-44f2-9dfc-1fe25cdf11f3",
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "default",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "default"
-              }
-            },
-            "selected": false
-          },
-          {
-            "id": "8d0d4a44-31b4-43f1-8117-166d4690b327",
-            "source": "27980010-ff2d-44f2-9dfc-1fe25cdf11f3",
-            "target": "ea7548cb-16bd-4f14-bed5-4f96e9c6c8e5",
             "markerEnd": {
               "type": "arrowclosed",
               "width": 20,
@@ -560,7 +603,8 @@
               "input": {
                 "type": "default"
               }
-            }
+            },
+            "selected": false
           },
           {
             "id": "6260a708-c936-4384-b8ba-d0212ff6964a",
@@ -618,23 +662,6 @@
             "selected": false
           },
           {
-            "id": "5c83966d-c123-406b-85fb-dd49af5c78e6",
-            "source": "27980010-ff2d-44f2-9dfc-1fe25cdf11f3",
-            "target": "b1cdabbf-9469-40fc-a0c1-05baceb34abf",
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "default",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "default"
-              }
-            }
-          },
-          {
             "id": "155be5b7-6e40-4b02-b862-75b92da78d00",
             "source": "b1cdabbf-9469-40fc-a0c1-05baceb34abf",
             "sourceHandle": "dataStream",
@@ -674,6 +701,74 @@
             },
             "style": {},
             "selected": false
+          },
+          {
+            "id": "89b018ca-8647-4534-aebf-9ef313e92735",
+            "source": "cdd8234d-1587-44fc-a732-cdfa2f81d102",
+            "target": "ea7548cb-16bd-4f14-bed5-4f96e9c6c8e5",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "5912d753-7135-4aff-943d-d8b75b85ec3b",
+            "source": "27980010-ff2d-44f2-9dfc-1fe25cdf11f3",
+            "target": "cdd8234d-1587-44fc-a732-cdfa2f81d102",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "44abe620-b8ed-4df2-a521-002b8e69c78a",
+            "source": "27980010-ff2d-44f2-9dfc-1fe25cdf11f3",
+            "target": "7c0f8f55-a335-4aa2-9999-2daefaf58fcf",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "f5471661-c2d8-4314-a2c3-b641a8551934",
+            "source": "7c0f8f55-a335-4aa2-9999-2daefaf58fcf",
+            "target": "b1cdabbf-9469-40fc-a0c1-05baceb34abf",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
           }
         ]
       }
