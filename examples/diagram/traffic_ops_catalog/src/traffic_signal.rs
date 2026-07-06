@@ -243,7 +243,7 @@ fn monitor_upcoming_traffic_signal(
             continue;
         }
         // Ignore if traffic light is off-screen
-        if transform.translation.y > 0.5 * world_limits.window.1 {
+        if offset_y > 0.5 * world_limits.window.1 {
             continue;
         }
 

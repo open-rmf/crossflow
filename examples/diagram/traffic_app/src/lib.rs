@@ -17,7 +17,7 @@
 
 use bevy::prelude::*;
 use crossflow_diagram_editor::basic_executor::{
-    self, BasicExecutorSetup, DiagramElementRegistry, Error,
+    self, BasicExecutorSetup, DiagramElementRegistry, Error, PluginSelection,
 };
 use traffic_ops_catalog::{
     MovementPlugin, PedestrianPlugin, SpawnWorldPlugin, SpeedLimitPlugin, TrafficSignalPlugin,
@@ -25,7 +25,7 @@ use traffic_ops_catalog::{
 };
 
 pub fn run() -> Result<(), Box<dyn Error>> {
-    basic_executor::run_custom_setup(None, || {
+    basic_executor::run_custom_setup(PluginSelection::Minimal, || {
         let mut app = App::new();
         app.add_plugins((
             SpawnWorldPlugin::default(),
@@ -38,6 +38,9 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
         let registry = DiagramElementRegistry::new();
         let mut setup = BasicExecutorSetup { app, registry };
+
+        let py_event_loop = setup.registry.enable_python().unwrap();
+        py_event_loop.spawn_thread_and_run();
 
         // Register traffic node builders from the traffic_ops_catalog library.
         traffic_ops_catalog::register(&mut setup);

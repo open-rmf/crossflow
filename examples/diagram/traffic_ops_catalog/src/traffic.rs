@@ -15,14 +15,13 @@
  *
 */
 
-use crate::vehicle::Velocity;
 use bevy::prelude::*;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum TrafficSignal {
     Red = 0,
     Yellow = 1,
@@ -55,33 +54,38 @@ pub struct ApproachingIntersection {
     pub distance: f32,
 }
 
-#[derive(Clone, Debug, Default, Event, Serialize, Deserialize, JsonSchema, Hash, Eq, PartialEq)]
-pub struct ObstacleInRange {
-    pub offset_x: i32,
-    pub offset_y: i32,
-}
-
-impl ObstacleInRange {
-    pub fn new(offset_x: i32, offset_y: i32) -> Self {
-        Self { offset_x, offset_y }
-    }
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema)]
-pub struct Obstacles(pub HashSet<ObstacleInRange>);
-
-#[derive(Clone, Debug, Component, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-pub struct SpeedLimit(pub i32);
+#[derive(Clone, Debug, Component, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct SpeedLimit(pub f32);
 
 impl Default for SpeedLimit {
     fn default() -> Self {
-        Self(50)
+        Self(50.0)
     }
 }
 
 #[derive(Clone, Debug, Default, Component)]
 #[require(Transform)]
 pub struct Obstacle;
+
+#[derive(Clone, Copy, Debug, Default, Component)]
+pub struct Velocity {
+    pub translation: Vec2,
+}
+
+impl Velocity {
+    pub fn zero() -> Self {
+        Velocity { translation: Vec2::ZERO }
+    }
+
+    pub fn default_pedestrian() -> Self {
+        Velocity {
+            translation: Vec2 {
+                x: 40.0,
+                y: 0.0,
+            }
+        }
+    }
+}
 
 #[derive(Clone, Debug, Component)]
 #[require(Velocity)]

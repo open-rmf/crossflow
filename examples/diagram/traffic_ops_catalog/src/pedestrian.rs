@@ -18,9 +18,9 @@
 use crate::{
     movement::ScrollingWorld,
     spawn_world::{PEDESTRIAN_LAYER_Z, WorldLimits},
-    traffic::{Obstacle, Pedestrian},
+    traffic::{Obstacle, Pedestrian, Velocity},
     user_panel::UserPanel,
-    vehicle::{MainVehicle, Vehicle, Velocity},
+    vehicle::{MainVehicle, Vehicle},
 };
 use bevy::prelude::*;
 use bevy_color::palettes::css as Colors;
@@ -124,26 +124,29 @@ fn move_pedestrians(
 
     let dt = time.delta_secs();
     for (mut transform, mut velocity, pedestrian) in transforms.iter_mut() {
+        let v = velocity.translation;
         if !pedestrian.is_alive() {
             // If pedestrian is dead, they should not move
             continue;
         }
-        transform.translation.x += velocity.x * dt.clone();
-        transform.translation.y += velocity.y * dt;
+        transform.translation.x += v.x * dt;
+        transform.translation.y += v.y * dt;
 
         // If pedestrian reached the edge of the limit, flip the direction
         if transform.translation.x <= world_limits.pavement_limits.0 {
-            velocity.x = velocity.x.abs();
+            velocity.translation.x = v.x.abs();
         } else if transform.translation.x >= world_limits.pavement_limits.1 {
-            velocity.x = -velocity.x.abs();
+            velocity.translation.x = -v.x.abs();
         }
 
         // If for some reason pedestrians stopped moving, ensure that they resume
         // velocity off-screen. This could be due to users toggling pedestrian
         // awareness off while the pedestrian is waiting.
-        if velocity.x == 0.0 && transform.translation.y > 0.5 * world_limits.window.1 {
+        if v.x == 0.0 && transform.translation.y > 0.5 * world_limits.window.1 {
             *velocity = Velocity::default_pedestrian();
         }
+
+        let v = velocity.translation;
 
         // Pedestrian awareness - if enabled, pedestrians will not cross the
         // road when a vehicle is approaching.
@@ -152,9 +155,9 @@ fn move_pedestrians(
             let offset_y = transform.translation.y - vehicle_y;
             let in_danger_zone = (offset_x.abs() < threshold_x) && (offset_y.abs() < threshold_y);
             let facing_main_vehicle =
-                (offset_x < 0.0 && velocity.x >= 0.0) || (offset_x > 0.0 && velocity.x <= 0.0);
+                (offset_x < 0.0 && v.x >= 0.0) || (offset_x > 0.0 && v.x <= 0.0);
             let pedestrian_in_danger = in_danger_zone && facing_main_vehicle;
-            let pedestrian_moving = velocity.x.abs() > 0.0;
+            let pedestrian_moving = v.x.abs() > 0.0;
 
             if pedestrian_moving && pedestrian_in_danger {
                 *velocity = Velocity::zero();
@@ -184,7 +187,8 @@ fn update_pedestrian_state(
         0.5 * world_limits.vehicle_size.1,
     );
     for (e, transform, pedestrian) in transforms.iter() {
-        if !pedestrian.is_alive() && transform.translation.y > 0.5 * world_limits.window.1 {
+        let diff = vehicle_y - transform.translation.y;
+        if !pedestrian.is_alive() && diff.abs() > 0.5 * world_limits.window.1 {
             // If pedestrian is dead, revive them through the scrolling world
             commands.trigger(PedestrianStateChange::Revival(e))
         } else if pedestrian.is_alive() {

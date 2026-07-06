@@ -17,39 +17,21 @@
 
 use crate::{
     spawn_world::{LaneDash, WorldLimits},
-    vehicle::{Acceleration, MainVehicle, Velocity},
+    vehicle::{MainVehicle, Position, VehicleDynamics, ThrottleCommand, SteeringCommand, cap},
 };
 use bevy::prelude::*;
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Component)]
 pub struct ScrollingWorld;
-
-#[derive(Resource)]
-struct GlobalSpeed(f32);
-
-impl FromWorld for GlobalSpeed {
-    fn from_world(_world: &mut World) -> Self {
-        Self(0.0)
-    }
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema)]
-pub struct Kinematics {
-    pub velocity: Velocity,
-    pub acceleration: Acceleration,
-    pub dt: f32,
-}
 
 #[derive(Default)]
 pub struct MovementPlugin {}
 
 impl Plugin for MovementPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<GlobalSpeed>().add_systems(
+        app.add_systems(
             PostUpdate,
-            (move_vehicles, update_global_speed, scroll_world_system),
+            move_vehicles,
         );
     }
 }
@@ -60,60 +42,60 @@ impl Plugin for MovementPlugin {
 fn move_vehicles(
     mut transforms: Query<(
         &mut Transform,
-        &mut Velocity,
-        &Acceleration,
+        &mut Position,
+        &mut VehicleDynamics,
+        &ThrottleCommand,
+        &SteeringCommand,
         Option<&MainVehicle>,
     )>,
-    time: Res<Time>,
-) {
-    let dt = time.delta_secs();
-    for (mut transform, mut velocity, acceleration, main_vehicle) in transforms.iter_mut() {
-        velocity.x += acceleration.x * dt.clone();
-        velocity.y += acceleration.y * dt.clone();
-
-        // Clamp velocity to 0.0, do not allow reverse motion
-        if velocity.y < 0.0 {
-            velocity.y = 0.0;
-        }
-
-        transform.translation.x += velocity.x * dt.clone();
-        if main_vehicle.is_none() {
-            // Only update y-transform for non-main vehicles
-            transform.translation.y += velocity.y * dt;
-        }
-    }
-}
-
-fn update_global_speed(
-    mut global_speed: ResMut<GlobalSpeed>,
-    velocity: Query<&Velocity, (With<MainVehicle>, Changed<Velocity>)>,
-) {
-    let Ok(vehicle_velocity) = velocity.single() else {
-        return;
-    };
-    global_speed.0 = vehicle_velocity.y;
-}
-
-fn scroll_world_system(
-    mut scrolling_world: Query<(&mut Transform, Option<&LaneDash>), With<ScrollingWorld>>,
-    time: Res<Time>,
-    global_speed: Res<GlobalSpeed>,
+    mut scrolling_world: Query<(&mut Transform, Option<&LaneDash>), (With<ScrollingWorld>, Without<ThrottleCommand>)>,
+    mut camera: Query<&mut Transform, (With<Camera>, Without<ThrottleCommand>, Without<ScrollingWorld>)>,
     world_limits: Res<WorldLimits>,
+    time: Res<Time>,
 ) {
-    let window_height = world_limits.window.1;
+    let scale = world_limits.convert_m_to_px;
     let dt = time.delta_secs();
-    let scroll_distance = global_speed.0 * dt;
+    for (mut transform, mut position, mut dynamics, engine, steering, main) in transforms.iter_mut() {
+        dynamics.command(&*engine, &*steering, dt);
+        let speed = dynamics.speed;
 
-    for (mut transform, lane) in scrolling_world.iter_mut() {
-        // Move the world backward to make the vehicle look like it's moving forward
-        transform.translation.y -= scroll_distance;
-        // If the world element has gone out of frame, teleport it back up
-        // Let full runway be 4x window height
-        if transform.translation.y < -window_height {
-            if lane.is_some() {
-                transform.translation.y += 2.0 * window_height;
-            } else {
-                transform.translation.y += world_limits.full_runway;
+        let w = dynamics.wheel_rotation.to_radians();
+        let yaw = position.yaw + w + f32::to_radians(90.0);
+
+        let v = speed * Vec2::new(f32::cos(yaw), f32::sin(yaw));
+        position.translation += v * dt;
+        position.yaw += speed * w * dt;
+
+        position.translation.x = cap(position.translation.x, 10.0);
+        if position.translation.x < -12.0 {
+            position.translation.x = -12.0
+        } else if position.translation.x > -2.0 {
+            position.translation.x = -2.0;
+        }
+
+        let p = position.translation;
+        transform.translation = scale * Vec3::new(p.x, p.y, 0.0);
+        transform.rotation = Quat::from_axis_angle(Vec3::Z, position.yaw);
+
+        if main.is_some() {
+            let reference_y = transform.translation.y;
+            let window_height = world_limits.window.1;
+
+            for (mut transform, lane) in scrolling_world.iter_mut() {
+                // If the world element has gone out of frame, teleport it back up
+                // Let full runway be 4x window height
+                let dy = reference_y - transform.translation.y;
+                if dy.abs() > window_height {
+                    if lane.is_some() {
+                        transform.translation.y += dy.signum() * 2.0 * window_height;
+                    } else {
+                        transform.translation.y += dy.signum() * world_limits.full_runway;
+                    }
+                }
+            }
+
+            if let Ok(mut camera_tf) = camera.single_mut() {
+                camera_tf.translation.y = reference_y;
             }
         }
     }
