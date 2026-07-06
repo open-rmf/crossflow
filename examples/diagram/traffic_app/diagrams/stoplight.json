@@ -40,8 +40,8 @@
     "53642a5a-568d-46af-b068-9b55290c9514": {
       "type": "fork_clone",
       "next": [
-        "1a223192-94d1-4bed-a972-79e71e28fd10",
-        "1799aad6-e0c0-4c8f-932e-add884124171"
+        "1799aad6-e0c0-4c8f-932e-add884124171",
+        "c3141404-9855-4e48-9384-e416cc7ed846"
       ]
     },
     "73ab1393-a4a8-490e-9518-ae02b2acf6cc": {
@@ -65,22 +65,32 @@
       "stream_out": {
         "speed": "e99ffc89-4d3f-4d26-a5c3-819cf1209092"
       }
+    },
+    "c3141404-9855-4e48-9384-e416cc7ed846": {
+      "type": "transform",
+      "cel": "null",
+      "next": "1a223192-94d1-4bed-a972-79e71e28fd10"
     }
   },
-  "description": "",
-  "input_examples": [],
+  "description": "Drive forward, stopping for traffic lights along the way. Runs for 10 seconds unless you input a different duration (in seconds).",
+  "input_examples": [
+    {
+      "description": "Run for 30 seconds.",
+      "value": "30"
+    }
+  ],
   "script_environments": {
     "scripts": {
       "builder": "process-bound-python",
       "config": {
         "ownership": "shared",
-        "script": "import asyncio\nfrom crossflow import *\n\nasync def execute(input: Input):\n    stoplight = input.accessors['stoplight'].fetch_by_clone()\n    \n    for i in range(60):\n        light = await stoplight.try_fetch()\n\n        if light == 'red':\n            stop = {\n                'target_speed': 0,\n                'max_acceleration': 100\n            }\n            input.stream_out('speed', stop)\n        else:\n            input.stream_out('speed', 30)\n        await asyncio.sleep(0.1)\n\ndef print_messages(input: Input):\n    print(f'Traffic signal: {input.data}')\n\ndef stop(input: Input):\n    input.stream_out('speed', 0)"
+        "script": "import asyncio\nfrom crossflow import *\n\nasync def execute(input: Input):\n    stoplight = input.accessors['stoplight'].fetch_by_clone()\n    \n    duration = input.data\n    if duration is None:\n        duration = 10.0\n    \n    dt = 0.1\n    t = 0.0\n    while t < duration:\n        t += dt\n        \n        light = await stoplight.try_fetch()\n\n        if light == 'red':\n            stop = {\n                'target_speed': 0,\n                'max_acceleration': 100\n            }\n            input.stream_out('speed', stop)\n        else:\n            input.stream_out('speed', 30)\n        await asyncio.sleep(dt)\n\ndef print_messages(input: Input):\n    print(f'Traffic signal: {input.data}')\n\ndef stop(input: Input):\n    input.stream_out('speed', 0)"
       }
     }
   },
   "extensions": {
     "crossflow-diagram-editor-v1": {
-      "hash": "5938876235758217e55370b366bbe4f45ab8627a",
+      "hash": "9c4183dfa4e860b695ad61aa1fda3d8b2c7c974e",
       "state": {
         "nodes": [
           {
@@ -237,8 +247,8 @@
               "op": {
                 "type": "fork_clone",
                 "next": [
-                  "1a223192-94d1-4bed-a972-79e71e28fd10",
-                  "1799aad6-e0c0-4c8f-932e-add884124171"
+                  "1799aad6-e0c0-4c8f-932e-add884124171",
+                  "c3141404-9855-4e48-9384-e416cc7ed846"
                 ]
               }
             },
@@ -324,6 +334,29 @@
             },
             "selected": false,
             "dragging": false
+          },
+          {
+            "id": "0c5ccd1a-4b77-4caa-a303-90890b54d910",
+            "type": "transform",
+            "position": {
+              "x": 358.6743227142731,
+              "y": 112.75
+            },
+            "data": {
+              "namespace": "",
+              "opId": "c3141404-9855-4e48-9384-e416cc7ed846",
+              "op": {
+                "type": "transform",
+                "cel": "null",
+                "next": "1a223192-94d1-4bed-a972-79e71e28fd10"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
           }
         ],
         "edges": [
@@ -389,24 +422,6 @@
             "id": "75db870c-9a4d-46d4-bde2-6a1d8e84280e",
             "source": ":__builtin_start__",
             "target": "27980010-ff2d-44f2-9dfc-1fe25cdf11f3",
-            "markerEnd": {
-              "type": "arrowclosed",
-              "width": 20,
-              "height": 20
-            },
-            "type": "default",
-            "data": {
-              "output": {},
-              "input": {
-                "type": "default"
-              }
-            },
-            "selected": false
-          },
-          {
-            "id": "8d0d4a44-31b4-43f1-8117-166d4690b327",
-            "source": "27980010-ff2d-44f2-9dfc-1fe25cdf11f3",
-            "target": "ea7548cb-16bd-4f14-bed5-4f96e9c6c8e5",
             "markerEnd": {
               "type": "arrowclosed",
               "width": 20,
@@ -550,6 +565,40 @@
               }
             },
             "selected": false
+          },
+          {
+            "id": "572199e4-9fc2-4258-aded-4e4db828c225",
+            "source": "27980010-ff2d-44f2-9dfc-1fe25cdf11f3",
+            "target": "0c5ccd1a-4b77-4caa-a303-90890b54d910",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "af2d0f7e-31a7-49c7-9e24-b8dc29ebc4dd",
+            "source": "0c5ccd1a-4b77-4caa-a303-90890b54d910",
+            "target": "ea7548cb-16bd-4f14-bed5-4f96e9c6c8e5",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
           }
         ]
       }
