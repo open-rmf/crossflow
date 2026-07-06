@@ -1,0 +1,164 @@
+{
+  "$schema": "https://raw.githubusercontent.com/open-rmf/crossflow/refs/heads/main/diagram.schema.json",
+  "version": "0.1.0",
+  "templates": {},
+  "start": "4558241b-17ce-4050-8191-a41cf9f5ba04",
+  "ops": {
+    "09fc9c55-e7fe-4faf-a995-fac4656c6024": {
+      "type": "node",
+      "builder": "set_throttle",
+      "next": {
+        "builtin": "terminate"
+      }
+    },
+    "4558241b-17ce-4050-8191-a41cf9f5ba04": {
+      "type": "transform",
+      "cel": "10",
+      "next": "09fc9c55-e7fe-4faf-a995-fac4656c6024"
+    }
+  },
+  "description": "",
+  "input_examples": [],
+  "extensions": {
+    "crossflow-diagram-editor-v1": {
+      "hash": "d6f8fdca00f9501f2f1c4e62ff7ab4557e197418",
+      "state": {
+        "nodes": [
+          {
+            "id": ":__builtin_start__",
+            "type": "start",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "selectable": false,
+            "data": {
+              "namespace": ""
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            }
+          },
+          {
+            "id": ":__builtin_terminate__",
+            "type": "terminate",
+            "position": {
+              "x": 0,
+              "y": 400
+            },
+            "selectable": false,
+            "data": {
+              "namespace": ""
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            }
+          },
+          {
+            "id": "2183ff24-5ab9-4377-9f24-789e4517b810",
+            "type": "node",
+            "position": {
+              "x": 16.75,
+              "y": 234
+            },
+            "data": {
+              "namespace": "",
+              "opId": "09fc9c55-e7fe-4faf-a995-fac4656c6024",
+              "op": {
+                "type": "node",
+                "builder": "set_throttle",
+                "next": {
+                  "builtin": "terminate"
+                }
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          },
+          {
+            "id": "f73e527f-98bd-463b-a2e4-9584d636305e",
+            "type": "transform",
+            "position": {
+              "x": 11.75,
+              "y": 128
+            },
+            "data": {
+              "namespace": "",
+              "opId": "4558241b-17ce-4050-8191-a41cf9f5ba04",
+              "op": {
+                "type": "transform",
+                "cel": "10",
+                "next": "09fc9c55-e7fe-4faf-a995-fac4656c6024"
+              }
+            },
+            "measured": {
+              "width": 200,
+              "height": 50
+            },
+            "selected": false,
+            "dragging": false
+          }
+        ],
+        "edges": [
+          {
+            "id": "ea657f6d-143f-4799-95c4-457ecb0ce624",
+            "source": ":__builtin_start__",
+            "target": "f73e527f-98bd-463b-a2e4-9584d636305e",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "87ef3eb7-b762-4d17-a9e3-745ee5739c80",
+            "source": "f73e527f-98bd-463b-a2e4-9584d636305e",
+            "target": "2183ff24-5ab9-4377-9f24-789e4517b810",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          },
+          {
+            "id": "4753fbd1-74a4-4ab0-ae9e-768019e31b61",
+            "source": "2183ff24-5ab9-4377-9f24-789e4517b810",
+            "target": ":__builtin_terminate__",
+            "markerEnd": {
+              "type": "arrowclosed",
+              "width": 20,
+              "height": 20
+            },
+            "type": "default",
+            "data": {
+              "output": {},
+              "input": {
+                "type": "default"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -22,12 +22,11 @@ use crate::{
     spawn_world::{TRAFFIC_LIGHT_LAYER_Z, WorldLimits},
     traffic::SpeedLimit,
     traffic_signal::TrafficLightColors,
-    vehicle::{MainVehicle, Velocity},
+    vehicle::MainVehicle,
 };
 use bevy::prelude::*;
 use bevy_color::palettes::css as Colors;
 use rand::Rng;
-use std::collections::HashMap;
 
 #[derive(Clone, Debug, Default, Resource)]
 pub struct CurrentSpeedLimit(pub SpeedLimit);
@@ -37,7 +36,7 @@ pub struct SpeedLimitPlugin {}
 
 impl Plugin for SpeedLimitPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(CurrentSpeedLimit(SpeedLimit(50)))
+        app.insert_resource(CurrentSpeedLimit(SpeedLimit::default()))
             .add_systems(Startup, spawn_speed_signs)
             .add_systems(Update, update_current_speed_limit);
     }
@@ -60,7 +59,7 @@ fn spawn_speed_signs(
 
     // For each speed sign, spawn an entity
     for id in 0..n_signs {
-        let speed_limit = 30 + (10 * id as i32);
+        let speed_limit = 30.0 + (10.0 * id as f32);
         commands
             .spawn((
                 SpeedLimit(speed_limit.clone()),
@@ -112,17 +111,16 @@ fn update_current_speed_limit(
         return;
     };
 
-    let mut signs_in_window = HashMap::<SpeedLimit, f32>::new();
+    let mut signs_in_window = Vec::<(SpeedLimit, f32)>::new();
     let window_height = world_limits.window.1;
     for (tf, speed) in speed_signs.iter() {
         if tf.translation.y < -0.5 * window_height || tf.translation.y > 0.5 * window_height {
             continue;
         }
-        signs_in_window.insert(speed.clone(), (vehicle_y - tf.translation.y).abs());
+        signs_in_window.push((speed.clone(), (vehicle_y - tf.translation.y).abs()));
     }
     if signs_in_window.is_empty() {
-        let default_speed = Velocity::default_forward().y.round() as i32;
-        current_speed_limit.0 = SpeedLimit(default_speed);
+        current_speed_limit.0 = SpeedLimit::default();
         return;
     }
     if signs_in_window.len() == 1 {
