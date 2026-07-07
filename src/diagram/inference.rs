@@ -1926,6 +1926,103 @@ mod tests {
         );
     }
 
+    #[test]
+    fn infer_message_types_for_ports_returns_only_requested_ports() {
+        let fixture = DiagramTestFixture::new();
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "start": "source",
+            "ops": {
+                "source": {
+                    "type": "node",
+                    "builder": "add",
+                    "next": "target"
+                },
+                "target": {
+                    "type": "node",
+                    "builder": "mul",
+                    "next": { "builtin": "terminate" }
+                }
+            }
+        }))
+        .unwrap();
+        let source_output: PortRef = output_ref(&"source".into()).next().into();
+        let target_input: PortRef = (&NextOperation::Name("target".into())).into();
+
+        let inference = diagram
+            .infer_message_types_for_ports(
+                &fixture.registry,
+                InferenceBoundaryConditions::json_messages(&fixture.registry, []).unwrap(),
+                [source_output.clone(), target_input.clone()],
+            )
+            .unwrap();
+
+        let json_index = fixture
+            .registry
+            .messages
+            .registration
+            .get_index::<JsonMessage>()
+            .unwrap();
+        let f64_index = fixture
+            .registry
+            .messages
+            .registration
+            .get_index::<f64>()
+            .unwrap();
+        assert_eq!(inference.len(), 2);
+        assert_eq!(inference[&source_output], f64_index);
+        assert_eq!(inference[&target_input], json_index);
+    }
+
+    #[test]
+    fn infer_message_types_for_ports_ignores_unrequested_broken_ports() {
+        let fixture = DiagramTestFixture::new();
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "start": "source",
+            "ops": {
+                "source": {
+                    "type": "node",
+                    "builder": "add",
+                    "next": "target"
+                },
+                "target": {
+                    "type": "node",
+                    "builder": "mul",
+                    "next": { "builtin": "terminate" }
+                },
+                "unfinished": {
+                    "type": "buffer"
+                }
+            }
+        }))
+        .unwrap();
+        let source_output: PortRef = output_ref(&"source".into()).next().into();
+        let target_input: PortRef = (&NextOperation::Name("target".into())).into();
+        let unfinished_input: PortRef = (&NextOperation::Name("unfinished".into())).into();
+
+        assert!(
+            diagram
+                .infer_message_types(
+                    &fixture.registry,
+                    InferenceBoundaryConditions::json_messages(&fixture.registry, []).unwrap(),
+                )
+                .is_err()
+        );
+
+        let inference = diagram
+            .infer_message_types_for_ports(
+                &fixture.registry,
+                InferenceBoundaryConditions::json_messages(&fixture.registry, []).unwrap(),
+                [source_output.clone(), target_input.clone()],
+            )
+            .unwrap();
+
+        assert!(inference.contains_key(&source_output));
+        assert!(inference.contains_key(&target_input));
+        assert!(!inference.contains_key(&unfinished_input));
+    }
+
     // TODO(@mxgrey): Add tests with sections and scopes to validate type inference
     // inside namespaces.
 }

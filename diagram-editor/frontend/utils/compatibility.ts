@@ -312,10 +312,15 @@ export function buildCompatibilityCandidate({
   }
 
   const candidateManager = new NodeManager(candidateNodes);
-  const edge = createEdgeFromConnection(connection, candidateManager, edgeId);
-  if ('valid' in edge) {
-    return incompatibleBuildResult(id, edge.error);
+  const edgeResult = createEdgeFromConnection(
+    connection,
+    candidateManager,
+    edgeId,
+  );
+  if (!edgeResult.valid) {
+    return incompatibleBuildResult(id, edgeResult.error);
   }
+  const { edge } = edgeResult;
 
   const candidateEdges = [
     ...cloneJson(edges).filter((candidateEdge) => candidateEdge.id !== edge.id),

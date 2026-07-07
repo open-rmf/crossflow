@@ -278,7 +278,7 @@ fn check_compatibility_candidate(
         return CompatibilityResult::terminal(
             candidate.id,
             CompatibilityStatus::Unknown,
-            "no ports were provided for compatibility checking",
+            "No ports were provided for compatibility checking",
         );
     }
 
@@ -292,7 +292,7 @@ fn check_compatibility_candidate(
                 if is_missing_context_error(&err) {
                     return CompatibilityResult::provisional(
                         candidate.id,
-                        format!("connection needs more type context: {err}"),
+                        format!("Connection needs more type context: {err}"),
                     );
                 }
 
@@ -331,7 +331,7 @@ fn check_compatibility_candidate(
         if provisional {
             return CompatibilityResult::provisional_with_types(
                 candidate.id,
-                "focused ports can be inferred, but the connection needs more peer type context",
+                "Focused ports can be inferred, but the connection needs more peer type context",
                 source_type_name,
                 target_type_name,
             );
@@ -340,7 +340,7 @@ fn check_compatibility_candidate(
         return CompatibilityResult::with_types(
             candidate.id,
             CompatibilityStatus::Compatible,
-            "focused ports can be inferred",
+            "Focused ports can be inferred",
             source_type_name,
             target_type_name,
         );
@@ -402,12 +402,12 @@ fn can_connect_message_types(
     target_type: usize,
 ) -> Result<Option<String>, DiagramErrorCode> {
     if source_type == target_type {
-        return Ok(Some("message types match exactly".to_string()));
+        return Ok(Some("Message types match exactly".to_string()));
     }
 
     if registry.can_convert(source_type, target_type)? {
         return Ok(Some(
-            "registered message conversion is available".to_string(),
+            "Registered message conversion is available".to_string(),
         ));
     }
 
@@ -417,7 +417,7 @@ fn can_connect_message_types(
         && registry.can_seralize(source_type)?
     {
         return Ok(Some(
-            "source can be implicitly serialized to JSON".to_string(),
+            "Source can be implicitly serialized to JSON".to_string(),
         ));
     }
 
@@ -437,7 +437,7 @@ fn can_connect_message_types(
         && registry.into_script_message(source_type)?
     {
         return Ok(Some(
-            "source can be implicitly converted to ScriptMessage".to_string(),
+            "Source can be implicitly converted to ScriptMessage".to_string(),
         ));
     }
 

@@ -843,9 +843,14 @@ function DiagramEditor() {
               oldEdge.id,
             );
             if (newEdge) {
-              oldEdge.type = newEdge.type;
-              oldEdge.data = newEdge.data;
-              setEdges((prev) => reconnectEdge(oldEdge, newConnection, prev));
+              const updatedEdge = {
+                ...oldEdge,
+                type: newEdge.type,
+                data: newEdge.data,
+              } as DiagramEditorEdge;
+              setEdges((prev) =>
+                reconnectEdge(updatedEdge, newConnection, prev),
+              );
             }
           })();
         }}

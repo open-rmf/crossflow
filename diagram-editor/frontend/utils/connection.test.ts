@@ -164,7 +164,7 @@ describe('connection helpers', () => {
     );
     const nodeManager = new NodeManager([buffer, join]);
 
-    const edge = createEdgeFromConnection(
+    const result = createEdgeFromConnection(
       {
         source: buffer.id,
         sourceHandle: null,
@@ -174,10 +174,11 @@ describe('connection helpers', () => {
       nodeManager,
     );
 
-    expect('valid' in edge).toBe(false);
-    if ('valid' in edge) {
-      return;
+    expect(result.valid).toBe(true);
+    if (!result.valid) {
+      throw new Error(result.error);
     }
+    const { edge } = result;
     expect(edge.type).toBe('buffer');
     expect(edge.data.input).toEqual({
       type: 'bufferKey',

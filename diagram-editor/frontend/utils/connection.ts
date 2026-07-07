@@ -208,6 +208,10 @@ export type EdgeValidationResult =
   | { valid: true; validEdgeTypes: EdgeTypes[] }
   | ValidationError;
 
+export type EdgeCreationResult =
+  | { valid: true; edge: DiagramEditorEdge }
+  | ValidationError;
+
 function createValidationError(error: string): ValidationError {
   return { valid: false, error };
 }
@@ -465,7 +469,7 @@ export function createEdgeFromConnection(
   conn: Connection,
   nodeManager: NodeManager,
   id?: string,
-): DiagramEditorEdge | ValidationError {
+): EdgeCreationResult {
   const sourceNode = nodeManager.tryGetNode(conn.source);
   const targetNode = nodeManager.tryGetNode(conn.target);
   if (!sourceNode || !targetNode) {
@@ -512,7 +516,7 @@ export function createEdgeFromConnection(
 
   adjustBufferEdgeInputForTarget(newEdge, sourceNode, targetNode);
 
-  return newEdge;
+  return { valid: true, edge: newEdge };
 }
 
 /**
