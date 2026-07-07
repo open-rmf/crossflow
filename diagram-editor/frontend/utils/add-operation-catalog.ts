@@ -40,8 +40,11 @@ export type AddOperationKey =
   | 'section'
   | 'script';
 
+export type RegistryNodeKey = `node:${string}`;
+export type AddOperationCandidateKey = AddOperationKey | RegistryNodeKey;
+
 export type AddOperationCandidate = {
-  key: string;
+  key: AddOperationCandidateKey;
   label: string;
   templateOnlyRoot?: boolean;
   createPreviewNode: (
