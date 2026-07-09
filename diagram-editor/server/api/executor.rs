@@ -459,7 +459,7 @@ fn root_stream_names(diagram: &Diagram) -> Vec<String> {
         .ops
         .values()
         .filter_map(|op| match op.as_ref() {
-            DiagramOperation::StreamOut(stream_out) => Some(stream_out.name().to_string()),
+            DiagramOperation::StreamOut(stream_out) => Some(stream_out.name.to_string()),
             _ => None,
         })
         .collect()

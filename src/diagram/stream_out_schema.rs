@@ -69,16 +69,10 @@ use super::{
 #[serde(rename_all = "snake_case")]
 pub struct StreamOutSchema {
     /// The name of the stream exiting the workflow or scope.
-    pub(super) name: OperationName,
+    pub name: OperationName,
 
     #[serde(flatten)]
     pub trace_settings: TraceSettings,
-}
-
-impl StreamOutSchema {
-    pub fn name(&self) -> &OperationName {
-        &self.name
-    }
 }
 
 impl BuildDiagramOperation for StreamOutSchema {
