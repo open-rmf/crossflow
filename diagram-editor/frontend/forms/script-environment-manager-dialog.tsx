@@ -27,6 +27,10 @@ import { useRegistry } from '../registry-provider';
 import type { DiagramElementMetadata } from '../types/api';
 import { scriptEnvironmentPlugins } from './script-environments/registry';
 
+function scriptEnvironmentLanguage(env: { [key: string]: unknown }): string {
+  return typeof env.language === 'string' ? env.language : 'python';
+}
+
 export interface ScriptEnvironmentManagerDialogProps {
   open: boolean;
   onClose: () => void;
@@ -98,7 +102,7 @@ export function ScriptEnvironmentManagerDialog({
         setScriptText('');
       }
 
-      setLanguage((env as any).language || 'python');
+      setLanguage(scriptEnvironmentLanguage(env));
       setMode('view');
     }
   }, [open, selectedEnvName, environments]);
@@ -425,7 +429,7 @@ export function ScriptEnvironmentManagerDialog({
                           setScriptText('');
                         }
 
-                        setLanguage((env as any).language || 'python');
+                        setLanguage(scriptEnvironmentLanguage(env));
                       }
                     }
                   }}

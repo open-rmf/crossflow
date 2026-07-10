@@ -4,12 +4,7 @@ import {
   useConnection,
   useNodeId,
 } from '@xyflow/react';
-import { useNodeManager } from './node-manager';
-import { useEdges } from './use-edges';
-import {
-  createConnectionFromDraggedHandle,
-  validateConnectionSimple,
-} from './utils/connection';
+import { useDraggedConnectionCompatibility } from './connection-compatibility-provider';
 import { exhaustiveCheck } from './utils/exhaustive-check';
 
 export enum HandleId {
@@ -62,10 +57,15 @@ function variantClassName(handleType?: HandleType): string | undefined {
 
 export function Handle({ id, variant, className, ...baseProps }: HandleProps) {
   const nodeId = useNodeId();
-  const nodeManager = useNodeManager();
-  const edges = useEdges();
   const connection = useConnection();
   const handleType = baseProps.type || 'source';
+  const compatibility = useDraggedConnectionCompatibility({
+    id: `handle:${nodeId ?? ''}:${handleType}:${id ?? ''}`,
+    otherNodeId: nodeId,
+    otherHandleId: id,
+    otherHandleType: handleType,
+    skipSelf: true,
+  });
 
   const classNames: string[] = [];
   const variantClass = variantClassName(variant);
@@ -76,26 +76,12 @@ export function Handle({ id, variant, className, ...baseProps }: HandleProps) {
     classNames.push(className);
   }
 
-  if (
-    nodeId &&
-    connection.inProgress &&
-    connection.fromHandle &&
-    connection.fromHandle.nodeId !== nodeId &&
-    connection.fromHandle.type !== handleType
-  ) {
-    const conn = createConnectionFromDraggedHandle({
-      fromNodeId: connection.fromHandle.nodeId,
-      fromHandleId: connection.fromHandle.id,
-      fromHandleType: connection.fromHandle.type,
-      otherNodeId: nodeId,
-      otherHandleId: id,
-    });
-
-    const result = validateConnectionSimple(conn, nodeManager, edges);
-
-    if (result.valid) {
-      classNames.push('handle-compatible');
-    }
+  if (compatibility && connection.inProgress) {
+    classNames.push(
+      compatibility.status === 'compatible'
+        ? 'handle-compatible'
+        : 'handle-incompatible',
+    );
   }
 
   return (

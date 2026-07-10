@@ -63,9 +63,9 @@ export function render(
       unzip: [],
     },
     schemas: {},
+    scripting: {},
     sections: {},
     trace_supported: false,
-    scripting: {},
   };
   return baseRender(ui, {
     wrapper: createTestingProviders(resolvedRegistry),
