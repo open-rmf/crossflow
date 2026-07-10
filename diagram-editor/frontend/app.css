@@ -61,6 +61,11 @@
   box-shadow: 0 0 0 6px rgb(76 175 80 / 30%);
   border-color: var(--mui-palette-success-main);
 }
+.react-flow__handle.handle-incompatible {
+  opacity: 0.9;
+  box-shadow: 0 0 0 6px rgb(244 67 54 / 24%);
+  border-color: var(--mui-palette-error-main);
+}
 .react-flow__handle.connectingto:not(.valid) {
   opacity: 0.9;
   box-shadow: 0 0 0 6px rgb(244 67 54 / 24%);

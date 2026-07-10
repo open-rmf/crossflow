@@ -44,7 +44,7 @@ const testRegistry: DiagramElementMetadata = {
           config: {
             ownership: 'shared',
             script: 'print("Hello from example")',
-          } as any,
+          },
           run: 'execute',
         },
       ],

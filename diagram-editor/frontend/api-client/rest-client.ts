@@ -1,5 +1,7 @@
 import { from, type Observable } from 'rxjs';
 import type {
+  CompatibilityRequest,
+  CompatibilityResponse,
   Diagram,
   DiagramElementMetadata,
   PostRunRequest,
@@ -47,6 +49,26 @@ export class ApiClient implements BaseApiClient {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+          throw new Error(await getErrorMessage(response));
+        }
+        return response.json();
+      })(),
+    );
+  }
+
+  checkCompatibility(
+    request: CompatibilityRequest,
+  ): Observable<CompatibilityResponse> {
+    return from(
+      (async () => {
+        const response = await fetch('/api/executor/compatibility', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(request),
         });
         if (!response.ok) {
           throw new Error(await getErrorMessage(response));

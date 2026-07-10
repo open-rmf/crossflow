@@ -2,6 +2,8 @@ import { NodeManager } from '../node-manager';
 import { createOperationNode } from '../nodes';
 import {
   filterCompatibleAddOperations,
+  getAddOperationCandidates,
+  getRegistryNodeBuilderCandidates,
   getVisibleAddOperations,
 } from './add-operation-catalog';
 import { ROOT_NAMESPACE } from './namespace';
@@ -89,5 +91,58 @@ describe('add operation catalog', () => {
     expect(compatible.some((operation) => operation.key === 'node')).toBe(
       false,
     );
+  });
+
+  test('creates concrete registered node builder candidates', () => {
+    const registry = {
+      messages: [],
+      nodes: {
+        custom_builder: {
+          config_schema: true,
+          default_display_text: 'Custom Builder',
+          request: 0,
+          response: 1,
+          streams: {},
+          config_examples: [],
+        },
+      },
+      reverse_message_lookup: {
+        result: [],
+        split: [],
+        unzip: [],
+      },
+      schemas: {},
+      scripting: {},
+      sections: {},
+      trace_supported: false,
+    };
+
+    const [candidate] = getRegistryNodeBuilderCandidates(registry);
+    expect(candidate.key).toBe('node:custom_builder');
+    expect(candidate.label).toBe('Custom Builder');
+
+    const [change] = candidate.createChanges({
+      namespace: ROOT_NAMESPACE,
+      parentId: undefined,
+      newNodePosition: { x: 1, y: 2 },
+      nodeManager: new NodeManager([]),
+    });
+    expect(change.item.type).toBe('node');
+    if (change.item.type === 'node') {
+      expect(change.item.data.op.builder).toBe('custom_builder');
+    }
+
+    const popupCandidates = getAddOperationCandidates(registry, {
+      includeGenericNode: false,
+      includeRegistryNodes: true,
+    });
+    expect(popupCandidates.some((operation) => operation.key === 'node')).toBe(
+      false,
+    );
+    expect(
+      popupCandidates.some(
+        (operation) => operation.key === 'node:custom_builder',
+      ),
+    ).toBe(true);
   });
 });
