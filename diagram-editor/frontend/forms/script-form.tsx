@@ -10,15 +10,18 @@ import {
 import { useMemo, useState } from 'react';
 import { useDiagramProperties } from '../diagram-properties-provider';
 import { MaterialSymbol } from '../nodes';
+import { useRegistry } from '../registry-provider';
 import BaseEditOperationForm, {
   type BaseEditOperationFormProps,
 } from './base-edit-operation-form';
 import { ScriptEnvironmentManagerDialog } from './script-environment-manager-dialog';
+import { ScriptEnvironmentPanel } from './script-environment-panel';
 
 export type ScriptFormProps = BaseEditOperationFormProps<'script'>;
 
 function ScriptForm(props: ScriptFormProps) {
   const [diagramProperties] = useDiagramProperties();
+  const registry = useRegistry();
   const environments = diagramProperties.script_environments || {};
 
   const [openManager, setOpenManager] = useState(false);
@@ -92,7 +95,19 @@ function ScriptForm(props: ScriptFormProps) {
   }, [scriptText]);
 
   return (
-    <BaseEditOperationForm {...props}>
+    <BaseEditOperationForm
+      {...props}
+      sidePanel={
+        <ScriptEnvironmentPanel
+          environmentName={selectedEnvName}
+          environment={selectedEnv}
+          metadata={
+            selectedEnv ? registry.scripting[selectedEnv.builder] : undefined
+          }
+          onEdit={() => setOpenManager(true)}
+        />
+      }
+    >
       <TextField
         label="Display Text"
         value={props.node.data.op.display_text || ''}
@@ -107,7 +122,7 @@ function ScriptForm(props: ScriptFormProps) {
         }}
       />
 
-      <Stack direction="row" spacing={1} alignItems="center" minWidth={300}>
+      <Stack direction="row" spacing={1} alignItems="center" minWidth={0}>
         <TextField
           select
           label="Script Environment"
