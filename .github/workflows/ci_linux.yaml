@@ -35,9 +35,13 @@ jobs:
       run: rustup default ${{ matrix.rust-version }}
 
     - name: Setup pnpm
-      uses: pnpm/action-setup@v6
-      with:
-        version: latest
+      # NOTE(aaronchongth): work-around pending solution to https://github.com/pnpm/action-setup/issues/276.
+      run: |
+        npm install --global pnpm@11.12.0
+        test "$(pnpm --version)" = "11.12.0"
+      # uses: pnpm/action-setup@v6
+      # with:
+      #   version: latest
 
     - name: Setup nodejs
       uses: actions/setup-node@v6
