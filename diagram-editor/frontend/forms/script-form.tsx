@@ -10,6 +10,7 @@ import {
 import { useMemo, useState } from 'react';
 import { useDiagramProperties } from '../diagram-properties-provider';
 import { MaterialSymbol } from '../nodes';
+import { useTransientEditorDrafts } from '../transient-editor-drafts';
 import BaseEditOperationForm, {
   type BaseEditOperationFormProps,
 } from './base-edit-operation-form';
@@ -19,15 +20,19 @@ export type ScriptFormProps = BaseEditOperationFormProps<'script'>;
 
 function ScriptForm(props: ScriptFormProps) {
   const [diagramProperties] = useDiagramProperties();
+  const { drafts, setOperationConfigDraft } = useTransientEditorDrafts();
   const environments = diagramProperties.script_environments || {};
 
   const [openManager, setOpenManager] = useState(false);
 
   // Track raw string of node config to support JSON editing
-  const [configValue, setConfigValue] = useState(() =>
-    props.node.data.op.config
-      ? JSON.stringify(props.node.data.op.config, null, 2)
-      : '',
+  const configDraftKey = `script:${props.node.id}:config`;
+  const [configValue, setConfigValue] = useState(
+    () =>
+      drafts.operationConfigs[configDraftKey] ??
+      (props.node.data.op.config
+        ? JSON.stringify(props.node.data.op.config, null, 2)
+        : ''),
   );
 
   const configError = useMemo(() => {
@@ -187,7 +192,10 @@ function ScriptForm(props: ScriptFormProps) {
               id: props.node.id,
               item: updatedNode,
             });
-          } catch {}
+            setOperationConfigDraft(configDraftKey, undefined);
+          } catch {
+            setOperationConfigDraft(configDraftKey, ev.target.value);
+          }
         }}
         error={configError}
         slotProps={{

@@ -7,6 +7,7 @@ import { DiagramPropertiesProvider } from '../diagram-properties-provider';
 import { NodeManager, NodeManagerProvider } from '../node-manager';
 import { NotificationProvider } from '../notification-provider';
 import { RegistryProvider } from '../registry-provider';
+import { TransientEditorDraftProvider } from '../transient-editor-drafts';
 import type { DiagramElementMetadata } from '../types/api';
 import { ScriptEnvironmentManagerDialog } from './script-environment-manager-dialog';
 
@@ -82,7 +83,9 @@ function renderDialog(
       <RegistryProvider>
         <NodeManagerProvider value={nodeManager}>
           <DiagramPropertiesProvider>
-            <NotificationProvider>{ui}</NotificationProvider>
+            <TransientEditorDraftProvider>
+              <NotificationProvider>{ui}</NotificationProvider>
+            </TransientEditorDraftProvider>
           </DiagramPropertiesProvider>
         </NodeManagerProvider>
       </RegistryProvider>
@@ -217,5 +220,40 @@ describe('ScriptEnvironmentManagerDialog', () => {
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test('requires confirmation before closing an unsaved environment', () => {
+    const onClose = jest.fn();
+    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false);
+    renderDialog(
+      <ScriptEnvironmentManagerDialog open={true} onClose={onClose} />,
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Create new environment/i }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(confirm).toHaveBeenCalledWith(
+      'Discard the unsaved script environment changes?',
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  test('confirmed discard closes an unsaved environment', () => {
+    const onClose = jest.fn();
+    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true);
+    renderDialog(
+      <ScriptEnvironmentManagerDialog open={true} onClose={onClose} />,
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Create new environment/i }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    confirm.mockRestore();
   });
 });

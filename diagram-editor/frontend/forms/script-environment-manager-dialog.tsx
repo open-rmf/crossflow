@@ -24,6 +24,7 @@ import { useNodeManager } from '../node-manager';
 import { MaterialSymbol } from '../nodes';
 import { useNotification } from '../notification-provider';
 import { useRegistry } from '../registry-provider';
+import { useTransientEditorDrafts } from '../transient-editor-drafts';
 import type { DiagramElementMetadata } from '../types/api';
 import { shouldIgnoreEscapeClose } from '../utils/editing-target';
 import { scriptEnvironmentPlugins } from './script-environments/registry';
@@ -46,6 +47,8 @@ export function ScriptEnvironmentManagerDialog({
   const [diagramProperties, setDiagramProperties] = useDiagramProperties();
   const nodeManager = useNodeManager();
   const showNotification = useNotification();
+  const { drafts, setScriptEnvironmentDraft } = useTransientEditorDrafts();
+  const recoveredDraft = drafts.scriptEnvironment;
   const rawRegistry = useRegistry();
   const registry = rawRegistry as unknown as DiagramElementMetadata;
   const environments = diagramProperties.script_environments || {};
@@ -64,6 +67,7 @@ export function ScriptEnvironmentManagerDialog({
   const [configError, setConfigError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
   const wasOpen = useRef(false);
+  const appliedRecoveredDraft = useRef(false);
 
   // Dynamically discover registered environment builders on the backend
   const registeredBuilders = useMemo(() => {
@@ -72,17 +76,36 @@ export function ScriptEnvironmentManagerDialog({
 
   useEffect(() => {
     if (open && !wasOpen.current) {
-      if (initialEnvName && environments[initialEnvName]) {
+      if (recoveredDraft) {
+        setSelectedEnvName(recoveredDraft.selectedEnvName);
+        setMode(recoveredDraft.mode);
+        setEnvName(recoveredDraft.envName);
+        setBuilder(recoveredDraft.builder);
+        setConfig(recoveredDraft.config);
+        setScriptText(recoveredDraft.scriptText);
+        setSelectedCodeField(recoveredDraft.selectedCodeField);
+        setLanguage(recoveredDraft.language);
+        setIsExpanded(recoveredDraft.isExpanded);
+        appliedRecoveredDraft.current = true;
+      } else if (initialEnvName && environments[initialEnvName]) {
         setSelectedEnvName(initialEnvName);
       } else {
         setSelectedEnvName('');
       }
     }
+    if (!open) {
+      appliedRecoveredDraft.current = false;
+    }
     wasOpen.current = open;
-  }, [open, initialEnvName, environments]);
+  }, [open, initialEnvName, environments, recoveredDraft]);
 
   useEffect(() => {
-    if (open && selectedEnvName && environments[selectedEnvName]) {
+    if (
+      open &&
+      !appliedRecoveredDraft.current &&
+      selectedEnvName &&
+      environments[selectedEnvName]
+    ) {
       const env = environments[selectedEnvName];
       setEnvName(selectedEnvName);
       setBuilder(env.builder);
@@ -107,6 +130,35 @@ export function ScriptEnvironmentManagerDialog({
       setMode('view');
     }
   }, [open, selectedEnvName, environments]);
+
+  useEffect(() => {
+    if (!open || mode === 'view') {
+      return;
+    }
+    setScriptEnvironmentDraft({
+      selectedEnvName,
+      mode,
+      envName,
+      builder,
+      config,
+      scriptText,
+      selectedCodeField,
+      language,
+      isExpanded,
+    });
+  }, [
+    open,
+    selectedEnvName,
+    mode,
+    envName,
+    builder,
+    config,
+    scriptText,
+    selectedCodeField,
+    language,
+    isExpanded,
+    setScriptEnvironmentDraft,
+  ]);
 
   const getEnvUsageCount = (name: string) => {
     return nodeManager.nodes.filter(
@@ -209,6 +261,8 @@ export function ScriptEnvironmentManagerDialog({
         );
       }
       setMode('view');
+      appliedRecoveredDraft.current = false;
+      setScriptEnvironmentDraft(undefined);
     } catch (_err) {
       setConfigError('Invalid JSON');
     }
@@ -247,6 +301,53 @@ export function ScriptEnvironmentManagerDialog({
     return !!configError || !!nameError || !envName || !builder;
   }, [configError, nameError, envName, builder]);
 
+  const resetSelectedEnvironment = () => {
+    if (selectedEnvName && environments[selectedEnvName]) {
+      const env = environments[selectedEnvName];
+      setEnvName(selectedEnvName);
+      setBuilder(env.builder);
+      const configVal = env.config || {};
+      setConfig(JSON.stringify(configVal, null, 2));
+      const configObj = configVal as Record<string, unknown>;
+      if (typeof configObj.script === 'string') {
+        setSelectedCodeField('script');
+        setScriptText(configObj.script);
+      } else {
+        setSelectedCodeField('');
+        setScriptText('');
+      }
+      setLanguage(scriptEnvironmentLanguage(env));
+    }
+  };
+
+  const confirmDiscardEdit = (): boolean => {
+    if (mode === 'view') {
+      return true;
+    }
+    return window.confirm('Discard the unsaved script environment changes?');
+  };
+
+  const discardEdit = () => {
+    setScriptEnvironmentDraft(undefined);
+    appliedRecoveredDraft.current = false;
+    if (mode === 'create') {
+      setSelectedEnvName('');
+    } else {
+      resetSelectedEnvironment();
+    }
+    setMode('view');
+  };
+
+  const requestClose = () => {
+    if (!confirmDiscardEdit()) {
+      return;
+    }
+    if (mode !== 'view') {
+      discardEdit();
+    }
+    onClose();
+  };
+
   return (
     <Dialog
       open={open}
@@ -257,7 +358,7 @@ export function ScriptEnvironmentManagerDialog({
         ) {
           return;
         }
-        onClose();
+        requestClose();
       }}
       fullWidth
       maxWidth={isExpanded ? 'lg' : 'md'}
@@ -412,34 +513,8 @@ export function ScriptEnvironmentManagerDialog({
                 </Button>
                 <Button
                   onClick={() => {
-                    if (mode === 'create') {
-                      setSelectedEnvName('');
-                      setMode('view');
-                    } else {
-                      setMode('view');
-                      if (selectedEnvName && environments[selectedEnvName]) {
-                        const env = environments[selectedEnvName];
-                        setEnvName(selectedEnvName);
-                        setBuilder(env.builder);
-
-                        const configVal = env.config || {};
-                        setConfig(JSON.stringify(configVal, null, 2));
-
-                        const configObj = configVal as Record<string, unknown>;
-                        if (
-                          configObj &&
-                          'script' in configObj &&
-                          typeof configObj.script === 'string'
-                        ) {
-                          setSelectedCodeField('script');
-                          setScriptText(configObj.script);
-                        } else {
-                          setSelectedCodeField('');
-                          setScriptText('');
-                        }
-
-                        setLanguage(scriptEnvironmentLanguage(env));
-                      }
+                    if (confirmDiscardEdit()) {
+                      discardEdit();
                     }
                   }}
                 >
@@ -667,7 +742,7 @@ export function ScriptEnvironmentManagerDialog({
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Close</Button>
+        <Button onClick={requestClose}>Close</Button>
       </DialogActions>
     </Dialog>
   );

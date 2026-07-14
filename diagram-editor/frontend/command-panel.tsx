@@ -10,12 +10,16 @@ import { EditorMode, useEditorMode } from './editor-mode';
 import { ScriptEnvironmentManagerDialog } from './forms/script-environment-manager-dialog';
 import type { DiagramEditorNode } from './nodes';
 import { MaterialSymbol } from './nodes';
+import { useTransientEditorDrafts } from './transient-editor-drafts';
 
 export interface CommandPanelProps {
   onNodeChanges: (changes: NodeChange<DiagramEditorNode>[]) => void;
+  onNewDiagram: () => void;
   onExportClick: () => void;
   onLoadDiagram: (jsonStr: string, filename: string) => void;
   enableExport: boolean;
+  exportDisabledReason?: string;
+  isDirty: boolean;
 }
 
 const VisuallyHiddenInput = styled('input')({
@@ -32,9 +36,12 @@ const VisuallyHiddenInput = styled('input')({
 
 function CommandPanel({
   onNodeChanges,
+  onNewDiagram,
   onExportClick,
   onLoadDiagram,
   enableExport,
+  exportDisabledReason,
+  isDirty,
 }: CommandPanelProps) {
   const theme = useTheme();
   const [openEditTemplatesDialog, setOpenEditTemplatesDialog] =
@@ -45,6 +52,16 @@ function CommandPanel({
   const [runRequestJson, setRunRequestJson] = React.useState('');
   const [openScriptEnvManager, setOpenScriptEnvManager] = React.useState(false);
   const [editorMode] = useEditorMode();
+  const { drafts } = useTransientEditorDrafts();
+
+  React.useEffect(() => {
+    if (drafts.scriptEnvironment) {
+      setOpenScriptEnvManager(true);
+    }
+    if (drafts.templateRename) {
+      setOpenEditTemplatesDialog(true);
+    }
+  }, [drafts.scriptEnvironment, drafts.templateRename]);
 
   const showSidePanelTab = (tab: DiagramSidePanelTab) => {
     setSidePanelTab(tab);
@@ -64,6 +81,15 @@ function CommandPanel({
     <>
       <Panel position="top-center">
         <ButtonGroup variant="contained">
+          {editorMode.mode === EditorMode.Normal && (
+            <Tooltip
+              title={isDirty ? 'New Diagram (unsaved changes)' : 'New Diagram'}
+            >
+              <Button onClick={onNewDiagram} aria-label="new diagram">
+                <MaterialSymbol symbol="note_add" />
+              </Button>
+            </Tooltip>
+          )}
           {editorMode.mode === EditorMode.Normal && (
             <Tooltip title="Run Workflow">
               <Button
@@ -110,7 +136,9 @@ function CommandPanel({
           {editorMode.mode === EditorMode.Normal && (
             <Tooltip
               title={
-                enableExport ? 'Export Diagram' : 'Export Diagram (disabled)'
+                enableExport
+                  ? 'Export Diagram'
+                  : exportDisabledReason || 'Export Diagram (disabled)'
               }
             >
               <Button onClick={onExportClick} disabled={!enableExport}>
