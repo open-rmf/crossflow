@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { act, type ReactNode } from 'react';
 import { of } from 'rxjs';
 import { ApiClient } from '../api-client';
 import { ApiClientProvider } from '../api-client-provider';
@@ -186,5 +186,36 @@ describe('ScriptEnvironmentManagerDialog', () => {
 
     // Verifies script description text is visible in CodeMirror context
     expect(screen.getByText(/Script \(script\)/i)).toBeTruthy();
+  });
+
+  test('does not close when Escape is pressed in an editing field', async () => {
+    const onClose = jest.fn();
+    renderDialog(
+      <ScriptEnvironmentManagerDialog open={true} onClose={onClose} />,
+    );
+
+    const createButton = screen.getByRole('button', {
+      name: /Create new environment/i,
+    });
+    fireEvent.click(createButton);
+
+    const nameInput = screen.getByLabelText('Environment Name');
+    act(() => {
+      nameInput.focus();
+    });
+    fireEvent.keyDown(nameInput, { key: 'Escape' });
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  test('still closes when Escape is pressed outside editing fields', async () => {
+    const onClose = jest.fn();
+    renderDialog(
+      <ScriptEnvironmentManagerDialog open={true} onClose={onClose} />,
+    );
+
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

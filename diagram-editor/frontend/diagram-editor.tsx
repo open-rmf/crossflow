@@ -77,6 +77,7 @@ import {
   validateDraggedHandlePair,
   validateSourceOutputCapacity,
 } from './utils/connection';
+import { shouldIgnoreEscapeClose } from './utils/editing-target';
 import { exhaustiveCheck } from './utils/exhaustive-check';
 import { exportTemplate } from './utils/export-diagram';
 import { calculateScopeBounds, LAYOUT_OPTIONS } from './utils/layout';
@@ -1083,7 +1084,15 @@ function DiagramEditor() {
         </Popover>
         <Popover
           {...editOpFormPopoverProps}
-          onClose={() => setEditOpFormPopoverProps({ open: false })}
+          onClose={(_event, reason) => {
+            if (
+              reason === 'escapeKeyDown' &&
+              shouldIgnoreEscapeClose(document.activeElement)
+            ) {
+              return;
+            }
+            setEditOpFormPopoverProps({ open: false });
+          }}
           anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
           // use a custom component to prevent the popover from creating an invisible element that blocks clicks
           component={NonCapturingPopoverContainer}
