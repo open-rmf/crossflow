@@ -36,6 +36,17 @@ function DraftProbe() {
   );
 }
 
+function NoOpCleanupProbe({ onRender }: { onRender: () => void }) {
+  const { clearOperationConfigDrafts } = useTransientEditorDrafts();
+  onRender();
+
+  return (
+    <button onClick={() => clearOperationConfigDrafts(['missing'])}>
+      Clear unmatched drafts
+    </button>
+  );
+}
+
 test('clears node and script config drafts for every supplied node ID', () => {
   render(
     <TransientEditorDraftProvider>
@@ -49,4 +60,20 @@ test('clears node and script config drafts for every supplied node ID', () => {
   expect(screen.getByRole('status')).toHaveTextContent(
     JSON.stringify({ unrelated: 'keep me' }),
   );
+});
+
+test('does not rerender consumers when no operation config drafts match', () => {
+  const onRender = jest.fn();
+  render(
+    <TransientEditorDraftProvider>
+      <NoOpCleanupProbe onRender={onRender} />
+    </TransientEditorDraftProvider>,
+  );
+
+  expect(onRender).toHaveBeenCalledTimes(1);
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Clear unmatched drafts' }),
+  );
+
+  expect(onRender).toHaveBeenCalledTimes(1);
 });

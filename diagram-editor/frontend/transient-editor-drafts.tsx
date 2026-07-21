@@ -60,11 +60,20 @@ export function TransientEditorDraftProvider({ children }: PropsWithChildren) {
     (keys: Iterable<string>) =>
       setDrafts((prev) => {
         const operationConfigs = { ...prev.operationConfigs };
+        let changed = false;
         for (const key of keys) {
-          delete operationConfigs[`node:${key}:config`];
-          delete operationConfigs[`script:${key}:config`];
+          const nodeKey = `node:${key}:config`;
+          const scriptKey = `script:${key}:config`;
+          if (nodeKey in operationConfigs) {
+            delete operationConfigs[nodeKey];
+            changed = true;
+          }
+          if (scriptKey in operationConfigs) {
+            delete operationConfigs[scriptKey];
+            changed = true;
+          }
         }
-        return { ...prev, operationConfigs };
+        return changed ? { ...prev, operationConfigs } : prev;
       }),
     [],
   );
