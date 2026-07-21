@@ -20,6 +20,7 @@ interface TransientEditorDraftContextValue {
     draft: ScriptEnvironmentEditorDraft | undefined,
   ) => void;
   setOperationConfigDraft: (key: string, value: string | undefined) => void;
+  clearOperationConfigDrafts: (keys: Iterable<string>) => void;
   setTemplateRenameDraft: (draft: TemplateRenameDraft | undefined) => void;
   clearDrafts: () => void;
   hasUncommittedBuffers: boolean;
@@ -55,6 +56,18 @@ export function TransientEditorDraftProvider({ children }: PropsWithChildren) {
       }),
     [],
   );
+  const clearOperationConfigDrafts = useCallback(
+    (keys: Iterable<string>) =>
+      setDrafts((prev) => {
+        const operationConfigs = { ...prev.operationConfigs };
+        for (const key of keys) {
+          delete operationConfigs[`node:${key}:config`];
+          delete operationConfigs[`script:${key}:config`];
+        }
+        return { ...prev, operationConfigs };
+      }),
+    [],
+  );
   const setTemplateRenameDraft = useCallback(
     (draft: TemplateRenameDraft | undefined) =>
       setDrafts((prev) => ({ ...prev, templateRename: draft })),
@@ -71,6 +84,7 @@ export function TransientEditorDraftProvider({ children }: PropsWithChildren) {
       replaceDrafts,
       setScriptEnvironmentDraft,
       setOperationConfigDraft,
+      clearOperationConfigDrafts,
       setTemplateRenameDraft,
       clearDrafts,
       hasUncommittedBuffers:
@@ -80,6 +94,7 @@ export function TransientEditorDraftProvider({ children }: PropsWithChildren) {
     }),
     [
       clearDrafts,
+      clearOperationConfigDrafts,
       drafts,
       replaceDrafts,
       setOperationConfigDraft,

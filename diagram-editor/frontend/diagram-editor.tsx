@@ -368,7 +368,7 @@ function DiagramEditor() {
     drafts: transientEditorDrafts,
     replaceDrafts: replaceTransientEditorDrafts,
     clearDrafts: clearTransientEditorDrafts,
-    setOperationConfigDraft,
+    clearOperationConfigDrafts,
     hasUncommittedBuffers,
   } = useTransientEditorDrafts();
 
@@ -564,6 +564,8 @@ function DiagramEditor() {
         }
       }
 
+      clearOperationConfigDrafts(removedNodes);
+
       // clean up dangling edges when a node is removed.
       const edgeChanges: EdgeRemoveChange[] = [];
       for (const edge of edges) {
@@ -580,7 +582,7 @@ function DiagramEditor() {
         applyNodeChanges([...changes, ...transitiveChanges], prev),
       );
     },
-    [handleEdgeChanges, nodeManager, edges],
+    [clearOperationConfigDrafts, handleEdgeChanges, nodeManager, edges],
   );
 
   const handleNodeChange = React.useCallback(
@@ -685,8 +687,6 @@ function DiagramEditor() {
       }
 
       const handleDelete = (change: NodeRemoveChange) => {
-        setOperationConfigDraft(`node:${node.id}:config`, undefined);
-        setOperationConfigDraft(`script:${node.id}:config`, undefined);
         handleNodeChange(change);
         closeAllPopovers();
       };
@@ -722,7 +722,6 @@ function DiagramEditor() {
       editingNodeId,
       handleNodeChange,
       closeAllPopovers,
-      setOperationConfigDraft,
     ],
   );
 

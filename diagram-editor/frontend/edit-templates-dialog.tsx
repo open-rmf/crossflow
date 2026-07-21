@@ -80,6 +80,19 @@ function EditTemplatesDialog({ open, onClose }: EditTemplatesDialogProps) {
     setTemplates(newTemplates);
   };
 
+  const handleDeleteTemplate = (id: string) => {
+    if (renaming?.target === id) {
+      setRenaming(null);
+      setNewId('');
+      setTemplateRenameDraft(undefined);
+    }
+    setTemplates((prev) => {
+      const newTemplates = { ...prev };
+      delete newTemplates[id];
+      return newTemplates;
+    });
+  };
+
   const requestClose = () => {
     if (
       drafts.templateRename &&
@@ -174,13 +187,7 @@ function EditTemplatesDialog({ open, onClose }: EditTemplatesDialogProps) {
                         <Button
                           variant="outlined"
                           color="error"
-                          onClick={() =>
-                            setTemplates((prev) => {
-                              const newTemplates = { ...prev };
-                              delete newTemplates[id];
-                              return newTemplates;
-                            })
-                          }
+                          onClick={() => handleDeleteTemplate(id)}
                         >
                           <MaterialSymbol symbol="delete" />
                         </Button>
