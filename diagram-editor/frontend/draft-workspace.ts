@@ -57,9 +57,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isPersistedGraph(value: unknown): value is PersistedState {
   return (
-    isRecord(value) &&
-    Array.isArray(value.nodes) &&
-    Array.isArray(value.edges)
+    isRecord(value) && Array.isArray(value.nodes) && Array.isArray(value.edges)
   );
 }
 
@@ -100,7 +98,9 @@ function isActiveTemplateDraft(value: unknown): value is ActiveTemplateDraft {
   );
 }
 
-function isTransientEditorDrafts(value: unknown): value is TransientEditorDrafts {
+function isTransientEditorDrafts(
+  value: unknown,
+): value is TransientEditorDrafts {
   return (
     isRecord(value) &&
     isStringRecord(value.operationConfigs) &&

@@ -720,12 +720,7 @@ function DiagramEditor() {
         />
       );
     },
-    [
-      nodeManager,
-      editingNodeId,
-      handleNodeChange,
-      closeAllPopovers,
-    ],
+    [nodeManager, editingNodeId, handleNodeChange, closeAllPopovers],
   );
 
   const mouseDownTime = React.useRef(0);

@@ -5,15 +5,13 @@ import {
 } from './transient-editor-drafts';
 
 function DraftProbe() {
-  const {
-    drafts,
-    replaceDrafts,
-    clearOperationConfigDrafts,
-  } = useTransientEditorDrafts();
+  const { drafts, replaceDrafts, clearOperationConfigDrafts } =
+    useTransientEditorDrafts();
 
   return (
     <>
       <button
+        type="button"
         onClick={() =>
           replaceDrafts({
             operationConfigs: {
@@ -28,7 +26,10 @@ function DraftProbe() {
       >
         Seed drafts
       </button>
-      <button onClick={() => clearOperationConfigDrafts(['one', 'two'])}>
+      <button
+        type="button"
+        onClick={() => clearOperationConfigDrafts(['one', 'two'])}
+      >
         Clear node drafts
       </button>
       <output>{JSON.stringify(drafts.operationConfigs)}</output>
@@ -41,7 +42,10 @@ function NoOpCleanupProbe({ onRender }: { onRender: () => void }) {
   onRender();
 
   return (
-    <button onClick={() => clearOperationConfigDrafts(['missing'])}>
+    <button
+      type="button"
+      onClick={() => clearOperationConfigDrafts(['missing'])}
+    >
       Clear unmatched drafts
     </button>
   );

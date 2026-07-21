@@ -1,11 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useEffect, useState } from 'react';
+import EditTemplatesDialog from './edit-templates-dialog';
 import {
   EditorMode,
   type EditorModeContext,
   EditorModeProvider,
 } from './editor-mode';
-import EditTemplatesDialog from './edit-templates-dialog';
 import { TemplatesProvider, useTemplates } from './templates-provider';
 import {
   TransientEditorDraftProvider,
@@ -23,7 +23,7 @@ function DialogHarness() {
     setTemplates({
       template: { inputs: {}, outputs: [], buffers: {}, ops: {} },
     });
-  }, [setTemplates]);
+  }, []);
 
   return (
     <>

@@ -61,15 +61,19 @@ test.each([
   [
     'a script environment with an unsupported mode',
     (draft: Record<string, unknown>) => {
-      ((draft.transientEditors as Record<string, unknown>)
-        .scriptEnvironment as Record<string, unknown>).mode = 'delete';
+      (
+        (draft.transientEditors as Record<string, unknown>)
+          .scriptEnvironment as Record<string, unknown>
+      ).mode = 'delete';
     },
   ],
   [
     'a script environment with a non-string field',
     (draft: Record<string, unknown>) => {
-      ((draft.transientEditors as Record<string, unknown>)
-        .scriptEnvironment as Record<string, unknown>).scriptText = 1;
+      (
+        (draft.transientEditors as Record<string, unknown>)
+          .scriptEnvironment as Record<string, unknown>
+      ).scriptText = 1;
     },
   ],
   [
@@ -87,10 +91,9 @@ test.each([
     },
   ],
 ])('rejects a separately serialized draft containing %s', (_, mutate) => {
-  const draft = JSON.parse(JSON.stringify(writeDraftWorkspace(content, sessionStorage, '/editor'))) as Record<
-    string,
-    unknown
-  >;
+  const draft = JSON.parse(
+    JSON.stringify(writeDraftWorkspace(content, sessionStorage, '/editor')),
+  ) as Record<string, unknown>;
   mutate(draft);
   sessionStorage.setItem(draftStorageKey('/editor'), JSON.stringify(draft));
 
