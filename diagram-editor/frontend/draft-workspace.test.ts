@@ -49,6 +49,62 @@ test('rejects malformed and unsupported drafts', () => {
   );
 });
 
+test.each([
+  [
+    'an operation configuration with a non-string value',
+    (draft: Record<string, unknown>) => {
+      (draft.transientEditors as Record<string, unknown>).operationConfigs = {
+        'node:one:config': 1,
+      };
+    },
+  ],
+  [
+    'a script environment with an unsupported mode',
+    (draft: Record<string, unknown>) => {
+      ((draft.transientEditors as Record<string, unknown>)
+        .scriptEnvironment as Record<string, unknown>).mode = 'delete';
+    },
+  ],
+  [
+    'a script environment with a non-string field',
+    (draft: Record<string, unknown>) => {
+      ((draft.transientEditors as Record<string, unknown>)
+        .scriptEnvironment as Record<string, unknown>).scriptText = 1;
+    },
+  ],
+  [
+    'a malformed template rename draft',
+    (draft: Record<string, unknown>) => {
+      (draft.transientEditors as Record<string, unknown>).templateRename = {
+        target: 'old',
+      };
+    },
+  ],
+  [
+    'an active template with a malformed graph',
+    (draft: Record<string, unknown>) => {
+      draft.activeTemplate = { templateId: 'template', graph: { nodes: {} } };
+    },
+  ],
+  [
+    'non-record source extensions',
+    (draft: Record<string, unknown>) => {
+      draft.sourceExtensions = [];
+    },
+  ],
+])('rejects a separately serialized draft containing %s', (_, mutate) => {
+  const draft = JSON.parse(JSON.stringify(writeDraftWorkspace(content, sessionStorage, '/editor'))) as Record<
+    string,
+    unknown
+  >;
+  mutate(draft);
+  sessionStorage.setItem(draftStorageKey('/editor'), JSON.stringify(draft));
+
+  expect(() => readDraftWorkspace(sessionStorage, '/editor')).toThrow(
+    'unsupported or malformed',
+  );
+});
+
 test('clears only the selected editor pathname', () => {
   writeDraftWorkspace(content, sessionStorage, '/editor/a');
   writeDraftWorkspace(content, sessionStorage, '/editor/b');

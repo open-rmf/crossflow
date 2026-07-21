@@ -13,6 +13,14 @@ export interface DiagramProperties {
   highlightedEnvironment?: string;
 }
 
+export function createEmptyDiagramProperties(): DiagramProperties {
+  return {
+    description: '',
+    input_examples: [],
+    script_environments: {},
+  };
+}
+
 export type DiagramPropertiesContext = [
   DiagramProperties,
   React.Dispatch<React.SetStateAction<DiagramProperties>>,
@@ -23,7 +31,7 @@ const DiagramPropertiesContextComp =
 
 export function DiagramPropertiesProvider({ children }: PropsWithChildren) {
   const [diagramProperties, setDiagramProperties] = useState<DiagramProperties>(
-    {},
+    createEmptyDiagramProperties,
   );
 
   return (

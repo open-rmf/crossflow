@@ -39,7 +39,10 @@ import CommandPanel from './command-panel';
 import { CompatibleAddOperation } from './compatible-add-operation';
 import { ConnectionCompatibilityProvider } from './connection-compatibility-provider';
 import { ConnectionHintPanel } from './connection-hint-panel';
-import { useDiagramProperties } from './diagram-properties-provider';
+import {
+  createEmptyDiagramProperties,
+  useDiagramProperties,
+} from './diagram-properties-provider';
 import {
   clearDraftWorkspace,
   type DraftWorkspaceContent,
@@ -1046,7 +1049,7 @@ function DiagramEditor() {
     setNodes(empty.nodes);
     setEdges(empty.edges);
     setTemplates({});
-    setDiagramProperties({});
+    setDiagramProperties(createEmptyDiagramProperties());
     setLoadContext(null);
     setRecentlyUsedFilename(null);
     clearTransientEditorDrafts();
@@ -1121,7 +1124,7 @@ function DiagramEditor() {
     setNodes(empty.nodes);
     setEdges(empty.edges);
     setTemplates({});
-    setDiagramProperties({});
+    setDiagramProperties(createEmptyDiagramProperties());
     setLoadContext(null);
     setRecentlyUsedFilename(null);
     clearTransientEditorDrafts();
