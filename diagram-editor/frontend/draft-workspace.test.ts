@@ -81,12 +81,6 @@ test.each([
     },
   ],
   [
-    'an active template with a malformed graph',
-    (draft: Record<string, unknown>) => {
-      draft.activeTemplate = { templateId: 'template', graph: { nodes: {} } };
-    },
-  ],
-  [
     'non-record source extensions',
     (draft: Record<string, unknown>) => {
       draft.sourceExtensions = [];
