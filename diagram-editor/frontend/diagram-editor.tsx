@@ -63,6 +63,7 @@ import {
 } from './nodes';
 import { NotificationProvider } from './notification-provider';
 import { useRegistry } from './registry-provider';
+import { ResponsiveEditPopover } from './responsive-edit-popover';
 import { useTemplates } from './templates-provider';
 import { EdgesProvider } from './use-edges';
 import { autoLayout } from './utils/auto-layout';
@@ -1114,7 +1115,7 @@ function DiagramEditor() {
             />
           )}
         </Popover>
-        <Popover
+        <ResponsiveEditPopover
           {...editOpFormPopoverProps}
           onClose={(_event, reason) => {
             if (
@@ -1125,7 +1126,6 @@ function DiagramEditor() {
             }
             setEditOpFormPopoverProps({ open: false });
           }}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
           // use a custom component to prevent the popover from creating an invisible element that blocks clicks
           component={NonCapturingPopoverContainer}
         >
@@ -1148,7 +1148,7 @@ function DiagramEditor() {
               }}
             />
           )}
-        </Popover>
+        </ResponsiveEditPopover>
         <Snackbar
           open={openErrorToast}
           onClose={(_, reason) => {

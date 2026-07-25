@@ -33,9 +33,8 @@ import { useLoadContext } from './load-context-provider';
 import { MaterialSymbol } from './nodes';
 import { RunPanel } from './run-button';
 import type { InputExample } from './types/api';
+import { useDiagramSidePanelWidth } from './use-responsive-edit-popover-position';
 
-const NormalDrawerWidth = 'min(420px, calc(100vw - 56px))';
-const ExpandedDrawerWidth = 'min(900px, calc(100vw - 56px))';
 const EmptyInputExample: InputExample = {
   description: '',
   value: undefined,
@@ -66,7 +65,7 @@ function DiagramSidePanel({
   const [diagramProperties, setDiagramProperties] = useDiagramProperties();
   const loadContext = useLoadContext();
   const theme = useTheme();
-  const drawerWidth = expanded ? ExpandedDrawerWidth : NormalDrawerWidth;
+  const drawerWidth = useDiagramSidePanelWidth();
   const widthTransition = theme.transitions.create('width', {
     easing: theme.transitions.easing.easeInOut,
     duration: theme.transitions.duration.standard,
@@ -119,7 +118,15 @@ function DiagramSidePanel({
         open={open}
         data-testid="diagram-side-panel-paper"
         data-expanded={expanded}
-        style={{ transition: widthTransition }}
+        style={{ width: drawerWidth, transition: widthTransition }}
+        slotProps={{
+          paper: {
+            style: {
+              width: drawerWidth,
+              transition: widthTransition,
+            },
+          },
+        }}
       >
         <Stack
           direction="row"

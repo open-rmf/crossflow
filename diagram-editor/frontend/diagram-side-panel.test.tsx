@@ -1,5 +1,5 @@
 import { createTheme, ThemeProvider } from '@mui/material';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { DiagramPropertiesProvider } from './diagram-properties-provider';
 import DiagramSidePanel from './diagram-side-panel';
@@ -43,6 +43,14 @@ function renderSidePanel({ create = false }: { create?: boolean } = {}) {
 }
 
 describe('DiagramSidePanel', () => {
+  beforeEach(() => {
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 1440,
+    });
+  });
+
   test('renders Environments beside Properties and Run', () => {
     renderSidePanel();
 
@@ -55,11 +63,32 @@ describe('DiagramSidePanel', () => {
     ).toBeInTheDocument();
   });
 
-  test('marks the drawer expanded and applies a width transition', async () => {
+  test('uses an animatable pixel width for the normal drawer', () => {
+    renderSidePanel();
+
+    const drawer = screen.getByTestId('diagram-side-panel-paper');
+    const drawerPaper = document.querySelector(
+      '.MuiDrawer-paper',
+    ) as HTMLElement;
+
+    expect(drawer.style.width).toBe('420px');
+    expect(drawerPaper.style.width).toBe('420px');
+    expect(drawerPaper.style.transition).toContain('width');
+  });
+
+  test('animates the drawer to its expanded pixel width', async () => {
     renderSidePanel({ create: true });
 
-    const paper = await screen.findByTestId('diagram-side-panel-paper');
-    expect(paper).toHaveAttribute('data-expanded', 'true');
-    expect(paper.style.transition).toContain('width');
+    const drawer = await screen.findByTestId('diagram-side-panel-paper');
+    const drawerPaper = document.querySelector(
+      '.MuiDrawer-paper',
+    ) as HTMLElement;
+
+    await waitFor(() => {
+      expect(drawer).toHaveAttribute('data-expanded', 'true');
+      expect(drawer.style.width).toBe('900px');
+      expect(drawerPaper.style.width).toBe('900px');
+      expect(drawerPaper.style.transition).toContain('width');
+    });
   });
 });
