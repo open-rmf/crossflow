@@ -8,7 +8,7 @@ export interface ScriptEnvironmentPanelProps {
   environmentName: string;
   environment?: ScriptEnvironmentSchema;
   metadata?: ScriptEnvironmentMetadata;
-  onEdit: () => void;
+  onEdit?: () => void;
 }
 
 function ConfigPreview({ value }: { value: unknown }) {
@@ -44,16 +44,7 @@ export function ScriptEnvironmentPanel({
 }: ScriptEnvironmentPanelProps) {
   if (!environmentName || !environment) {
     return (
-      <Box
-        component="aside"
-        sx={{
-          pl: { xs: 0, md: 3 },
-          pt: { xs: 3, md: 0 },
-          borderLeft: { xs: 0, md: '1px solid' },
-          borderTop: { xs: '1px solid', md: 0 },
-          borderColor: 'divider',
-        }}
-      >
+      <Box component="aside" sx={{ minWidth: 0 }}>
         <Typography variant="h6">Environment</Typography>
         <Typography color="text.secondary" sx={{ mt: 1 }}>
           Select an environment to inspect its runtime and configuration.
@@ -75,14 +66,7 @@ export function ScriptEnvironmentPanel({
     <Box
       component="aside"
       aria-label="Script environment details"
-      sx={{
-        pl: { xs: 0, md: 3 },
-        pt: { xs: 3, md: 0 },
-        borderLeft: { xs: 0, md: '1px solid' },
-        borderTop: { xs: '1px solid', md: 0 },
-        borderColor: 'divider',
-        minWidth: 0,
-      }}
+      sx={{ minWidth: 0 }}
     >
       <Stack spacing={2}>
         <Stack
@@ -98,9 +82,11 @@ export function ScriptEnvironmentPanel({
               {environmentName}
             </Typography>
           </Box>
-          <Button size="small" onClick={onEdit}>
-            Edit
-          </Button>
+          {onEdit && (
+            <Button size="small" onClick={onEdit}>
+              Edit
+            </Button>
+          )}
         </Stack>
 
         <Divider />

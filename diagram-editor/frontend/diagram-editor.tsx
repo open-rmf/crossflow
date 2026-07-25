@@ -46,6 +46,7 @@ import {
 import { ExportDiagramDialog } from './export-diagram-dialog';
 import { EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
+import { useScriptEnvironmentNavigation } from './forms/use-script-environment-navigation';
 import {
   type InteractionVisualizationContext,
   InteractionVisualizationProvider,
@@ -306,6 +307,7 @@ function DiagramEditor() {
   const registry = useRegistry();
   const apiClient = useApiClient();
   const [diagramProperties] = useDiagramProperties();
+  const openScriptEnvironment = useScriptEnvironmentNavigation();
 
   const updateEditorModeAction = React.useCallback(
     (newMode: EditorModeContext) => {
@@ -929,6 +931,15 @@ function DiagramEditor() {
           if (isBuiltinNode(node)) {
             return;
           }
+          if (node.type === 'script') {
+            const environmentName = node.data.op.environment;
+            openScriptEnvironment(
+              typeof environmentName === 'string'
+                ? environmentName || undefined
+                : undefined,
+              false,
+            );
+          }
           setEditingNodeId(node.id);
 
           setEditOpFormPopoverProps({
@@ -1067,6 +1078,15 @@ function DiagramEditor() {
 
                   handleNodeChanges(changes);
                   setEdges((prev) => addEdge(newEdge, prev));
+                  if (targetNode.type === 'script') {
+                    const environmentName = targetNode.data.op.environment;
+                    openScriptEnvironment(
+                      typeof environmentName === 'string'
+                        ? environmentName || undefined
+                        : undefined,
+                      true,
+                    );
+                  }
                   closeAllPopovers();
                 })();
               }}
@@ -1075,8 +1095,20 @@ function DiagramEditor() {
             <AddOperation
               parentId={addOperationPopover.parentId || undefined}
               newNodePosition={addOperationNewNodePosition}
-              onAdd={({ changes }) => {
+              onAdd={({ changes, primaryNodeId }) => {
                 handleNodeChanges(changes);
+                const primaryNode =
+                  changes.find((change) => change.item.id === primaryNodeId)
+                    ?.item || null;
+                if (primaryNode?.type === 'script') {
+                  const environmentName = primaryNode.data.op.environment;
+                  openScriptEnvironment(
+                    typeof environmentName === 'string'
+                      ? environmentName || undefined
+                      : undefined,
+                    true,
+                  );
+                }
                 closeAllPopovers();
               }}
             />

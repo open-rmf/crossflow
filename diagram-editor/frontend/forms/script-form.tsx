@@ -10,21 +10,17 @@ import {
 import { useMemo, useState } from 'react';
 import { useDiagramProperties } from '../diagram-properties-provider';
 import { MaterialSymbol } from '../nodes';
-import { useRegistry } from '../registry-provider';
 import BaseEditOperationForm, {
   type BaseEditOperationFormProps,
 } from './base-edit-operation-form';
-import { ScriptEnvironmentManagerDialog } from './script-environment-manager-dialog';
-import { ScriptEnvironmentPanel } from './script-environment-panel';
+import { useScriptEnvironmentNavigation } from './use-script-environment-navigation';
 
 export type ScriptFormProps = BaseEditOperationFormProps<'script'>;
 
 function ScriptForm(props: ScriptFormProps) {
   const [diagramProperties] = useDiagramProperties();
-  const registry = useRegistry();
   const environments = diagramProperties.script_environments || {};
-
-  const [openManager, setOpenManager] = useState(false);
+  const openScriptEnvironment = useScriptEnvironmentNavigation();
 
   // Track raw string of node config to support JSON editing
   const [configValue, setConfigValue] = useState(() =>
@@ -95,19 +91,7 @@ function ScriptForm(props: ScriptFormProps) {
   }, [scriptText]);
 
   return (
-    <BaseEditOperationForm
-      {...props}
-      sidePanel={
-        <ScriptEnvironmentPanel
-          environmentName={selectedEnvName}
-          environment={selectedEnv}
-          metadata={
-            selectedEnv ? registry.scripting[selectedEnv.builder] : undefined
-          }
-          onEdit={() => setOpenManager(true)}
-        />
-      }
-    >
+    <BaseEditOperationForm {...props}>
       <TextField
         label="Display Text"
         value={props.node.data.op.display_text || ''}
@@ -130,7 +114,12 @@ function ScriptForm(props: ScriptFormProps) {
           onChange={(e) => handleEnvChange(e.target.value)}
           fullWidth
         >
-          {Object.keys(environments).length === 0 ? (
+          {selectedEnvName && !selectedEnv && (
+            <MenuItem disabled value={selectedEnvName}>
+              {selectedEnvName} (missing)
+            </MenuItem>
+          )}
+          {Object.keys(environments).length === 0 && !selectedEnvName ? (
             <MenuItem disabled value="">
               <Typography variant="caption" color="text.disabled">
                 No environments available, please create one
@@ -146,7 +135,15 @@ function ScriptForm(props: ScriptFormProps) {
         </TextField>
 
         <Tooltip title="Manage or add script environment">
-          <IconButton onClick={() => setOpenManager(true)}>
+          <IconButton
+            aria-label="Manage or add script environment"
+            onClick={() =>
+              openScriptEnvironment(
+                props.node.data.op.environment || undefined,
+                false,
+              )
+            }
+          >
             <MaterialSymbol symbol="settings" />
           </IconButton>
         </Tooltip>
@@ -210,12 +207,6 @@ function ScriptForm(props: ScriptFormProps) {
             sx: { fontFamily: 'monospace', whiteSpace: 'nowrap' },
           },
         }}
-      />
-
-      <ScriptEnvironmentManagerDialog
-        open={openManager}
-        onClose={() => setOpenManager(false)}
-        initialEnvName={props.node.data.op.environment}
       />
     </BaseEditOperationForm>
   );
