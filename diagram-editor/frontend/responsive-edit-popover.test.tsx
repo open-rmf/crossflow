@@ -23,6 +23,9 @@ function Harness() {
       >
         expand drawer
       </button>
+      <button type="button" onClick={panel.close}>
+        close drawer
+      </button>
     </>
   );
 }
@@ -57,6 +60,31 @@ describe('ResponsiveEditPopover', () => {
     await waitFor(() => {
       expect(paper.style.left).toBe('104px');
       expect(getComputedStyle(paper).transition).toContain('left');
+    });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'close drawer', hidden: true }),
+    );
+
+    await waitFor(() => {
+      expect(paper.style.left).toBe('900px');
+      expect(getComputedStyle(paper).transition).toContain('left');
+    });
+  });
+
+  test('repositions when the viewport width changes', async () => {
+    render(
+      <DiagramSidePanelProvider>
+        <Harness />
+      </DiagramSidePanelProvider>,
+    );
+
+    const paper = document.querySelector('.MuiPopover-paper') as HTMLElement;
+    window.innerWidth = 1200;
+    fireEvent(window, new Event('resize'));
+
+    await waitFor(() => {
+      expect(paper.style.left).toBe('344px');
     });
   });
 });

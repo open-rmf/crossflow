@@ -156,6 +156,14 @@ export function ScriptEnvironmentWorkspace() {
     selectedEnvironmentName,
   ]);
 
+  const startFreshEnvironment = useCallback(() => {
+    setEnvName('');
+    setNameError(null);
+    setConfigError(null);
+    applyBuilder(defaultBuilder, true);
+    startEnvironmentCreate();
+  }, [applyBuilder, defaultBuilder, startEnvironmentCreate]);
+
   const getEnvUsageCount = useCallback(
     (name: string) =>
       nodeManager.nodes.filter(
@@ -307,7 +315,7 @@ export function ScriptEnvironmentWorkspace() {
         <span>
           <IconButton
             aria-label="Create new environment"
-            onClick={startEnvironmentCreate}
+            onClick={startFreshEnvironment}
             disabled={registeredBuilders.length === 0}
           >
             <MaterialSymbol symbol="add" />
@@ -389,7 +397,7 @@ export function ScriptEnvironmentWorkspace() {
         <Alert
           severity="warning"
           action={
-            <Button onClick={startEnvironmentCreate}>Create environment</Button>
+            <Button onClick={startFreshEnvironment}>Create environment</Button>
           }
         >
           Environment “{selectedEnvironmentName}” is not defined.
@@ -504,7 +512,7 @@ export function ScriptEnvironmentWorkspace() {
               <Stack sx={{ p: 1 }}>
                 <Button
                   startIcon={<MaterialSymbol symbol="add" />}
-                  onClick={startEnvironmentCreate}
+                  onClick={startFreshEnvironment}
                 >
                   New environment
                 </Button>
@@ -517,6 +525,7 @@ export function ScriptEnvironmentWorkspace() {
                     selected={name === selectedEnvironmentName}
                     onClick={() => {
                       selectEnvironment(name);
+                      startEnvironmentEdit();
                       loadEnvironmentDraft(name);
                     }}
                   >

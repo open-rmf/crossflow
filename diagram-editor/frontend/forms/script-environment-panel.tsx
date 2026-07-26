@@ -1,4 +1,4 @@
-import { Box, Button, Divider, Stack, Typography } from '@mui/material';
+import { Box, Divider, Stack, Typography } from '@mui/material';
 import type {
   ScriptEnvironmentMetadata,
   ScriptEnvironmentSchema,
@@ -8,7 +8,6 @@ export interface ScriptEnvironmentPanelProps {
   environmentName: string;
   environment?: ScriptEnvironmentSchema;
   metadata?: ScriptEnvironmentMetadata;
-  onEdit?: () => void;
 }
 
 function ConfigPreview({ value }: { value: unknown }) {
@@ -40,7 +39,6 @@ export function ScriptEnvironmentPanel({
   environmentName,
   environment,
   metadata,
-  onEdit,
 }: ScriptEnvironmentPanelProps) {
   if (!environmentName || !environment) {
     return (
@@ -82,11 +80,6 @@ export function ScriptEnvironmentPanel({
               {environmentName}
             </Typography>
           </Box>
-          {onEdit && (
-            <Button size="small" onClick={onEdit}>
-              Edit
-            </Button>
-          )}
         </Stack>
 
         <Divider />

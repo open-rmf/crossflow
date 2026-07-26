@@ -246,6 +246,45 @@ describe('ScriptEnvironmentWorkspace', () => {
     });
   });
 
+  test('selecting an existing environment from create mode switches to edit mode', async () => {
+    renderWorkspace(
+      <>
+        <SeededWorkspace />
+        <PanelStateProbe />
+      </>,
+    );
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Create new environment' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'analysis' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('panel-state')).toHaveTextContent(
+        '"mode":"edit"',
+      );
+      expect(screen.getByLabelText('Environment Name')).toBeDisabled();
+    });
+  });
+
+  test('starting another environment in create mode resets the draft', async () => {
+    renderWorkspace(<SeededWorkspace />);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Create new environment' }),
+    );
+    const environmentName = screen.getByLabelText('Environment Name');
+    fireEvent.change(environmentName, {
+      target: { value: 'unfinished-draft' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /New environment/ }));
+
+    await waitFor(() => {
+      expect(environmentName).toHaveValue('');
+    });
+  });
+
   test('disables creation when no builders are registered', async () => {
     renderWorkspace(<OpenWorkspace />, {
       ...testRegistry,

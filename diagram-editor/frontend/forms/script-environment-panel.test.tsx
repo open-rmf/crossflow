@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import type { ScriptEnvironmentMetadata } from '../types/api';
 import { ScriptEnvironmentPanel } from './script-environment-panel';
 
@@ -22,7 +22,6 @@ describe('ScriptEnvironmentPanel', () => {
           },
         }}
         metadata={metadata}
-        onEdit={jest.fn()}
       />,
     );
 
@@ -34,26 +33,8 @@ describe('ScriptEnvironmentPanel', () => {
     expect(screen.getByText('import numpy as np')).toBeInTheDocument();
   });
 
-  test('opens environment editing from the panel', () => {
-    const onEdit = jest.fn();
-    render(
-      <ScriptEnvironmentPanel
-        environmentName="analysis"
-        environment={{
-          builder: 'process-bound-python',
-          config: {},
-        }}
-        metadata={metadata}
-        onEdit={onEdit}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    expect(onEdit).toHaveBeenCalledTimes(1);
-  });
-
   test('shows an empty state when no environment is selected', () => {
-    render(<ScriptEnvironmentPanel environmentName="" onEdit={jest.fn()} />);
+    render(<ScriptEnvironmentPanel environmentName="" />);
 
     expect(
       screen.getByText(
