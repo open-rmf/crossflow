@@ -67,6 +67,10 @@ import {
   InteractionVisualizationProvider,
 } from './interaction-visualization-provider';
 import { type LoadContext, LoadContextProvider } from './load-context-provider';
+import {
+  NewDiagramDialog,
+  useNewDiagramAfterExport,
+} from './new-diagram-dialog';
 import { NodeManager, NodeManagerProvider } from './node-manager';
 import {
   type DiagramEditorNode,
@@ -81,6 +85,8 @@ import { useRegistry } from './registry-provider';
 import { useTemplates } from './templates-provider';
 import { useTransientEditorDrafts } from './transient-editor-drafts';
 import type { Diagram } from './types/api';
+import { useBeforeUnloadWarning } from './use-before-unload-warning';
+import { useDraftPagehideFlush } from './use-draft-pagehide-flush';
 import { EdgesProvider } from './use-edges';
 import { autoLayout } from './utils/auto-layout';
 import { isRemoveChange } from './utils/change';
@@ -839,6 +845,7 @@ function DiagramEditor() {
 
   const [openExportDiagramDialog, setOpenExportDiagramDialog] =
     React.useState(false);
+  const [openNewDiagramDialog, setOpenNewDiagramDialog] = React.useState(false);
 
   const handleMouseDown = React.useCallback(() => {
     mouseDownTime.current = Date.now();
@@ -1010,31 +1017,15 @@ function DiagramEditor() {
     };
   }, [clearStoredDraft, draftContent, hydrationResolved, persistLatestDraft]);
 
-  React.useEffect(() => {
-    const flushDraft = () => persistLatestDraft();
-    window.addEventListener('pagehide', flushDraft);
-    return () => window.removeEventListener('pagehide', flushDraft);
-  }, [persistLatestDraft]);
+  useDraftPagehideFlush(
+    latestDraftContent,
+    hydrationResolved,
+    setDraftStorageFailed,
+  );
 
-  React.useEffect(() => {
-    if (!draftStorageFailed || !isDirty) {
-      return;
-    }
-    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', warnBeforeUnload);
-    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
-  }, [draftStorageFailed, isDirty]);
+  useBeforeUnloadWarning();
 
-  const handleNewDiagram = React.useCallback(() => {
-    if (
-      (isDirty || hasUncommittedBuffers) &&
-      !window.confirm('Start a new diagram and discard unsaved changes?')
-    ) {
-      return;
-    }
+  const resetToNewDiagram = React.useCallback(() => {
     const empty = loadEmpty();
     clearInteractionVisualization();
     closeAllPopovers();
@@ -1057,10 +1048,16 @@ function DiagramEditor() {
     clearStoredDraft,
     clearTransientEditorDrafts,
     closeAllPopovers,
-    hasUncommittedBuffers,
-    isDirty,
     setDiagramProperties,
   ]);
+
+  const handleNewDiagram = React.useCallback(() => {
+    if (isDirty || hasUncommittedBuffers) {
+      setOpenNewDiagramDialog(true);
+      return;
+    }
+    resetToNewDiagram();
+  }, [hasUncommittedBuffers, isDirty, resetToNewDiagram]);
 
   const restoreRecoveryDraft = React.useCallback(() => {
     if (!recoveryCandidate) {
@@ -1134,7 +1131,7 @@ function DiagramEditor() {
     setDiagramProperties,
   ]);
 
-  const handleExportCompleted = React.useCallback(
+  const markExportCompleted = React.useCallback(
     (filename: string) => {
       setRecentlyUsedFilename(filename);
       if (latestDraftContent.current) {
@@ -1152,6 +1149,16 @@ function DiagramEditor() {
       clearStoredDraft();
     },
     [clearStoredDraft],
+  );
+
+  const handleStartNewAfterExport = React.useCallback(() => {
+    setOpenExportDiagramDialog(false);
+    resetToNewDiagram();
+  }, [resetToNewDiagram]);
+
+  const newDiagramAfterExport = useNewDiagramAfterExport(
+    markExportCompleted,
+    handleStartNewAfterExport,
   );
 
   const startupInitialized = React.useRef(false);
@@ -1547,21 +1554,42 @@ function DiagramEditor() {
           anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
         >
           <Alert severity="warning">
-            Draft recovery is unavailable. You will be warned before leaving
-            while unsaved work remains.
+            Draft recovery is unavailable. Save your diagram to a file before
+            leaving.
           </Alert>
         </Snackbar>
+        <NewDiagramDialog
+          open={openNewDiagramDialog}
+          canSave={enableExport && !hasUncommittedBuffers}
+          onCancel={() => setOpenNewDiagramDialog(false)}
+          onDiscard={() => {
+            setOpenNewDiagramDialog(false);
+            resetToNewDiagram();
+          }}
+          onSave={() => {
+            if (!enableExport || hasUncommittedBuffers) {
+              return;
+            }
+            setOpenNewDiagramDialog(false);
+            newDiagramAfterExport.begin();
+            setOpenExportDiagramDialog(true);
+          }}
+        />
         <Dialog open={recoveryCandidate !== null} disableEscapeKeyDown>
-          <DialogTitle>Unsaved work found</DialogTitle>
+          <DialogTitle>Restore previous diagram?</DialogTitle>
           <DialogContent>
             {recoveryCandidate?.linkedDiagram
-              ? 'Restore the draft from this tab, or discard it and load the linked diagram.'
-              : 'Restore the draft saved in this tab, or discard it and start with an empty diagram.'}
+              ? 'Restore the previous diagram from this tab, or replace it with the linked diagram.'
+              : 'Restore the diagram from before the refresh, or start with an empty diagram.'}
           </DialogContent>
           <DialogActions>
-            <Button onClick={discardRecoveryDraft}>Discard Draft</Button>
+            <Button onClick={discardRecoveryDraft}>
+              {recoveryCandidate?.linkedDiagram
+                ? 'Load Linked Diagram'
+                : 'Start Empty'}
+            </Button>
             <Button variant="contained" onClick={restoreRecoveryDraft}>
-              Restore Draft
+              Restore
             </Button>
           </DialogActions>
         </Dialog>
@@ -1569,8 +1597,11 @@ function DiagramEditor() {
           <ExportDiagramDialog
             open={openExportDiagramDialog}
             suggestedFilename={recentlyUsedFilename}
-            onExportCompleted={handleExportCompleted}
-            onClose={() => setOpenExportDiagramDialog(false)}
+            onExportCompleted={newDiagramAfterExport.complete}
+            onClose={() => {
+              setOpenExportDiagramDialog(false);
+              newDiagramAfterExport.cancel();
+            }}
             onValidDiagram={(maybeValid: MaybeValid) => {
               setEnableExport(maybeValid.ok);
               if (!maybeValid.ok) {
