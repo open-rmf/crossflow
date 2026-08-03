@@ -28,7 +28,10 @@ import {
   type DiagramSidePanelTab,
   useDiagramSidePanel,
 } from './diagram-side-panel-controller';
-import { ScriptEnvironmentWorkspace } from './forms/script-environment-workspace';
+import {
+  ScriptEnvironmentWorkspace,
+  type ScriptNodeEnvironmentBinding,
+} from './forms/script-environment-workspace';
 import { useLoadContext } from './load-context-provider';
 import { MaterialSymbol } from './nodes';
 import { RunPanel } from './run-button';
@@ -43,6 +46,7 @@ const EmptyInputExample: InputExample = {
 export interface DiagramSidePanelProps {
   runRequestJson: string;
   onRunRequestJsonChange: (requestJson: string) => void;
+  scriptNodeBinding?: ScriptNodeEnvironmentBinding;
 }
 
 function getInputExampleRequestJson(input: InputExample): string {
@@ -56,6 +60,7 @@ function getInputExampleRequestJson(input: InputExample): string {
 function DiagramSidePanel({
   runRequestJson,
   onRunRequestJsonChange,
+  scriptNodeBinding,
 }: DiagramSidePanelProps) {
   const {
     state: { open, tab, expanded },
@@ -372,7 +377,7 @@ function DiagramSidePanel({
             minHeight: 0,
           }}
         >
-          <ScriptEnvironmentWorkspace />
+          <ScriptEnvironmentWorkspace scriptNodeBinding={scriptNodeBinding} />
         </Box>
       </Drawer>
       <Dialog

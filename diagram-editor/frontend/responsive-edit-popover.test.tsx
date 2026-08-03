@@ -26,6 +26,7 @@ function Harness() {
       <button type="button" onClick={panel.close}>
         close drawer
       </button>
+      <input aria-label="Environment Name" />
     </>
   );
 }
@@ -85,6 +86,24 @@ describe('ResponsiveEditPopover', () => {
 
     await waitFor(() => {
       expect(paper.style.left).toBe('344px');
+    });
+  });
+
+  test('allows environment fields outside the node editor to keep focus', async () => {
+    render(
+      <DiagramSidePanelProvider>
+        <Harness />
+      </DiagramSidePanelProvider>,
+    );
+
+    const environmentName = screen.getByRole('textbox', {
+      name: 'Environment Name',
+      hidden: true,
+    });
+    environmentName.focus();
+
+    await waitFor(() => {
+      expect(environmentName).toHaveFocus();
     });
   });
 });

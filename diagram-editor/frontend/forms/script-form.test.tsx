@@ -1,8 +1,12 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { useEffect } from 'react';
 import { of } from 'rxjs';
 import { ApiClient } from '../api-client';
 import { ApiClientProvider } from '../api-client-provider';
-import { DiagramPropertiesProvider } from '../diagram-properties-provider';
+import {
+  DiagramPropertiesProvider,
+  useDiagramProperties,
+} from '../diagram-properties-provider';
 import {
   DiagramSidePanelProvider,
   useDiagramSidePanel,
@@ -49,7 +53,28 @@ function PanelStateProbe() {
   return <output data-testid="panel-state">{JSON.stringify(state)}</output>;
 }
 
-function renderScriptForm() {
+function SeedEnvironments() {
+  const [, setDiagramProperties] = useDiagramProperties();
+
+  useEffect(() => {
+    setDiagramProperties({
+      script_environments: {
+        analysis: { builder: 'process-bound-python', config: {} },
+        staging: { builder: 'process-bound-python', config: {} },
+      },
+    });
+  }, [setDiagramProperties]);
+
+  return null;
+}
+
+function renderScriptForm({
+  onChange = jest.fn(),
+  seedEnvironments = false,
+}: {
+  onChange?: jest.Mock;
+  seedEnvironments?: boolean;
+} = {}) {
   const apiClient = new ApiClient();
   jest.spyOn(apiClient, 'getRegistry').mockReturnValue(of(registry));
 
@@ -60,9 +85,10 @@ function renderScriptForm() {
           <DiagramPropertiesProvider>
             <DiagramSidePanelProvider>
               <NotificationProvider>
+                {seedEnvironments && <SeedEnvironments />}
                 <ScriptForm
                   node={scriptNode}
-                  onChange={jest.fn()}
+                  onChange={onChange}
                   onDelete={jest.fn()}
                 />
                 <PanelStateProbe />
@@ -88,20 +114,66 @@ describe('ScriptForm', () => {
     ).toHaveAttribute('aria-disabled', 'true');
   });
 
-  test('Manage opens the assigned environment in the shared drawer', () => {
+  test('the settings button toggles the assigned environment drawer', () => {
     renderScriptForm();
 
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: 'Manage or add script environment',
-      }),
-    );
+    const settings = screen.getByRole('button', {
+      name: 'Toggle script environment panel',
+    });
+    fireEvent.click(settings);
 
     expect(screen.getByTestId('panel-state')).toHaveTextContent(
       '"tab":"environments"',
     );
     expect(screen.getByTestId('panel-state')).toHaveTextContent(
       '"selectedEnvironmentName":"analysis"',
+    );
+
+    fireEvent.click(settings);
+
+    expect(screen.getByTestId('panel-state')).toHaveTextContent('"open":false');
+  });
+
+  test('selecting an environment updates the node and shared drawer', () => {
+    const onChange = jest.fn();
+    renderScriptForm({ onChange, seedEnvironments: true });
+
+    fireEvent.mouseDown(
+      screen.getByRole('combobox', { name: 'Script Environment' }),
+    );
+    fireEvent.click(screen.getByRole('option', { name: 'staging' }));
+
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        item: expect.objectContaining({
+          data: expect.objectContaining({
+            op: expect.objectContaining({ environment: 'staging' }),
+          }),
+        }),
+      }),
+    );
+    expect(screen.getByTestId('panel-state')).toHaveTextContent(
+      '"selectedEnvironmentName":"staging"',
+    );
+  });
+
+  test('offers environment creation at the end without changing the node', () => {
+    const onChange = jest.fn();
+    renderScriptForm({ onChange, seedEnvironments: true });
+
+    fireEvent.mouseDown(
+      screen.getByRole('combobox', { name: 'Script Environment' }),
+    );
+    const options = screen.getAllByRole('option');
+    expect(options.at(-1)).toHaveTextContent('Create new environment');
+    fireEvent.click(options.at(-1) as HTMLElement);
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId('panel-state')).toHaveTextContent(
+      '"mode":"create"',
+    );
+    expect(screen.getByTestId('panel-state')).toHaveTextContent(
+      '"expanded":true',
     );
   });
 });

@@ -9,6 +9,7 @@ import {
 } from '@mui/material';
 import { useMemo, useState } from 'react';
 import { useDiagramProperties } from '../diagram-properties-provider';
+import { useDiagramSidePanel } from '../diagram-side-panel-controller';
 import { MaterialSymbol } from '../nodes';
 import BaseEditOperationForm, {
   type BaseEditOperationFormProps,
@@ -17,10 +18,17 @@ import { useScriptEnvironmentNavigation } from './use-script-environment-navigat
 
 export type ScriptFormProps = BaseEditOperationFormProps<'script'>;
 
+const CREATE_ENVIRONMENT_VALUE = '__create_script_environment__';
+
 function ScriptForm(props: ScriptFormProps) {
   const [diagramProperties] = useDiagramProperties();
   const environments = diagramProperties.script_environments || {};
   const openScriptEnvironment = useScriptEnvironmentNavigation();
+  const {
+    state: { open: panelOpen, tab: panelTab },
+    close: closePanel,
+    startEnvironmentCreate,
+  } = useDiagramSidePanel();
 
   // Track raw string of node config to support JSON editing
   const [configValue, setConfigValue] = useState(() =>
@@ -55,6 +63,7 @@ function ScriptForm(props: ScriptFormProps) {
       id: props.node.id,
       item: updatedNode,
     });
+    openScriptEnvironment(envName, false);
   };
 
   // Real-time parse python entrypoint functions from selected environment
@@ -111,7 +120,13 @@ function ScriptForm(props: ScriptFormProps) {
           select
           label="Script Environment"
           value={props.node.data.op.environment || ''}
-          onChange={(e) => handleEnvChange(e.target.value)}
+          onChange={(e) => {
+            if (e.target.value === CREATE_ENVIRONMENT_VALUE) {
+              startEnvironmentCreate();
+              return;
+            }
+            handleEnvChange(e.target.value);
+          }}
           fullWidth
         >
           {selectedEnvName && !selectedEnv && (
@@ -132,17 +147,27 @@ function ScriptForm(props: ScriptFormProps) {
               </MenuItem>
             ))
           )}
+          <MenuItem value={CREATE_ENVIRONMENT_VALUE}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <MaterialSymbol symbol="add" />
+              <span>Create new environment</span>
+            </Stack>
+          </MenuItem>
         </TextField>
 
-        <Tooltip title="Manage or add script environment">
+        <Tooltip title="Toggle script environment panel">
           <IconButton
-            aria-label="Manage or add script environment"
-            onClick={() =>
+            aria-label="Toggle script environment panel"
+            onClick={() => {
+              if (panelOpen && panelTab === 'environments') {
+                closePanel();
+                return;
+              }
               openScriptEnvironment(
                 props.node.data.op.environment || undefined,
                 false,
-              )
-            }
+              );
+            }}
           >
             <MaterialSymbol symbol="settings" />
           </IconButton>

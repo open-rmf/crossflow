@@ -10,6 +10,7 @@ import {
   Typography,
   useTheme,
 } from '@mui/material';
+import type { PopoverActions } from '@mui/material/Popover';
 import {
   addEdge,
   applyEdgeChanges,
@@ -35,6 +36,7 @@ import { CompatibleAddOperation } from './compatible-add-operation';
 import { ConnectionCompatibilityProvider } from './connection-compatibility-provider';
 import { ConnectionHintPanel } from './connection-hint-panel';
 import { useDiagramProperties } from './diagram-properties-provider';
+import { useDiagramSidePanel } from './diagram-side-panel-controller';
 import type { DiagramEditorEdge } from './edges';
 import { EDGE_TYPES } from './edges';
 import {
@@ -46,6 +48,7 @@ import {
 import { ExportDiagramDialog } from './export-diagram-dialog';
 import { EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
+import type { ScriptNodeEnvironmentBinding } from './forms/script-environment-workspace';
 import { useScriptEnvironmentNavigation } from './forms/use-script-environment-navigation';
 import {
   type InteractionVisualizationContext,
@@ -309,6 +312,9 @@ function DiagramEditor() {
   const apiClient = useApiClient();
   const [diagramProperties] = useDiagramProperties();
   const openScriptEnvironment = useScriptEnvironmentNavigation();
+  const {
+    state: { open: sidePanelOpen, tab: sidePanelTab },
+  } = useDiagramSidePanel();
 
   const updateEditorModeAction = React.useCallback(
     (newMode: EditorModeContext) => {
@@ -545,6 +551,10 @@ function DiagramEditor() {
     parentId: null,
     sourceConnection: null,
   });
+  const addOperationPopoverActions = React.useRef<PopoverActions>(null);
+  const updateAddOperationPopoverPosition = React.useCallback(() => {
+    addOperationPopoverActions.current?.updatePosition();
+  }, []);
   const addOperationNewNodePosition = React.useMemo<XYPosition>(() => {
     if (!reactFlowInstance.current) {
       return { x: 0, y: 0 };
@@ -569,6 +579,54 @@ function DiagramEditor() {
   ]);
 
   const [editingNodeId, setEditingNodeId] = React.useState<string | null>(null);
+  const [pendingScriptEnvironmentNodeId, setPendingScriptEnvironmentNodeId] =
+    React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!sidePanelOpen || sidePanelTab !== 'environments') {
+      setPendingScriptEnvironmentNodeId(null);
+    }
+  }, [sidePanelOpen, sidePanelTab]);
+
+  const scriptNodeBinding = React.useMemo<
+    ScriptNodeEnvironmentBinding | undefined
+  >(() => {
+    const nodeId = editingNodeId || pendingScriptEnvironmentNodeId;
+    const node = nodeId ? nodeManager.tryGetNode(nodeId) : undefined;
+    if (!node || node.type !== 'script') {
+      return undefined;
+    }
+
+    const environmentName = node.data.op.environment;
+    return {
+      environmentName:
+        typeof environmentName === 'string'
+          ? environmentName || undefined
+          : undefined,
+      nodeControlsSelection: editingNodeId === node.id,
+      assignEnvironment: (environmentName) => {
+        handleNodeChange({
+          type: 'replace',
+          id: node.id,
+          item: {
+            ...node,
+            data: {
+              ...node.data,
+              op: { ...node.data.op, environment: environmentName },
+            },
+          },
+        });
+        if (pendingScriptEnvironmentNodeId === node.id) {
+          setPendingScriptEnvironmentNodeId(null);
+        }
+      },
+    };
+  }, [
+    editingNodeId,
+    handleNodeChange,
+    nodeManager,
+    pendingScriptEnvironmentNodeId,
+  ]);
 
   const [editingEdgeId, setEditingEdgeId] = React.useState<string | null>(null);
   const editingEdge: EditingEdge | null = (() => {
@@ -602,6 +660,7 @@ function DiagramEditor() {
 
   const closeAllPopovers = React.useCallback(() => {
     setEditingNodeId(null);
+    setPendingScriptEnvironmentNodeId(null);
     setEditingEdgeId(null);
     setAddOperationPopover((prev) => ({
       ...prev,
@@ -1014,6 +1073,7 @@ function DiagramEditor() {
           )}
           onLoadDiagram={loadDiagram}
           enableExport={enableExport}
+          scriptNodeBinding={scriptNodeBinding}
         />
         {editorMode.mode === EditorMode.Template && (
           <Fab
@@ -1037,6 +1097,7 @@ function DiagramEditor() {
           </Fab>
         )}
         <Popover
+          action={addOperationPopoverActions}
           open={addOperationPopover.open}
           onClose={closeAllPopovers}
           anchorReference="anchorPosition"
@@ -1049,6 +1110,7 @@ function DiagramEditor() {
               parentId={addOperationPopover.parentId || undefined}
               newNodePosition={addOperationNewNodePosition}
               sourceConnection={addOperationPopover.sourceConnection}
+              onContentChange={updateAddOperationPopoverPosition}
               onAdd={({ changes, primaryNodeId }) => {
                 void (async () => {
                   const targetNode =
@@ -1079,6 +1141,7 @@ function DiagramEditor() {
 
                   handleNodeChanges(changes);
                   setEdges((prev) => addEdge(newEdge, prev));
+                  closeAllPopovers();
                   if (targetNode.type === 'script') {
                     const environmentName = targetNode.data.op.environment;
                     openScriptEnvironment(
@@ -1087,8 +1150,8 @@ function DiagramEditor() {
                         : undefined,
                       true,
                     );
+                    setPendingScriptEnvironmentNodeId(targetNode.id);
                   }
-                  closeAllPopovers();
                 })();
               }}
             />
@@ -1101,6 +1164,7 @@ function DiagramEditor() {
                 const primaryNode =
                   changes.find((change) => change.item.id === primaryNodeId)
                     ?.item || null;
+                closeAllPopovers();
                 if (primaryNode?.type === 'script') {
                   const environmentName = primaryNode.data.op.environment;
                   openScriptEnvironment(
@@ -1109,8 +1173,8 @@ function DiagramEditor() {
                       : undefined,
                     true,
                   );
+                  setPendingScriptEnvironmentNodeId(primaryNode.id);
                 }
-                closeAllPopovers();
               }}
             />
           )}

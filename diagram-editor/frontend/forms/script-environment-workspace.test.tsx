@@ -15,7 +15,10 @@ import { NodeManager, NodeManagerProvider } from '../node-manager';
 import { NotificationProvider } from '../notification-provider';
 import { RegistryProvider } from '../registry-provider';
 import type { DiagramElementMetadata } from '../types/api';
-import { ScriptEnvironmentWorkspace } from './script-environment-workspace';
+import {
+  ScriptEnvironmentWorkspace,
+  type ScriptNodeEnvironmentBinding,
+} from './script-environment-workspace';
 
 jest.mock('@uiw/react-codemirror', () => ({
   __esModule: true,
@@ -100,7 +103,11 @@ function OpenWorkspace() {
   return <ScriptEnvironmentWorkspace />;
 }
 
-function SeededWorkspace() {
+function SeededWorkspace({
+  scriptNodeBinding,
+}: {
+  scriptNodeBinding?: ScriptNodeEnvironmentBinding;
+} = {}) {
   const [properties, setProperties] = useDiagramProperties();
   const { openEnvironments } = useDiagramSidePanel();
 
@@ -124,8 +131,18 @@ function SeededWorkspace() {
       <output data-testid="highlight">
         {properties.highlightedEnvironment || 'none'}
       </output>
-      <ScriptEnvironmentWorkspace />
+      <ScriptEnvironmentWorkspace scriptNodeBinding={scriptNodeBinding} />
     </>
+  );
+}
+
+function BoundEmptyWorkspace({
+  assignEnvironment,
+}: {
+  assignEnvironment: (environmentName: string) => void;
+}) {
+  return (
+    <ScriptEnvironmentWorkspace scriptNodeBinding={{ assignEnvironment }} />
   );
 }
 
@@ -163,6 +180,15 @@ function renderWorkspace(
         </NodeManagerProvider>
       </RegistryProvider>
     </ApiClientProvider>,
+  );
+}
+
+async function startEnvironmentCreationFromSelector() {
+  fireEvent.mouseDown(
+    await screen.findByRole('combobox', { name: 'Select Environment' }),
+  );
+  fireEvent.click(
+    screen.getByRole('option', { name: /Create new environment/ }),
   );
 }
 
@@ -212,6 +238,101 @@ describe('ScriptEnvironmentWorkspace', () => {
     ).toBeInTheDocument();
   });
 
+  test('uses the script node environment instead of a second selector', async () => {
+    renderWorkspace(
+      <SeededWorkspace
+        scriptNodeBinding={{
+          environmentName: 'analysis',
+          assignEnvironment: jest.fn(),
+        }}
+      />,
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'analysis' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('combobox', { name: 'Select Environment' }),
+    ).not.toBeInTheDocument();
+  });
+
+  test('keeps the environment selector in standalone mode', async () => {
+    renderWorkspace(<SeededWorkspace />);
+
+    expect(
+      await screen.findByRole('combobox', { name: 'Select Environment' }),
+    ).toBeInTheDocument();
+  });
+
+  test('starts creation from the standalone environment selector', async () => {
+    renderWorkspace(
+      <>
+        <ScriptEnvironmentWorkspace />
+        <PanelStateProbe />
+      </>,
+    );
+
+    await startEnvironmentCreationFromSelector();
+
+    expect(screen.getByTestId('panel-state')).toHaveTextContent(
+      '"mode":"create"',
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Create new environment' }),
+    ).not.toBeInTheDocument();
+  });
+
+  test('keeps the selector visible while assigning creation to a newly added script', async () => {
+    const assignEnvironment = jest.fn();
+    renderWorkspace(
+      <ScriptEnvironmentWorkspace
+        scriptNodeBinding={{
+          assignEnvironment,
+          nodeControlsSelection: false,
+        }}
+      />,
+    );
+
+    await startEnvironmentCreationFromSelector();
+    fireEvent.change(screen.getByLabelText('Environment Name'), {
+      target: { value: 'analysis' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(assignEnvironment).toHaveBeenCalledWith('analysis');
+    });
+  });
+
+  test('offers environment creation when the bound node has no choices', async () => {
+    renderWorkspace(<BoundEmptyWorkspace assignEnvironment={jest.fn()} />);
+
+    expect(
+      await screen.findByRole('button', { name: 'Create environment' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByRole('button', { name: /create.*environment/i }),
+    ).toHaveLength(1);
+    expect(
+      screen.queryByRole('combobox', { name: 'Select Environment' }),
+    ).not.toBeInTheDocument();
+  });
+
+  test('directs an unassigned node to its own selector when choices exist', async () => {
+    renderWorkspace(
+      <SeededWorkspace scriptNodeBinding={{ assignEnvironment: jest.fn() }} />,
+    );
+
+    expect(
+      await screen.findByText(
+        'Select an environment in the script node editor.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('combobox', { name: 'Select Environment' }),
+    ).not.toBeInTheDocument();
+  });
+
   test('offers recovery when a node references a missing environment', async () => {
     renderWorkspace(<MissingWorkspace />);
 
@@ -246,6 +367,43 @@ describe('ScriptEnvironmentWorkspace', () => {
     });
   });
 
+  test('assigns a created environment to the bound script node', async () => {
+    const assignEnvironment = jest.fn();
+    renderWorkspace(
+      <BoundEmptyWorkspace assignEnvironment={assignEnvironment} />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Create environment' }),
+    );
+    fireEvent.change(screen.getByLabelText('Environment Name'), {
+      target: { value: 'analysis' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(assignEnvironment).toHaveBeenCalledWith('analysis');
+      expect(assignEnvironment).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test('does not assign an environment when creation is cancelled', async () => {
+    const assignEnvironment = jest.fn();
+    renderWorkspace(
+      <BoundEmptyWorkspace assignEnvironment={assignEnvironment} />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Create environment' }),
+    );
+    fireEvent.change(screen.getByLabelText('Environment Name'), {
+      target: { value: 'analysis' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(assignEnvironment).not.toHaveBeenCalled();
+  });
+
   test('selecting an existing environment from create mode switches to edit mode', async () => {
     renderWorkspace(
       <>
@@ -254,9 +412,7 @@ describe('ScriptEnvironmentWorkspace', () => {
       </>,
     );
 
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Create new environment' }),
-    );
+    await startEnvironmentCreationFromSelector();
     fireEvent.click(screen.getByRole('button', { name: 'analysis' }));
 
     await waitFor(() => {
@@ -270,9 +426,7 @@ describe('ScriptEnvironmentWorkspace', () => {
   test('starting another environment in create mode resets the draft', async () => {
     renderWorkspace(<SeededWorkspace />);
 
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Create new environment' }),
-    );
+    await startEnvironmentCreationFromSelector();
     const environmentName = screen.getByLabelText('Environment Name');
     fireEvent.change(environmentName, {
       target: { value: 'unfinished-draft' },

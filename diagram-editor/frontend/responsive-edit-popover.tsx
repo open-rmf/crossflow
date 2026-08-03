@@ -27,6 +27,7 @@ export function ResponsiveEditPopover({
   return (
     <Popover
       {...props}
+      disableEnforceFocus
       anchorPosition={responsiveAnchorPosition}
       anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
       slotProps={{

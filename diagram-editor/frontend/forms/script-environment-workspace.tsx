@@ -29,13 +29,27 @@ import type { DiagramElementMetadata } from '../types/api';
 import { ScriptEnvironmentPanel } from './script-environment-panel';
 import { scriptEnvironmentPlugins } from './script-environments/registry';
 
+const CREATE_ENVIRONMENT_VALUE = '__create_script_environment__';
+
 function objectConfig(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null
     ? (value as Record<string, unknown>)
     : {};
 }
 
-export function ScriptEnvironmentWorkspace() {
+export interface ScriptNodeEnvironmentBinding {
+  environmentName?: string;
+  assignEnvironment: (environmentName: string) => void;
+  nodeControlsSelection?: boolean;
+}
+
+export interface ScriptEnvironmentWorkspaceProps {
+  scriptNodeBinding?: ScriptNodeEnvironmentBinding;
+}
+
+export function ScriptEnvironmentWorkspace({
+  scriptNodeBinding,
+}: ScriptEnvironmentWorkspaceProps) {
   const [diagramProperties, setDiagramProperties] = useDiagramProperties();
   const nodeManager = useNodeManager();
   const showNotification = useNotification();
@@ -50,6 +64,11 @@ export function ScriptEnvironmentWorkspace() {
     finishEnvironmentEdit,
     setExpanded,
   } = useDiagramSidePanel();
+  const nodeControlsSelection =
+    !!scriptNodeBinding && scriptNodeBinding.nodeControlsSelection !== false;
+  const activeEnvironmentName = nodeControlsSelection
+    ? scriptNodeBinding.environmentName
+    : selectedEnvironmentName;
 
   const registeredBuilders = useMemo(
     () => (registry.scripting ? Object.keys(registry.scripting) : []),
@@ -141,10 +160,10 @@ export function ScriptEnvironmentWorkspace() {
       applyBuilder(defaultBuilder, true);
     } else if (
       mode !== 'create' &&
-      selectedEnvironmentName &&
-      environments[selectedEnvironmentName]
+      activeEnvironmentName &&
+      environments[activeEnvironmentName]
     ) {
-      loadEnvironmentDraft(selectedEnvironmentName);
+      loadEnvironmentDraft(activeEnvironmentName);
     }
     previousMode.current = mode;
   }, [
@@ -153,7 +172,7 @@ export function ScriptEnvironmentWorkspace() {
     environments,
     loadEnvironmentDraft,
     mode,
-    selectedEnvironmentName,
+    activeEnvironmentName,
   ]);
 
   const startFreshEnvironment = useCallback(() => {
@@ -249,6 +268,9 @@ export function ScriptEnvironmentWorkspace() {
         },
       }));
       selectEnvironment(envName);
+      if (mode === 'create') {
+        scriptNodeBinding?.assignEnvironment(envName);
+      }
       showNotification(
         mode === 'create'
           ? `Environment '${envName}' created successfully`
@@ -262,34 +284,31 @@ export function ScriptEnvironmentWorkspace() {
   };
 
   const handleCancel = () => {
-    if (selectedEnvironmentName && environments[selectedEnvironmentName]) {
-      loadEnvironmentDraft(selectedEnvironmentName);
+    if (activeEnvironmentName && environments[activeEnvironmentName]) {
+      loadEnvironmentDraft(activeEnvironmentName);
     }
     finishEnvironmentEdit();
   };
 
   const handleDelete = () => {
-    if (
-      !selectedEnvironmentName ||
-      getEnvUsageCount(selectedEnvironmentName) > 0
-    ) {
+    if (!activeEnvironmentName || getEnvUsageCount(activeEnvironmentName) > 0) {
       return;
     }
 
     setDiagramProperties((prev) => {
-      const { [selectedEnvironmentName]: _, ...rest } =
+      const { [activeEnvironmentName]: _, ...rest } =
         prev.script_environments || {};
       return {
         ...prev,
         script_environments: rest,
         highlightedEnvironment:
-          prev.highlightedEnvironment === selectedEnvironmentName
+          prev.highlightedEnvironment === activeEnvironmentName
             ? undefined
             : prev.highlightedEnvironment,
       };
     });
     showNotification(
-      `Environment '${selectedEnvironmentName}' deleted successfully`,
+      `Environment '${activeEnvironmentName}' deleted successfully`,
       'success',
     );
     selectEnvironment(undefined);
@@ -302,32 +321,22 @@ export function ScriptEnvironmentWorkspace() {
     !builder ||
     !registeredBuilders.includes(builder);
 
-  const selectedEnvironment = selectedEnvironmentName
-    ? environments[selectedEnvironmentName]
+  const selectedEnvironment = activeEnvironmentName
+    ? environments[activeEnvironmentName]
     : undefined;
   const selectedMetadata = selectedEnvironment
     ? registry.scripting?.[selectedEnvironment.builder]
     : undefined;
+  const boundNodeHasNoEnvironments =
+    nodeControlsSelection && Object.keys(environments).length === 0;
 
   const renderEnvironmentActions = () => (
     <Stack direction="row" spacing={0.5} alignItems="center">
-      <Tooltip title="Create new environment">
-        <span>
-          <IconButton
-            aria-label="Create new environment"
-            onClick={startFreshEnvironment}
-            disabled={registeredBuilders.length === 0}
-          >
-            <MaterialSymbol symbol="add" />
-          </IconButton>
-        </span>
-      </Tooltip>
-      {selectedEnvironmentName && selectedEnvironment && (
+      {activeEnvironmentName && selectedEnvironment && (
         <>
           <Tooltip
             title={
-              diagramProperties.highlightedEnvironment ===
-              selectedEnvironmentName
+              diagramProperties.highlightedEnvironment === activeEnvironmentName
                 ? 'Hide nodes'
                 : 'Show nodes'
             }
@@ -335,7 +344,7 @@ export function ScriptEnvironmentWorkspace() {
             <IconButton
               aria-label={
                 diagramProperties.highlightedEnvironment ===
-                selectedEnvironmentName
+                activeEnvironmentName
                   ? 'Hide nodes'
                   : 'Show nodes'
               }
@@ -343,16 +352,16 @@ export function ScriptEnvironmentWorkspace() {
                 setDiagramProperties((prev) => ({
                   ...prev,
                   highlightedEnvironment:
-                    prev.highlightedEnvironment === selectedEnvironmentName
+                    prev.highlightedEnvironment === activeEnvironmentName
                       ? undefined
-                      : selectedEnvironmentName,
+                      : activeEnvironmentName,
                 }));
               }}
             >
               <MaterialSymbol
                 symbol={
                   diagramProperties.highlightedEnvironment ===
-                  selectedEnvironmentName
+                  activeEnvironmentName
                     ? 'visibility_off'
                     : 'visibility'
                 }
@@ -369,9 +378,9 @@ export function ScriptEnvironmentWorkspace() {
           </Tooltip>
           <Tooltip
             title={
-              getEnvUsageCount(selectedEnvironmentName) > 0
+              getEnvUsageCount(activeEnvironmentName) > 0
                 ? `Cannot delete: used by ${getEnvUsageCount(
-                    selectedEnvironmentName,
+                    activeEnvironmentName,
                   )} nodes`
                 : 'Delete environment'
             }
@@ -379,7 +388,7 @@ export function ScriptEnvironmentWorkspace() {
             <span>
               <IconButton
                 aria-label="Delete environment"
-                disabled={getEnvUsageCount(selectedEnvironmentName) > 0}
+                disabled={getEnvUsageCount(activeEnvironmentName) > 0}
                 onClick={handleDelete}
               >
                 <MaterialSymbol symbol="delete" />
@@ -391,7 +400,7 @@ export function ScriptEnvironmentWorkspace() {
     </Stack>
   );
 
-  if (mode === 'view' && selectedEnvironmentName && !selectedEnvironment) {
+  if (mode === 'view' && activeEnvironmentName && !selectedEnvironment) {
     return (
       <Stack spacing={2} sx={{ p: 2 }}>
         <Alert
@@ -400,7 +409,7 @@ export function ScriptEnvironmentWorkspace() {
             <Button onClick={startFreshEnvironment}>Create environment</Button>
           }
         >
-          Environment “{selectedEnvironmentName}” is not defined.
+          Environment “{activeEnvironmentName}” is not defined.
         </Alert>
       </Stack>
     );
@@ -409,14 +418,18 @@ export function ScriptEnvironmentWorkspace() {
   return (
     <Stack spacing={2} sx={{ p: 2, minWidth: 0, overflowY: 'auto' }}>
       <Stack direction="row" spacing={1} alignItems="center">
-        {mode === 'view' ? (
+        {mode === 'view' && !nodeControlsSelection ? (
           <TextField
             select
             label="Select Environment"
             value={selectedEnvironmentName || ''}
-            onChange={(event) =>
-              selectEnvironment(event.target.value || undefined)
-            }
+            onChange={(event) => {
+              if (event.target.value === CREATE_ENVIRONMENT_VALUE) {
+                startFreshEnvironment();
+                return;
+              }
+              selectEnvironment(event.target.value || undefined);
+            }}
             fullWidth
           >
             {Object.keys(environments).length === 0 ? (
@@ -430,13 +443,22 @@ export function ScriptEnvironmentWorkspace() {
                 </MenuItem>
               ))
             )}
+            <MenuItem value={CREATE_ENVIRONMENT_VALUE}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <MaterialSymbol symbol="add" />
+                <span>Create new environment</span>
+              </Stack>
+            </MenuItem>
           </TextField>
-        ) : (
+        ) : mode !== 'view' ? (
           <Typography variant="h6" sx={{ flex: 1 }}>
             {mode === 'create' ? 'Create Environment' : 'Edit Environment'}
           </Typography>
-        )}
+        ) : null}
         {mode === 'view' ? (
+          !boundNodeHasNoEnvironments &&
+          activeEnvironmentName &&
+          selectedEnvironment &&
           renderEnvironmentActions()
         ) : (
           <>
@@ -473,12 +495,39 @@ export function ScriptEnvironmentWorkspace() {
       </Stack>
 
       {mode === 'view' ? (
-        selectedEnvironmentName && selectedEnvironment ? (
+        activeEnvironmentName && selectedEnvironment ? (
           <ScriptEnvironmentPanel
-            environmentName={selectedEnvironmentName}
+            environmentName={activeEnvironmentName}
             environment={selectedEnvironment}
             metadata={selectedMetadata}
           />
+        ) : boundNodeHasNoEnvironments ? (
+          <Paper
+            variant="outlined"
+            sx={{ p: 3, textAlign: 'center', borderStyle: 'dashed' }}
+          >
+            <Stack spacing={2} alignItems="center">
+              <Typography color="text.secondary">
+                No environments are available for this script node.
+              </Typography>
+              <Button
+                variant="contained"
+                onClick={startFreshEnvironment}
+                disabled={registeredBuilders.length === 0}
+              >
+                Create environment
+              </Button>
+            </Stack>
+          </Paper>
+        ) : nodeControlsSelection ? (
+          <Paper
+            variant="outlined"
+            sx={{ p: 3, textAlign: 'center', borderStyle: 'dashed' }}
+          >
+            <Typography color="text.secondary">
+              Select an environment in the script node editor.
+            </Typography>
+          </Paper>
         ) : (
           <Paper
             variant="outlined"

@@ -13,7 +13,15 @@ jest.mock('./run-button', () => ({
 }));
 
 jest.mock('./forms/script-environment-workspace', () => ({
-  ScriptEnvironmentWorkspace: () => null,
+  ScriptEnvironmentWorkspace: ({
+    scriptNodeBinding,
+  }: {
+    scriptNodeBinding?: { environmentName?: string };
+  }) => (
+    <output data-testid="workspace-binding">
+      {scriptNodeBinding?.environmentName}
+    </output>
+  ),
 }));
 
 function OpenCreateMode() {
@@ -26,7 +34,16 @@ function OpenCreateMode() {
   return null;
 }
 
-function renderSidePanel({ create = false }: { create?: boolean } = {}) {
+function renderSidePanel({
+  create = false,
+  scriptNodeBinding,
+}: {
+  create?: boolean;
+  scriptNodeBinding?: {
+    environmentName?: string;
+    assignEnvironment: (environmentName: string) => void;
+  };
+} = {}) {
   return render(
     <ThemeProvider theme={createTheme({ palette: { mode: 'dark' } })}>
       <DiagramPropertiesProvider>
@@ -35,6 +52,7 @@ function renderSidePanel({ create = false }: { create?: boolean } = {}) {
           <DiagramSidePanel
             runRequestJson=""
             onRunRequestJsonChange={jest.fn()}
+            scriptNodeBinding={scriptNodeBinding}
           />
         </DiagramSidePanelProvider>
       </DiagramPropertiesProvider>
@@ -90,5 +108,18 @@ describe('DiagramSidePanel', () => {
       expect(drawerPaper.style.width).toBe('900px');
       expect(drawerPaper.style.transition).toContain('width');
     });
+  });
+
+  test('forwards the active script node environment to the workspace', () => {
+    renderSidePanel({
+      scriptNodeBinding: {
+        environmentName: 'analysis',
+        assignEnvironment: jest.fn(),
+      },
+    });
+
+    expect(screen.getByTestId('workspace-binding')).toHaveTextContent(
+      'analysis',
+    );
   });
 });

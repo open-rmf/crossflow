@@ -6,6 +6,7 @@ import DiagramSidePanel from './diagram-side-panel';
 import { useDiagramSidePanel } from './diagram-side-panel-controller';
 import EditTemplatesDialog from './edit-templates-dialog';
 import { EditorMode, useEditorMode } from './editor-mode';
+import type { ScriptNodeEnvironmentBinding } from './forms/script-environment-workspace';
 import type { DiagramEditorNode } from './nodes';
 import { MaterialSymbol } from './nodes';
 
@@ -14,6 +15,7 @@ export interface CommandPanelProps {
   onExportClick: () => void;
   onLoadDiagram: (jsonStr: string, filename: string) => void;
   enableExport: boolean;
+  scriptNodeBinding?: ScriptNodeEnvironmentBinding;
 }
 
 const VisuallyHiddenInput = styled('input')({
@@ -33,6 +35,7 @@ function CommandPanel({
   onExportClick,
   onLoadDiagram,
   enableExport,
+  scriptNodeBinding,
 }: CommandPanelProps) {
   const theme = useTheme();
   const [openEditTemplatesDialog, setOpenEditTemplatesDialog] =
@@ -141,6 +144,7 @@ function CommandPanel({
       <DiagramSidePanel
         runRequestJson={runRequestJson}
         onRunRequestJsonChange={setRunRequestJson}
+        scriptNodeBinding={scriptNodeBinding}
       />
     </>
   );
