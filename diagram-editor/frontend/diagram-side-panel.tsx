@@ -24,26 +24,29 @@ import {
 import React from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useDiagramProperties } from './diagram-properties-provider';
+import {
+  type DiagramSidePanelTab,
+  useDiagramSidePanel,
+} from './diagram-side-panel-controller';
+import {
+  ScriptEnvironmentWorkspace,
+  type ScriptNodeEnvironmentBinding,
+} from './forms/script-environment-workspace';
 import { useLoadContext } from './load-context-provider';
 import { MaterialSymbol } from './nodes';
 import { RunPanel } from './run-button';
 import type { InputExample } from './types/api';
+import { useDiagramSidePanelWidth } from './use-responsive-edit-popover-position';
 
-const DrawerWidth = 'min(420px, calc(100vw - 56px))';
 const EmptyInputExample: InputExample = {
   description: '',
   value: undefined,
 };
 
-export type DiagramSidePanelTab = 'run' | 'properties';
-
 export interface DiagramSidePanelProps {
-  open: boolean;
-  tab: DiagramSidePanelTab;
   runRequestJson: string;
-  onClose: () => void;
   onRunRequestJsonChange: (requestJson: string) => void;
-  onTabChange: (tab: DiagramSidePanelTab) => void;
+  scriptNodeBinding?: ScriptNodeEnvironmentBinding;
 }
 
 function getInputExampleRequestJson(input: InputExample): string {
@@ -55,16 +58,23 @@ function getInputExampleRequestJson(input: InputExample): string {
 }
 
 function DiagramSidePanel({
-  open,
-  tab,
   runRequestJson,
-  onClose,
   onRunRequestJsonChange,
-  onTabChange,
+  scriptNodeBinding,
 }: DiagramSidePanelProps) {
+  const {
+    state: { open, tab, expanded },
+    close,
+    showTab,
+  } = useDiagramSidePanel();
   const [diagramProperties, setDiagramProperties] = useDiagramProperties();
   const loadContext = useLoadContext();
   const theme = useTheme();
+  const drawerWidth = useDiagramSidePanelWidth();
+  const widthTransition = theme.transitions.create('width', {
+    easing: theme.transitions.easing.easeInOut,
+    duration: theme.transitions.duration.standard,
+  });
   const [copyTooltipText, setCopyTooltipText] = React.useState(
     'Copy this input example into clipboard',
   );
@@ -97,17 +107,31 @@ function DiagramSidePanel({
     <>
       <Drawer
         sx={{
-          width: DrawerWidth,
+          width: drawerWidth,
           flexShrink: 0,
+          transition: widthTransition,
           '& .MuiDrawer-paper': {
-            width: DrawerWidth,
+            width: drawerWidth,
             display: 'flex',
             flexDirection: 'column',
+            overflowX: 'hidden',
+            transition: widthTransition,
           },
         }}
         variant="persistent"
         anchor="right"
         open={open}
+        data-testid="diagram-side-panel-paper"
+        data-expanded={expanded}
+        style={{ width: drawerWidth, transition: widthTransition }}
+        slotProps={{
+          paper: {
+            style: {
+              width: drawerWidth,
+              transition: widthTransition,
+            },
+          },
+        }}
       >
         <Stack
           direction="row"
@@ -119,8 +143,18 @@ function DiagramSidePanel({
         >
           <Tabs
             value={tab}
-            onChange={(_, value: DiagramSidePanelTab) => onTabChange(value)}
-            sx={{ minHeight: 40 }}
+            onChange={(_, value: DiagramSidePanelTab) => showTab(value)}
+            sx={{
+              minHeight: 40,
+              minWidth: 0,
+              flex: 1,
+              '& .MuiTab-root': {
+                minWidth: 0,
+                minHeight: 40,
+                px: 1,
+                fontSize: '0.75rem',
+              },
+            }}
           >
             <Tab
               value="properties"
@@ -134,9 +168,15 @@ function DiagramSidePanel({
               icon={<MaterialSymbol symbol="play_arrow" />}
               iconPosition="start"
             />
+            <Tab
+              value="environments"
+              label="Environments"
+              icon={<MaterialSymbol symbol="code" />}
+              iconPosition="start"
+            />
           </Tabs>
           <Tooltip title="Hide this panel">
-            <IconButton onClick={onClose} sx={{ ml: 'auto' }}>
+            <IconButton onClick={close} sx={{ ml: 'auto', flexShrink: 0 }}>
               <MaterialSymbol symbol="close" />
             </IconButton>
           </Tooltip>
@@ -176,7 +216,6 @@ function DiagramSidePanel({
               fullWidth
               multiline
               rows={10}
-              maxRows={10}
               variant="outlined"
               value={diagramProperties?.description ?? ''}
               slotProps={{
@@ -299,7 +338,7 @@ function DiagramSidePanel({
                                         onRunRequestJsonChange(
                                           getInputExampleRequestJson(input),
                                         );
-                                        onTabChange('run');
+                                        showTab('run');
                                       }}
                                     >
                                       <MaterialSymbol
@@ -329,6 +368,16 @@ function DiagramSidePanel({
               </List>
             </Paper>
           </Stack>
+        </Box>
+        <Box
+          sx={{
+            display: tab === 'environments' ? 'flex' : 'none',
+            flexDirection: 'column',
+            flex: 1,
+            minHeight: 0,
+          }}
+        >
+          <ScriptEnvironmentWorkspace scriptNodeBinding={scriptNodeBinding} />
         </Box>
       </Drawer>
       <Dialog

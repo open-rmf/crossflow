@@ -38,6 +38,7 @@ export interface CompatibleAddOperationProps {
     sourceHandleType: 'source' | 'target';
   };
   onAdd?: (selection: AddOperationSelection) => void;
+  onContentChange?: () => void;
 }
 
 export function CompatibleAddOperation({
@@ -45,6 +46,7 @@ export function CompatibleAddOperation({
   newNodePosition,
   sourceConnection,
   onAdd,
+  onContentChange,
 }: CompatibleAddOperationProps) {
   const registry = useRegistry();
   const nodeManager = useNodeManager();
@@ -181,6 +183,12 @@ export function CompatibleAddOperation({
     sourceConnection.sourceHandleType === 'target'
       ? 'Compatible previous operations'
       : 'Compatible next operations';
+
+  React.useEffect(() => {
+    if (operations) {
+      onContentChange?.();
+    }
+  }, [onContentChange, operations]);
 
   if (!operations) {
     return (
