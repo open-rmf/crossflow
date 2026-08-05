@@ -9,21 +9,28 @@ import {
 } from '@mui/material';
 import { useMemo, useState } from 'react';
 import { useDiagramProperties } from '../diagram-properties-provider';
+import { useDiagramSidePanel } from '../diagram-side-panel-controller';
 import { MaterialSymbol } from '../nodes';
 import { useTransientEditorDrafts } from '../transient-editor-drafts';
 import BaseEditOperationForm, {
   type BaseEditOperationFormProps,
 } from './base-edit-operation-form';
-import { ScriptEnvironmentManagerDialog } from './script-environment-manager-dialog';
+import { useScriptEnvironmentNavigation } from './use-script-environment-navigation';
 
 export type ScriptFormProps = BaseEditOperationFormProps<'script'>;
+
+const CREATE_ENVIRONMENT_VALUE = '__create_script_environment__';
 
 function ScriptForm(props: ScriptFormProps) {
   const [diagramProperties] = useDiagramProperties();
   const { drafts, setOperationConfigDraft } = useTransientEditorDrafts();
   const environments = diagramProperties.script_environments || {};
-
-  const [openManager, setOpenManager] = useState(false);
+  const openScriptEnvironment = useScriptEnvironmentNavigation();
+  const {
+    state: { open: panelOpen, tab: panelTab },
+    close: closePanel,
+    startEnvironmentCreate,
+  } = useDiagramSidePanel();
 
   // Track raw string of node config to support JSON editing
   const configDraftKey = `script:${props.node.id}:config`;
@@ -61,6 +68,7 @@ function ScriptForm(props: ScriptFormProps) {
       id: props.node.id,
       item: updatedNode,
     });
+    openScriptEnvironment(envName, false);
   };
 
   // Real-time parse python entrypoint functions from selected environment
@@ -112,15 +120,26 @@ function ScriptForm(props: ScriptFormProps) {
         }}
       />
 
-      <Stack direction="row" spacing={1} alignItems="center" minWidth={300}>
+      <Stack direction="row" spacing={1} alignItems="center" minWidth={0}>
         <TextField
           select
           label="Script Environment"
           value={props.node.data.op.environment || ''}
-          onChange={(e) => handleEnvChange(e.target.value)}
+          onChange={(e) => {
+            if (e.target.value === CREATE_ENVIRONMENT_VALUE) {
+              startEnvironmentCreate();
+              return;
+            }
+            handleEnvChange(e.target.value);
+          }}
           fullWidth
         >
-          {Object.keys(environments).length === 0 ? (
+          {selectedEnvName && !selectedEnv && (
+            <MenuItem disabled value={selectedEnvName}>
+              {selectedEnvName} (missing)
+            </MenuItem>
+          )}
+          {Object.keys(environments).length === 0 && !selectedEnvName ? (
             <MenuItem disabled value="">
               <Typography variant="caption" color="text.disabled">
                 No environments available, please create one
@@ -133,10 +152,28 @@ function ScriptForm(props: ScriptFormProps) {
               </MenuItem>
             ))
           )}
+          <MenuItem value={CREATE_ENVIRONMENT_VALUE}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <MaterialSymbol symbol="add" />
+              <span>Create new environment</span>
+            </Stack>
+          </MenuItem>
         </TextField>
 
-        <Tooltip title="Manage or add script environment">
-          <IconButton onClick={() => setOpenManager(true)}>
+        <Tooltip title="Toggle script environment panel">
+          <IconButton
+            aria-label="Toggle script environment panel"
+            onClick={() => {
+              if (panelOpen && panelTab === 'environments') {
+                closePanel();
+                return;
+              }
+              openScriptEnvironment(
+                props.node.data.op.environment || undefined,
+                false,
+              );
+            }}
+          >
             <MaterialSymbol symbol="settings" />
           </IconButton>
         </Tooltip>
@@ -203,12 +240,6 @@ function ScriptForm(props: ScriptFormProps) {
             sx: { fontFamily: 'monospace', whiteSpace: 'nowrap' },
           },
         }}
-      />
-
-      <ScriptEnvironmentManagerDialog
-        open={openManager}
-        onClose={() => setOpenManager(false)}
-        initialEnvName={props.node.data.op.environment}
       />
     </BaseEditOperationForm>
   );

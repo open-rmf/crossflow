@@ -8,6 +8,7 @@ import { CssBaseline, createTheme, ThemeProvider } from '@mui/material';
 import './app.css';
 import DiagramEditor from './diagram-editor';
 import { DiagramPropertiesProvider } from './diagram-properties-provider';
+import { DiagramSidePanelProvider } from './diagram-side-panel-controller';
 import { RegistryProvider } from './registry-provider';
 import { TemplatesProvider } from './templates-provider';
 import { TransientEditorDraftProvider } from './transient-editor-drafts';
@@ -28,7 +29,9 @@ const App = () => {
           <TransientEditorDraftProvider>
             <TemplatesProvider>
               <DiagramPropertiesProvider>
-                <DiagramEditor />
+                <DiagramSidePanelProvider>
+                  <DiagramEditor />
+                </DiagramSidePanelProvider>
               </DiagramPropertiesProvider>
             </TemplatesProvider>
           </TransientEditorDraftProvider>
