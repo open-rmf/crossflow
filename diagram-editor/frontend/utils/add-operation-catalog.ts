@@ -1,5 +1,6 @@
 import type { NodeAddChange, XYPosition } from '@xyflow/react';
 import { v4 as uuidv4 } from 'uuid';
+import { getSchemaConfigDefaults } from '../forms/schema-config-form';
 import type { NodeManager } from '../node-manager';
 import {
   createOperationNode,
@@ -497,24 +498,32 @@ export function getRegistryNodeBuilderCandidates(
 ): AddOperationCandidate[] {
   return Object.entries(registry.nodes)
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([builder, metadata]) => ({
-      key: `node:${builder}`,
-      label: metadata.default_display_text || builder,
-      createPreviewNode: (namespace, parentId) =>
-        createOperationNode(
-          namespace,
-          parentId,
-          { x: 0, y: 0 },
-          { type: 'node', builder, next: { builtin: 'dispose' } },
-          `preview_node_${builder}`,
-        ),
-      createChanges: ({ namespace, parentId, newNodePosition }) =>
-        createNodeChange(namespace, parentId, newNodePosition, {
-          type: 'node',
-          builder,
-          next: { builtin: 'dispose' },
-        }),
-    }));
+    .map(([builder, metadata]) => {
+      return {
+        key: `node:${builder}`,
+        label: metadata.default_display_text || builder,
+        createPreviewNode: (namespace, parentId) =>
+          createOperationNode(
+            namespace,
+            parentId,
+            { x: 0, y: 0 },
+            { type: 'node', builder, next: { builtin: 'dispose' } },
+            `preview_node_${builder}`,
+          ),
+        createChanges: ({ namespace, parentId, newNodePosition }) => {
+          const config = getSchemaConfigDefaults(
+            metadata.config_schema,
+            registry.schemas,
+          );
+          return createNodeChange(namespace, parentId, newNodePosition, {
+            type: 'node',
+            builder,
+            ...(config && { config }),
+            next: { builtin: 'dispose' },
+          });
+        },
+      };
+    });
 }
 
 export function getAddOperationCandidates(
