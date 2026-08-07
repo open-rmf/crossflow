@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
 import { createOperationNode } from '../nodes';
 import { render } from '../nodes/test-utils';
 import type { DiagramElementMetadata, NodeMetadata } from '../types/api';
@@ -88,10 +89,7 @@ test('renders typed controls for a supported object schema and loads existing co
     registry,
   );
 
-  expect(
-    await screen.findByRole('button', { name: 'Edit raw JSON' }),
-  ).toBeInTheDocument();
-  expect(screen.getByRole('textbox', { name: /title/ })).toHaveValue(
+  expect(await screen.findByRole('textbox', { name: /title/ })).toHaveValue(
     'Existing title',
   );
   expect(screen.getByText('Shown to operators.')).toBeInTheDocument();
@@ -116,9 +114,6 @@ test('renders and updates a numeric control when the entire node config is a num
 
   const config = await screen.findByRole('spinbutton', { name: /Config/ });
   expect(config).toHaveValue(3);
-  expect(
-    screen.getByRole('button', { name: 'Edit raw JSON' }),
-  ).toBeInTheDocument();
 
   fireEvent.change(config, { target: { value: '4.5' } });
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toBe(4.5);
@@ -270,7 +265,7 @@ test('control edits write the same JSON-compatible config object', async () => {
   };
 
   render(<NodeForm node={createNode(config)} onChange={onChange} />, registry);
-  await screen.findByRole('button', { name: 'Edit raw JSON' });
+  await screen.findByRole('textbox', { name: /title/ });
 
   fireEvent.change(screen.getByRole('textbox', { name: /title/ }), {
     target: { value: 'Updated' },
@@ -322,27 +317,112 @@ test('invalid numeric input is not committed to op.config', async () => {
 });
 
 test.each([
-  ['a boolean schema', true, {}],
-  ['an unresolved ref', { $ref: '#/$defs/Missing' }, {}],
-  [
-    'an unsupported construct',
-    {
-      type: 'object',
-      properties: { values: { type: 'array', items: { type: 'string' } } },
-    },
-    {},
-  ],
-  [
-    'a recursive schema',
-    { $ref: '#/$defs/Recursive' },
-    {
-      Recursive: {
+  ['a string', { type: 'string' }, 'text', 'textbox'],
+  ['a number', { type: 'number' }, 4.5, 'spinbutton'],
+])(
+  'edits a whole config that is just %s with a single control',
+  async (_name, schema, value, role) => {
+    render(<NodeForm node={createNode(value)} />, createRegistry(schema));
+    expect(await screen.findByRole(role, { name: 'Config' })).toHaveValue(
+      value,
+    );
+  },
+);
+
+test('nests a group per level, each editing against its own schema', async () => {
+  const onChange = jest.fn();
+  const registry = createRegistry({
+    type: 'object',
+    properties: {
+      name: { type: 'string' },
+      transport: {
         type: 'object',
-        properties: { child: { $ref: '#/$defs/Recursive' } },
+        properties: {
+          endpoint: { type: 'string' },
+          retry: {
+            type: 'object',
+            properties: { attempts: { type: 'integer' } },
+            required: ['attempts'],
+          },
+        },
+        required: ['endpoint', 'retry'],
       },
     },
-  ],
-])('uses the raw JSON fallback for %s', async (_name, schema, schemas) => {
+    required: ['name', 'transport'],
+  });
+
+  render(
+    <NodeForm
+      node={createNode({
+        name: 'top',
+        transport: { endpoint: 'tcp://host', retry: { attempts: 2 } },
+      })}
+      onChange={onChange}
+    />,
+    registry,
+  );
+
+  expect(await screen.findByRole('textbox', { name: /name/ })).toHaveValue(
+    'top',
+  );
+  expect(screen.getByRole('textbox', { name: /endpoint/ })).toHaveValue(
+    'tcp://host',
+  );
+  const attempts = screen.getByRole('spinbutton', { name: /attempts/ });
+  expect(attempts).toHaveValue(2);
+
+  // An edit three levels down rewrites only its own leaf.
+  fireEvent.change(attempts, { target: { value: '5' } });
+  expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
+    name: 'top',
+    transport: { endpoint: 'tcp://host', retry: { attempts: 5 } },
+  });
+});
+
+test('switching on an optional object seeds its required fields', async () => {
+  const onChange = jest.fn();
+  const registry = createRegistry({
+    type: 'object',
+    properties: {
+      opts: {
+        type: 'object',
+        properties: {
+          inner: { type: 'string' },
+          extra: { type: 'integer', default: 7 },
+        },
+        required: ['inner'],
+      },
+    },
+  });
+
+  render(<NodeForm node={createNode({})} onChange={onChange} />, registry);
+
+  // Until the object is switched on, nothing inside it is editable.
+  expect(await screen.findByRole('textbox', { name: /inner/ })).toBeDisabled();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Set opts' }));
+
+  expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
+    opts: { inner: '', extra: 7 },
+  });
+});
+
+test('marks a required property that the config is missing', async () => {
+  const registry = createRegistry({
+    type: 'object',
+    properties: { title: { type: 'string' }, count: { type: 'integer' } },
+    required: ['title', 'count'],
+  });
+
+  render(<NodeForm node={createNode({})} />, registry);
+
+  expect(await screen.findByRole('textbox', { name: /title/ })).toBeInvalid();
+  expect(screen.getByRole('spinbutton', { name: /count/ })).toBeInvalid();
+});
+
+test.each([
+  ['no schema constrains it', true, {}],
+  ['the schema cannot be resolved', { $ref: '#/$defs/Missing' }, {}],
+])('edits the whole config as JSON when %s', async (_name, schema, schemas) => {
   render(
     <NodeForm node={createNode({ preserved: true })} />,
     createRegistry(schema, schemas),
@@ -350,12 +430,9 @@ test.each([
   expect(await screen.findByLabelText('Config')).toHaveValue(
     JSON.stringify({ preserved: true }),
   );
-  expect(
-    screen.queryByRole('button', { name: 'Edit raw JSON' }),
-  ).not.toBeInTheDocument();
 });
 
-test('uses the raw JSON fallback when the builder is not registered', async () => {
+test('edits the whole config as JSON when the builder is not registered', async () => {
   const registry = createRegistry(supportedSchema);
   registry.nodes = {};
   render(<NodeForm node={createNode({ preserved: true })} />, registry);
@@ -364,28 +441,92 @@ test('uses the raw JSON fallback when the builder is not registered', async () =
   );
 });
 
-test('allows direct raw JSON editing for a supported schema', async () => {
+test('falls back to JSON per property, keeping the rest of the form typed', async () => {
   const onChange = jest.fn();
+  const registry = createRegistry({
+    type: 'object',
+    properties: {
+      title: { type: 'string' },
+      values: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['title', 'values'],
+  });
+
   render(
-    <NodeForm node={createNode({ title: 'Generated' })} onChange={onChange} />,
-    createRegistry({
-      type: 'object',
-      properties: { title: { type: 'string' } },
-      required: ['title'],
-    }),
+    <NodeForm
+      node={createNode({ title: 'kept', values: ['a'] })}
+      onChange={onChange}
+    />,
+    registry,
   );
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Edit raw JSON' }));
-  const rawConfig = screen.getByLabelText('Config');
-  expect(rawConfig).toHaveValue(JSON.stringify({ title: 'Generated' }));
-  fireEvent.change(rawConfig, {
-    target: { value: '{"title":"Raw","extra":5}' },
-  });
+  expect(await screen.findByRole('textbox', { name: /title/ })).toHaveValue(
+    'kept',
+  );
+  const values = screen.getByRole('textbox', { name: /values/ });
+  expect(values).toHaveValue('["a"]');
+
+  fireEvent.change(values, { target: { value: '["a","b"]' } });
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
-    title: 'Raw',
-    extra: 5,
+    title: 'kept',
+    values: ['a', 'b'],
   });
-  expect(
-    screen.getByRole('button', { name: 'Use generated form' }),
-  ).toBeInTheDocument();
+});
+
+test('falls back to JSON at the point a schema recurses', async () => {
+  const registry = createRegistry(
+    { $ref: '#/$defs/Recursive' },
+    {
+      Recursive: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          child: { $ref: '#/$defs/Recursive' },
+        },
+        required: ['name', 'child'],
+      },
+    },
+  );
+
+  render(
+    <NodeForm node={createNode({ name: 'root', child: { name: 'leaf' } })} />,
+    registry,
+  );
+
+  expect(await screen.findByRole('textbox', { name: /name/ })).toHaveValue(
+    'root',
+  );
+  expect(screen.getByRole('textbox', { name: /child/ })).toHaveValue(
+    JSON.stringify({ name: 'leaf' }),
+  );
+});
+
+function StatefulConfigForm({ schema }: { schema: unknown }) {
+  const [value, setValue] = useState<unknown>(undefined);
+  return (
+    <SchemaConfigForm
+      schema={schema}
+      definitions={{}}
+      value={value}
+      onChange={setValue}
+    />
+  );
+}
+
+test('a JSON field keeps the text as typed instead of re-encoding it', () => {
+  render(<StatefulConfigForm schema={true} />);
+
+  const config = screen.getByLabelText('Config');
+  fireEvent.change(config, { target: { value: '{"a": 1}' } });
+
+  expect(config).toHaveValue('{"a": 1}');
+});
+
+test('a numeric field keeps in-progress input such as a trailing zero', () => {
+  render(<StatefulConfigForm schema={{ type: 'number' }} />);
+
+  const config = screen.getByRole('spinbutton', { name: 'Config' });
+  fireEvent.change(config, { target: { value: '1.50' } });
+
+  expect((config as HTMLInputElement).value).toBe('1.50');
 });

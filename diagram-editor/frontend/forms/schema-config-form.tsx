@@ -8,6 +8,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import equal from 'fast-deep-equal';
 import { useEffect, useMemo, useState } from 'react';
 
 export type JsonConfigObject = Record<string, unknown>;
@@ -15,11 +16,17 @@ export type JsonConfigObject = Record<string, unknown>;
 type JsonSchema = Record<string, unknown>;
 type EnumValue = string | number;
 
+/**
+ * A schema paired with the control that edits it. `raw` is the bottom case:
+ * whatever this form cannot express as a typed control is edited as JSON, so an
+ * unsupported corner of a schema never limits what the user can enter, and a
+ * node without a schema is just the case where the whole config is raw.
+ */
 type ResolvedSchema = {
   description?: string;
   defaultValue?: unknown;
-  hasDefault: boolean;
 } & (
+  | { type: 'raw' }
   | { type: 'string'; enumValues?: EnumValue[] }
   | {
       type: 'number' | 'integer';
@@ -36,6 +43,10 @@ type ResolvedSchema = {
 );
 
 type ResolvedObjectSchema = Extract<ResolvedSchema, { type: 'object' }>;
+type ResolvedNumberSchema = Extract<
+  ResolvedSchema,
+  { type: 'number' | 'integer' }
+>;
 
 export interface SchemaConfigFormProps {
   schema: unknown;
@@ -50,6 +61,8 @@ function schemaObject(value: unknown): JsonSchema | null {
     : null;
 }
 
+// `Object.hasOwn` needs a newer lib target than this package compiles against,
+// and biome rewrites a `hasOwnProperty` call into it.
 function hasOwn(object: object, key: PropertyKey): boolean {
   return Object.getOwnPropertyDescriptor(object, key) !== undefined;
 }
@@ -65,27 +78,27 @@ function resolveRef(
   return name ? schemaObject(definitions[name]) : null;
 }
 
+function isNullSchema(option: unknown): boolean {
+  const type = schemaObject(option)?.type;
+  return Array.isArray(type) ? type.includes('null') : type === 'null';
+}
+
 function schemaType(schema: JsonSchema): string | null {
   if (typeof schema.type === 'string') {
     return schema.type;
   }
   if (Array.isArray(schema.type)) {
     const nonNullTypes = schema.type.filter((type) => type !== 'null');
-    if (
-      schema.type.includes('null') &&
+    return schema.type.includes('null') &&
       nonNullTypes.length === 1 &&
       typeof nonNullTypes[0] === 'string'
-    ) {
-      return nonNullTypes[0];
-    }
-    return null;
+      ? nonNullTypes[0]
+      : null;
   }
-  if (
-    Array.isArray(schema.enum) &&
-    schema.enum.length > 0 &&
-    schema.enum.every((value) => typeof value === 'string')
-  ) {
-    return 'string';
+  if (Array.isArray(schema.enum) && schema.enum.length > 0) {
+    return schema.enum.every((value) => typeof value === 'string')
+      ? 'string'
+      : null;
   }
   return null;
 }
@@ -103,19 +116,21 @@ const unsupportedKeywords = [
   'patternProperties',
   'dependentSchemas',
   'dependencies',
-] as const;
+];
 
-function resolveSchema(
-  rawSchema: unknown,
+/**
+ * Resolves the parts of a schema this form has a typed control for, returning
+ * `null` for anything it cannot type. Callers go through {@link resolveSchema},
+ * which turns that `null` into a raw JSON field.
+ */
+function resolveTypedSchema(
+  schema: JsonSchema,
   definitions: Record<string, unknown>,
-  resolvingRefs = new Set<string>(),
+  resolvingRefs: Set<string>,
 ): ResolvedSchema | null {
-  const schema = schemaObject(rawSchema);
-  if (!schema) {
-    return null;
-  }
-
   if (typeof schema.$ref === 'string') {
+    // A cycle resolves to a raw field at the point it closes, leaving the rest
+    // of the schema typed.
     if (resolvingRefs.has(schema.$ref)) {
       return null;
     }
@@ -124,30 +139,22 @@ function resolveSchema(
       return null;
     }
     const { $ref: _ref, ...overrides } = schema;
-    return resolveSchema(
+    return resolveTypedSchema(
       { ...referenced, ...overrides },
       definitions,
       new Set(resolvingRefs).add(schema.$ref),
     );
   }
 
+  // `Option<T>` serializes as a two-branch `anyOf`; unwrap it to edit the `T`.
   if (Array.isArray(schema.anyOf)) {
-    const nonNull = schema.anyOf.filter((option) => {
-      const object = schemaObject(option);
-      const types = Array.isArray(object?.type) ? object.type : [object?.type];
-      return !types.includes('null');
-    });
-    const hasNull = schema.anyOf.some((option) => {
-      const object = schemaObject(option);
-      const types = Array.isArray(object?.type) ? object.type : [object?.type];
-      return types.includes('null');
-    });
+    const nonNull = schema.anyOf.filter((option) => !isNullSchema(option));
     const unwrapped = schemaObject(nonNull[0]);
-    if (!hasNull || nonNull.length !== 1 || !unwrapped) {
+    if (nonNull.length !== schema.anyOf.length - 1 || !unwrapped) {
       return null;
     }
     const { anyOf: _anyOf, ...overrides } = schema;
-    return resolveSchema(
+    return resolveTypedSchema(
       { ...unwrapped, ...overrides },
       definitions,
       resolvingRefs,
@@ -159,14 +166,15 @@ function resolveSchema(
   }
 
   const type = schemaType(schema);
-  const description =
-    typeof schema.description === 'string' ? schema.description : undefined;
-  const hasDefault = hasOwn(schema, 'default');
   const base = {
-    description,
-    hasDefault,
-    ...(hasDefault && { defaultValue: schema.default }),
+    description:
+      typeof schema.description === 'string' ? schema.description : undefined,
+    defaultValue: schema.default,
   };
+
+  if (type === 'boolean') {
+    return schema.enum === undefined ? { ...base, type } : null;
+  }
 
   if (type === 'string' || type === 'number' || type === 'integer') {
     let enumValues: EnumValue[] | undefined;
@@ -194,14 +202,8 @@ function resolveSchema(
     };
   }
 
-  if (type === 'boolean') {
-    if (schema.enum !== undefined) {
-      return null;
-    }
-    return { ...base, type };
-  }
-
   if (type === 'object') {
+    // A map type has no fixed set of fields to lay out, so edit it as raw JSON.
     if (
       schema.additionalProperties !== undefined &&
       schema.additionalProperties !== false
@@ -209,27 +211,21 @@ function resolveSchema(
       return null;
     }
     const rawProperties = schemaObject(schema.properties ?? {});
-    if (!rawProperties) {
-      return null;
-    }
-    const properties: Record<string, ResolvedSchema> = {};
-    for (const [name, propertySchema] of Object.entries(rawProperties)) {
-      const property = resolveSchema(
-        propertySchema,
-        definitions,
-        resolvingRefs,
-      );
-      if (!property) {
-        return null;
-      }
-      properties[name] = property;
-    }
     const requiredValues = schema.required ?? [];
     if (
+      !rawProperties ||
       !Array.isArray(requiredValues) ||
       !requiredValues.every((value) => typeof value === 'string')
     ) {
       return null;
+    }
+    const properties: Record<string, ResolvedSchema> = {};
+    for (const [name, propertySchema] of Object.entries(rawProperties)) {
+      properties[name] = resolveSchema(
+        propertySchema,
+        definitions,
+        resolvingRefs,
+      );
     }
     return {
       ...base,
@@ -242,20 +238,31 @@ function resolveSchema(
   return null;
 }
 
-export function resolveSupportedConfigSchema(
-  schema: unknown,
+function resolveSchema(
+  rawSchema: unknown,
   definitions: Record<string, unknown>,
-): ResolvedSchema | null {
-  return resolveSchema(schema, definitions);
-}
-
-function cloneDefault(value: unknown): unknown {
-  return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+  resolvingRefs = new Set<string>(),
+): ResolvedSchema {
+  const schema = schemaObject(rawSchema);
+  const typed =
+    schema && resolveTypedSchema(schema, definitions, resolvingRefs);
+  return (
+    typed ?? {
+      type: 'raw',
+      description:
+        typeof schema?.description === 'string'
+          ? schema.description
+          : undefined,
+      defaultValue: schema?.default,
+    }
+  );
 }
 
 function schemaDefault(schema: ResolvedSchema): unknown {
-  if (schema.hasDefault) {
-    return cloneDefault(schema.defaultValue);
+  if (schema.defaultValue !== undefined) {
+    // Config values are JSON, so a round trip is enough to detach the default
+    // from the registry.
+    return JSON.parse(JSON.stringify(schema.defaultValue));
   }
   if (schema.type !== 'object') {
     return undefined;
@@ -274,29 +281,77 @@ export function getSchemaConfigDefaults(
   schema: unknown,
   definitions: Record<string, unknown>,
 ): unknown {
-  const resolvedSchema = resolveSupportedConfigSchema(schema, definitions);
-  if (!resolvedSchema) {
-    return undefined;
-  }
-  return schemaDefault(resolvedSchema);
+  return schemaDefault(resolveSchema(schema, definitions));
 }
 
+/** The value written when an optional property is switched on. */
 function initialValue(schema: ResolvedSchema): unknown {
-  const defaultValue = schemaDefault(schema);
-  if (defaultValue !== undefined) {
-    return defaultValue;
+  if (schema.defaultValue !== undefined) {
+    return JSON.parse(JSON.stringify(schema.defaultValue));
   }
   switch (schema.type) {
+    case 'raw':
+      return null;
     case 'string':
       return schema.enumValues?.[0] ?? '';
     case 'number':
     case 'integer':
-      return 0;
+      return schema.enumValues?.[0] ?? 0;
     case 'boolean':
       return false;
-    case 'object':
-      return {};
+    case 'object': {
+      // Seed required children too, otherwise switching on an object writes a
+      // `{}` the schema rejects.
+      const value: JsonConfigObject = {};
+      for (const [name, property] of Object.entries(schema.properties)) {
+        if (schema.required.has(name)) {
+          value[name] = initialValue(property);
+        } else {
+          const propertyDefault = schemaDefault(property);
+          if (propertyDefault !== undefined) {
+            value[name] = propertyDefault;
+          }
+        }
+      }
+      return value;
+    }
   }
+}
+
+function formatJson(value: unknown): string {
+  return value === undefined ? '' : JSON.stringify(value);
+}
+
+function parseJson(draft: string): { value: unknown } | null {
+  if (draft.trim() === '') {
+    return { value: undefined };
+  }
+  try {
+    return { value: JSON.parse(draft) };
+  } catch {
+    return null;
+  }
+}
+
+function formatNumber(value: unknown): string {
+  return typeof value === 'number' ? String(value) : '';
+}
+
+function parseNumber(
+  draft: string,
+  type: ResolvedNumberSchema['type'],
+): number | undefined {
+  if (draft.trim() === '') {
+    return undefined;
+  }
+  const parsed = Number(draft);
+  if (
+    !Number.isFinite(parsed) ||
+    (type === 'integer' && !Number.isInteger(parsed))
+  ) {
+    return undefined;
+  }
+  return parsed;
 }
 
 interface FieldProps {
@@ -304,8 +359,55 @@ interface FieldProps {
   schema: ResolvedSchema;
   value: unknown;
   required: boolean;
+  /** Required by the schema, but absent from the config. */
+  missing: boolean;
   disabled: boolean;
   onChange: (value: unknown) => void;
+}
+
+function RawField({
+  label,
+  schema,
+  value,
+  required,
+  missing,
+  disabled,
+  onChange,
+}: FieldProps) {
+  const [draft, setDraft] = useState(() => formatJson(value));
+  // Only adopt an incoming value that the box does not already say. Re-encoding
+  // on every keystroke would strip the user's whitespace and move the cursor.
+  useEffect(() => {
+    setDraft((current) => {
+      const parsed = parseJson(current);
+      return parsed && equal(parsed.value, value) ? current : formatJson(value);
+    });
+  }, [value]);
+
+  return (
+    <TextField
+      multiline
+      rows={4}
+      label={label}
+      required={required}
+      disabled={disabled}
+      value={draft}
+      error={missing || parseJson(draft) === null}
+      helperText={schema.description}
+      onChange={(event) => {
+        setDraft(event.target.value);
+        const parsed = parseJson(event.target.value);
+        if (parsed) {
+          onChange(parsed.value);
+        }
+      }}
+      slotProps={{
+        htmlInput: {
+          sx: { fontFamily: 'monospace', whiteSpace: 'nowrap' },
+        },
+      }}
+    />
+  );
 }
 
 function NumberField({
@@ -313,19 +415,20 @@ function NumberField({
   schema,
   value,
   required,
+  missing,
   disabled,
   onChange,
-}: FieldProps) {
-  const [draft, setDraft] = useState(
-    typeof value === 'number' ? String(value) : '',
-  );
+}: FieldProps & { schema: ResolvedNumberSchema }) {
+  const [draft, setDraft] = useState(() => formatNumber(value));
+  // As in RawField: keep a draft that already means `value`, so a trailing `.`
+  // or `0` survives the round trip through the config.
   useEffect(() => {
-    setDraft(typeof value === 'number' ? String(value) : '');
-  }, [value]);
-
-  if (schema.type !== 'number' && schema.type !== 'integer') {
-    return null;
-  }
+    setDraft((current) =>
+      parseNumber(current, schema.type) === value
+        ? current
+        : formatNumber(value),
+    );
+  }, [value, schema.type]);
 
   return (
     <TextField
@@ -334,6 +437,9 @@ function NumberField({
       required={required}
       disabled={disabled}
       value={draft}
+      // Anything the draft says that the config does not hold: unparseable
+      // input, or a field cleared without a value to replace it.
+      error={missing || parseNumber(draft, schema.type) !== value}
       helperText={schema.description}
       slotProps={{
         htmlInput: {
@@ -343,31 +449,30 @@ function NumberField({
         },
       }}
       onChange={(event) => {
-        const nextDraft = event.target.value;
-        setDraft(nextDraft);
-        if (nextDraft.trim() === '') {
-          return;
+        setDraft(event.target.value);
+        const parsed = parseNumber(event.target.value, schema.type);
+        if (parsed !== undefined) {
+          onChange(parsed);
         }
-        const parsed = Number(nextDraft);
-        if (
-          !Number.isFinite(parsed) ||
-          (schema.type === 'integer' && !Number.isInteger(parsed))
-        ) {
-          return;
-        }
-        onChange(parsed);
       }}
     />
   );
 }
 
 function SchemaField(props: FieldProps) {
-  const { label, schema, value, required, disabled, onChange } = props;
+  const { label, schema, value, required, missing, disabled, onChange } = props;
+
+  if (schema.type === 'raw') {
+    return <RawField {...props} />;
+  }
 
   if (schema.type === 'object') {
-    const objectValue = schemaObject(value) ?? {};
     return (
-      <Box component="fieldset" disabled={disabled} sx={{ m: 0, p: 2 }}>
+      <Box
+        component="fieldset"
+        disabled={disabled}
+        sx={{ m: 0, p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}
+      >
         <Typography component="legend" variant="subtitle2">
           {label}
         </Typography>
@@ -376,7 +481,11 @@ function SchemaField(props: FieldProps) {
             {schema.description}
           </Typography>
         )}
-        <ObjectFields schema={schema} value={objectValue} onChange={onChange} />
+        <ObjectFields
+          schema={schema}
+          value={schemaObject(value) ?? {}}
+          onChange={onChange}
+        />
       </Box>
     );
   }
@@ -402,6 +511,7 @@ function SchemaField(props: FieldProps) {
   }
 
   if (schema.enumValues) {
+    // Selected by index so that numeric and string options round trip alike.
     const selectedIndex = schema.enumValues.findIndex(
       (option) => option === value,
     );
@@ -412,6 +522,7 @@ function SchemaField(props: FieldProps) {
         required={required}
         disabled={disabled}
         value={selectedIndex < 0 ? '' : String(selectedIndex)}
+        error={missing}
         helperText={schema.description}
         onChange={(event) => {
           const selected = schema.enumValues?.[Number(event.target.value)];
@@ -436,13 +547,14 @@ function SchemaField(props: FieldProps) {
         required={required}
         disabled={disabled}
         value={typeof value === 'string' ? value : ''}
+        error={missing}
         helperText={schema.description}
         onChange={(event) => onChange(event.target.value)}
       />
     );
   }
 
-  return <NumberField {...props} />;
+  return <NumberField {...props} schema={schema} />;
 }
 
 interface ObjectFieldsProps {
@@ -458,7 +570,13 @@ function ObjectFields({ schema, value, onChange }: ObjectFieldsProps) {
         const required = schema.required.has(name);
         const present = hasOwn(value, name);
         const setProperty = (propertyValue: unknown) => {
-          onChange({ ...value, [name]: propertyValue });
+          const nextValue = { ...value };
+          if (propertyValue === undefined) {
+            delete nextValue[name];
+          } else {
+            nextValue[name] = propertyValue;
+          }
+          onChange(nextValue);
         };
         return (
           <Stack key={name} spacing={0.5}>
@@ -467,15 +585,13 @@ function ObjectFields({ schema, value, onChange }: ObjectFieldsProps) {
                 control={
                   <Checkbox
                     checked={present}
-                    onChange={(event) => {
-                      if (event.target.checked) {
-                        setProperty(initialValue(propertySchema));
-                      } else {
-                        const nextValue = { ...value };
-                        delete nextValue[name];
-                        onChange(nextValue);
-                      }
-                    }}
+                    onChange={(event) =>
+                      setProperty(
+                        event.target.checked
+                          ? initialValue(propertySchema)
+                          : undefined,
+                      )
+                    }
                   />
                 }
                 label={`Set ${name}`}
@@ -486,6 +602,7 @@ function ObjectFields({ schema, value, onChange }: ObjectFieldsProps) {
               schema={propertySchema}
               value={value[name]}
               required={required}
+              missing={required && !present}
               disabled={!required && !present}
               onChange={setProperty}
             />
@@ -503,31 +620,30 @@ export default function SchemaConfigForm({
   onChange,
 }: SchemaConfigFormProps) {
   const resolvedSchema = useMemo(
-    () => resolveSupportedConfigSchema(schema, definitions),
+    () => resolveSchema(schema, definitions),
     [schema, definitions],
   );
 
-  if (!resolvedSchema) {
-    return null;
-  }
-
-  if (resolvedSchema.type !== 'object') {
+  // The top level is the form itself, so its fields go straight into the
+  // surrounding layout rather than into a labelled group.
+  if (resolvedSchema.type === 'object') {
     return (
-      <SchemaField
-        label="Config"
+      <ObjectFields
         schema={resolvedSchema}
-        value={value}
-        required={false}
-        disabled={false}
+        value={schemaObject(value) ?? {}}
         onChange={onChange}
       />
     );
   }
 
   return (
-    <ObjectFields
+    <SchemaField
+      label="Config"
       schema={resolvedSchema}
-      value={schemaObject(value) ?? {}}
+      value={value}
+      required={false}
+      missing={false}
+      disabled={false}
       onChange={onChange}
     />
   );

@@ -1,12 +1,10 @@
 import {
   Autocomplete,
-  Button,
   ListItem,
   Stack,
   TextField,
   Tooltip,
 } from '@mui/material';
-import { useEffect, useMemo, useState } from 'react';
 import { MaterialSymbol } from '../nodes';
 import { useRegistry } from '../registry-provider';
 import BaseEditOperationForm, {
@@ -14,73 +12,16 @@ import BaseEditOperationForm, {
 } from './base-edit-operation-form';
 import SchemaConfigForm, {
   getSchemaConfigDefaults,
-  resolveSupportedConfigSchema,
 } from './schema-config-form';
 
 export type NodeFormProps = BaseEditOperationFormProps<'node'>;
 
-interface RawConfigEditorProps {
-  value: unknown;
-  onChange: (value: unknown) => void;
-}
-
-function RawConfigEditor({ value, onChange }: RawConfigEditorProps) {
-  const [configValue, setConfigValue] = useState(() =>
-    value === undefined ? '' : JSON.stringify(value),
-  );
-  useEffect(() => {
-    setConfigValue(value === undefined ? '' : JSON.stringify(value));
-  }, [value]);
-  const configError = useMemo(() => {
-    if (configValue === '') {
-      return false;
-    }
-    try {
-      JSON.parse(configValue);
-      return false;
-    } catch {
-      return true;
-    }
-  }, [configValue]);
-
-  return (
-    <TextField
-      multiline
-      rows={4}
-      label="Config"
-      value={configValue}
-      onChange={(event) => {
-        setConfigValue(event.target.value);
-        try {
-          onChange(
-            event.target.value === ''
-              ? undefined
-              : JSON.parse(event.target.value),
-          );
-        } catch {}
-      }}
-      error={configError}
-      slotProps={{
-        htmlInput: {
-          sx: { fontFamily: 'monospace', whiteSpace: 'nowrap' },
-        },
-      }}
-    />
-  );
-}
-
 function NodeForm(props: NodeFormProps) {
   const registry = useRegistry();
   const nodes = Object.keys(registry.nodes).sort();
-  const [showRawConfig, setShowRawConfig] = useState(false);
   const configSchema =
     registry.nodes[props.node.data.op.builder]?.config_schema;
-  const supportedSchema = useMemo(
-    () => resolveSupportedConfigSchema(configSchema, registry.schemas),
-    [configSchema, registry.schemas],
-  );
   const existingConfig = props.node.data.op.config;
-  const canUseGeneratedForm = supportedSchema !== null;
 
   const updateConfig = (config: unknown) => {
     const updatedNode = {
@@ -109,15 +50,21 @@ function NodeForm(props: NodeFormProps) {
         label="Display Text"
         value={props.node.data.op.display_text || ''}
         onChange={(ev) => {
-          try {
-            const updatedNode = { ...props.node };
-            updatedNode.data.op.display_text = ev.target.value || undefined;
-            props.onChange?.({
-              type: 'replace',
-              id: props.node.id,
-              item: updatedNode,
-            });
-          } catch {}
+          const updatedNode = {
+            ...props.node,
+            data: {
+              ...props.node.data,
+              op: {
+                ...props.node.data.op,
+                display_text: ev.target.value || undefined,
+              },
+            },
+          };
+          props.onChange?.({
+            type: 'replace',
+            id: props.node.id,
+            item: updatedNode,
+          });
         }}
       />
       <Autocomplete
@@ -175,25 +122,12 @@ function NodeForm(props: NodeFormProps) {
           );
         }}
       />
-      {canUseGeneratedForm && (
-        <Button
-          size="small"
-          sx={{ alignSelf: 'flex-start' }}
-          onClick={() => setShowRawConfig((showRaw) => !showRaw)}
-        >
-          {showRawConfig ? 'Use generated form' : 'Edit raw JSON'}
-        </Button>
-      )}
-      {canUseGeneratedForm && !showRawConfig ? (
-        <SchemaConfigForm
-          schema={configSchema}
-          definitions={registry.schemas}
-          value={existingConfig}
-          onChange={updateConfig}
-        />
-      ) : (
-        <RawConfigEditor value={existingConfig} onChange={updateConfig} />
-      )}
+      <SchemaConfigForm
+        schema={configSchema}
+        definitions={registry.schemas}
+        value={existingConfig}
+        onChange={updateConfig}
+      />
     </BaseEditOperationForm>
   );
 }
