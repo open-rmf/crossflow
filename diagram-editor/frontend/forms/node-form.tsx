@@ -4,12 +4,14 @@ import {
   Stack,
   TextField,
   Tooltip,
+  Typography,
 } from '@mui/material';
 import { MaterialSymbol } from '../nodes';
 import { useRegistry } from '../registry-provider';
 import BaseEditOperationForm, {
   type BaseEditOperationFormProps,
 } from './base-edit-operation-form';
+import ConfigExamples from './config-examples';
 import SchemaConfigForm, {
   getSchemaConfigDefaults,
 } from './schema-config-form';
@@ -21,6 +23,7 @@ function NodeForm(props: NodeFormProps) {
   const nodes = Object.keys(registry.nodes).sort();
   const op = props.node.data.op;
   const existingConfig = op.config;
+  const builderMetadata = registry.nodes[op.builder];
 
   const replaceOp = (updatedOp: typeof op) => {
     props.onChange?.({
@@ -90,11 +93,22 @@ function NodeForm(props: NodeFormProps) {
           );
         }}
       />
+      {/* The dropdown only shows this while choosing a builder, which is not
+          when it is most needed - descriptions explain what the config does. */}
+      {builderMetadata?.description && (
+        <Typography color="text.secondary" variant="body2">
+          {builderMetadata.description}
+        </Typography>
+      )}
       <SchemaConfigForm
-        schema={registry.nodes[op.builder]?.config_schema}
+        schema={builderMetadata?.config_schema}
         definitions={registry.schemas}
         value={existingConfig}
         onChange={updateConfig}
+      />
+      <ConfigExamples
+        examples={builderMetadata?.config_examples ?? []}
+        onApply={updateConfig}
       />
     </BaseEditOperationForm>
   );

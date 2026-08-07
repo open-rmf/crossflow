@@ -4,6 +4,30 @@ import { compile } from 'json-schema-to-typescript';
 
 const MERGE_FIELDS = ['$ref', 'oneOf', 'allOf', 'anyOf'];
 
+/** Keywords that describe a schema without constraining what it accepts. */
+const ANNOTATION_FIELDS = [
+  'description',
+  'title',
+  'default',
+  'deprecated',
+  'examples',
+  'readOnly',
+  'writeOnly',
+];
+
+/**
+ * A schema carrying nothing but annotations accepts any JSON value, which is
+ * how `serde_json::Value` fields are emitted. json-schema-to-typescript renders
+ * that as `{ [k: string]: unknown }` unless the schema is completely empty, so
+ * a field holding a number or null gets typed as an object. Pin it to `unknown`
+ * instead.
+ */
+function markUnconstrained(schema) {
+  if (Object.keys(schema).every((k) => ANNOTATION_FIELDS.includes(k))) {
+    schema.tsType = 'unknown';
+  }
+}
+
 /**
  * json schema draft-07 (used by json-schema-to-typescript) does not merge certain fields like `$ref` and `oneOf`.
  * Workaround by putting them in a `allOf`.
@@ -77,6 +101,8 @@ async function generate(name, schema, outputPath, preprocessedOutputPath) {
       workingSet.push(...Object.values(schema.anyOf));
     }
 
+    markUnconstrained(schema);
+
     moveIntoAllOf(schema);
 
     // json schema draft-07 (used by json-schema-to-typescript) does not merge $ref, workaround
@@ -113,7 +139,16 @@ async function generate(name, schema, outputPath, preprocessedOutputPath) {
   fs.writeSync(fd, output);
   fs.closeSync(fd);
 
-  writeFileSync(preprocessedOutputPath, JSON.stringify(schema, undefined, 2));
+  // `tsType` directs type generation only, and ajv rejects it as an unknown
+  // keyword in strict mode, so keep it out of the schema used for validation.
+  writeFileSync(
+    preprocessedOutputPath,
+    JSON.stringify(
+      schema,
+      (key, value) => (key === 'tsType' ? undefined : value),
+      2,
+    ),
+  );
 }
 
 const schemaEnv = { ...process.env };

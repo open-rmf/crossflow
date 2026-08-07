@@ -97,11 +97,66 @@ test('renders typed controls for a supported object schema and loads existing co
     1.5,
   );
   expect(screen.getByRole('spinbutton', { name: /attempts/ })).toHaveValue(3);
-  expect(screen.getByRole('checkbox', { name: 'enabled' })).toBeChecked();
+  expect(screen.getByRole('combobox', { name: /enabled/ })).toHaveTextContent(
+    'true',
+  );
   expect(screen.getByRole('combobox', { name: /strategy/ })).toHaveTextContent(
     'safe',
   );
   expect(screen.queryByLabelText('Config')).not.toBeInTheDocument();
+});
+
+test('shows the selected builder description under the builder field', async () => {
+  const registry = createRegistry(supportedSchema);
+  registry.nodes.test_builder.description =
+    'Compares for a less-than relationship.';
+
+  render(<NodeForm node={createNode()} />, registry);
+
+  expect(
+    await screen.findByText('Compares for a less-than relationship.'),
+  ).toBeInTheDocument();
+});
+
+test('offers builder config examples and applies the chosen one', async () => {
+  const onChange = jest.fn();
+  // The shapes the calculator catalog actually ships for `less_than`.
+  const registry = createRegistry({ type: 'object' });
+  registry.nodes.test_builder.config_examples = [
+    { description: 'Less than the next one.', config: null },
+    { description: 'Less than 10.', config: 10 },
+    {
+      description: 'Less than or equal to 10.',
+      config: { compared_to: 10, or_equal: true },
+    },
+  ];
+
+  render(<NodeForm node={createNode()} onChange={onChange} />, registry);
+
+  // Collapsed by default: the descriptions are not reachable yet.
+  const summary = await screen.findByRole('button', { name: /Examples \(3\)/ });
+  expect(screen.queryByText('Less than 10.')).not.toBeInTheDocument();
+
+  fireEvent.click(summary);
+  expect(await screen.findByText('Less than 10.')).toBeInTheDocument();
+  expect(
+    screen.getByText('{"compared_to":10,"or_equal":true}'),
+  ).toBeInTheDocument();
+
+  fireEvent.click(
+    screen.getAllByRole('button', { name: 'Use this config' })[2],
+  );
+  expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
+    compared_to: 10,
+    or_equal: true,
+  });
+});
+
+test('shows no examples section for a builder without any', async () => {
+  render(<NodeForm node={createNode()} />, createRegistry({ type: 'object' }));
+
+  await screen.findByRole('combobox', { name: /Builder/ });
+  expect(screen.queryByText(/Examples/)).not.toBeInTheDocument();
 });
 
 test('renders and updates a numeric control when the entire node config is a number', async () => {
@@ -121,6 +176,98 @@ test('renders and updates a numeric control when the entire node config is a num
   onChange.mockClear();
   fireEvent.change(config, { target: { value: 'not-a-number' } });
   expect(onChange).not.toHaveBeenCalled();
+});
+
+test('an Option config opts out through its own checkbox', async () => {
+  const onChange = jest.fn();
+  // `add` takes an `Option<f64>`, and ships `null` as one of its examples.
+  const registry = createRegistry({
+    anyOf: [{ type: 'number' }, { type: 'null' }],
+  });
+
+  const { rerender } = render(
+    <NodeForm node={createNode(null)} onChange={onChange} />,
+    registry,
+  );
+
+  // Starts opted out: the box is disabled until the config is switched on.
+  const optOut = await screen.findByRole('checkbox', { name: 'Set Config' });
+  expect(optOut).not.toBeChecked();
+  expect(screen.getByRole('spinbutton', { name: /Config/ })).toBeDisabled();
+
+  fireEvent.click(optOut);
+  expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toBe(0);
+
+  rerender(<NodeForm node={createNode(5)} onChange={onChange} />);
+  const config = screen.getByRole('spinbutton', { name: /Config/ });
+  expect(config).toBeEnabled();
+  expect(config).toHaveValue(5);
+
+  // And back again, which is the route to `null` that emptying the box is not.
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Set Config' }));
+  expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toBeNull();
+});
+
+test('an optional Option property gets one checkbox, not two', async () => {
+  // `#[serde(default)] compared_to: Option<f64>` is both optional and nullable.
+  const registry = createRegistry({
+    type: 'object',
+    properties: {
+      compared_to: { anyOf: [{ type: 'number' }, { type: 'null' }] },
+    },
+  });
+
+  render(<NodeForm node={createNode({})} />, registry);
+
+  expect(
+    await screen.findByRole('checkbox', { name: 'Set compared_to' }),
+  ).toBeInTheDocument();
+  expect(screen.getAllByRole('checkbox')).toHaveLength(1);
+});
+
+test('a non-nullable numeric config is not cleared by emptying it', async () => {
+  const onChange = jest.fn();
+  const registry = createRegistry({
+    type: 'object',
+    properties: { count: { type: 'integer' } },
+    required: ['count'],
+  });
+
+  render(
+    <NodeForm node={createNode({ count: 4 })} onChange={onChange} />,
+    registry,
+  );
+  const count = await screen.findByRole('spinbutton', { name: /count/ });
+  onChange.mockClear();
+  fireEvent.change(count, { target: { value: '' } });
+
+  expect(onChange).not.toHaveBeenCalled();
+  // The box and the config disagree, so the field says so.
+  expect(count).toBeInvalid();
+});
+
+test('booleans are edited as a two-option list', async () => {
+  const onChange = jest.fn();
+  const registry = createRegistry({
+    type: 'object',
+    properties: { print: { type: 'boolean' } },
+    required: ['print'],
+  });
+
+  render(
+    <NodeForm node={createNode({ print: true })} onChange={onChange} />,
+    registry,
+  );
+
+  const print = await screen.findByRole('combobox', { name: /print/ });
+  expect(print).toHaveTextContent('true');
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+
+  fireEvent.mouseDown(print);
+  fireEvent.click(await screen.findByRole('option', { name: 'false' }));
+  expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
+    print: false,
+  });
 });
 
 test('does not apply defaults merely by opening an existing config-less node', async () => {
@@ -283,7 +430,8 @@ test('control edits write the same JSON-compatible config object', async () => {
     threshold: 2.75,
   });
 
-  fireEvent.click(screen.getByRole('checkbox', { name: 'enabled' }));
+  fireEvent.mouseDown(screen.getByRole('combobox', { name: /enabled/ }));
+  fireEvent.click(await screen.findByRole('option', { name: 'false' }));
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
     ...config,
     enabled: false,
@@ -451,10 +599,10 @@ test('a required boolean reads as a value, never as an empty box', async () => {
 
   render(<NodeForm node={createNode()} onChange={onChange} />, registry);
 
-  // The unchecked box means `false`, and the config says so.
+  // The list shows `false`, and the config says so.
   expect(
-    await screen.findByRole('checkbox', { name: 'print' }),
-  ).not.toBeChecked();
+    await screen.findByRole('combobox', { name: /print/ }),
+  ).toHaveTextContent('false');
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
     greeting: '',
     print: false,

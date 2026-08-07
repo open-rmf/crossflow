@@ -2,7 +2,6 @@ import {
   Box,
   Checkbox,
   FormControlLabel,
-  FormHelperText,
   MenuItem,
   Stack,
   TextField,
@@ -14,7 +13,7 @@ import { useEffect, useMemo, useState } from 'react';
 type JsonConfigObject = Record<string, unknown>;
 
 type JsonSchema = Record<string, unknown>;
-type EnumValue = string | number;
+type EnumValue = string | number | boolean;
 
 /**
  * A schema paired with the control that edits it. `raw` is the bottom case:
@@ -25,6 +24,8 @@ type EnumValue = string | number;
 type ResolvedSchema = {
   description?: string;
   defaultValue?: unknown;
+  /** The schema also accepts `null`, i.e. it came from an `Option<T>`. */
+  nullable?: boolean;
 } & (
   | { type: 'raw' }
   | { type: 'string'; enumValues?: EnumValue[] }
@@ -34,7 +35,10 @@ type ResolvedSchema = {
       minimum?: number;
       maximum?: number;
     }
-  | { type: 'boolean' }
+  // Booleans are always edited as a two-option list rather than a checkbox, so
+  // that a nullable one can sit beside its opt-out box without a second
+  // checkbox next to it. These values are synthesised, not read from a schema.
+  | { type: 'boolean'; enumValues: EnumValue[] }
   | {
       type: 'object';
       properties: Record<string, ResolvedSchema>;
@@ -110,9 +114,6 @@ const unsupportedKeywords = [
   'if',
   'then',
   'else',
-  'items',
-  'prefixItems',
-  'contains',
   'patternProperties',
   'dependentSchemas',
   'dependencies',
@@ -154,11 +155,12 @@ function resolveTypedSchema(
       return null;
     }
     const { anyOf: _anyOf, ...overrides } = schema;
-    return resolveTypedSchema(
+    const resolved = resolveTypedSchema(
       { ...unwrapped, ...overrides },
       definitions,
       resolvingRefs,
     );
+    return resolved && { ...resolved, nullable: true };
   }
 
   if (unsupportedKeywords.some((key) => key in schema)) {
@@ -170,10 +172,14 @@ function resolveTypedSchema(
     description:
       typeof schema.description === 'string' ? schema.description : undefined,
     defaultValue: schema.default,
+    // The other spelling of `Option<T>`: `"type": ["number", "null"]`.
+    nullable: Array.isArray(schema.type) && schema.type.includes('null'),
   };
 
   if (type === 'boolean') {
-    return schema.enum === undefined ? { ...base, type } : null;
+    return schema.enum === undefined
+      ? { ...base, type, enumValues: [true, false] }
+      : null;
   }
 
   if (type === 'string' || type === 'number' || type === 'integer') {
@@ -290,11 +296,40 @@ export function getSchemaConfigDefaults(
   return completeRequired(resolvedSchema, schemaDefault(resolvedSchema));
 }
 
+/**
+ * Whether the field carries its own "is this set" checkbox. Objects and raw
+ * JSON fields are left out: an object is a group rather than a single control,
+ * and `null` can simply be typed into a JSON box.
+ */
+function hasNullToggle(schema: ResolvedSchema): boolean {
+  return (
+    schema.nullable === true &&
+    schema.type !== 'object' &&
+    schema.type !== 'raw'
+  );
+}
+
+/** The value a nullable field takes when its checkbox is ticked. */
+function enabledValue(schema: ResolvedSchema): unknown {
+  return schema.defaultValue === undefined || schema.defaultValue === null
+    ? presentValue(schema)
+    : JSON.parse(JSON.stringify(schema.defaultValue));
+}
+
 /** The value written when an optional property is switched on. */
 function initialValue(schema: ResolvedSchema): unknown {
   if (schema.defaultValue !== undefined) {
     return JSON.parse(JSON.stringify(schema.defaultValue));
   }
+  if (schema.nullable) {
+    // An `Option<T>` with no default starts out as `None`.
+    return null;
+  }
+  return presentValue(schema);
+}
+
+/** The empty-but-present value for a schema, ignoring whether it is nullable. */
+function presentValue(schema: ResolvedSchema): unknown {
   switch (schema.type) {
     case 'raw':
       return null;
@@ -469,7 +504,7 @@ function NumberField({
   // or `0` survives the round trip through the config.
   useEffect(() => {
     setDraft((current) =>
-      parseNumber(current, schema.type) === value
+      parseNumber(current, schema.type) === (value ?? undefined)
         ? current
         : formatNumber(value),
     );
@@ -483,8 +518,9 @@ function NumberField({
       disabled={disabled}
       value={draft}
       // Anything the draft says that the config does not hold: unparseable
-      // input, or a field cleared without a value to replace it.
-      error={parseNumber(draft, schema.type) !== value}
+      // input, or a field cleared without a value to replace it. An `Option<T>`
+      // unwraps to `T`, so a `null` here is an absent value, not a wrong one.
+      error={parseNumber(draft, schema.type) !== (value ?? undefined)}
       helperText={schema.description}
       slotProps={{
         htmlInput: {
@@ -504,8 +540,70 @@ function NumberField({
   );
 }
 
+function EnumField({
+  label,
+  schema,
+  value,
+  required,
+  disabled,
+  onChange,
+  enumValues,
+}: FieldProps & { enumValues: EnumValue[] }) {
+  // Selected by index so that string, number and boolean options round trip
+  // alike - `String(option)` would flatten `1` and `"1"` onto each other.
+  const selectedIndex = enumValues.findIndex((option) => option === value);
+  return (
+    <TextField
+      select
+      label={label}
+      required={required}
+      disabled={disabled}
+      value={selectedIndex < 0 ? '' : String(selectedIndex)}
+      helperText={schema.description}
+      onChange={(event) => onChange(enumValues[Number(event.target.value)])}
+    >
+      {enumValues.map((option, index) => (
+        <MenuItem key={JSON.stringify(option)} value={String(index)}>
+          {String(option)}
+        </MenuItem>
+      ))}
+    </TextField>
+  );
+}
+
 function SchemaField(props: FieldProps) {
   const { label, schema, value, required, disabled, onChange } = props;
+
+  // An `Option<T>` opts out through a checkbox beside its control, so every
+  // nullable field says "no value" the same way. Rendering the control again
+  // without `nullable` is what stops this from recursing.
+  if (hasNullToggle(schema)) {
+    const enabled = value !== null;
+    return (
+      <Stack direction="row" spacing={1} alignItems="flex-start">
+        {/* Centred against the input itself rather than the whole field, so a
+            description below the input does not drag the checkbox down. 56px is
+            the height of an outlined input at the default size. */}
+        <Box sx={{ display: 'flex', alignItems: 'center', minHeight: 56 }}>
+          <Checkbox
+            checked={enabled}
+            disabled={disabled}
+            inputProps={{ 'aria-label': `Set ${label}` }}
+            onChange={(event) =>
+              onChange(event.target.checked ? enabledValue(schema) : null)
+            }
+          />
+        </Box>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <SchemaField
+            {...props}
+            schema={{ ...schema, nullable: false }}
+            disabled={disabled || !enabled}
+          />
+        </Box>
+      </Stack>
+    );
+  }
 
   if (schema.type === 'raw') {
     return <RawField {...props} />;
@@ -535,53 +633,14 @@ function SchemaField(props: FieldProps) {
     );
   }
 
+  // Booleans are checked by type rather than by having `enumValues`, because
+  // that is what narrows them out of the union for the branches below.
   if (schema.type === 'boolean') {
-    return (
-      <Box>
-        <FormControlLabel
-          disabled={disabled}
-          control={
-            <Checkbox
-              checked={value === true}
-              onChange={(event) => onChange(event.target.checked)}
-            />
-          }
-          label={label}
-        />
-        {schema.description && (
-          <FormHelperText>{schema.description}</FormHelperText>
-        )}
-      </Box>
-    );
+    return <EnumField {...props} enumValues={schema.enumValues} />;
   }
 
   if (schema.enumValues) {
-    // Selected by index so that numeric and string options round trip alike.
-    const selectedIndex = schema.enumValues.findIndex(
-      (option) => option === value,
-    );
-    return (
-      <TextField
-        select
-        label={label}
-        required={required}
-        disabled={disabled}
-        value={selectedIndex < 0 ? '' : String(selectedIndex)}
-        helperText={schema.description}
-        onChange={(event) => {
-          const selected = schema.enumValues?.[Number(event.target.value)];
-          if (selected !== undefined) {
-            onChange(selected);
-          }
-        }}
-      >
-        {schema.enumValues.map((option, index) => (
-          <MenuItem key={JSON.stringify(option)} value={String(index)}>
-            {String(option)}
-          </MenuItem>
-        ))}
-      </TextField>
-    );
+    return <EnumField {...props} enumValues={schema.enumValues} />;
   }
 
   if (schema.type === 'string') {
@@ -621,9 +680,13 @@ function ObjectFields({ schema, value, onChange }: ObjectFieldsProps) {
           }
           onChange(nextValue);
         };
+        // A nullable field brings its own checkbox, and `#[serde(default)]` on
+        // an `Option<T>` makes a property both optional and nullable - so
+        // deferring to that one checkbox is what keeps them from stacking up.
+        const optOut = !required && !hasNullToggle(propertySchema);
         return (
           <Stack key={name} spacing={0.5}>
-            {!required && (
+            {optOut && (
               <FormControlLabel
                 control={
                   <Checkbox
@@ -645,7 +708,7 @@ function ObjectFields({ schema, value, onChange }: ObjectFieldsProps) {
               schema={propertySchema}
               value={value[name]}
               required={required}
-              disabled={!required && !present}
+              disabled={optOut && !present}
               onChange={setProperty}
             />
           </Stack>
