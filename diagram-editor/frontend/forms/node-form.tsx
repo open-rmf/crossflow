@@ -19,52 +19,29 @@ export type NodeFormProps = BaseEditOperationFormProps<'node'>;
 function NodeForm(props: NodeFormProps) {
   const registry = useRegistry();
   const nodes = Object.keys(registry.nodes).sort();
-  const configSchema =
-    registry.nodes[props.node.data.op.builder]?.config_schema;
-  const existingConfig = props.node.data.op.config;
+  const op = props.node.data.op;
+  const existingConfig = op.config;
 
-  const updateConfig = (config: unknown) => {
-    const updatedNode = {
-      ...props.node,
-      data: {
-        ...props.node.data,
-        op: {
-          ...props.node.data.op,
-          config,
-        },
-      },
-    };
-    if (config === undefined) {
-      delete updatedNode.data.op.config;
-    }
+  const replaceOp = (updatedOp: typeof op) => {
     props.onChange?.({
       type: 'replace',
       id: props.node.id,
-      item: updatedNode,
+      item: { ...props.node, data: { ...props.node.data, op: updatedOp } },
     });
+  };
+
+  const updateConfig = (config: unknown) => {
+    const { config: _config, ...rest } = op;
+    replaceOp(config === undefined ? rest : { ...rest, config });
   };
 
   return (
     <BaseEditOperationForm {...props}>
       <TextField
         label="Display Text"
-        value={props.node.data.op.display_text || ''}
+        value={op.display_text || ''}
         onChange={(ev) => {
-          const updatedNode = {
-            ...props.node,
-            data: {
-              ...props.node.data,
-              op: {
-                ...props.node.data.op,
-                display_text: ev.target.value || undefined,
-              },
-            },
-          };
-          props.onChange?.({
-            type: 'replace',
-            id: props.node.id,
-            item: updatedNode,
-          });
+          replaceOp({ ...op, display_text: ev.target.value || undefined });
         }}
       />
       <Autocomplete
@@ -72,9 +49,11 @@ function NodeForm(props: NodeFormProps) {
         autoSelect
         options={nodes}
         getOptionLabel={(option) => option}
-        value={props.node.data.op.builder}
+        value={op.builder}
         onChange={(_, value) => {
           const builder = value ?? '';
+          // Only a node that has no config yet gets the new builder's defaults;
+          // an existing config is the user's, so it is left alone.
           const defaults =
             existingConfig === undefined
               ? getSchemaConfigDefaults(
@@ -82,21 +61,10 @@ function NodeForm(props: NodeFormProps) {
                   registry.schemas,
                 )
               : undefined;
-          const updatedNode = {
-            ...props.node,
-            data: {
-              ...props.node.data,
-              op: {
-                ...props.node.data.op,
-                builder,
-                ...(defaults !== undefined && { config: defaults }),
-              },
-            },
-          };
-          props.onChange?.({
-            type: 'replace',
-            id: props.node.id,
-            item: updatedNode,
+          replaceOp({
+            ...op,
+            builder,
+            ...(defaults !== undefined && { config: defaults }),
           });
         }}
         renderInput={(params) => (
@@ -123,7 +91,7 @@ function NodeForm(props: NodeFormProps) {
         }}
       />
       <SchemaConfigForm
-        schema={configSchema}
+        schema={registry.nodes[op.builder]?.config_schema}
         definitions={registry.schemas}
         value={existingConfig}
         onChange={updateConfig}

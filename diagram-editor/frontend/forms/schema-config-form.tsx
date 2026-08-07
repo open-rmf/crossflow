@@ -11,7 +11,7 @@ import {
 import equal from 'fast-deep-equal';
 import { useEffect, useMemo, useState } from 'react';
 
-export type JsonConfigObject = Record<string, unknown>;
+type JsonConfigObject = Record<string, unknown>;
 
 type JsonSchema = Record<string, unknown>;
 type EnumValue = string | number;
@@ -48,7 +48,7 @@ type ResolvedNumberSchema = Extract<
   { type: 'number' | 'integer' }
 >;
 
-export interface SchemaConfigFormProps {
+interface SchemaConfigFormProps {
   schema: unknown;
   definitions: Record<string, unknown>;
   value?: unknown;
@@ -277,11 +277,17 @@ function schemaDefault(schema: ResolvedSchema): unknown {
   return Object.keys(value).length > 0 ? value : undefined;
 }
 
+/**
+ * The config a newly created node starts with: schema defaults, plus the
+ * required keys that have none, so the node is already the shape the form would
+ * give it.
+ */
 export function getSchemaConfigDefaults(
   schema: unknown,
   definitions: Record<string, unknown>,
 ): unknown {
-  return schemaDefault(resolveSchema(schema, definitions));
+  const resolvedSchema = resolveSchema(schema, definitions);
+  return completeRequired(resolvedSchema, schemaDefault(resolvedSchema));
 }
 
 /** The value written when an optional property is switched on. */
@@ -316,6 +322,49 @@ function initialValue(schema: ResolvedSchema): unknown {
       return value;
     }
   }
+}
+
+/**
+ * Fills in every required key the config is missing, so that a field the form
+ * renders always corresponds to a key that exists. Returns `value` itself when
+ * there was nothing to add, which is what stops {@link SchemaConfigForm} from
+ * reporting a change on every render.
+ *
+ * Only absent keys are filled: a key that is present but holds the wrong shape
+ * is the user's data and is left for them to see and correct.
+ */
+function completeRequired(schema: ResolvedSchema, value: unknown): unknown {
+  if (schema.type !== 'object') {
+    return value;
+  }
+  const object = schemaObject(value);
+  if (!object) {
+    // Nothing to complete unless the schema insists on keys; a config-less node
+    // whose fields are all optional stays config-less.
+    return schema.required.size > 0 ? initialValue(schema) : value;
+  }
+
+  let completed = object;
+  const fill = (name: string, propertyValue: unknown) => {
+    if (completed === object) {
+      completed = { ...object };
+    }
+    completed[name] = propertyValue;
+  };
+
+  for (const [name, property] of Object.entries(schema.properties)) {
+    if (!hasOwn(object, name)) {
+      if (schema.required.has(name)) {
+        fill(name, initialValue(property));
+      }
+      continue;
+    }
+    const child = completeRequired(property, object[name]);
+    if (child !== object[name]) {
+      fill(name, child);
+    }
+  }
+  return completed;
 }
 
 function formatJson(value: unknown): string {
@@ -359,8 +408,6 @@ interface FieldProps {
   schema: ResolvedSchema;
   value: unknown;
   required: boolean;
-  /** Required by the schema, but absent from the config. */
-  missing: boolean;
   disabled: boolean;
   onChange: (value: unknown) => void;
 }
@@ -370,7 +417,6 @@ function RawField({
   schema,
   value,
   required,
-  missing,
   disabled,
   onChange,
 }: FieldProps) {
@@ -392,7 +438,7 @@ function RawField({
       required={required}
       disabled={disabled}
       value={draft}
-      error={missing || parseJson(draft) === null}
+      error={parseJson(draft) === null}
       helperText={schema.description}
       onChange={(event) => {
         setDraft(event.target.value);
@@ -415,7 +461,6 @@ function NumberField({
   schema,
   value,
   required,
-  missing,
   disabled,
   onChange,
 }: FieldProps & { schema: ResolvedNumberSchema }) {
@@ -439,7 +484,7 @@ function NumberField({
       value={draft}
       // Anything the draft says that the config does not hold: unparseable
       // input, or a field cleared without a value to replace it.
-      error={missing || parseNumber(draft, schema.type) !== value}
+      error={parseNumber(draft, schema.type) !== value}
       helperText={schema.description}
       slotProps={{
         htmlInput: {
@@ -460,7 +505,7 @@ function NumberField({
 }
 
 function SchemaField(props: FieldProps) {
-  const { label, schema, value, required, missing, disabled, onChange } = props;
+  const { label, schema, value, required, disabled, onChange } = props;
 
   if (schema.type === 'raw') {
     return <RawField {...props} />;
@@ -522,7 +567,6 @@ function SchemaField(props: FieldProps) {
         required={required}
         disabled={disabled}
         value={selectedIndex < 0 ? '' : String(selectedIndex)}
-        error={missing}
         helperText={schema.description}
         onChange={(event) => {
           const selected = schema.enumValues?.[Number(event.target.value)];
@@ -547,7 +591,6 @@ function SchemaField(props: FieldProps) {
         required={required}
         disabled={disabled}
         value={typeof value === 'string' ? value : ''}
-        error={missing}
         helperText={schema.description}
         onChange={(event) => onChange(event.target.value)}
       />
@@ -602,7 +645,6 @@ function ObjectFields({ schema, value, onChange }: ObjectFieldsProps) {
               schema={propertySchema}
               value={value[name]}
               required={required}
-              missing={required && !present}
               disabled={!required && !present}
               onChange={setProperty}
             />
@@ -624,13 +666,27 @@ export default function SchemaConfigForm({
     [schema, definitions],
   );
 
+  // The form defines the shape of the config, so every field it renders has a
+  // key behind it whether or not the user has touched that field. Editing is
+  // done against the completed config, and the parent is told about the keys
+  // that were filled in.
+  const completed = useMemo(
+    () => completeRequired(resolvedSchema, value),
+    [resolvedSchema, value],
+  );
+  useEffect(() => {
+    if (completed !== value) {
+      onChange(completed);
+    }
+  }, [completed, value, onChange]);
+
   // The top level is the form itself, so its fields go straight into the
   // surrounding layout rather than into a labelled group.
   if (resolvedSchema.type === 'object') {
     return (
       <ObjectFields
         schema={resolvedSchema}
-        value={schemaObject(value) ?? {}}
+        value={schemaObject(completed) ?? {}}
         onChange={onChange}
       />
     );
@@ -640,9 +696,8 @@ export default function SchemaConfigForm({
     <SchemaField
       label="Config"
       schema={resolvedSchema}
-      value={value}
+      value={completed}
       required={false}
-      missing={false}
       disabled={false}
       onChange={onChange}
     />

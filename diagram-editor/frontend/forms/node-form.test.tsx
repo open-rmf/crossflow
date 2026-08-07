@@ -406,17 +406,72 @@ test('switching on an optional object seeds its required fields', async () => {
   });
 });
 
-test('marks a required property that the config is missing', async () => {
+test('fills in required keys the config is missing', async () => {
+  const onChange = jest.fn();
   const registry = createRegistry({
     type: 'object',
-    properties: { title: { type: 'string' }, count: { type: 'integer' } },
-    required: ['title', 'count'],
+    properties: {
+      title: { type: 'string' },
+      count: { type: 'integer' },
+      opts: {
+        type: 'object',
+        properties: { inner: { type: 'boolean' } },
+        required: ['inner'],
+      },
+      note: { type: 'string' },
+    },
+    required: ['title', 'count', 'opts'],
   });
 
-  render(<NodeForm node={createNode({})} />, registry);
+  render(
+    <NodeForm node={createNode({ title: 'kept' })} onChange={onChange} />,
+    registry,
+  );
 
-  expect(await screen.findByRole('textbox', { name: /title/ })).toBeInvalid();
-  expect(screen.getByRole('spinbutton', { name: /count/ })).toBeInvalid();
+  await screen.findByRole('textbox', { name: /title/ });
+  // Required keys are materialised down the tree; `note` is optional, so it
+  // stays absent until its checkbox is switched on.
+  expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
+    title: 'kept',
+    count: 0,
+    opts: { inner: false },
+  });
+});
+
+test('a required boolean reads as a value, never as an empty box', async () => {
+  const onChange = jest.fn();
+  const registry = createRegistry({
+    type: 'object',
+    properties: {
+      greeting: { type: 'string' },
+      print: { type: 'boolean' },
+    },
+    required: ['greeting', 'print'],
+  });
+
+  render(<NodeForm node={createNode()} onChange={onChange} />, registry);
+
+  // The unchecked box means `false`, and the config says so.
+  expect(
+    await screen.findByRole('checkbox', { name: 'print' }),
+  ).not.toBeChecked();
+  expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
+    greeting: '',
+    print: false,
+  });
+});
+
+test('leaves a config-less node alone when nothing is required', async () => {
+  const onChange = jest.fn();
+  const registry = createRegistry({
+    type: 'object',
+    properties: { note: { type: 'string' } },
+  });
+
+  render(<NodeForm node={createNode()} onChange={onChange} />, registry);
+
+  await screen.findByRole('checkbox', { name: 'Set note' });
+  await waitFor(() => expect(onChange).not.toHaveBeenCalled());
 });
 
 test.each([

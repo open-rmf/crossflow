@@ -498,32 +498,30 @@ export function getRegistryNodeBuilderCandidates(
 ): AddOperationCandidate[] {
   return Object.entries(registry.nodes)
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([builder, metadata]) => {
-      return {
-        key: `node:${builder}`,
-        label: metadata.default_display_text || builder,
-        createPreviewNode: (namespace, parentId) =>
-          createOperationNode(
-            namespace,
-            parentId,
-            { x: 0, y: 0 },
-            { type: 'node', builder, next: { builtin: 'dispose' } },
-            `preview_node_${builder}`,
-          ),
-        createChanges: ({ namespace, parentId, newNodePosition }) => {
-          const config = getSchemaConfigDefaults(
-            metadata.config_schema,
-            registry.schemas,
-          );
-          return createNodeChange(namespace, parentId, newNodePosition, {
-            type: 'node',
-            builder,
-            ...(config !== undefined && { config }),
-            next: { builtin: 'dispose' },
-          });
-        },
-      };
-    });
+    .map(([builder, metadata]) => ({
+      key: `node:${builder}`,
+      label: metadata.default_display_text || builder,
+      createPreviewNode: (namespace, parentId) =>
+        createOperationNode(
+          namespace,
+          parentId,
+          { x: 0, y: 0 },
+          { type: 'node', builder, next: { builtin: 'dispose' } },
+          `preview_node_${builder}`,
+        ),
+      createChanges: ({ namespace, parentId, newNodePosition }) => {
+        const config = getSchemaConfigDefaults(
+          metadata.config_schema,
+          registry.schemas,
+        );
+        return createNodeChange(namespace, parentId, newNodePosition, {
+          type: 'node',
+          builder,
+          ...(config !== undefined && { config }),
+          next: { builtin: 'dispose' },
+        });
+      },
+    }));
 }
 
 export function getAddOperationCandidates(
