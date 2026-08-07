@@ -40,8 +40,8 @@ type ResolvedObjectSchema = Extract<ResolvedSchema, { type: 'object' }>;
 export interface SchemaConfigFormProps {
   schema: unknown;
   definitions: Record<string, unknown>;
-  value?: JsonConfigObject;
-  onChange: (value: JsonConfigObject) => void;
+  value?: unknown;
+  onChange: (value: unknown) => void;
 }
 
 function schemaObject(value: unknown): JsonSchema | null {
@@ -245,9 +245,8 @@ function resolveSchema(
 export function resolveSupportedConfigSchema(
   schema: unknown,
   definitions: Record<string, unknown>,
-): ResolvedObjectSchema | null {
-  const resolved = resolveSchema(schema, definitions);
-  return resolved?.type === 'object' ? resolved : null;
+): ResolvedSchema | null {
+  return resolveSchema(schema, definitions);
 }
 
 function cloneDefault(value: unknown): unknown {
@@ -274,12 +273,12 @@ function schemaDefault(schema: ResolvedSchema): unknown {
 export function getSchemaConfigDefaults(
   schema: unknown,
   definitions: Record<string, unknown>,
-): JsonConfigObject | undefined {
+): unknown {
   const resolvedSchema = resolveSupportedConfigSchema(schema, definitions);
   if (!resolvedSchema) {
     return undefined;
   }
-  return schemaObject(schemaDefault(resolvedSchema)) ?? undefined;
+  return schemaDefault(resolvedSchema);
 }
 
 function initialValue(schema: ResolvedSchema): unknown {
@@ -512,10 +511,23 @@ export default function SchemaConfigForm({
     return null;
   }
 
+  if (resolvedSchema.type !== 'object') {
+    return (
+      <SchemaField
+        label="Config"
+        schema={resolvedSchema}
+        value={value}
+        required={false}
+        disabled={false}
+        onChange={onChange}
+      />
+    );
+  }
+
   return (
     <ObjectFields
       schema={resolvedSchema}
-      value={value ?? {}}
+      value={schemaObject(value) ?? {}}
       onChange={onChange}
     />
   );

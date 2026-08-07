@@ -106,6 +106,28 @@ test('renders typed controls for a supported object schema and loads existing co
   expect(screen.queryByLabelText('Config')).not.toBeInTheDocument();
 });
 
+test('renders and updates a numeric control when the entire node config is a number', async () => {
+  const onChange = jest.fn();
+  const registry = createRegistry({
+    anyOf: [{ type: 'number' }, { type: 'null' }],
+  });
+
+  render(<NodeForm node={createNode(3)} onChange={onChange} />, registry);
+
+  const config = await screen.findByRole('spinbutton', { name: /Config/ });
+  expect(config).toHaveValue(3);
+  expect(
+    screen.getByRole('button', { name: 'Edit raw JSON' }),
+  ).toBeInTheDocument();
+
+  fireEvent.change(config, { target: { value: '4.5' } });
+  expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toBe(4.5);
+
+  onChange.mockClear();
+  fireEvent.change(config, { target: { value: 'not-a-number' } });
+  expect(onChange).not.toHaveBeenCalled();
+});
+
 test('does not apply defaults merely by opening an existing config-less node', async () => {
   const onChange = jest.fn();
   const registry = createRegistry(

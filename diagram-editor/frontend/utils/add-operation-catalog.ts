@@ -518,7 +518,7 @@ export function getRegistryNodeBuilderCandidates(
           return createNodeChange(namespace, parentId, newNodePosition, {
             type: 'node',
             builder,
-            ...(config && { config }),
+            ...(config !== undefined && { config }),
             next: { builtin: 'dispose' },
           });
         },

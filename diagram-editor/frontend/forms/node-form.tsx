@@ -14,17 +14,10 @@ import BaseEditOperationForm, {
 } from './base-edit-operation-form';
 import SchemaConfigForm, {
   getSchemaConfigDefaults,
-  type JsonConfigObject,
   resolveSupportedConfigSchema,
 } from './schema-config-form';
 
 export type NodeFormProps = BaseEditOperationFormProps<'node'>;
-
-function configObject(value: unknown): JsonConfigObject | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as JsonConfigObject)
-    : undefined;
-}
 
 interface RawConfigEditorProps {
   value: unknown;
@@ -87,10 +80,7 @@ function NodeForm(props: NodeFormProps) {
     [configSchema, registry.schemas],
   );
   const existingConfig = props.node.data.op.config;
-  const canUseGeneratedForm =
-    supportedSchema !== null &&
-    (existingConfig === undefined ||
-      configObject(existingConfig) !== undefined);
+  const canUseGeneratedForm = supportedSchema !== null;
 
   const updateConfig = (config: unknown) => {
     const updatedNode = {
@@ -152,7 +142,7 @@ function NodeForm(props: NodeFormProps) {
               op: {
                 ...props.node.data.op,
                 builder,
-                ...(defaults && { config: defaults }),
+                ...(defaults !== undefined && { config: defaults }),
               },
             },
           };
@@ -198,7 +188,7 @@ function NodeForm(props: NodeFormProps) {
         <SchemaConfigForm
           schema={configSchema}
           definitions={registry.schemas}
-          value={configObject(existingConfig)}
+          value={existingConfig}
           onChange={updateConfig}
         />
       ) : (
