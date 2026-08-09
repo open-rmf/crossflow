@@ -2,13 +2,14 @@ import { type NodeProps, Position } from '@xyflow/react';
 import { Handle, HandleType } from '../handles';
 import type { OperationNode } from '.';
 import BaseNode from './base-node';
-import { ForkCloneIcon } from './icons';
+import { ForkIcon } from './icons';
 
 function ForkCloneNodeComp(props: NodeProps<OperationNode<'fork_clone'>>) {
   return (
     <BaseNode
       {...props}
-      icon={<ForkCloneIcon />}
+      compact
+      icon={<ForkIcon />}
       label="Fork Clone"
       handles={
         <>

@@ -26,9 +26,8 @@ export type AddOperationKey =
   | 'sectionOutput'
   | 'sectionBuffer'
   | 'node'
-  | 'fork_clone'
+  | 'fork'
   | 'unzip'
-  | 'fork_result'
   | 'split'
   | 'join'
   | 'transform'
@@ -213,15 +212,15 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
       }),
   },
   {
-    key: 'fork_clone',
-    label: 'Fork Clone',
+    key: 'fork',
+    label: 'Fork',
     createPreviewNode: (namespace, parentId) =>
       createOperationNode(
         namespace,
         parentId,
         { x: 0, y: 0 },
         { type: 'fork_clone', next: [] },
-        'preview_fork_clone',
+        'preview_fork',
       ),
     createChanges: ({ namespace, parentId, newNodePosition }) =>
       createNodeChange(namespace, parentId, newNodePosition, {
@@ -244,28 +243,6 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
       createNodeChange(namespace, parentId, newNodePosition, {
         type: 'unzip',
         next: [],
-      }),
-  },
-  {
-    key: 'fork_result',
-    label: 'Fork Result',
-    createPreviewNode: (namespace, parentId) =>
-      createOperationNode(
-        namespace,
-        parentId,
-        { x: 0, y: 0 },
-        {
-          type: 'fork_result',
-          err: { builtin: 'dispose' },
-          ok: { builtin: 'dispose' },
-        },
-        'preview_fork_result',
-      ),
-    createChanges: ({ namespace, parentId, newNodePosition }) =>
-      createNodeChange(namespace, parentId, newNodePosition, {
-        type: 'fork_result',
-        err: { builtin: 'dispose' },
-        ok: { builtin: 'dispose' },
       }),
   },
   {

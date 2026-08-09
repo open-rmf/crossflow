@@ -9,6 +9,7 @@ import { exhaustiveCheck } from '../utils/exhaustive-check';
 import BaseEditOperationForm from './base-edit-operation-form';
 import BufferForm, { type BufferFormProps } from './buffer-form';
 import EditScopeForm, { type ScopeFormProps } from './edit-scope-form';
+import ForkForm, { type ForkFormProps } from './fork-form';
 import JoinForm, { type JoinFormProps } from './join-form';
 import NodeForm, { type NodeFormProps } from './node-form';
 import ScriptForm, { type ScriptFormProps } from './script-form';
@@ -53,6 +54,10 @@ function EditOperationNodeForm(props: EditOperationNodeFormProps) {
     }
     case 'stream_out': {
       return <StreamOutForm {...(props as StreamOutFormProps)} />;
+    }
+    case 'fork_clone':
+    case 'fork_result': {
+      return <ForkForm {...(props as ForkFormProps)} />;
     }
     default: {
       return <BaseEditOperationForm {...props} />;

@@ -27,8 +27,25 @@ export function NodeIcon(): React.JSX.Element {
   return <MaterialSymbol symbol="line_start_circle" />;
 }
 
-export function ForkCloneIcon(): React.JSX.Element {
-  return <MaterialSymbol symbol="content_copy" />;
+export function ForkIcon(): React.JSX.Element {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 24 24"
+      width="1em"
+      height="1em"
+    >
+      <path
+        d="M12 12 12 3.5M12 12 4.64 16.25M12 12 19.36 16.25"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="2.4"
+      />
+      <circle cx="12" cy="12" r="1.7" fill="currentColor" />
+    </svg>
+  );
 }
 
 export function TransformIcon(): React.JSX.Element {
@@ -51,10 +68,6 @@ export function SplitIcon(): React.JSX.Element {
   return (
     <MaterialSymbol symbol="call_split" sx={{ transform: 'scaleY(-1)' }} />
   );
-}
-
-export function ForkResultIcon(): React.JSX.Element {
-  return <MaterialSymbol symbol="question_mark" />;
 }
 
 export function ListenIcon(): React.JSX.Element {
@@ -100,11 +113,11 @@ export function getIcon(op: DiagramOperation): React.ComponentType {
     case 'section':
       return SectionIcon;
     case 'fork_clone':
-      return ForkCloneIcon;
+      return ForkIcon;
     case 'unzip':
       return UnzipIcon;
     case 'fork_result':
-      return ForkResultIcon;
+      return ForkIcon;
     case 'split':
       return SplitIcon;
     case 'join':

@@ -19,6 +19,7 @@ export interface BaseNodeProps extends NodeProps {
   caption?: string;
   handles?: JSX.Element;
   highlight?: boolean;
+  compact?: boolean;
 }
 
 function BaseNode({
@@ -30,6 +31,7 @@ function BaseNode({
   selected,
   id,
   highlight,
+  compact = false,
 }: BaseNodeProps) {
   const { activeNodeIds, visitedNodeIds } = useInteractionVisualization();
   const interactionActive = activeNodeIds.has(id);
@@ -44,6 +46,7 @@ function BaseNode({
   return (
     <Paper
       sx={(theme) => ({
+        borderRadius: compact ? '50%' : undefined,
         outline: interactionActive
           ? `2px solid ${theme.palette.success.main}`
           : interactionVisited
@@ -69,32 +72,26 @@ function BaseNode({
     >
       <Button
         title={label}
+        aria-label={compact ? label : undefined}
         color={color}
-        fullWidth
-        startIcon={icon}
+        fullWidth={!compact}
+        startIcon={compact ? undefined : icon}
         variant={selected ? 'contained' : 'outlined'}
         sx={{
           textTransform: 'none',
-          width: LAYOUT_OPTIONS.nodeWidth,
-          height: LAYOUT_OPTIONS.nodeHeight,
+          width: compact ? 42 : LAYOUT_OPTIONS.nodeWidth,
+          minWidth: compact ? 42 : undefined,
+          height: compact ? 42 : LAYOUT_OPTIONS.nodeHeight,
+          borderRadius: compact ? '50%' : undefined,
+          padding: compact ? 0 : undefined,
         }}
       >
-        <Stack>
-          <Box
-            component="span"
-            sx={{
-              minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {label}
-          </Box>
-          {caption && (
-            <Typography
-              variant="caption"
-              fontSize={8}
+        {compact ? (
+          icon
+        ) : (
+          <Stack>
+            <Box
+              component="span"
               sx={{
                 minWidth: 0,
                 overflow: 'hidden',
@@ -102,10 +99,24 @@ function BaseNode({
                 whiteSpace: 'nowrap',
               }}
             >
-              {caption}
-            </Typography>
-          )}
-        </Stack>
+              {label}
+            </Box>
+            {caption && (
+              <Typography
+                variant="caption"
+                fontSize={8}
+                sx={{
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {caption}
+              </Typography>
+            )}
+          </Stack>
+        )}
       </Button>
       {handles}
     </Paper>

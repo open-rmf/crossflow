@@ -1,4 +1,4 @@
-import type { Connection } from '@xyflow/react';
+import type { Connection, EdgeRemoveChange } from '@xyflow/react';
 import {
   createBaseEdge,
   type DiagramEditorEdge,
@@ -15,6 +15,15 @@ import {
   type NodeTypes,
 } from '../nodes';
 import { exhaustiveCheck } from './exhaustive-check';
+
+export function getOutgoingEdgeRemoveChanges(
+  sourceNodeId: string,
+  edges: DiagramEditorEdge[],
+): EdgeRemoveChange[] {
+  return edges
+    .filter((edge) => edge.source === sourceNodeId)
+    .map((edge) => ({ type: 'remove', id: edge.id }));
+}
 
 /**
  * List of edge types that a node can output.

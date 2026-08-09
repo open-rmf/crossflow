@@ -3,7 +3,7 @@ import { type NodeProps, Position } from '@xyflow/react';
 import { Handle, HandleId, HandleType } from '../handles';
 import type { OperationNode } from '.';
 import BaseNode from './base-node';
-import { ForkResultIcon } from './icons';
+import { ForkIcon } from './icons';
 
 const ForkResultOkHandle = styled(Handle)(({ theme }) => ({
   left: '25%',
@@ -18,7 +18,8 @@ function ForkResultNodeComp(props: NodeProps<OperationNode<'fork_result'>>) {
   return (
     <BaseNode
       {...props}
-      icon={<ForkResultIcon />}
+      compact
+      icon={<ForkIcon />}
       label="Fork Result"
       handles={
         <>

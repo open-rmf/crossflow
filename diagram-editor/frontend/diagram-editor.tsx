@@ -37,6 +37,12 @@ import { ConnectionCompatibilityProvider } from './connection-compatibility-prov
 import { ConnectionHintPanel } from './connection-hint-panel';
 import { useDiagramProperties } from './diagram-properties-provider';
 import { useDiagramSidePanel } from './diagram-side-panel-controller';
+import {
+  EditPopoverMargin,
+  EditPopoverSidePanelGap,
+  EditPopoverWidth,
+  getDiagramSidePanelWidth,
+} from './diagram-side-panel-layout';
 import type { DiagramEditorEdge } from './edges';
 import { EDGE_TYPES } from './edges';
 import {
@@ -77,6 +83,7 @@ import {
 } from './utils/compatibility';
 import {
   createConnectionFromHandles,
+  getOutgoingEdgeRemoveChanges,
   getValidEdgeTypes,
   validateConnectionSimple,
   validateDraggedHandlePair,
@@ -313,7 +320,11 @@ function DiagramEditor() {
   const [diagramProperties] = useDiagramProperties();
   const openScriptEnvironment = useScriptEnvironmentNavigation();
   const {
-    state: { open: sidePanelOpen, tab: sidePanelTab },
+    state: {
+      open: sidePanelOpen,
+      expanded: sidePanelExpanded,
+      tab: sidePanelTab,
+    },
   } = useDiagramSidePanel();
 
   const updateEditorModeAction = React.useCallback(
@@ -676,6 +687,48 @@ function DiagramEditor() {
       'open' | 'anchorReference' | 'anchorEl' | 'anchorPosition'
     >
   >({ open: false });
+  const getNodeEditPopoverPosition = React.useCallback(
+    (nodeRect: Pick<DOMRect, 'left' | 'right' | 'top'>): PopoverPosition => {
+      const sidePanelWidth = getDiagramSidePanelWidth(window.innerWidth, {
+        open: sidePanelOpen,
+        expanded: sidePanelExpanded,
+      });
+      const canvasRight =
+        window.innerWidth -
+        sidePanelWidth -
+        (sidePanelWidth > 0 ? EditPopoverSidePanelGap : EditPopoverMargin);
+      const rightPosition = nodeRect.right + EditPopoverMargin;
+
+      return {
+        left:
+          rightPosition + EditPopoverWidth <= canvasRight
+            ? rightPosition
+            : nodeRect.left - EditPopoverWidth - EditPopoverMargin,
+        top: nodeRect.top,
+      };
+    },
+    [sidePanelExpanded, sidePanelOpen],
+  );
+  const openAddedForkEditor = React.useCallback(
+    (node: DiagramEditorNode | null) => {
+      if (node?.type !== 'fork_clone') {
+        return;
+      }
+      const { left, top } = addOperationPopover.popOverPosition;
+
+      setEditingNodeId(node.id);
+      setEditOpFormPopoverProps({
+        open: true,
+        anchorReference: 'anchorPosition',
+        anchorPosition: getNodeEditPopoverPosition({
+          left,
+          right: left + 42,
+          top,
+        }),
+      });
+    },
+    [addOperationPopover.popOverPosition, getNodeEditPopoverPosition],
+  );
   const renderEditForm = React.useCallback(
     (nodeId: string) => {
       const node = nodeManager.tryGetNode(nodeId);
@@ -686,6 +739,16 @@ function DiagramEditor() {
       const handleDelete = (change: NodeRemoveChange) => {
         handleNodeChange(change);
         closeAllPopovers();
+      };
+      const handleChange = (change: NodeChange<DiagramEditorNode>) => {
+        if (
+          (node.type === 'fork_clone' || node.type === 'fork_result') &&
+          change.type === 'replace' &&
+          change.item.type !== node.type
+        ) {
+          handleEdgeChanges(getOutgoingEdgeRemoveChanges(node.id, edges));
+        }
+        handleNodeChange(change);
       };
 
       if (node.type === 'scope') {
@@ -709,12 +772,19 @@ function DiagramEditor() {
         <EditNodeForm
           key={editingNodeId}
           node={node}
-          onChange={handleNodeChange}
+          onChange={handleChange}
           onDelete={handleDelete}
         />
       );
     },
-    [nodeManager, editingNodeId, handleNodeChange, closeAllPopovers],
+    [
+      nodeManager,
+      editingNodeId,
+      handleNodeChange,
+      handleEdgeChanges,
+      closeAllPopovers,
+      edges,
+    ],
   );
 
   const mouseDownTime = React.useRef(0);
@@ -1005,7 +1075,9 @@ function DiagramEditor() {
           setEditOpFormPopoverProps({
             open: true,
             anchorReference: 'anchorPosition',
-            anchorPosition: { left: ev.clientX, top: ev.clientY },
+            anchorPosition: getNodeEditPopoverPosition(
+              ev.currentTarget.getBoundingClientRect(),
+            ),
           });
         }}
         onEdgeClick={(ev, edge) => {
@@ -1142,6 +1214,7 @@ function DiagramEditor() {
                   handleNodeChanges(changes);
                   setEdges((prev) => addEdge(newEdge, prev));
                   closeAllPopovers();
+                  openAddedForkEditor(targetNode);
                   if (targetNode.type === 'script') {
                     const environmentName = targetNode.data.op.environment;
                     openScriptEnvironment(
@@ -1165,6 +1238,7 @@ function DiagramEditor() {
                   changes.find((change) => change.item.id === primaryNodeId)
                     ?.item || null;
                 closeAllPopovers();
+                openAddedForkEditor(primaryNode);
                 if (primaryNode?.type === 'script') {
                   const environmentName = primaryNode.data.op.environment;
                   openScriptEnvironment(
