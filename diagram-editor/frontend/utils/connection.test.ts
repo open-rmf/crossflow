@@ -17,7 +17,6 @@ import {
 import {
   createConnectionFromDraggedHandle,
   createEdgeFromConnection,
-  getOutgoingEdgeRemoveChanges,
   getValidEdgeTypes,
   validateConnectionSimple,
   validateDraggedHandlePair,
@@ -28,26 +27,6 @@ import {
 import { ROOT_NAMESPACE } from './namespace';
 
 describe('connection helpers', () => {
-  test('removes only edges sourced by the selected node', () => {
-    const changes = getOutgoingEdgeRemoveChanges('fork', [
-      {
-        ...createDefaultEdge('upstream', null, 'fork', null),
-        id: 'incoming',
-      },
-      { ...createDefaultEdge('fork', null, 'a', null), id: 'out-a' },
-      { ...createDefaultEdge('fork', null, 'b', null), id: 'out-b' },
-      {
-        ...createDefaultEdge('other', null, 'c', null),
-        id: 'unrelated',
-      },
-    ]);
-
-    expect(changes).toEqual([
-      { type: 'remove', id: 'out-a' },
-      { type: 'remove', id: 'out-b' },
-    ]);
-  });
-
   test('normalizes a drag that starts from a source handle', () => {
     const connection = createConnectionFromDraggedHandle({
       fromNodeId: 'source-node',

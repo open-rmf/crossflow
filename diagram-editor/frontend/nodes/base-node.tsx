@@ -79,11 +79,18 @@ function BaseNode({
         variant={selected ? 'contained' : 'outlined'}
         sx={{
           textTransform: 'none',
-          width: compact ? 42 : LAYOUT_OPTIONS.nodeWidth,
-          minWidth: compact ? 42 : undefined,
-          height: compact ? 42 : LAYOUT_OPTIONS.nodeHeight,
-          borderRadius: compact ? '50%' : undefined,
-          padding: compact ? 0 : undefined,
+          ...(compact
+            ? {
+                width: LAYOUT_OPTIONS.compactNodeSize,
+                minWidth: LAYOUT_OPTIONS.compactNodeSize,
+                height: LAYOUT_OPTIONS.compactNodeSize,
+                borderRadius: '50%',
+                padding: 0,
+              }
+            : {
+                width: LAYOUT_OPTIONS.nodeWidth,
+                height: LAYOUT_OPTIONS.nodeHeight,
+              }),
         }}
       >
         {compact ? (

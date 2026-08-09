@@ -458,9 +458,6 @@ export function filterCompatibleAddOperations<T extends AddOperationCandidate>(
       options.namespace,
       options.parentId,
     );
-    if (anchorHandleType === 'target' && previewNode.type === 'fork_result') {
-      return false;
-    }
     return anchorHandleType === 'source'
       ? getValidEdgeTypes(anchorNode, anchorHandle, previewNode, null).length >
           0

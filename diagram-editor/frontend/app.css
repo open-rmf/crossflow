@@ -34,18 +34,10 @@
   background-color: var(--mui-palette-secondary-dark);
 }
 .react-flow__handle.handle-data-buffer {
-  background: linear-gradient(
-    -45deg,
-    var(--mui-palette-secondary-dark) 50%,
-    var(--xy-handle-background-color-default) 50%
-  );
+  background-color: var(--mui-palette-secondary-main);
 }
 .react-flow__handle.handle-data-stream {
-  background: linear-gradient(
-    -45deg,
-    var(--mui-palette-warning-dark) 50%,
-    var(--xy-handle-background-color-default) 50%
-  );
+  background-color: var(--mui-palette-warning-dark);
 }
 .react-flow__handle.connectionindicator {
   opacity: 1;

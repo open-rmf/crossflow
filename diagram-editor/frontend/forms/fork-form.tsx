@@ -1,6 +1,4 @@
 import { MenuItem, TextField } from '@mui/material';
-import type { OperationNode } from '../nodes';
-import type { DiagramOperation } from '../types/api';
 import BaseEditOperationForm, {
   type BaseEditOperationFormProps,
 } from './base-edit-operation-form';
@@ -11,40 +9,31 @@ export type ForkFormProps = BaseEditOperationFormProps<
 
 function ForkForm(props: ForkFormProps) {
   const { node, onChange } = props;
-  const behavior = node.data.op.type === 'fork_clone' ? 'clone' : 'result';
 
   return (
     <BaseEditOperationForm {...props}>
       <TextField
         select
         label="Behavior"
-        value={behavior}
+        value={node.data.op.type}
         onChange={(event) => {
-          const op: Extract<
-            DiagramOperation,
-            { type: 'fork_clone' | 'fork_result' }
-          > =
-            event.target.value === 'clone'
+          const op: ForkFormProps['node']['data']['op'] =
+            event.target.value === 'fork_clone'
               ? { type: 'fork_clone', next: [] }
               : {
                   type: 'fork_result',
                   ok: { builtin: 'dispose' },
                   err: { builtin: 'dispose' },
                 };
-          const updatedNode: OperationNode = {
-            ...node,
-            type: op.type,
-            data: { ...node.data, op },
-          };
           onChange?.({
             type: 'replace',
             id: node.id,
-            item: updatedNode,
+            item: { ...node, type: op.type, data: { ...node.data, op } },
           });
         }}
       >
-        <MenuItem value="clone">Clone</MenuItem>
-        <MenuItem value="result">Result</MenuItem>
+        <MenuItem value="fork_clone">Clone</MenuItem>
+        <MenuItem value="fork_result">Result</MenuItem>
       </TextField>
     </BaseEditOperationForm>
   );

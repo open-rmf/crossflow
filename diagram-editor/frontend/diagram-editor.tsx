@@ -37,12 +37,7 @@ import { ConnectionCompatibilityProvider } from './connection-compatibility-prov
 import { ConnectionHintPanel } from './connection-hint-panel';
 import { useDiagramProperties } from './diagram-properties-provider';
 import { useDiagramSidePanel } from './diagram-side-panel-controller';
-import {
-  EditPopoverMargin,
-  EditPopoverSidePanelGap,
-  EditPopoverWidth,
-  getDiagramSidePanelWidth,
-} from './diagram-side-panel-layout';
+import { getEditPopoverPositionForNode } from './diagram-side-panel-layout';
 import type { DiagramEditorEdge } from './edges';
 import { EDGE_TYPES } from './edges';
 import {
@@ -83,7 +78,6 @@ import {
 } from './utils/compatibility';
 import {
   createConnectionFromHandles,
-  getOutgoingEdgeRemoveChanges,
   getValidEdgeTypes,
   validateConnectionSimple,
   validateDraggedHandlePair,
@@ -521,10 +515,24 @@ function DiagramEditor() {
         }
       }
 
+      // a node changing its operation type (e.g. fork clone <-> result) invalidates its outputs.
+      const retypedNodes = new Set(
+        changes.flatMap((change) =>
+          change.type === 'replace' &&
+          nodeManager.tryGetNode(change.id)?.type !== change.item.type
+            ? [change.id]
+            : [],
+        ),
+      );
+
       // clean up dangling edges when a node is removed.
       const edgeChanges: EdgeRemoveChange[] = [];
       for (const edge of edges) {
-        if (removedNodes.has(edge.source) || removedNodes.has(edge.target)) {
+        if (
+          removedNodes.has(edge.source) ||
+          removedNodes.has(edge.target) ||
+          retypedNodes.has(edge.source)
+        ) {
           edgeChanges.push({
             type: 'remove',
             id: edge.id,
@@ -687,47 +695,38 @@ function DiagramEditor() {
       'open' | 'anchorReference' | 'anchorEl' | 'anchorPosition'
     >
   >({ open: false });
-  const getNodeEditPopoverPosition = React.useCallback(
-    (nodeRect: Pick<DOMRect, 'left' | 'right' | 'top'>): PopoverPosition => {
-      const sidePanelWidth = getDiagramSidePanelWidth(window.innerWidth, {
-        open: sidePanelOpen,
-        expanded: sidePanelExpanded,
+  const openNodeEditor = React.useCallback(
+    (nodeId: string, nodeRect: Pick<DOMRect, 'left' | 'right' | 'top'>) => {
+      setEditingNodeId(nodeId);
+      setEditOpFormPopoverProps({
+        open: true,
+        anchorReference: 'anchorPosition',
+        anchorPosition: getEditPopoverPositionForNode({
+          nodeRect,
+          viewportWidth: window.innerWidth,
+          sidePanel: { open: sidePanelOpen, expanded: sidePanelExpanded },
+        }),
       });
-      const canvasRight =
-        window.innerWidth -
-        sidePanelWidth -
-        (sidePanelWidth > 0 ? EditPopoverSidePanelGap : EditPopoverMargin);
-      const rightPosition = nodeRect.right + EditPopoverMargin;
-
-      return {
-        left:
-          rightPosition + EditPopoverWidth <= canvasRight
-            ? rightPosition
-            : nodeRect.left - EditPopoverWidth - EditPopoverMargin,
-        top: nodeRect.top,
-      };
     },
     [sidePanelExpanded, sidePanelOpen],
   );
+  // A newly added fork defaults to "clone"; open its editor so the behavior can be picked.
   const openAddedForkEditor = React.useCallback(
     (node: DiagramEditorNode | null) => {
       if (node?.type !== 'fork_clone') {
         return;
       }
+      // The click that added the node becomes its flow position, so it renders
+      // with its top left corner there, scaled by the current zoom.
       const { left, top } = addOperationPopover.popOverPosition;
-
-      setEditingNodeId(node.id);
-      setEditOpFormPopoverProps({
-        open: true,
-        anchorReference: 'anchorPosition',
-        anchorPosition: getNodeEditPopoverPosition({
-          left,
-          right: left + 42,
-          top,
-        }),
+      const zoom = reactFlowInstance.current?.getZoom() ?? 1;
+      openNodeEditor(node.id, {
+        left,
+        right: left + LAYOUT_OPTIONS.compactNodeSize * zoom,
+        top,
       });
     },
-    [addOperationPopover.popOverPosition, getNodeEditPopoverPosition],
+    [addOperationPopover.popOverPosition, openNodeEditor],
   );
   const renderEditForm = React.useCallback(
     (nodeId: string) => {
@@ -740,17 +739,6 @@ function DiagramEditor() {
         handleNodeChange(change);
         closeAllPopovers();
       };
-      const handleChange = (change: NodeChange<DiagramEditorNode>) => {
-        if (
-          (node.type === 'fork_clone' || node.type === 'fork_result') &&
-          change.type === 'replace' &&
-          change.item.type !== node.type
-        ) {
-          handleEdgeChanges(getOutgoingEdgeRemoveChanges(node.id, edges));
-        }
-        handleNodeChange(change);
-      };
-
       if (node.type === 'scope') {
         return (
           <EditScopeForm
@@ -772,19 +760,12 @@ function DiagramEditor() {
         <EditNodeForm
           key={editingNodeId}
           node={node}
-          onChange={handleChange}
+          onChange={handleNodeChange}
           onDelete={handleDelete}
         />
       );
     },
-    [
-      nodeManager,
-      editingNodeId,
-      handleNodeChange,
-      handleEdgeChanges,
-      closeAllPopovers,
-      edges,
-    ],
+    [nodeManager, editingNodeId, handleNodeChange, closeAllPopovers],
   );
 
   const mouseDownTime = React.useRef(0);
@@ -1070,15 +1051,7 @@ function DiagramEditor() {
               false,
             );
           }
-          setEditingNodeId(node.id);
-
-          setEditOpFormPopoverProps({
-            open: true,
-            anchorReference: 'anchorPosition',
-            anchorPosition: getNodeEditPopoverPosition(
-              ev.currentTarget.getBoundingClientRect(),
-            ),
-          });
+          openNodeEditor(node.id, ev.currentTarget.getBoundingClientRect());
         }}
         onEdgeClick={(ev, edge) => {
           ev.stopPropagation();

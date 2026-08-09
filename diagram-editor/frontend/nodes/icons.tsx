@@ -27,23 +27,17 @@ export function NodeIcon(): React.JSX.Element {
   return <MaterialSymbol symbol="line_start_circle" />;
 }
 
+/** Three spokes radiating 120 degrees apart. Sized to match {@link MaterialSymbol}. */
 export function ForkIcon(): React.JSX.Element {
   return (
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      viewBox="0 0 24 24"
-      width="1em"
-      height="1em"
-    >
+    <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
       <path
-        d="M12 12 12 3.5M12 12 4.64 16.25M12 12 19.36 16.25"
+        d="M12 12V2.5M12 12l8.23 4.75M12 12l-8.23 4.75"
         fill="none"
         stroke="currentColor"
+        strokeWidth="2.2"
         strokeLinecap="round"
-        strokeWidth="2.4"
       />
-      <circle cx="12" cy="12" r="1.7" fill="currentColor" />
     </svg>
   );
 }

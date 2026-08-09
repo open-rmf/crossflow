@@ -29,6 +29,19 @@ export function getDiagramSidePanelWidth(
   );
 }
 
+/** Right edge of the area the edit popover may occupy. */
+function getEditPopoverRightBoundary(
+  viewportWidth: number,
+  sidePanel: SidePanelLayoutState,
+): number {
+  const sidePanelWidth = getDiagramSidePanelWidth(viewportWidth, sidePanel);
+  return (
+    viewportWidth -
+    sidePanelWidth -
+    (sidePanelWidth > 0 ? EditPopoverSidePanelGap : EditPopoverMargin)
+  );
+}
+
 export function constrainEditPopoverPosition({
   anchorPosition,
   viewportWidth,
@@ -38,12 +51,8 @@ export function constrainEditPopoverPosition({
   viewportWidth: number;
   sidePanel: SidePanelLayoutState;
 }): EditorAnchorPosition {
-  const sidePanelWidth = getDiagramSidePanelWidth(viewportWidth, sidePanel);
-  const rightBoundary =
-    viewportWidth -
-    sidePanelWidth -
-    (sidePanelWidth > 0 ? EditPopoverSidePanelGap : EditPopoverMargin);
-  const maximumLeft = rightBoundary - EditPopoverWidth;
+  const maximumLeft =
+    getEditPopoverRightBoundary(viewportWidth, sidePanel) - EditPopoverWidth;
 
   return {
     left: Math.max(
@@ -51,5 +60,28 @@ export function constrainEditPopoverPosition({
       Math.min(anchorPosition.left, maximumLeft),
     ),
     top: anchorPosition.top,
+  };
+}
+
+/** Places the edit popover beside a node, flipping to its left when it would not fit. */
+export function getEditPopoverPositionForNode({
+  nodeRect,
+  viewportWidth,
+  sidePanel,
+}: {
+  nodeRect: Pick<DOMRect, 'left' | 'right' | 'top'>;
+  viewportWidth: number;
+  sidePanel: SidePanelLayoutState;
+}): EditorAnchorPosition {
+  const rightOfNode = nodeRect.right + EditPopoverMargin;
+  const fitsRight =
+    rightOfNode + EditPopoverWidth <=
+    getEditPopoverRightBoundary(viewportWidth, sidePanel);
+
+  return {
+    left: fitsRight
+      ? rightOfNode
+      : nodeRect.left - EditPopoverWidth - EditPopoverMargin,
+    top: nodeRect.top,
   };
 }
