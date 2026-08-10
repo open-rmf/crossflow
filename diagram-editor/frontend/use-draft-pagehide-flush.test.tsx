@@ -17,13 +17,13 @@ const cleanWorkspace: DraftWorkspaceContent = {
 
 function Harness({
   workspace,
-  enabled,
+  shouldFlush,
 }: {
   workspace: DraftWorkspaceContent;
-  enabled: boolean;
+  shouldFlush: boolean;
 }) {
   const latestWorkspace = React.useRef(workspace);
-  useDraftPagehideFlush(latestWorkspace, enabled, jest.fn());
+  useDraftPagehideFlush(latestWorkspace, shouldFlush, jest.fn());
   return null;
 }
 
@@ -31,12 +31,20 @@ beforeEach(() => {
   sessionStorage.clear();
 });
 
-test('flushes a clean workspace on pagehide so refresh can restore it', () => {
-  render(<Harness workspace={cleanWorkspace} enabled={true} />);
+test('flushes a dirty workspace on pagehide', () => {
+  render(<Harness workspace={cleanWorkspace} shouldFlush={true} />);
 
   window.dispatchEvent(new Event('pagehide'));
 
   expect(readDraftWorkspace()?.filename).toBe('saved.json');
+});
+
+test('does not flush a clean workspace on pagehide', () => {
+  render(<Harness workspace={cleanWorkspace} shouldFlush={false} />);
+
+  window.dispatchEvent(new Event('pagehide'));
+
+  expect(readDraftWorkspace()).toBeNull();
 });
 
 test('does not overwrite a draft before startup recovery is resolved', () => {
@@ -44,7 +52,7 @@ test('does not overwrite a draft before startup recovery is resolved', () => {
   render(
     <Harness
       workspace={{ ...cleanWorkspace, filename: 'initial-empty.json' }}
-      enabled={false}
+      shouldFlush={false}
     />,
   );
 

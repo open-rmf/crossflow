@@ -6,12 +6,12 @@ import {
 
 export function useDraftPagehideFlush(
   latestWorkspace: RefObject<DraftWorkspaceContent | null>,
-  enabled: boolean,
+  shouldFlush: boolean,
   setStorageFailed: (failed: boolean) => void,
 ) {
   useEffect(() => {
     const flushWorkspace = () => {
-      if (!enabled || !latestWorkspace.current) {
+      if (!shouldFlush || !latestWorkspace.current) {
         return;
       }
       try {
@@ -24,5 +24,5 @@ export function useDraftPagehideFlush(
 
     window.addEventListener('pagehide', flushWorkspace);
     return () => window.removeEventListener('pagehide', flushWorkspace);
-  }, [enabled, latestWorkspace, setStorageFailed]);
+  }, [latestWorkspace, setStorageFailed, shouldFlush]);
 }

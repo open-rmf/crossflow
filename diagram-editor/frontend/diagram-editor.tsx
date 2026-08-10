@@ -1081,11 +1081,11 @@ function DiagramEditor() {
 
   useDraftPagehideFlush(
     latestDraftContent,
-    hydrationResolved,
+    hydrationResolved && (isDirty || hasUncommittedBuffers),
     setDraftStorageFailed,
   );
 
-  useBeforeUnloadWarning();
+  useBeforeUnloadWarning(isDirty || hasUncommittedBuffers);
 
   const resetToNewDiagram = React.useCallback(() => {
     const empty = loadEmpty();
