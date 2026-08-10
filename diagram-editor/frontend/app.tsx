@@ -11,6 +11,7 @@ import { DiagramPropertiesProvider } from './diagram-properties-provider';
 import { DiagramSidePanelProvider } from './diagram-side-panel-controller';
 import { RegistryProvider } from './registry-provider';
 import { TemplatesProvider } from './templates-provider';
+import { TransientEditorDraftProvider } from './transient-editor-drafts';
 
 const theme = createTheme({
   palette: {
@@ -25,13 +26,15 @@ const App = () => {
       <CssBaseline enableColorScheme />
       <div style={{ width: '100vw', height: '100vh' }}>
         <RegistryProvider>
-          <TemplatesProvider>
-            <DiagramPropertiesProvider>
-              <DiagramSidePanelProvider>
-                <DiagramEditor />
-              </DiagramSidePanelProvider>
-            </DiagramPropertiesProvider>
-          </TemplatesProvider>
+          <TransientEditorDraftProvider>
+            <TemplatesProvider>
+              <DiagramPropertiesProvider>
+                <DiagramSidePanelProvider>
+                  <DiagramEditor />
+                </DiagramSidePanelProvider>
+              </DiagramPropertiesProvider>
+            </TemplatesProvider>
+          </TransientEditorDraftProvider>
         </RegistryProvider>
       </div>
     </ThemeProvider>

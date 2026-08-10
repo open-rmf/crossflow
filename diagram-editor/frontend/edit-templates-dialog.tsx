@@ -19,6 +19,7 @@ import React from 'react';
 import { EditorMode, useEditorMode } from './editor-mode';
 import { MaterialSymbol } from './nodes';
 import { useTemplates } from './templates-provider';
+import { useTransientEditorDrafts } from './transient-editor-drafts';
 import type { SectionTemplate } from './types/api';
 
 export interface EditTemplatesDialogProps {
@@ -37,6 +38,7 @@ function EditTemplatesDialog({ open, onClose }: EditTemplatesDialogProps) {
   const [templates, setTemplates] = useTemplates();
   const templateKeys = Object.keys(templates);
   const [_editorMode, setEditorMode] = useEditorMode();
+  const { drafts, setTemplateRenameDraft } = useTransientEditorDrafts();
   const [renaming, setRenaming] = React.useState<RenamingState | null>(null);
   const [newId, setNewId] = React.useState('');
   const renamingRef = React.useRef<HTMLInputElement>(null);
@@ -55,6 +57,13 @@ function EditTemplatesDialog({ open, onClose }: EditTemplatesDialogProps) {
     }
   }, [renaming]);
 
+  React.useEffect(() => {
+    if (open && drafts.templateRename) {
+      setRenaming({ target: drafts.templateRename.target });
+      setNewId(drafts.templateRename.newId);
+    }
+  }, [drafts.templateRename, open]);
+
   const handleSubmitRenaming = () => {
     const newTemplates: Record<string, SectionTemplate> = {};
     // rebuild the templates in a way that keeps ordering
@@ -67,13 +76,40 @@ function EditTemplatesDialog({ open, onClose }: EditTemplatesDialogProps) {
     }
     setRenaming(null);
     setNewId('');
+    setTemplateRenameDraft(undefined);
     setTemplates(newTemplates);
+  };
+
+  const handleDeleteTemplate = (id: string) => {
+    if (renaming?.target === id) {
+      setRenaming(null);
+      setNewId('');
+      setTemplateRenameDraft(undefined);
+    }
+    setTemplates((prev) => {
+      const newTemplates = { ...prev };
+      delete newTemplates[id];
+      return newTemplates;
+    });
+  };
+
+  const requestClose = () => {
+    if (
+      drafts.templateRename &&
+      !window.confirm('Discard the unfinished template rename?')
+    ) {
+      return;
+    }
+    setRenaming(null);
+    setNewId('');
+    setTemplateRenameDraft(undefined);
+    onClose();
   };
 
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={requestClose}
       fullWidth
       maxWidth="sm"
       keepMounted={false}
@@ -100,6 +136,10 @@ function EditTemplatesDialog({ open, onClose }: EditTemplatesDialogProps) {
                             value={newId}
                             onChange={(ev) => {
                               setNewId(ev.target.value);
+                              setTemplateRenameDraft({
+                                target: id,
+                                newId: ev.target.value,
+                              });
                             }}
                             inputRef={renamingRef}
                             onSubmit={handleSubmitRenaming}
@@ -120,6 +160,7 @@ function EditTemplatesDialog({ open, onClose }: EditTemplatesDialogProps) {
                             onClick={() => {
                               setRenaming({ target: id });
                               setNewId(id);
+                              setTemplateRenameDraft({ target: id, newId: id });
                             }}
                           >
                             <MaterialSymbol symbol="text_select_start" />
@@ -129,6 +170,7 @@ function EditTemplatesDialog({ open, onClose }: EditTemplatesDialogProps) {
                       <Tooltip title="Edit">
                         <Button
                           onClick={() => {
+                            setTemplateRenameDraft(undefined);
                             setEditorMode({
                               mode: EditorMode.Template,
                               templateId: id,
@@ -145,13 +187,7 @@ function EditTemplatesDialog({ open, onClose }: EditTemplatesDialogProps) {
                         <Button
                           variant="outlined"
                           color="error"
-                          onClick={() =>
-                            setTemplates((prev) => {
-                              const newTemplates = { ...prev };
-                              delete newTemplates[id];
-                              return newTemplates;
-                            })
-                          }
+                          onClick={() => handleDeleteTemplate(id)}
                         >
                           <MaterialSymbol symbol="delete" />
                         </Button>
@@ -201,6 +237,7 @@ function EditTemplatesDialog({ open, onClose }: EditTemplatesDialogProps) {
                     selectAll: true,
                     scrollTo: true,
                   });
+                  setTemplateRenameDraft({ target: newId, newId });
                 }}
               >
                 <MaterialSymbol symbol="add" />
@@ -210,7 +247,7 @@ function EditTemplatesDialog({ open, onClose }: EditTemplatesDialogProps) {
         </Paper>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Close</Button>
+        <Button onClick={requestClose}>Close</Button>
       </DialogActions>
     </Dialog>
   );

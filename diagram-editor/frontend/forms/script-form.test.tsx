@@ -15,6 +15,7 @@ import { NodeManager, NodeManagerProvider } from '../node-manager';
 import type { OperationNode } from '../nodes';
 import { NotificationProvider } from '../notification-provider';
 import { RegistryProvider } from '../registry-provider';
+import { TransientEditorDraftProvider } from '../transient-editor-drafts';
 import type { DiagramElementMetadata } from '../types/api';
 import ScriptForm from './script-form';
 
@@ -81,21 +82,23 @@ function renderScriptForm({
   return render(
     <ApiClientProvider value={apiClient}>
       <RegistryProvider>
-        <NodeManagerProvider value={new NodeManager([scriptNode])}>
-          <DiagramPropertiesProvider>
-            <DiagramSidePanelProvider>
-              <NotificationProvider>
-                {seedEnvironments && <SeedEnvironments />}
-                <ScriptForm
-                  node={scriptNode}
-                  onChange={onChange}
-                  onDelete={jest.fn()}
-                />
-                <PanelStateProbe />
-              </NotificationProvider>
-            </DiagramSidePanelProvider>
-          </DiagramPropertiesProvider>
-        </NodeManagerProvider>
+        <TransientEditorDraftProvider>
+          <NodeManagerProvider value={new NodeManager([scriptNode])}>
+            <DiagramPropertiesProvider>
+              <DiagramSidePanelProvider>
+                <NotificationProvider>
+                  {seedEnvironments && <SeedEnvironments />}
+                  <ScriptForm
+                    node={scriptNode}
+                    onChange={onChange}
+                    onDelete={jest.fn()}
+                  />
+                  <PanelStateProbe />
+                </NotificationProvider>
+              </DiagramSidePanelProvider>
+            </DiagramPropertiesProvider>
+          </NodeManagerProvider>
+        </TransientEditorDraftProvider>
       </RegistryProvider>
     </ApiClientProvider>,
   );

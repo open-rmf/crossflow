@@ -8,6 +8,7 @@ import {
 import { useMemo, useState } from 'react';
 import { MaterialSymbol } from '../nodes';
 import { useRegistry } from '../registry-provider';
+import { useTransientEditorDrafts } from '../transient-editor-drafts';
 import BaseEditOperationForm, {
   type BaseEditOperationFormProps,
 } from './base-edit-operation-form';
@@ -16,9 +17,15 @@ export type NodeFormProps = BaseEditOperationFormProps<'node'>;
 
 function NodeForm(props: NodeFormProps) {
   const registry = useRegistry();
+  const { drafts, setOperationConfigDraft } = useTransientEditorDrafts();
   const nodes = Object.keys(registry.nodes).sort();
-  const [configValue, setConfigValue] = useState(() =>
-    props.node.data.op.config ? JSON.stringify(props.node.data.op.config) : '',
+  const configDraftKey = `node:${props.node.id}:config`;
+  const [configValue, setConfigValue] = useState(
+    () =>
+      drafts.operationConfigs[configDraftKey] ??
+      (props.node.data.op.config
+        ? JSON.stringify(props.node.data.op.config)
+        : ''),
   );
   const configError = useMemo(() => {
     if (configValue === '') {
@@ -103,7 +110,10 @@ function NodeForm(props: NodeFormProps) {
               id: props.node.id,
               item: updatedNode,
             });
-          } catch {}
+            setOperationConfigDraft(configDraftKey, undefined);
+          } catch {
+            setOperationConfigDraft(configDraftKey, ev.target.value);
+          }
         }}
         error={configError}
         slotProps={{
