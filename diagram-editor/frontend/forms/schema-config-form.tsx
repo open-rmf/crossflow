@@ -57,6 +57,8 @@ interface SchemaConfigFormProps {
   definitions: Record<string, unknown>;
   value?: unknown;
   onChange: (value: unknown) => void;
+  rawDraft?: string;
+  onRawDraftChange?: (value: string | undefined) => void;
 }
 
 function schemaObject(value: unknown): JsonSchema | null {
@@ -454,16 +456,24 @@ function RawField({
   required,
   disabled,
   onChange,
-}: FieldProps) {
-  const [draft, setDraft] = useState(() => formatJson(value));
+  draftValue,
+  onDraftChange,
+}: FieldProps & {
+  draftValue?: string;
+  onDraftChange?: (value: string | undefined) => void;
+}) {
+  const [draft, setDraft] = useState(() => draftValue ?? formatJson(value));
   // Only adopt an incoming value that the box does not already say. Re-encoding
   // on every keystroke would strip the user's whitespace and move the cursor.
   useEffect(() => {
     setDraft((current) => {
+      if (draftValue !== undefined) {
+        return draftValue;
+      }
       const parsed = parseJson(current);
       return parsed && equal(parsed.value, value) ? current : formatJson(value);
     });
-  }, [value]);
+  }, [draftValue, value]);
 
   return (
     <TextField
@@ -480,6 +490,9 @@ function RawField({
         const parsed = parseJson(event.target.value);
         if (parsed) {
           onChange(parsed.value);
+          onDraftChange?.(undefined);
+        } else {
+          onDraftChange?.(event.target.value);
         }
       }}
       slotProps={{
@@ -723,6 +736,8 @@ export default function SchemaConfigForm({
   definitions,
   value,
   onChange,
+  rawDraft,
+  onRawDraftChange,
 }: SchemaConfigFormProps) {
   const resolvedSchema = useMemo(
     () => resolveSchema(schema, definitions),
@@ -751,6 +766,21 @@ export default function SchemaConfigForm({
         schema={resolvedSchema}
         value={schemaObject(completed) ?? {}}
         onChange={onChange}
+      />
+    );
+  }
+
+  if (resolvedSchema.type === 'raw') {
+    return (
+      <RawField
+        label="Config"
+        schema={resolvedSchema}
+        value={completed}
+        required={false}
+        disabled={false}
+        onChange={onChange}
+        draftValue={rawDraft}
+        onDraftChange={onRawDraftChange}
       />
     );
   }

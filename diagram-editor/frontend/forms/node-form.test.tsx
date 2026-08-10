@@ -635,6 +635,31 @@ test.each([
   );
 });
 
+test('keeps an invalid raw JSON draft when the node form is reopened', async () => {
+  const onChange = jest.fn();
+  const registry = createRegistry(true);
+  const node = createNode({ preserved: true });
+  const { rerender } = render(
+    <NodeForm key="first-open" node={node} onChange={onChange} />,
+    registry,
+  );
+
+  fireEvent.change(await screen.findByLabelText('Config'), {
+    target: { value: '{ invalid' },
+  });
+  expect(onChange).not.toHaveBeenCalled();
+
+  rerender(<NodeForm key="second-open" node={node} onChange={onChange} />);
+  expect(await screen.findByLabelText('Config')).toHaveValue('{ invalid');
+
+  fireEvent.change(screen.getByLabelText('Config'), {
+    target: { value: '{"saved":true}' },
+  });
+  expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
+    saved: true,
+  });
+});
+
 test('edits the whole config as JSON when the builder is not registered', async () => {
   const registry = createRegistry(supportedSchema);
   registry.nodes = {};

@@ -8,6 +8,7 @@ import {
 } from '@mui/material';
 import { MaterialSymbol } from '../nodes';
 import { useRegistry } from '../registry-provider';
+import { useTransientEditorDrafts } from '../transient-editor-drafts';
 import BaseEditOperationForm, {
   type BaseEditOperationFormProps,
 } from './base-edit-operation-form';
@@ -20,7 +21,9 @@ export type NodeFormProps = BaseEditOperationFormProps<'node'>;
 
 function NodeForm(props: NodeFormProps) {
   const registry = useRegistry();
+  const { drafts, setOperationConfigDraft } = useTransientEditorDrafts();
   const nodes = Object.keys(registry.nodes).sort();
+  const configDraftKey = `node:${props.node.id}:config`;
   const op = props.node.data.op;
   const existingConfig = op.config;
   const builderMetadata = registry.nodes[op.builder];
@@ -105,6 +108,10 @@ function NodeForm(props: NodeFormProps) {
         definitions={registry.schemas}
         value={existingConfig}
         onChange={updateConfig}
+        rawDraft={drafts.operationConfigs[configDraftKey]}
+        onRawDraftChange={(value) =>
+          setOperationConfigDraft(configDraftKey, value)
+        }
       />
       <ConfigExamples
         examples={builderMetadata?.config_examples ?? []}
