@@ -5,57 +5,69 @@ and watch how their node connections result in different behaviors in a simple
 traffic simulator. It is designed to support and demonstrate various `crossflow`
 operations via the diagram editor.
 
-## Basic workflow
+The simulator is a kinematic simulation of a vehicle driving down a road. The
+compiled nodes are intentionally minimal: inputs resemble vehicle controls
+(throttle and steering) and outputs resemble sensor data (obstacle locations,
+traffic signals, dashboard readings). The actual decision-making logic lives in
+the diagram itself, typically inside a Python script operation that reads
+sensor data out of [Buffers](https://open-rmf.github.io/crossflow-handbook/buffers.html)
+and streams control commands back to the vehicle.
 
-Basic/utility nodes to get started:
+The simulation uses metric units throughout: positions and distances are in
+meters, wheel angles are in degrees, and speeds are shown in km/h as the
+user-facing unit.
 
-| Node   | Use case    | Input   | Output   |
-| ------ |------------ | ------- | -------- |
-| `start_engine` | Takes in a float representing the requested trip distance, and toggles the engine on and sets the distance to destination in `VehicleState`. | `f32` | `Result<(), TripRequestError>` |
-| `detect_kinematics` | A continuous service node that monitors the current vehicle velocity and acceleration via query, and streams them out. | - | - |
-| `process_kinematics` | This node pulls the newest `Kinematics` message in the buffer to determine the distance travelled by the vehicle in the last time step. It outputs a `(f32, f32)` representing the distance travelled and velocity in the y-direction. It requires a key to access the `Kinematics` buffer. | `((), BufferKey<Kinematics>)` | `Result<(f32, f32), ()>` |
-| `update_vehicle_state` | Takes in kinematics data in the last cycle by the vehicle and updates the `VehicleState` resource. | `(f32, f32)` | - |
-| `move_vehicle` | Given the input `MoveVehicle` command, attempt to move the simulated vehicle accordingly. | `MoveVehicle` | - |
-| `wait_for_destination_reached` | A continuous service that checks the current `VehicleState` and responds when the vehicle has completed travelling the requested distance. | - | - |
-| `abandon_trip` | A continuous service with an EventReader for `AbandonTrip` events to end the workflow. | - | - |
-| `stop_engine` | Stops the vehicle, turns its engine off, and reset state parameters. | - | - |
-| `trip_error` | A logger node that prints out trip errors. | `TripRequestError` | - |
+## Vehicle controls
 
-### Example
-
-Try loading `base_workflow.json` into the diagram editor and observe the vehicle travel the requested distance. Note that in this workflow, the vehicle ignores its environment (e.g. traffic signal, obstacles, etc.) and simply moves forward at the default speed.
-
-
-## Intermediate workflows
-
-You may wish to create a more complex workflow that accounts for other factors, e.g.
-- Respect traffic signals and only move forward when the traffic light is green
-- Slow down or stop the vehicle when there are pedestrians/obstacles in front of the vehicle
-- Any combination of the above
-
-The example application comes with some additional nodes to experiment with:
+Nodes that command the vehicle:
 
 | Node   | Use case    | Input   | Output   |
 | ------ |------------ | ------- | -------- |
-| `begin_vehicle_check` | Outputs the vehicle's current state checklist in the form of a HashMap. This can be connected to a [Split](https://open-rmf.github.io/crossflow-handbook/parallelism.html#split) operation that sends the HashMap's elements down different branches.  | - | `HashMap<String, ReadyState>` |
-| `vehicle_check_ready` | Takes in the current `ReadyState` of a single vehicle checklist element, and outputs `ReadyState::Ready`. This node is currently used to represent conducting checks on each checklist item. | `ReadyState` | `ReadyState` |
-| `validate_vehicle_check` | Takes in a collection of `ReadyState`, and checks that all the checklist items are ready. This can be preceded by a [Join](https://open-rmf.github.io/crossflow-handbook/join.html) operation to demonstrate combining and synchronizing outputs of various nodes. | `Vec<ReadyState>` | `Result<(), TripRequestError>` |
-| `detect_traffic_signal` | A continuous service node that monitors the upcoming traffic signal via events, and streams them out. In more complex workflows, the stream out can be connected to a [Buffer](https://open-rmf.github.io/crossflow-handbook/buffers.html) node to manage data being received at different rates. | - | - |
-| `process_traffic_signal` | This node checks the newest `TrafficSignal` message in the buffer to determine the best vehicle move. It only cares about the latest signal. It requires a key to access the `TrafficSignal` buffer. | `((), BufferKey<TrafficSignal>)` | `Result<MoveVehicle, ()>` |
-| `configure_obstacles_thresholds` | This node takes in an optional config for users to configure `ObstacleLimits` which affects whether obstacles surrounding the vehicle is considered to be close enough. The configured values are updated to the `WorldLimits` resource, and will be reset in the `stop_engine` node. | - | - |
-| `detect_obstacles` | A continuous service node that monitors the current obstacles around the vehicle via query, and streams them out. In more complex workflows, the stream out can be connected to a [Buffer](https://open-rmf.github.io/crossflow-handbook/buffers.html) node to manage data being received at different rates. | - | - |
-| `process_obstacles` | This node pulls the newest `Obstacles` message in the buffer to determine the best vehicle move. It only cares about the latest detected obstacles. It requires a key to access the `Obstacles` buffer. | `((), BufferKey<Obstacles>)` | `Result<MoveVehicle, ()>` |
-| `filter_arriving` | This node takes in an optional config for users to configure the distance-to-intersection threshold for `ApproachingIntersection` messages. | `ApproachingIntersection` | `Result<ApproachingIntersection, ()>` |
-| `approaching_intersection` | A continuous service node that calculates the main vehicle's distance to the next intersection, and streams out `ApproachingIntersection` messages when the vehicle is arriving at the intersection line. | - | - |
-| `check_change_lane` | This node takes in the best vehicle move determined by the previous node, and checks for adjacent obstacles to decide whether the vehicle should attempt at changing lane. This only takes effect if the `allow_change_lane` feature is enabled via the simulator UI. | `(MoveVehicle, BufferKey<Obstacles>)` | `MoveVehicle` |
-| `follow_speed_limit` | This node checks the current speed limit and slows down the vehicle if the current speed or commanded speed has exceeded the limit. | `MoveVehicle` | `MoveVehicle` |
-| `join_traffic_signal_and_obstacles` | This node checks the input `TrafficSignalWithObstacles` constructed by a preceding [Join](https://open-rmf.github.io/crossflow-handbook/join.html) operation to determine the best vehicle move. It accounts for both `TrafficSignal` and `Obstacles` data, and chooses the best move based on both factors. | `TrafficSignalWithObstacles` | `Result<MoveVehicle, TripRequestError>` |
-| `listen_traffic_signal_and_obstacles` | This node checks the latest `TrafficSignal` and/or `Obstacles` buffers via a preceding [Listen](https://open-rmf.github.io/crossflow-handbook/listen.html) operation to determine the best vehicle move. Since Listen operations are activated when any of the connected buffers are modified, if either buffer is empty, it will calculate the best move based on the other buffer. If both buffers contain messages, it will choose the best move based on both factors. It requires keys to both `TrafficSignal` and `Obstacles` buffers. | `TrafficSignalWithObstaclesAccessor` | `Result<MoveVehicle, TripRequestError>` |
+| `set_throttle` | Sets the target speed of the vehicle. Pass in a number for the target speed in km/h, or a dict to set both `target_speed` (km/h) and `max_acceleration` (km/h per second). The vehicle accelerates toward the target speed within its acceleration limit. | `f32` or `ThrottleCommand` | `Result<(), String>` |
+| `steer` | Sets the target angle of the front wheels. Pass in a number for the target turn angle in degrees (positive angles steer left), or a dict to set both `target_turn_angle` and `max_steer_speed` (degrees per second). | `f32` or `SteeringCommand` | `Result<(), String>` |
 
-### Examples
+## Sensors
 
-You may consider starting with the ready-made JSON workflows in `traffic_app/diagrams/` and observe how the vehicle behaves differently between them. Try experimenting with the various settings, such as buffer sizes and fetch types (clone vs. pull) to see how they affect the workflows.
+Continuous service nodes that stream out data about the vehicle and its
+surroundings. Their streams are typically connected to a
+[Buffer](https://open-rmf.github.io/crossflow-handbook/buffers.html) so that a
+script can fetch the newest value on its own schedule:
 
+| Node   | Use case    | Streams   |
+| ------ |------------ | --------- |
+| `dashboard` | Streams the vehicle's dashboard instruments every update. | `speed` (km/h), `steering_wheel` (degrees) |
+| `detect_traffic_signal` | Monitors the upcoming traffic signal via events and streams out changes. | `traffic_signal` (`red`/`yellow`/`green`/`empty`) |
+| `detect_speed_limit` | Streams the speed limit posted by the road sign nearest to the vehicle. | `speed_limit` (km/h) |
+| `detect_obstacles` | Monitors obstacles ahead of the vehicle via query and streams out their positions relative to the vehicle, in meters. | `obstacles` (list of `{x, y}`) |
+| `detect_lane_position` | Streams the vehicle's current x position within the lane, in meters. | `position` (meters) |
+| `detect_stop_request` | A "user cancellation sensor" that emits each time the STOP button in the simulator UI is pressed. Use this to let the user end an active workflow early. | `stop` (elapsed seconds) |
+
+## Controllers
+
+| Node   | Use case    | Input   | Streams   |
+| ------ |------------ | ------- | --------- |
+| `lane_controller` | Continuously steers the vehicle toward a target x position within the lane. The target is read from a `ScriptMessage` buffer via [buffer access](https://open-rmf.github.io/crossflow-handbook/buffer-access.html), so a script can update the target while the controller runs. Its steering commands are streamed out and typically connected to the `steer` node. Optionally configure the controller gains (`err_gain`, `dir_gain`, `max_yaw`). | `((), BufferKey<ScriptMessage>)` | `steer` (degrees) |
+
+## Example workflows
+
+Ready-made JSON workflows live in `traffic_app/diagrams/`. Each one carries a
+description and input examples, and they are worth exploring in this order:
+
+| Workflow | What it demonstrates | Input |
+| -------- | -------------------- | ----- |
+| `drive.json` | The simplest possible workflow: set the throttle and terminate. The vehicle keeps driving at the target speed. | Target speed in km/h, e.g. `10` |
+| `donuts.json` | [Split](https://open-rmf.github.io/crossflow-handbook/parallelism.html#split) and [Join](https://open-rmf.github.io/crossflow-handbook/join.html) operations routing one input to both vehicle controls, which makes the vehicle spin in circles. | e.g. `{"throttle": 20, "steer": -45}` |
+| `stoplight.json` | A Python script control loop that fetches the latest traffic signal from a buffer and stops the vehicle at red lights. | Duration in seconds, e.g. `30` |
+| `stoplight_and_obstacles.json` | The same control loop extended to also brake for obstacles ahead of the vehicle. | Duration in seconds, e.g. `30` |
+| `speed_limit.json` | A control loop that follows the speed limit posted on road signs as they pass by. | Duration in seconds, e.g. `60` |
+| `change_lane.json` | Splitting responsibilities between the diagram and compiled nodes: a script decides which lane to drive in and streams the target into a buffer, while the `lane_controller` node steers toward it. | Duration in seconds, e.g. `60` |
+
+All of the timed workflows also connect a `detect_stop_request` sensor, so you
+can press the STOP button in the simulator's user panel to end the trip early.
+
+Try experimenting with the various settings, such as buffer sizes and fetch
+types (clone vs. pull), or edit the scripts and controller gains to see how
+they affect the vehicle's behavior.
 
 ## Try it out!
 
@@ -65,4 +77,7 @@ From the current directory, run
 cargo run -- serve
 ```
 
-Then open http://localhost:3000 to run the diagram editor app from your web browser.
+Then open http://localhost:3000 to run the diagram editor app from your web
+browser. Load one of the workflows from `traffic_app/diagrams/`, click
+`Run Workflow`, enter an input (each workflow's input examples are listed in
+its side panel), and watch the vehicle react in the simulator window.
