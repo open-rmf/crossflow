@@ -16,8 +16,8 @@
 */
 
 use crate::{
-    spawn_world::{LaneDash, WorldLimits},
-    vehicle::{MainVehicle, Position, VehicleDynamics, ThrottleCommand, SteeringCommand, cap},
+    spawn_world::{LaneDash, METERS_PER_SECOND_TO_KMH, VEHICLE_LENGTH_M, WorldLimits},
+    vehicle::{MainVehicle, Position, SteeringCommand, ThrottleCommand, VehicleDynamics},
 };
 use bevy::prelude::*;
 
@@ -57,21 +57,22 @@ fn move_vehicles(
     let dt = time.delta_secs();
     for (mut transform, mut position, mut dynamics, engine, steering, main) in transforms.iter_mut() {
         dynamics.command(&*engine, &*steering, dt);
-        let speed = dynamics.speed;
+        // dynamics.speed is a user-facing value in km/h; positions are in meters
+        let speed = dynamics.speed / METERS_PER_SECOND_TO_KMH;
 
+        // Kinematic bicycle model. The heading is offset by 90 degrees because
+        // yaw = 0 points the vehicle up the road (+y axis).
         let w = dynamics.wheel_rotation.to_radians();
-        let yaw = position.yaw + w + f32::to_radians(90.0);
-
-        let v = speed * Vec2::new(f32::cos(yaw), f32::sin(yaw));
+        let heading = position.yaw + f32::to_radians(90.0);
+        let v = speed * Vec2::new(f32::cos(heading), f32::sin(heading));
         position.translation += v * dt;
-        position.yaw += speed * w * dt;
+        position.yaw += speed / VEHICLE_LENGTH_M * f32::tan(w) * dt;
 
-        position.translation.x = cap(position.translation.x, 10.0);
-        if position.translation.x < -12.0 {
-            position.translation.x = -12.0
-        } else if position.translation.x > -2.0 {
-            position.translation.x = -2.0;
-        }
+        // Keep the vehicle within the road
+        let half_width = 0.5 * world_limits.vehicle_size.0 / scale;
+        let min_x = world_limits.lane_limits.0 / scale + half_width;
+        let max_x = world_limits.lane_limits.1 / scale - half_width;
+        position.translation.x = position.translation.x.clamp(min_x, max_x);
 
         let p = position.translation;
         transform.translation = scale * Vec3::new(p.x, p.y, 0.0);

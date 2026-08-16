@@ -129,8 +129,10 @@ fn move_pedestrians(
             // If pedestrian is dead, they should not move
             continue;
         }
-        transform.translation.x += v.x * dt;
-        transform.translation.y += v.y * dt;
+        // Velocity is in m/s while transforms are in pixels
+        let scale = world_limits.convert_m_to_px;
+        transform.translation.x += v.x * scale * dt;
+        transform.translation.y += v.y * scale * dt;
 
         // If pedestrian reached the edge of the limit, flip the direction
         if transform.translation.x <= world_limits.pavement_limits.0 {

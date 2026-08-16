@@ -130,11 +130,11 @@ impl<'w, 's> UserInteraction<'w, 's> {
         if let Ok(vehicle_state) = self.vehicle_state.single() {
             Grid::new("vehicle_state").show(ui, |ui| {
                 ui.label("Speed: ");
-                ui.label(format!("{:0.1}", vehicle_state.speed));
+                ui.label(format!("{:0.1} km/h", vehicle_state.speed));
                 ui.end_row();
 
                 ui.label("Turning Angle: ");
-                ui.label(format!("{:.0}", vehicle_state.wheel_rotation));
+                ui.label(format!("{:.0}°", vehicle_state.wheel_rotation));
             });
             ui.add_space(20.0);
         }
