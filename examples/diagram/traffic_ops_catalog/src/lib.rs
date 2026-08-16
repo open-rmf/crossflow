@@ -79,17 +79,23 @@ struct DashboardStreams {
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ChangeLaneConfig {
+    /// Heading limit in radians. When the vehicle yaw exceeds this, the
+    /// controller stops steering further into the turn.
     pub max_yaw: f32,
+    /// Steering command (degrees) per meter of lateral error.
     pub err_gain: f32,
+    /// Damping term: steering command (degrees) per radian of vehicle yaw.
     pub dir_gain: f32,
 }
 
 impl Default for ChangeLaneConfig {
     fn default() -> Self {
+        // Approximately critically damped for the kinematic bicycle model
+        // at 20 km/h with a 5 m wheelbase
         ChangeLaneConfig {
-            max_yaw: 5.0,
-            err_gain: 0.01,
-            dir_gain: 1.0,
+            max_yaw: 0.35,
+            err_gain: 2.0,
+            dir_gain: 48.0,
         }
     }
 }
