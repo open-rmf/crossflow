@@ -876,6 +876,17 @@
                     "operationFinished"
                   ],
                   "type": "object"
+                },
+                {
+                  "properties": {
+                    "streamMessageSent": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "streamMessageSent"
+                  ],
+                  "type": "object"
                 }
               ]
             },

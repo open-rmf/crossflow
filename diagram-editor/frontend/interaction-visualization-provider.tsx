@@ -7,6 +7,7 @@ export interface InteractionVisualizationContext {
   markInteractionFinished: () => void;
   markInteractionOperationFinished: (operationId: string) => void;
   markInteractionOperationStarted: (operationId: string) => void;
+  markInteractionStreamMessage: (operationId: string) => void;
 }
 
 const DefaultInteractionVisualizationContext: InteractionVisualizationContext =
@@ -17,6 +18,7 @@ const DefaultInteractionVisualizationContext: InteractionVisualizationContext =
     markInteractionFinished: () => {},
     markInteractionOperationFinished: () => {},
     markInteractionOperationStarted: () => {},
+    markInteractionStreamMessage: () => {},
   };
 
 const InteractionVisualizationContextComp =

@@ -55,6 +55,7 @@ import {
   type InteractionVisualizationContext,
   InteractionVisualizationProvider,
 } from './interaction-visualization-provider';
+import { pulseStreamHandle } from './handles';
 import { type LoadContext, LoadContextProvider } from './load-context-provider';
 import { NodeManager, NodeManagerProvider } from './node-manager';
 import {
@@ -284,6 +285,17 @@ function DiagramEditor() {
     },
     [nodeManager],
   );
+  const markInteractionStreamMessage = React.useCallback(
+    (operationId: string) => {
+      const nodeId = getInteractionNodeId(operationId, nodeManager);
+      if (!nodeId) {
+        return;
+      }
+      markInteractionOperationFinished(operationId);
+      pulseStreamHandle(nodeId);
+    },
+    [markInteractionOperationFinished, nodeManager],
+  );
   const interactionVisualizationContext =
     React.useMemo<InteractionVisualizationContext>(
       () => ({
@@ -293,6 +305,7 @@ function DiagramEditor() {
         markInteractionFinished,
         markInteractionOperationFinished,
         markInteractionOperationStarted,
+        markInteractionStreamMessage,
       }),
       [
         clearInteractionVisualization,
@@ -301,6 +314,7 @@ function DiagramEditor() {
         markInteractionFinished,
         markInteractionOperationFinished,
         markInteractionOperationStarted,
+        markInteractionStreamMessage,
       ],
     );
   const savedNodes = React.useRef<DiagramEditorNode[]>([]);

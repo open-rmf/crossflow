@@ -893,6 +893,7 @@ impl InteractionSessionEnd {
 pub enum InteractionSessionFeedback {
     OperationStarted(String),
     OperationFinished(String),
+    StreamMessageSent(String),
 }
 
 #[cfg_attr(feature = "json_schema", derive(schemars::JsonSchema))]
@@ -1037,11 +1038,9 @@ async fn send_interaction_feedback<W>(write: &mut W, feedback: &TracedEvent)
 where
     W: WebsocketSinkExt<InteractionSessionMessage>,
 {
-    for op_id in operation_finished_ids(feedback) {
+    for message in operation_finished_feedback(feedback) {
         write
-            .send_json(&InteractionSessionMessage::Feedback(
-                InteractionSessionFeedback::OperationFinished(op_id),
-            ))
+            .send_json(&InteractionSessionMessage::Feedback(message))
             .await;
     }
 
@@ -1074,17 +1073,24 @@ fn operation_started_id(feedback: &TracedEvent) -> Option<String> {
 }
 
 #[cfg(feature = "router")]
-fn operation_finished_ids(feedback: &TracedEvent) -> Vec<String> {
+fn operation_finished_feedback(feedback: &TracedEvent) -> Vec<InteractionSessionFeedback> {
     match &feedback.event {
         TracedEventKind::MessageSent(message) => message
             .output
             .iter()
             .filter_map(|source| {
-                source
+                let op_id = source
                     .info
                     .as_ref()
                     .and_then(|info| info.id().as_ref())
-                    .map(ToString::to_string)
+                    .map(ToString::to_string)?;
+                let is_stream =
+                    source.port.first().and_then(|part| part.name()) == Some("stream_out");
+                Some(if is_stream {
+                    InteractionSessionFeedback::StreamMessageSent(op_id)
+                } else {
+                    InteractionSessionFeedback::OperationFinished(op_id)
+                })
             })
             .collect(),
         _ => Vec::new(),
@@ -1580,6 +1586,7 @@ mod tests {
                 feedback,
                 InteractionSessionFeedback::OperationStarted(_)
                     | InteractionSessionFeedback::OperationFinished(_)
+                    | InteractionSessionFeedback::StreamMessageSent(_)
             ));
         }
 

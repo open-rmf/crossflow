@@ -28,7 +28,6 @@ export type AddOperationKey =
   | 'node'
   | 'fork'
   | 'unzip'
-  | 'split'
   | 'join'
   | 'transform'
   | 'buffer'
@@ -243,22 +242,6 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
       createNodeChange(namespace, parentId, newNodePosition, {
         type: 'unzip',
         next: [],
-      }),
-  },
-  {
-    key: 'split',
-    label: 'Split',
-    createPreviewNode: (namespace, parentId) =>
-      createOperationNode(
-        namespace,
-        parentId,
-        { x: 0, y: 0 },
-        { type: 'split' },
-        'preview_split',
-      ),
-    createChanges: ({ namespace, parentId, newNodePosition }) =>
-      createNodeChange(namespace, parentId, newNodePosition, {
-        type: 'split',
       }),
   },
   {

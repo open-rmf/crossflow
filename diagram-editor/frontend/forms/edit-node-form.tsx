@@ -56,7 +56,8 @@ function EditOperationNodeForm(props: EditOperationNodeFormProps) {
       return <StreamOutForm {...(props as StreamOutFormProps)} />;
     }
     case 'fork_clone':
-    case 'fork_result': {
+    case 'fork_result':
+    case 'split': {
       return <ForkForm {...(props as ForkFormProps)} />;
     }
     default: {

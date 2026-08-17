@@ -29,6 +29,30 @@ export interface HandleProps extends Omit<ReactFlowHandleProps, 'id'> {
   variant: HandleType;
 }
 
+const streamHandleAnimations = new WeakMap<HTMLElement, Animation>();
+
+export function pulseStreamHandle(nodeId: string) {
+  document
+    .querySelectorAll<HTMLElement>('.react-flow__handle.handle-data-stream')
+    .forEach((handle) => {
+      if (handle.dataset.nodeid !== nodeId) {
+        return;
+      }
+
+      streamHandleAnimations.get(handle)?.cancel();
+      const style = getComputedStyle(handle);
+      const animation = handle.animate(
+        [
+          { backgroundColor: style.borderTopColor },
+          { backgroundColor: style.borderTopColor, offset: 0.35 },
+          { backgroundColor: style.backgroundColor },
+        ],
+        { duration: 280, easing: 'ease-out' },
+      );
+      streamHandleAnimations.set(handle, animation);
+    });
+}
+
 function variantClassName(handleType?: HandleType): string | undefined {
   if (handleType === undefined) {
     return undefined;

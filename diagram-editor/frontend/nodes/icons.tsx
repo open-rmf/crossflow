@@ -42,6 +42,14 @@ export function ForkIcon(): React.JSX.Element {
   );
 }
 
+export function CloneIcon(): React.JSX.Element {
+  return <MaterialSymbol symbol="content_copy" />;
+}
+
+export function ResultIcon(): React.JSX.Element {
+  return <MaterialSymbol symbol="question_mark" />;
+}
+
 export function TransformIcon(): React.JSX.Element {
   return <MaterialSymbol symbol="change_circle" />;
 }
@@ -69,7 +77,9 @@ export function ListenIcon(): React.JSX.Element {
 }
 
 export function JoinIcon(): React.JSX.Element {
-  return <MaterialSymbol symbol="arrow_and_edge" />;
+  return (
+    <MaterialSymbol symbol="call_merge" sx={{ transform: 'scaleY(-1)' }} />
+  );
 }
 
 export function StreamOutIcon(): React.JSX.Element {
@@ -107,11 +117,11 @@ export function getIcon(op: DiagramOperation): React.ComponentType {
     case 'section':
       return SectionIcon;
     case 'fork_clone':
-      return ForkIcon;
+      return CloneIcon;
     case 'unzip':
       return UnzipIcon;
     case 'fork_result':
-      return ForkIcon;
+      return ResultIcon;
     case 'split':
       return SplitIcon;
     case 'join':

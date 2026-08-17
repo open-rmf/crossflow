@@ -268,6 +268,10 @@ export type InteractionSessionMessage =
           operationFinished: string;
           [k: string]: unknown;
         }
+      | {
+          streamMessageSent: string;
+          [k: string]: unknown;
+        }
     ) & {
       type: 'feedback';
       [k: string]: unknown;

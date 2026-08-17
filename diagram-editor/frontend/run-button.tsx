@@ -70,6 +70,7 @@ export function RunPanel({
     markInteractionFinished,
     markInteractionOperationFinished,
     markInteractionOperationStarted,
+    markInteractionStreamMessage,
   } = useInteractionVisualization();
   const [templates] = useTemplates();
   const registry = useRegistry();
@@ -190,6 +191,18 @@ export function RunPanel({
               setExecutionTimeline((prev) =>
                 [...prev, entry].slice(-MaxExecutionTimelineEntries),
               );
+              return;
+            }
+
+            if (
+              msg.type === 'feedback' &&
+              'streamMessageSent' in msg &&
+              typeof msg.streamMessageSent === 'string'
+            ) {
+              if (!showProgressRef.current) {
+                return;
+              }
+              markInteractionStreamMessage(msg.streamMessageSent);
               return;
             }
 
