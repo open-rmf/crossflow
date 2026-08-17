@@ -1,4 +1,10 @@
-import { Popover, type PopoverProps, useTheme } from '@mui/material';
+import {
+  Popover,
+  type PopoverActions,
+  type PopoverProps,
+  useTheme,
+} from '@mui/material';
+import { useEffect, useRef, useState } from 'react';
 import { EditPopoverWidth } from './diagram-side-panel-layout';
 import { useResponsiveEditPopoverPosition } from './use-responsive-edit-popover-position';
 
@@ -24,9 +30,26 @@ export function ResponsiveEditPopover({
     }
   };
 
+  // A popover only fits itself to the viewport as it opens, so content that
+  // grows afterwards - expanding a section, switching on an optional field -
+  // runs off the bottom of the screen. Re-run the fit whenever it resizes.
+  const actions = useRef<PopoverActions>(null);
+  const [paper, setPaper] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!paper) {
+      return;
+    }
+    const observer = new ResizeObserver(() =>
+      actions.current?.updatePosition(),
+    );
+    observer.observe(paper);
+    return () => observer.disconnect();
+  }, [paper]);
+
   return (
     <Popover
       {...props}
+      action={actions}
       disableEnforceFocus
       anchorPosition={responsiveAnchorPosition}
       anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
@@ -36,6 +59,7 @@ export function ResponsiveEditPopover({
           onExit: preservePositionTransition,
         },
         paper: {
+          ref: setPaper,
           style: {
             width: `min(${EditPopoverWidth}px, calc(100vw - 32px))`,
           },

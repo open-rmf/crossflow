@@ -4,14 +4,18 @@ import {
   Stack,
   TextField,
   Tooltip,
+  Typography,
 } from '@mui/material';
-import { useMemo, useState } from 'react';
 import { MaterialSymbol } from '../nodes';
 import { useRegistry } from '../registry-provider';
 import { useTransientEditorDrafts } from '../transient-editor-drafts';
 import BaseEditOperationForm, {
   type BaseEditOperationFormProps,
 } from './base-edit-operation-form';
+import ConfigExamples from './config-examples';
+import SchemaConfigForm, {
+  getSchemaConfigDefaults,
+} from './schema-config-form';
 
 export type NodeFormProps = BaseEditOperationFormProps<'node'>;
 
@@ -20,40 +24,30 @@ function NodeForm(props: NodeFormProps) {
   const { drafts, setOperationConfigDraft } = useTransientEditorDrafts();
   const nodes = Object.keys(registry.nodes).sort();
   const configDraftKey = `node:${props.node.id}:config`;
-  const [configValue, setConfigValue] = useState(
-    () =>
-      drafts.operationConfigs[configDraftKey] ??
-      (props.node.data.op.config
-        ? JSON.stringify(props.node.data.op.config)
-        : ''),
-  );
-  const configError = useMemo(() => {
-    if (configValue === '') {
-      return false;
-    }
-    try {
-      JSON.parse(configValue);
-      return false;
-    } catch {
-      return true;
-    }
-  }, [configValue]);
+  const op = props.node.data.op;
+  const existingConfig = op.config;
+  const builderMetadata = registry.nodes[op.builder];
+
+  const replaceOp = (updatedOp: typeof op) => {
+    props.onChange?.({
+      type: 'replace',
+      id: props.node.id,
+      item: { ...props.node, data: { ...props.node.data, op: updatedOp } },
+    });
+  };
+
+  const updateConfig = (config: unknown) => {
+    const { config: _config, ...rest } = op;
+    replaceOp(config === undefined ? rest : { ...rest, config });
+  };
 
   return (
     <BaseEditOperationForm {...props}>
       <TextField
         label="Display Text"
-        value={props.node.data.op.display_text || ''}
+        value={op.display_text || ''}
         onChange={(ev) => {
-          try {
-            const updatedNode = { ...props.node };
-            updatedNode.data.op.display_text = ev.target.value || undefined;
-            props.onChange?.({
-              type: 'replace',
-              id: props.node.id,
-              item: updatedNode,
-            });
-          } catch {}
+          replaceOp({ ...op, display_text: ev.target.value || undefined });
         }}
       />
       <Autocomplete
@@ -61,14 +55,22 @@ function NodeForm(props: NodeFormProps) {
         autoSelect
         options={nodes}
         getOptionLabel={(option) => option}
-        value={props.node.data.op.builder}
+        value={op.builder}
         onChange={(_, value) => {
-          const updatedNode = { ...props.node };
-          updatedNode.data.op.builder = value ?? '';
-          props.onChange?.({
-            type: 'replace',
-            id: props.node.id,
-            item: updatedNode,
+          const builder = value ?? '';
+          // Only a node that has no config yet gets the new builder's defaults;
+          // an existing config is the user's, so it is left alone.
+          const defaults =
+            existingConfig === undefined
+              ? getSchemaConfigDefaults(
+                  registry.nodes[builder]?.config_schema,
+                  registry.schemas,
+                )
+              : undefined;
+          replaceOp({
+            ...op,
+            builder,
+            ...(defaults !== undefined && { config: defaults }),
           });
         }}
         renderInput={(params) => (
@@ -94,33 +96,26 @@ function NodeForm(props: NodeFormProps) {
           );
         }}
       />
-      <TextField
-        multiline
-        rows={4}
-        label="Config"
-        value={configValue}
-        onChange={(ev) => {
-          setConfigValue(ev.target.value);
-          try {
-            const updatedNode = { ...props.node };
-            updatedNode.data.op.config =
-              ev.target.value === '' ? undefined : JSON.parse(ev.target.value);
-            props.onChange?.({
-              type: 'replace',
-              id: props.node.id,
-              item: updatedNode,
-            });
-            setOperationConfigDraft(configDraftKey, undefined);
-          } catch {
-            setOperationConfigDraft(configDraftKey, ev.target.value);
-          }
-        }}
-        error={configError}
-        slotProps={{
-          htmlInput: {
-            sx: { fontFamily: 'monospace', whiteSpace: 'nowrap' },
-          },
-        }}
+      {/* The dropdown only shows this while choosing a builder, which is not
+          when it is most needed - descriptions explain what the config does. */}
+      {builderMetadata?.description && (
+        <Typography color="text.secondary" variant="body2">
+          {builderMetadata.description}
+        </Typography>
+      )}
+      <SchemaConfigForm
+        schema={builderMetadata?.config_schema}
+        definitions={registry.schemas}
+        value={existingConfig}
+        onChange={updateConfig}
+        rawDraft={drafts.operationConfigs[configDraftKey]}
+        onRawDraftChange={(value) =>
+          setOperationConfigDraft(configDraftKey, value)
+        }
+      />
+      <ConfigExamples
+        examples={builderMetadata?.config_examples ?? []}
+        onApply={updateConfig}
       />
     </BaseEditOperationForm>
   );

@@ -8,6 +8,7 @@ import { of } from 'rxjs';
 import { ApiClient } from '../api-client';
 import { ApiClientProvider } from '../api-client-provider';
 import { RegistryProvider } from '../registry-provider';
+import { TransientEditorDraftProvider } from '../transient-editor-drafts';
 import type { DiagramElementMetadata } from '../types/api';
 import type { OperationNode, OperationNodeTypes } from '.';
 
@@ -42,7 +43,9 @@ function createTestingProviders(registry: DiagramElementMetadata) {
     return (
       <ApiClientProvider value={apiClient}>
         <RegistryProvider>
-          <ReactFlowProvider>{children}</ReactFlowProvider>
+          <TransientEditorDraftProvider>
+            <ReactFlowProvider>{children}</ReactFlowProvider>
+          </TransientEditorDraftProvider>
         </RegistryProvider>
       </ApiClientProvider>
     );

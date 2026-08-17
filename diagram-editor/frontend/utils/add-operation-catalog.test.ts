@@ -116,7 +116,7 @@ describe('add operation catalog', () => {
       messages: [],
       nodes: {
         custom_builder: {
-          config_schema: true,
+          config_schema: { $ref: '#/$defs/CustomConfig' },
           default_display_text: 'Custom Builder',
           request: 0,
           response: 1,
@@ -129,7 +129,15 @@ describe('add operation catalog', () => {
         split: [],
         unzip: [],
       },
-      schemas: {},
+      schemas: {
+        CustomConfig: {
+          type: 'object',
+          properties: {
+            label: { type: 'string', default: 'New node' },
+            retries: { type: 'integer', default: 2 },
+          },
+        },
+      },
       scripting: {},
       sections: {},
       trace_supported: false,
@@ -148,6 +156,10 @@ describe('add operation catalog', () => {
     expect(change.item.type).toBe('node');
     if (change.item.type === 'node') {
       expect(change.item.data.op.builder).toBe('custom_builder');
+      expect(change.item.data.op.config).toEqual({
+        label: 'New node',
+        retries: 2,
+      });
     }
 
     const popupCandidates = getAddOperationCandidates(registry, {
