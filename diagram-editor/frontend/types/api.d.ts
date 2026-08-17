@@ -153,9 +153,7 @@ export type SectionSchema = (
       [k: string]: unknown;
     }
 ) & {
-  config?: {
-    [k: string]: unknown;
-  };
+  config?: unknown;
   connect?: {
     [k: string]: NextOperation;
   };
@@ -1308,9 +1306,7 @@ export interface ScriptSchema {
    * Configured data to pass into the function that `run` refers to. This will
    * be passed in as a keyword argument named `config`.
    */
-  config?: {
-    [k: string]: unknown;
-  };
+  config?: unknown;
   /**
    * Override for text that should be displayed for an operation within an
    * editor.
@@ -1482,9 +1478,7 @@ export interface ConfigExample {
   /**
    * The value of the config
    */
-  config: {
-    [k: string]: unknown;
-  };
+  config: unknown;
   /**
    * A description of what this config is for
    */
@@ -1642,9 +1636,7 @@ export interface ScriptConfigExample {
   /**
    * The example configuration
    */
-  config: {
-    [k: string]: unknown;
-  };
+  config: unknown;
   /**
    * A description of this example
    */
