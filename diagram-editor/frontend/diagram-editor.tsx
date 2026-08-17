@@ -1,6 +1,11 @@
 import {
   Alert,
   alpha,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   darken,
   Fab,
   Popover,
@@ -35,9 +40,20 @@ import CommandPanel from './command-panel';
 import { CompatibleAddOperation } from './compatible-add-operation';
 import { ConnectionCompatibilityProvider } from './connection-compatibility-provider';
 import { ConnectionHintPanel } from './connection-hint-panel';
-import { useDiagramProperties } from './diagram-properties-provider';
+import {
+  createEmptyDiagramProperties,
+  useDiagramProperties,
+} from './diagram-properties-provider';
 import { useDiagramSidePanel } from './diagram-side-panel-controller';
 import { getEditPopoverPositionForNode } from './diagram-side-panel-layout';
+import {
+  clearDraftWorkspace,
+  type DraftWorkspaceContent,
+  type DraftWorkspaceV1,
+  draftWorkspaceFingerprint,
+  readDraftWorkspace,
+  writeDraftWorkspace,
+} from './draft-workspace';
 import type { DiagramEditorEdge } from './edges';
 import { EDGE_TYPES } from './edges';
 import {
@@ -57,6 +73,10 @@ import {
 } from './interaction-visualization-provider';
 import { pulseStreamHandle } from './handles';
 import { type LoadContext, LoadContextProvider } from './load-context-provider';
+import {
+  NewDiagramDialog,
+  useNewDiagramAfterExport,
+} from './new-diagram-dialog';
 import { NodeManager, NodeManagerProvider } from './node-manager';
 import {
   type DiagramEditorNode,
@@ -70,6 +90,10 @@ import { NotificationProvider } from './notification-provider';
 import { useRegistry } from './registry-provider';
 import { ResponsiveEditPopover } from './responsive-edit-popover';
 import { useTemplates } from './templates-provider';
+import { useTransientEditorDrafts } from './transient-editor-drafts';
+import type { Diagram } from './types/api';
+import { useBeforeUnloadWarning } from './use-before-unload-warning';
+import { useDraftPagehideFlush } from './use-draft-pagehide-flush';
 import { EdgesProvider } from './use-edges';
 import { autoLayout } from './utils/auto-layout';
 import { isRemoveChange } from './utils/change';
@@ -88,7 +112,12 @@ import { shouldIgnoreEscapeClose } from './utils/editing-target';
 import { exhaustiveCheck } from './utils/exhaustive-check';
 import { exportTemplate } from './utils/export-diagram';
 import { calculateScopeBounds, LAYOUT_OPTIONS } from './utils/layout';
-import { loadDiagramJson, loadEmpty, loadTemplate } from './utils/load-diagram';
+import {
+  type LoadedDiagram,
+  loadDiagramJson,
+  loadEmpty,
+  loadTemplate,
+} from './utils/load-diagram';
 import { joinNamespaces, ROOT_NAMESPACE } from './utils/namespace';
 
 const NonCapturingPopoverContainer = ({
@@ -101,6 +130,44 @@ interface EditingEdge {
   sourceNode: DiagramEditorNode;
   targetNode: DiagramEditorNode;
   edge: DiagramEditorEdge;
+}
+
+interface PreparedDiagram {
+  diagram: Diagram;
+  loaded: LoadedDiagram;
+  filename: string | null;
+}
+
+interface RecoveryCandidate {
+  draft: DraftWorkspaceV1;
+  linkedDiagram: PreparedDiagram | null;
+}
+
+function decodeDiagramParam(diagramParam: string): string {
+  const binaryString = atob(diagramParam);
+  const byteArray = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    byteArray[i] = binaryString.charCodeAt(i);
+  }
+  return strFromU8(inflateSync(byteArray));
+}
+
+function cloneSerializable<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function snapshotGraph(
+  nodes: DiagramEditorNode[],
+  edges: DiagramEditorEdge[],
+): { nodes: DiagramEditorNode[]; edges: DiagramEditorEdge[] } {
+  return {
+    nodes: nodes.map(({ selected: _selected, dragging: _dragging, ...node }) =>
+      cloneSerializable(node),
+    ) as DiagramEditorNode[],
+    edges: edges.map(({ selected: _selected, ...edge }) =>
+      cloneSerializable(edge),
+    ) as DiagramEditorEdge[],
+  };
 }
 
 /**
@@ -322,10 +389,17 @@ function DiagramEditor() {
   const [edges, setEdges] = React.useState<DiagramEditorEdge[]>([]);
   const savedEdges = React.useRef<DiagramEditorEdge[]>([]);
 
-  const [templates] = useTemplates();
+  const [templates, setTemplates] = useTemplates();
   const registry = useRegistry();
   const apiClient = useApiClient();
-  const [diagramProperties] = useDiagramProperties();
+  const [diagramProperties, setDiagramProperties] = useDiagramProperties();
+  const {
+    drafts: transientEditorDrafts,
+    replaceDrafts: replaceTransientEditorDrafts,
+    clearDrafts: clearTransientEditorDrafts,
+    clearOperationConfigDrafts,
+    hasUncommittedBuffers,
+  } = useTransientEditorDrafts();
   const openScriptEnvironment = useScriptEnvironmentNavigation();
   const {
     state: {
@@ -387,8 +461,6 @@ function DiagramEditor() {
     },
     [handleEdgeChanges],
   );
-
-  const [_, setTemplates] = useTemplates();
 
   const theme = useTheme();
 
@@ -538,6 +610,7 @@ function DiagramEditor() {
             : [],
         ),
       );
+      clearOperationConfigDrafts(removedNodes);
 
       // clean up dangling edges when a node is removed.
       const edgeChanges: EdgeRemoveChange[] = [];
@@ -559,7 +632,7 @@ function DiagramEditor() {
         applyNodeChanges([...changes, ...transitiveChanges], prev),
       );
     },
-    [handleEdgeChanges, nodeManager, edges],
+    [clearOperationConfigDrafts, handleEdgeChanges, nodeManager, edges],
   );
 
   const handleNodeChange = React.useCallback(
@@ -797,34 +870,108 @@ function DiagramEditor() {
   const [recentlyUsedFilename, setRecentlyUsedFilename] = React.useState<
     string | null
   >(null);
+  const [hydrationResolved, setHydrationResolved] = React.useState(false);
+  const [isDirty, setIsDirty] = React.useState(false);
+  const dirtyRef = React.useRef(false);
+  const baselineFingerprint = React.useRef<string | null>(null);
+  const markCleanOnNextSnapshot = React.useRef(false);
+  const latestDraftContent = React.useRef<DraftWorkspaceContent | null>(null);
+  const autosaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const [draftStorageFailed, setDraftStorageFailed] = React.useState(false);
+  const [recoveryCandidate, setRecoveryCandidate] =
+    React.useState<RecoveryCandidate | null>(null);
+
+  const clearStoredDraft = React.useCallback(() => {
+    try {
+      clearDraftWorkspace();
+      setDraftStorageFailed(false);
+    } catch {
+      setDraftStorageFailed(true);
+    }
+  }, []);
+
+  const prepareDiagram = React.useCallback(
+    async (
+      jsonStr: string,
+      filename: string | null,
+    ): Promise<PreparedDiagram> => {
+      const [diagram, loaded] = await loadDiagramJson(jsonStr);
+      return { diagram, loaded, filename };
+    },
+    [],
+  );
+
+  const applyPreparedDiagram = React.useCallback(
+    (prepared: PreparedDiagram) => {
+      const { diagram, loaded, filename } = prepared;
+      const { graph, isRestored } = loaded;
+      clearInteractionVisualization();
+      setLoadContext({ diagram });
+      setDiagramProperties({
+        description: diagram.description ?? '',
+        input_examples: diagram.input_examples ?? [],
+        script_environments: diagram.script_environments ?? {},
+      });
+      const nextNodes = isRestored
+        ? graph.nodes
+        : applyNodeChanges(
+            autoLayout(graph.nodes, graph.edges, LAYOUT_OPTIONS),
+            graph.nodes,
+          );
+      savedNodes.current = [];
+      savedEdges.current = [];
+      setEditorMode({ mode: EditorMode.Normal });
+      setNodes(nextNodes);
+      setEdges(graph.edges);
+      setTemplates(diagram.templates || {});
+      setRecentlyUsedFilename(filename);
+      clearTransientEditorDrafts();
+      closeAllPopovers();
+      markCleanOnNextSnapshot.current = true;
+      setHydrationResolved(true);
+      clearStoredDraft();
+      requestAnimationFrame(() => reactFlowInstance.current?.fitView());
+    },
+    [
+      clearInteractionVisualization,
+      clearStoredDraft,
+      clearTransientEditorDrafts,
+      closeAllPopovers,
+      setDiagramProperties,
+    ],
+  );
 
   const loadDiagram = React.useCallback(
     async (jsonStr: string, filename: string | null) => {
       try {
-        const [diagram, { graph, isRestored }] = await loadDiagramJson(jsonStr);
-        clearInteractionVisualization();
-        setLoadContext({ diagram });
-        // do not perform auto layout if the diagram is restored from previous state.
-        if (!isRestored) {
-          const changes = autoLayout(graph.nodes, graph.edges, LAYOUT_OPTIONS);
-          setNodes(applyNodeChanges(changes, graph.nodes));
-        } else {
-          setNodes(graph.nodes);
+        const prepared = await prepareDiagram(jsonStr, filename);
+        if (
+          (isDirty || hasUncommittedBuffers) &&
+          !window.confirm(
+            'Replace the current diagram and discard its unsaved changes?',
+          )
+        ) {
+          return;
         }
-        setEdges(graph.edges);
-        setTemplates(diagram.templates || {});
-        setRecentlyUsedFilename(filename);
-        reactFlowInstance.current?.fitView();
-        closeAllPopovers();
+        applyPreparedDiagram(prepared);
       } catch (e) {
         showErrorToast(`failed to load diagram: ${e}`);
       }
     },
-    [clearInteractionVisualization, closeAllPopovers, showErrorToast],
+    [
+      applyPreparedDiagram,
+      hasUncommittedBuffers,
+      isDirty,
+      prepareDiagram,
+      showErrorToast,
+    ],
   );
 
   const [openExportDiagramDialog, setOpenExportDiagramDialog] =
     React.useState(false);
+  const [openNewDiagramDialog, setOpenNewDiagramDialog] = React.useState(false);
 
   const handleMouseDown = React.useCallback(() => {
     mouseDownTime.current = Date.now();
@@ -904,6 +1051,244 @@ function DiagramEditor() {
 
   const [enableExport, setEnableExport] = React.useState(true);
 
+  const draftContent = React.useMemo<DraftWorkspaceContent>(() => {
+    const {
+      highlightedEnvironment: _highlightedEnvironment,
+      ...persistedDiagramProperties
+    } = diagramProperties;
+    const mainGraph =
+      editorMode.mode === EditorMode.Template
+        ? snapshotGraph(savedNodes.current, savedEdges.current)
+        : snapshotGraph(nodes, edges);
+    const activeTemplate =
+      editorMode.mode === EditorMode.Template
+        ? {
+            templateId: editorMode.templateId,
+            graph: snapshotGraph(nodes, edges),
+          }
+        : undefined;
+    return {
+      mainGraph,
+      activeTemplate,
+      templates: cloneSerializable(templates),
+      diagramProperties: cloneSerializable(persistedDiagramProperties),
+      sourceExtensions: loadContext?.diagram.extensions
+        ? cloneSerializable(loadContext.diagram.extensions)
+        : undefined,
+      filename: recentlyUsedFilename,
+      transientEditors: cloneSerializable(transientEditorDrafts),
+    };
+  }, [
+    diagramProperties,
+    edges,
+    editorMode,
+    loadContext,
+    nodes,
+    recentlyUsedFilename,
+    templates,
+    transientEditorDrafts,
+  ]);
+
+  const persistLatestDraft = React.useCallback(() => {
+    if (!dirtyRef.current || !latestDraftContent.current) {
+      return;
+    }
+    try {
+      writeDraftWorkspace(latestDraftContent.current);
+      setDraftStorageFailed(false);
+    } catch {
+      setDraftStorageFailed(true);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    latestDraftContent.current = draftContent;
+    if (!hydrationResolved) {
+      return;
+    }
+
+    const fingerprint = draftWorkspaceFingerprint(draftContent);
+    if (markCleanOnNextSnapshot.current) {
+      markCleanOnNextSnapshot.current = false;
+      baselineFingerprint.current = fingerprint;
+      dirtyRef.current = false;
+      setIsDirty(false);
+      clearStoredDraft();
+      return;
+    }
+    if (baselineFingerprint.current === null) {
+      baselineFingerprint.current = fingerprint;
+      dirtyRef.current = false;
+      setIsDirty(false);
+      return;
+    }
+
+    const dirty = fingerprint !== baselineFingerprint.current;
+    dirtyRef.current = dirty;
+    setIsDirty(dirty);
+    if (!dirty) {
+      clearStoredDraft();
+      return;
+    }
+
+    if (autosaveTimer.current !== null) {
+      clearTimeout(autosaveTimer.current);
+    }
+    autosaveTimer.current = setTimeout(persistLatestDraft, 500);
+    return () => {
+      if (autosaveTimer.current !== null) {
+        clearTimeout(autosaveTimer.current);
+        autosaveTimer.current = null;
+      }
+    };
+  }, [clearStoredDraft, draftContent, hydrationResolved, persistLatestDraft]);
+
+  useDraftPagehideFlush(
+    latestDraftContent,
+    hydrationResolved && (isDirty || hasUncommittedBuffers),
+    setDraftStorageFailed,
+  );
+
+  useBeforeUnloadWarning(isDirty || hasUncommittedBuffers);
+
+  const resetToNewDiagram = React.useCallback(() => {
+    const empty = loadEmpty();
+    clearInteractionVisualization();
+    closeAllPopovers();
+    savedNodes.current = [];
+    savedEdges.current = [];
+    setEditorMode({ mode: EditorMode.Normal });
+    setNodes(empty.nodes);
+    setEdges(empty.edges);
+    setTemplates({});
+    setDiagramProperties(createEmptyDiagramProperties());
+    setLoadContext(null);
+    setRecentlyUsedFilename(null);
+    clearTransientEditorDrafts();
+    markCleanOnNextSnapshot.current = true;
+    setHydrationResolved(true);
+    clearStoredDraft();
+    requestAnimationFrame(() => reactFlowInstance.current?.fitView());
+  }, [
+    clearInteractionVisualization,
+    clearStoredDraft,
+    clearTransientEditorDrafts,
+    closeAllPopovers,
+    setDiagramProperties,
+  ]);
+
+  const handleNewDiagram = React.useCallback(() => {
+    if (isDirty || hasUncommittedBuffers) {
+      setOpenNewDiagramDialog(true);
+      return;
+    }
+    resetToNewDiagram();
+  }, [hasUncommittedBuffers, isDirty, resetToNewDiagram]);
+
+  const restoreRecoveryDraft = React.useCallback(() => {
+    if (!recoveryCandidate) {
+      return;
+    }
+    const { draft } = recoveryCandidate;
+    savedNodes.current = cloneSerializable(draft.mainGraph.nodes);
+    savedEdges.current = cloneSerializable(draft.mainGraph.edges);
+    if (draft.activeTemplate) {
+      setNodes(cloneSerializable(draft.activeTemplate.graph.nodes));
+      setEdges(cloneSerializable(draft.activeTemplate.graph.edges));
+      setEditorMode({
+        mode: EditorMode.Template,
+        templateId: draft.activeTemplate.templateId,
+      });
+    } else {
+      setNodes(cloneSerializable(draft.mainGraph.nodes));
+      setEdges(cloneSerializable(draft.mainGraph.edges));
+      setEditorMode({ mode: EditorMode.Normal });
+    }
+    setTemplates(cloneSerializable(draft.templates));
+    setDiagramProperties(cloneSerializable(draft.diagramProperties));
+    setRecentlyUsedFilename(draft.filename);
+    replaceTransientEditorDrafts(cloneSerializable(draft.transientEditors));
+    const restoredDiagram: Diagram = {
+      version: '0.1.0',
+      start: { builtin: 'dispose' },
+      ops: {},
+      templates: cloneSerializable(draft.templates),
+      description: draft.diagramProperties.description,
+      input_examples: draft.diagramProperties.input_examples,
+      script_environments: draft.diagramProperties.script_environments,
+      extensions: draft.sourceExtensions,
+    };
+    setLoadContext({ diagram: restoredDiagram });
+    baselineFingerprint.current = '__restored_recovery_draft__';
+    dirtyRef.current = true;
+    setIsDirty(true);
+    setHydrationResolved(true);
+    setRecoveryCandidate(null);
+    requestAnimationFrame(() => reactFlowInstance.current?.fitView());
+  }, [recoveryCandidate, replaceTransientEditorDrafts, setDiagramProperties]);
+
+  const discardRecoveryDraft = React.useCallback(() => {
+    if (!recoveryCandidate) {
+      return;
+    }
+    const linkedDiagram = recoveryCandidate.linkedDiagram;
+    setRecoveryCandidate(null);
+    clearStoredDraft();
+    if (linkedDiagram) {
+      applyPreparedDiagram(linkedDiagram);
+      return;
+    }
+    const empty = loadEmpty();
+    setNodes(empty.nodes);
+    setEdges(empty.edges);
+    setTemplates({});
+    setDiagramProperties(createEmptyDiagramProperties());
+    setLoadContext(null);
+    setRecentlyUsedFilename(null);
+    clearTransientEditorDrafts();
+    baselineFingerprint.current = null;
+    markCleanOnNextSnapshot.current = true;
+    setHydrationResolved(true);
+  }, [
+    applyPreparedDiagram,
+    clearStoredDraft,
+    clearTransientEditorDrafts,
+    recoveryCandidate,
+    setDiagramProperties,
+  ]);
+
+  const markExportCompleted = React.useCallback(
+    (filename: string) => {
+      setRecentlyUsedFilename(filename);
+      if (latestDraftContent.current) {
+        const exportedContent = {
+          ...latestDraftContent.current,
+          filename,
+        };
+        latestDraftContent.current = exportedContent;
+        baselineFingerprint.current =
+          draftWorkspaceFingerprint(exportedContent);
+      }
+      markCleanOnNextSnapshot.current = false;
+      dirtyRef.current = false;
+      setIsDirty(false);
+      clearStoredDraft();
+    },
+    [clearStoredDraft],
+  );
+
+  const handleStartNewAfterExport = React.useCallback(() => {
+    setOpenExportDiagramDialog(false);
+    resetToNewDiagram();
+  }, [resetToNewDiagram]);
+
+  const newDiagramAfterExport = useNewDiagramAfterExport(
+    markExportCompleted,
+    handleStartNewAfterExport,
+  );
+
+  const startupInitialized = React.useRef(false);
+
   return (
     <Providers
       editorModeContext={[editorMode, updateEditorModeAction]}
@@ -921,29 +1306,54 @@ function DiagramEditor() {
         edgeTypes={EDGE_TYPES}
         onInit={(instance) => {
           reactFlowInstance.current = instance;
-
-          const queryParams = new URLSearchParams(window.location.search);
-          const diagramParam = queryParams.get('diagram');
-
-          if (!diagramParam) {
+          if (startupInitialized.current) {
             return;
           }
+          startupInitialized.current = true;
 
-          try {
-            const binaryString = atob(diagramParam);
-            const byteArray = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              byteArray[i] = binaryString.charCodeAt(i);
+          void (async () => {
+            let linkedDiagram: PreparedDiagram | null = null;
+            const diagramParam = new URLSearchParams(
+              window.location.search,
+            ).get('diagram');
+            if (diagramParam) {
+              try {
+                linkedDiagram = await prepareDiagram(
+                  decodeDiagramParam(diagramParam),
+                  null,
+                );
+              } catch (error) {
+                showErrorToast(
+                  `failed to load linked diagram: ${
+                    error instanceof Error ? error.message : error
+                  }`,
+                );
+              }
             }
-            const diagramJson = strFromU8(inflateSync(byteArray));
-            loadDiagram(diagramJson, null);
-          } catch (e) {
-            if (e instanceof Error) {
-              showErrorToast(`failed to load diagram: ${e.message}`);
-            } else {
-              throw e;
+
+            let storedDraft: DraftWorkspaceV1 | null = null;
+            try {
+              storedDraft = readDraftWorkspace();
+            } catch (error) {
+              clearStoredDraft();
+              showErrorToast(
+                `failed to read recovery draft: ${
+                  error instanceof Error ? error.message : error
+                }`,
+              );
             }
-          }
+
+            if (storedDraft) {
+              setRecoveryCandidate({ draft: storedDraft, linkedDiagram });
+              return;
+            }
+            if (linkedDiagram) {
+              applyPreparedDiagram(linkedDiagram);
+              return;
+            }
+            markCleanOnNextSnapshot.current = true;
+            setHydrationResolved(true);
+          })();
         }}
         onNodesChange={handleNodeChanges}
         onNodesDelete={() => {
@@ -1126,12 +1536,19 @@ function DiagramEditor() {
         <ConnectionHintPanel nodeManager={nodeManager} />
         <CommandPanel
           onNodeChanges={handleNodeChanges}
+          onNewDiagram={handleNewDiagram}
           onExportClick={React.useCallback(
             () => setOpenExportDiagramDialog(true),
             [],
           )}
           onLoadDiagram={loadDiagram}
-          enableExport={enableExport}
+          enableExport={enableExport && !hasUncommittedBuffers}
+          exportDisabledReason={
+            hasUncommittedBuffers
+              ? 'Save or discard unfinished editor fields before exporting'
+              : undefined
+          }
+          isDirty={isDirty}
           scriptNodeBinding={scriptNodeBinding}
         />
         {editorMode.mode === EditorMode.Template && (
@@ -1288,14 +1705,59 @@ function DiagramEditor() {
             {errorToast}
           </Alert>
         </Snackbar>
+        <Snackbar
+          open={draftStorageFailed}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert severity="warning">
+            Draft recovery is unavailable. Save your diagram to a file before
+            leaving.
+          </Alert>
+        </Snackbar>
+        <NewDiagramDialog
+          open={openNewDiagramDialog}
+          canSave={enableExport && !hasUncommittedBuffers}
+          onCancel={() => setOpenNewDiagramDialog(false)}
+          onDiscard={() => {
+            setOpenNewDiagramDialog(false);
+            resetToNewDiagram();
+          }}
+          onSave={() => {
+            if (!enableExport || hasUncommittedBuffers) {
+              return;
+            }
+            setOpenNewDiagramDialog(false);
+            newDiagramAfterExport.begin();
+            setOpenExportDiagramDialog(true);
+          }}
+        />
+        <Dialog open={recoveryCandidate !== null} disableEscapeKeyDown>
+          <DialogTitle>Restore previous diagram?</DialogTitle>
+          <DialogContent>
+            {recoveryCandidate?.linkedDiagram
+              ? 'Restore the previous diagram from this tab, or replace it with the linked diagram.'
+              : 'Restore the diagram from before the refresh, or start with an empty diagram.'}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={discardRecoveryDraft}>
+              {recoveryCandidate?.linkedDiagram
+                ? 'Load Linked Diagram'
+                : 'Start Empty'}
+            </Button>
+            <Button variant="contained" onClick={restoreRecoveryDraft}>
+              Restore
+            </Button>
+          </DialogActions>
+        </Dialog>
         <Suspense>
           <ExportDiagramDialog
             open={openExportDiagramDialog}
             suggestedFilename={recentlyUsedFilename}
-            onExportedFilename={(filename: string) =>
-              setRecentlyUsedFilename(filename)
-            }
-            onClose={() => setOpenExportDiagramDialog(false)}
+            onExportCompleted={newDiagramAfterExport.complete}
+            onClose={() => {
+              setOpenExportDiagramDialog(false);
+              newDiagramAfterExport.cancel();
+            }}
             onValidDiagram={(maybeValid: MaybeValid) => {
               setEnableExport(maybeValid.ok);
               if (!maybeValid.ok) {
