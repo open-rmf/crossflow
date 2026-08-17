@@ -67,11 +67,11 @@ import { EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
 import type { ScriptNodeEnvironmentBinding } from './forms/script-environment-workspace';
 import { useScriptEnvironmentNavigation } from './forms/use-script-environment-navigation';
+import { pulseStreamHandle } from './handles';
 import {
   type InteractionVisualizationContext,
   InteractionVisualizationProvider,
 } from './interaction-visualization-provider';
-import { pulseStreamHandle } from './handles';
 import { type LoadContext, LoadContextProvider } from './load-context-provider';
 import {
   NewDiagramDialog,
