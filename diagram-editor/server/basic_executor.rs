@@ -16,10 +16,12 @@
 */
 
 use crate::{ServerOptions, new_router};
+use bevy::winit::WinitPlugin;
 use bevy_app::App;
 use clap::Parser;
 use crossflow::{
-    CrossflowExecutorApp, Diagram, DiagramError, Outcome, RequestExt, RunCommandsOnWorldExt,
+    CrossflowExecutorApp, CrossflowPlugin, Diagram, DiagramError, Outcome, RequestExt,
+    RunCommandsOnWorldExt,
 };
 use std::thread;
 use std::{fs::File, str::FromStr};
@@ -111,6 +113,39 @@ pub async fn serve(
         app.run()
     });
 
+    axum_serve(router_receiver, args).await
+}
+
+pub fn custom_serve(
+    args: ServeArgs,
+    setup: impl FnOnce() -> BasicExecutorSetup + 'static,
+) -> Result<(), Box<dyn Error>> {
+    println!("Serving diagram editor at http://localhost:{}", args.port);
+
+    let BasicExecutorSetup { mut app, registry } = setup();
+    // If WinitPlugin is added, add CrossflowPlugin instead of
+    // CrossflowExecutorApp to prevent overlapping plugins
+    if app.is_plugin_added::<WinitPlugin>() {
+        app.add_plugins(CrossflowPlugin::default());
+    } else {
+        app.add_plugins(CrossflowExecutorApp::default());
+    }
+
+    let (router_sender, router_receiver) = tokio::sync::oneshot::channel();
+    thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let _ = rt.block_on(axum_serve(router_receiver, args));
+    });
+    let router = new_router(&mut app, registry, ServerOptions::default());
+    let _ = router_sender.send(router);
+    app.run();
+    Ok(())
+}
+
+pub async fn axum_serve(
+    router_receiver: tokio::sync::oneshot::Receiver<axum::routing::Router>,
+    args: ServeArgs,
+) -> Result<(), Box<dyn Error>> {
     let router = router_receiver.await?;
 
     let listener = tokio::net::TcpListener::bind(("localhost", args.port))
@@ -189,19 +224,19 @@ pub fn run_custom_setup(
     args: Option<Args>,
     setup: impl FnOnce() -> BasicExecutorSetup + Send + 'static,
 ) -> Result<(), Box<dyn Error>> {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(run_custom_setup_async(args, setup))
-}
-
-/// Run a custom setup of a basic executor asynchronously. For more information,
-/// see [`run_custom_setup`].
-pub async fn run_custom_setup_async(
-    args: Option<Args>,
-    setup: impl FnOnce() -> BasicExecutorSetup + Send + 'static,
-) -> Result<(), Box<dyn Error>> {
     let args = args.unwrap_or_else(|| Args::parse());
     match args.command {
-        Commands::Run(args) => headless(args, setup),
-        Commands::Serve(args) => serve(args, setup).await,
+        Commands::Run(args) => {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async_headless(args, setup))
+        }
+        Commands::Serve(args) => custom_serve(args, setup),
     }
+}
+
+pub async fn async_headless(
+    args: RunArgs,
+    setup: impl FnOnce() -> BasicExecutorSetup + Send + 'static,
+) -> Result<(), Box<dyn Error>> {
+    headless(args, setup)
 }
