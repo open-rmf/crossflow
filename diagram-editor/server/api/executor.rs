@@ -889,11 +889,13 @@ impl InteractionSessionEnd {
 #[cfg_attr(feature = "json_schema", derive(schemars::JsonSchema))]
 #[cfg_attr(test, derive(serde::Deserialize))]
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum InteractionSessionFeedback {
     OperationStarted(String),
-    OperationFinished(String),
-    StreamMessageSent(String),
+    MessageSent {
+        source_operation_id: String,
+        target_operation_id: String,
+    },
 }
 
 #[cfg_attr(feature = "json_schema", derive(schemars::JsonSchema))]
@@ -1038,7 +1040,7 @@ async fn send_interaction_feedback<W>(write: &mut W, feedback: &TracedEvent)
 where
     W: WebsocketSinkExt<InteractionSessionMessage>,
 {
-    for message in operation_finished_feedback(feedback) {
+    for message in message_sent_feedback(feedback) {
         write
             .send_json(&InteractionSessionMessage::Feedback(message))
             .await;
@@ -1073,26 +1075,34 @@ fn operation_started_id(feedback: &TracedEvent) -> Option<String> {
 }
 
 #[cfg(feature = "router")]
-fn operation_finished_feedback(feedback: &TracedEvent) -> Vec<InteractionSessionFeedback> {
+fn message_sent_feedback(feedback: &TracedEvent) -> Vec<InteractionSessionFeedback> {
     match &feedback.event {
-        TracedEventKind::MessageSent(message) => message
-            .output
-            .iter()
-            .filter_map(|source| {
-                let op_id = source
-                    .info
-                    .as_ref()
-                    .and_then(|info| info.id().as_ref())
-                    .map(ToString::to_string)?;
-                let is_stream =
-                    source.port.first().and_then(|part| part.name()) == Some("stream_out");
-                Some(if is_stream {
-                    InteractionSessionFeedback::StreamMessageSent(op_id)
-                } else {
-                    InteractionSessionFeedback::OperationFinished(op_id)
+        TracedEventKind::MessageSent(message) => {
+            let Some(target_operation_id) = message
+                .input
+                .info
+                .as_ref()
+                .and_then(|info| info.id().as_ref())
+                .map(ToString::to_string)
+            else {
+                return Vec::new();
+            };
+            message
+                .output
+                .iter()
+                .filter_map(|source| {
+                    let source_operation_id = source
+                        .info
+                        .as_ref()
+                        .and_then(|info| info.id().as_ref())
+                        .map(ToString::to_string)?;
+                    Some(InteractionSessionFeedback::MessageSent {
+                        source_operation_id,
+                        target_operation_id: target_operation_id.clone(),
+                    })
                 })
-            })
-            .collect(),
+                .collect()
+        }
         _ => Vec::new(),
     }
 }
@@ -1585,8 +1595,7 @@ mod tests {
             assert!(matches!(
                 feedback,
                 InteractionSessionFeedback::OperationStarted(_)
-                    | InteractionSessionFeedback::OperationFinished(_)
-                    | InteractionSessionFeedback::StreamMessageSent(_)
+                    | InteractionSessionFeedback::MessageSent { .. }
             ));
         }
 

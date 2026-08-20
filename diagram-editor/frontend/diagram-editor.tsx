@@ -67,7 +67,7 @@ import { EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
 import type { ScriptNodeEnvironmentBinding } from './forms/script-environment-workspace';
 import { useScriptEnvironmentNavigation } from './forms/use-script-environment-navigation';
-import { pulseStreamHandle } from './handles';
+import { glowEdge } from './handles';
 import {
   type InteractionVisualizationContext,
   InteractionVisualizationProvider,
@@ -84,6 +84,7 @@ import {
   MaterialSymbol,
   NODE_TYPES,
   type OperationNode,
+  START_ID,
   TERMINATE_ID,
 } from './nodes';
 import { NotificationProvider } from './notification-provider';
@@ -250,6 +251,22 @@ function getInteractionNodeId(
     ? operationId.slice(1)
     : operationId;
 
+  if (normalizedId === '(start)') {
+    return (
+      nodeManager.tryGetNode(joinNamespaces(ROOT_NAMESPACE, START_ID))?.id ??
+      null
+    );
+  }
+
+  if (normalizedId.endsWith(':(start)')) {
+    const namespace = normalizedId.slice(0, -':(start)'.length);
+    return (
+      nodeManager.tryGetNode(
+        joinNamespaces(ROOT_NAMESPACE, namespace, START_ID),
+      )?.id ?? null
+    );
+  }
+
   if (normalizedId === '(terminate)') {
     return (
       nodeManager.tryGetNode(joinNamespaces(ROOT_NAMESPACE, TERMINATE_ID))
@@ -352,14 +369,21 @@ function DiagramEditor() {
     },
     [nodeManager],
   );
-  const markInteractionStreamMessage = React.useCallback(
-    (operationId: string) => {
-      const nodeId = getInteractionNodeId(operationId, nodeManager);
-      if (!nodeId) {
+  const markInteractionMessage = React.useCallback(
+    (sourceOperationId: string, targetOperationId: string) => {
+      markInteractionOperationFinished(sourceOperationId);
+      const sourceNodeId = getInteractionNodeId(sourceOperationId, nodeManager);
+      const targetNodeId = getInteractionNodeId(targetOperationId, nodeManager);
+      if (!sourceNodeId || !targetNodeId) {
         return;
       }
-      markInteractionOperationFinished(operationId);
-      pulseStreamHandle(nodeId);
+      reactFlowInstance.current
+        ?.getEdges()
+        .filter(
+          (edge) =>
+            edge.source === sourceNodeId && edge.target === targetNodeId,
+        )
+        .forEach((edge) => glowEdge(edge.id));
     },
     [markInteractionOperationFinished, nodeManager],
   );
@@ -370,18 +394,16 @@ function DiagramEditor() {
         visitedNodeIds: interactionVisitedNodeIds,
         clearInteractionVisualization,
         markInteractionFinished,
-        markInteractionOperationFinished,
         markInteractionOperationStarted,
-        markInteractionStreamMessage,
+        markInteractionMessage,
       }),
       [
         clearInteractionVisualization,
         interactionActiveNodeIds,
         interactionVisitedNodeIds,
         markInteractionFinished,
-        markInteractionOperationFinished,
         markInteractionOperationStarted,
-        markInteractionStreamMessage,
+        markInteractionMessage,
       ],
     );
   const savedNodes = React.useRef<DiagramEditorNode[]>([]);
@@ -601,25 +623,12 @@ function DiagramEditor() {
         }
       }
 
-      // a node changing its operation type (e.g. fork clone <-> result) invalidates its outputs.
-      const retypedNodes = new Set(
-        changes.flatMap((change) =>
-          change.type === 'replace' &&
-          nodeManager.tryGetNode(change.id)?.type !== change.item.type
-            ? [change.id]
-            : [],
-        ),
-      );
       clearOperationConfigDrafts(removedNodes);
 
       // clean up dangling edges when a node is removed.
       const edgeChanges: EdgeRemoveChange[] = [];
       for (const edge of edges) {
-        if (
-          removedNodes.has(edge.source) ||
-          removedNodes.has(edge.target) ||
-          retypedNodes.has(edge.source)
-        ) {
+        if (removedNodes.has(edge.source) || removedNodes.has(edge.target)) {
           edgeChanges.push({
             type: 'remove',
             id: edge.id,
@@ -796,24 +805,6 @@ function DiagramEditor() {
       });
     },
     [sidePanelExpanded, sidePanelOpen],
-  );
-  // A newly added fork defaults to "clone"; open its editor so the behavior can be picked.
-  const openAddedForkEditor = React.useCallback(
-    (node: DiagramEditorNode | null) => {
-      if (node?.type !== 'fork_clone') {
-        return;
-      }
-      // The click that added the node becomes its flow position, so it renders
-      // with its top left corner there, scaled by the current zoom.
-      const { left, top } = addOperationPopover.popOverPosition;
-      const zoom = reactFlowInstance.current?.getZoom() ?? 1;
-      openNodeEditor(node.id, {
-        left,
-        right: left + LAYOUT_OPTIONS.compactNodeSize * zoom,
-        top,
-      });
-    },
-    [addOperationPopover.popOverPosition, openNodeEditor],
   );
   const renderEditForm = React.useCallback(
     (nodeId: string) => {
@@ -1618,7 +1609,6 @@ function DiagramEditor() {
                   handleNodeChanges(changes);
                   setEdges((prev) => addEdge(newEdge, prev));
                   closeAllPopovers();
-                  openAddedForkEditor(targetNode);
                   if (targetNode.type === 'script') {
                     const environmentName = targetNode.data.op.environment;
                     openScriptEnvironment(
@@ -1642,7 +1632,6 @@ function DiagramEditor() {
                   changes.find((change) => change.item.id === primaryNodeId)
                     ?.item || null;
                 closeAllPopovers();
-                openAddedForkEditor(primaryNode);
                 if (primaryNode?.type === 'script') {
                   const environmentName = primaryNode.data.op.environment;
                   openScriptEnvironment(

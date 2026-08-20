@@ -29,28 +29,27 @@ export interface HandleProps extends Omit<ReactFlowHandleProps, 'id'> {
   variant: HandleType;
 }
 
-const streamHandleAnimations = new WeakMap<HTMLElement, Animation>();
+const EdgeMessageIdleMs = 200;
+const edgeMessageTimers = new WeakMap<Element, number>();
 
-export function pulseStreamHandle(nodeId: string) {
-  document
-    .querySelectorAll<HTMLElement>('.react-flow__handle.handle-data-stream')
-    .forEach((handle) => {
-      if (handle.dataset.nodeid !== nodeId) {
-        return;
-      }
+export function glowEdge(edgeId: string) {
+  const edge = document.querySelector(`.react-flow__edge[data-id="${edgeId}"]`);
+  if (!edge) {
+    return;
+  }
 
-      streamHandleAnimations.get(handle)?.cancel();
-      const style = getComputedStyle(handle);
-      const animation = handle.animate(
-        [
-          { backgroundColor: style.borderTopColor },
-          { backgroundColor: style.borderTopColor, offset: 0.35 },
-          { backgroundColor: style.backgroundColor },
-        ],
-        { duration: 280, easing: 'ease-out' },
-      );
-      streamHandleAnimations.set(handle, animation);
-    });
+  edge.classList.add('message-active');
+  const timer = edgeMessageTimers.get(edge);
+  if (timer !== undefined) {
+    window.clearTimeout(timer);
+  }
+  edgeMessageTimers.set(
+    edge,
+    window.setTimeout(() => {
+      edge.classList.remove('message-active');
+      edgeMessageTimers.delete(edge);
+    }, EdgeMessageIdleMs),
+  );
 }
 
 function variantClassName(handleType?: HandleType): string | undefined {

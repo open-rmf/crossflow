@@ -5,9 +5,11 @@ export interface InteractionVisualizationContext {
   visitedNodeIds: Set<string>;
   clearInteractionVisualization: () => void;
   markInteractionFinished: () => void;
-  markInteractionOperationFinished: (operationId: string) => void;
   markInteractionOperationStarted: (operationId: string) => void;
-  markInteractionStreamMessage: (operationId: string) => void;
+  markInteractionMessage: (
+    sourceOperationId: string,
+    targetOperationId: string,
+  ) => void;
 }
 
 const DefaultInteractionVisualizationContext: InteractionVisualizationContext =
@@ -16,9 +18,8 @@ const DefaultInteractionVisualizationContext: InteractionVisualizationContext =
     visitedNodeIds: new Set(),
     clearInteractionVisualization: () => {},
     markInteractionFinished: () => {},
-    markInteractionOperationFinished: () => {},
     markInteractionOperationStarted: () => {},
-    markInteractionStreamMessage: () => {},
+    markInteractionMessage: () => {},
   };
 
 const InteractionVisualizationContextComp =

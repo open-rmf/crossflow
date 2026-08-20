@@ -60,24 +60,6 @@ describe('add operation catalog', () => {
     ).toBe(true);
   });
 
-  test('offers one Fork operation that creates a clone fork by default', () => {
-    const forks = getVisibleAddOperations({
-      isTemplateMode: false,
-      namespace: ROOT_NAMESPACE,
-    }).filter((operation) => operation.label.startsWith('Fork'));
-
-    expect(forks).toHaveLength(1);
-    expect(forks[0].label).toBe('Fork');
-
-    const [change] = forks[0].createChanges({
-      namespace: ROOT_NAMESPACE,
-      parentId: undefined,
-      newNodePosition: { x: 1, y: 2 },
-      nodeManager: new NodeManager([]),
-    });
-    expect(change.item.type).toBe('fork_clone');
-  });
-
   test('filters add-operation suggestions for upstream sources when dragging from a target handle', () => {
     const targetNode = createOperationNode(
       ROOT_NAMESPACE,
@@ -103,9 +85,9 @@ describe('add operation catalog', () => {
     expect(compatible.some((operation) => operation.key === 'buffer')).toBe(
       true,
     );
-    expect(compatible.some((operation) => operation.key === 'fork')).toBe(
-      false,
-    );
+    expect(
+      compatible.some((operation) => operation.key === 'fork_result'),
+    ).toBe(false);
     expect(compatible.some((operation) => operation.key === 'node')).toBe(
       false,
     );

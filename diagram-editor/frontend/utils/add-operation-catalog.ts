@@ -27,8 +27,10 @@ export type AddOperationKey =
   | 'sectionOutput'
   | 'sectionBuffer'
   | 'node'
-  | 'fork'
+  | 'fork_clone'
   | 'unzip'
+  | 'fork_result'
+  | 'split'
   | 'join'
   | 'transform'
   | 'buffer'
@@ -212,15 +214,15 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
       }),
   },
   {
-    key: 'fork',
-    label: 'Fork',
+    key: 'fork_clone',
+    label: 'Fork Clone',
     createPreviewNode: (namespace, parentId) =>
       createOperationNode(
         namespace,
         parentId,
         { x: 0, y: 0 },
         { type: 'fork_clone', next: [] },
-        'preview_fork',
+        'preview_fork_clone',
       ),
     createChanges: ({ namespace, parentId, newNodePosition }) =>
       createNodeChange(namespace, parentId, newNodePosition, {
@@ -243,6 +245,44 @@ export const ADD_OPERATION_DEFINITIONS: AddOperationDefinition[] = [
       createNodeChange(namespace, parentId, newNodePosition, {
         type: 'unzip',
         next: [],
+      }),
+  },
+  {
+    key: 'fork_result',
+    label: 'Fork Result',
+    createPreviewNode: (namespace, parentId) =>
+      createOperationNode(
+        namespace,
+        parentId,
+        { x: 0, y: 0 },
+        {
+          type: 'fork_result',
+          err: { builtin: 'dispose' },
+          ok: { builtin: 'dispose' },
+        },
+        'preview_fork_result',
+      ),
+    createChanges: ({ namespace, parentId, newNodePosition }) =>
+      createNodeChange(namespace, parentId, newNodePosition, {
+        type: 'fork_result',
+        err: { builtin: 'dispose' },
+        ok: { builtin: 'dispose' },
+      }),
+  },
+  {
+    key: 'split',
+    label: 'Split',
+    createPreviewNode: (namespace, parentId) =>
+      createOperationNode(
+        namespace,
+        parentId,
+        { x: 0, y: 0 },
+        { type: 'split' },
+        'preview_split',
+      ),
+    createChanges: ({ namespace, parentId, newNodePosition }) =>
+      createNodeChange(namespace, parentId, newNodePosition, {
+        type: 'split',
       }),
   },
   {
@@ -442,6 +482,9 @@ export function filterCompatibleAddOperations<T extends AddOperationCandidate>(
       options.namespace,
       options.parentId,
     );
+    if (anchorHandleType === 'target' && previewNode.type === 'fork_result') {
+      return false;
+    }
     return anchorHandleType === 'source'
       ? getValidEdgeTypes(anchorNode, anchorHandle, previewNode, null).length >
           0

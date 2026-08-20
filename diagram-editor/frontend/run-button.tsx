@@ -68,9 +68,8 @@ export function RunPanel({
   const {
     clearInteractionVisualization,
     markInteractionFinished,
-    markInteractionOperationFinished,
+    markInteractionMessage,
     markInteractionOperationStarted,
-    markInteractionStreamMessage,
   } = useInteractionVisualization();
   const [templates] = useTemplates();
   const registry = useRegistry();
@@ -196,25 +195,19 @@ export function RunPanel({
 
             if (
               msg.type === 'feedback' &&
-              'streamMessageSent' in msg &&
-              typeof msg.streamMessageSent === 'string'
+              'messageSent' in msg &&
+              typeof msg.messageSent === 'object' &&
+              msg.messageSent !== null &&
+              'sourceOperationId' in msg.messageSent &&
+              typeof msg.messageSent.sourceOperationId === 'string' &&
+              'targetOperationId' in msg.messageSent &&
+              typeof msg.messageSent.targetOperationId === 'string'
             ) {
               if (!showProgressRef.current) {
                 return;
               }
-              markInteractionStreamMessage(msg.streamMessageSent);
-              return;
-            }
-
-            if (
-              msg.type === 'feedback' &&
-              'operationFinished' in msg &&
-              typeof msg.operationFinished === 'string'
-            ) {
-              if (!showProgressRef.current) {
-                return;
-              }
-              markInteractionOperationFinished(msg.operationFinished);
+              const { sourceOperationId, targetOperationId } = msg.messageSent;
+              markInteractionMessage(sourceOperationId, targetOperationId);
               return;
             }
 

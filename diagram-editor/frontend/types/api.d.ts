@@ -263,11 +263,11 @@ export type InteractionSessionMessage =
           [k: string]: unknown;
         }
       | {
-          operationFinished: string;
-          [k: string]: unknown;
-        }
-      | {
-          streamMessageSent: string;
+          messageSent: {
+            sourceOperationId: string;
+            targetOperationId: string;
+            [k: string]: unknown;
+          };
           [k: string]: unknown;
         }
     ) & {

@@ -868,23 +868,24 @@
                 },
                 {
                   "properties": {
-                    "operationFinished": {
-                      "type": "string"
+                    "messageSent": {
+                      "properties": {
+                        "sourceOperationId": {
+                          "type": "string"
+                        },
+                        "targetOperationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "sourceOperationId",
+                        "targetOperationId"
+                      ],
+                      "type": "object"
                     }
                   },
                   "required": [
-                    "operationFinished"
-                  ],
-                  "type": "object"
-                },
-                {
-                  "properties": {
-                    "streamMessageSent": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "streamMessageSent"
+                    "messageSent"
                   ],
                   "type": "object"
                 }

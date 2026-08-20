@@ -3,6 +3,16 @@
 .react-flow.dark {
   --xy-edge-stroke-default: var(--mui-palette-grey-700);
 }
+.react-flow__edge .react-flow__edge-path {
+  transition:
+    stroke 450ms ease-out,
+    filter 450ms ease-out;
+}
+.react-flow__edge.message-active .react-flow__edge-path {
+  stroke: var(--mui-palette-warning-dark);
+  filter: drop-shadow(0 0 4px var(--mui-palette-warning-dark));
+  transition-duration: 0ms;
+}
 .react-flow__pane.draggable {
   cursor: default;
 }
