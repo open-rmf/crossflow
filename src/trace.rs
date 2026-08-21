@@ -32,7 +32,7 @@ use smallvec::SmallVec;
 use std::{
     any::Any,
     borrow::Cow,
-    collections::VecDeque,
+    collections::{HashMap, HashSet, VecDeque},
     sync::Arc,
     time::{Instant, SystemTime},
 };
@@ -179,29 +179,44 @@ pub struct TraceSource {
 
 impl TraceSource {
     fn new(route_source: RouteSource, world: &mut World) -> Self {
+        let trace_owner = find_trace_owner(route_source.source, world);
+        let request_info = world
+            .get_resource::<OperationLifecycleTracker>()
+            .and_then(|tracker| tracker.operations.get(&route_source.request_id()))
+            .cloned();
         let output_port = route_source.port;
         let session_stack = get_session_stack_from_world(route_source.session, world);
         let port = route_source.port.iter().map(|p| p.to_owned()).collect();
-        let operation_type = world
-            .get::<OperationType>(route_source.source)
+        let operation_type = trace_owner
+            .and_then(|entity| world.get::<OperationType>(entity))
             .map(|op| (**op).clone())
             .unwrap_or_else(|| "<unknown>".into());
-        let info = world
-            .get::<Trace>(route_source.source)
-            .map(|t| t.info.clone());
-
+        let info = request_info.or_else(|| {
+            trace_owner
+                .and_then(|entity| world.get::<Trace>(entity))
+                .map(|trace| trace.info.clone())
+        });
         TraceSource {
             session_stack,
             source: route_source.source,
             seq: route_source.seq,
             port,
-            labels: world
-                .get::<OperationLabels>(route_source.source)
+            labels: trace_owner
+                .and_then(|entity| world.get::<OperationLabels>(entity))
                 .map(move |labels| labels.outputs(output_port))
                 .flatten(),
             operation_type,
             info,
         }
+    }
+}
+
+fn find_trace_owner(mut entity: Entity, world: &World) -> Option<Entity> {
+    loop {
+        if world.get::<Trace>(entity).is_some() {
+            return Some(entity);
+        }
+        entity = world.get::<ChildOf>(entity)?.parent();
     }
 }
 
@@ -267,6 +282,7 @@ pub struct TraceBuffer {
     /// The unique ID of the buffer.
     pub id: Entity,
     pub labels: Option<Arc<Vec<OperationRef>>>,
+    pub info: Option<Arc<OperationInfo>>,
 }
 
 pub type TracedMessage = Option<Result<JsonMessage, GetValueError>>;
@@ -293,19 +309,27 @@ impl MessageSent {
         message: TracedMessage,
         world: &mut World,
     ) {
-        let mut output = SmallVec::new();
+        let mut output: SmallVec<[TraceSource; 8]> = SmallVec::new();
         for out in route.outputs {
             output.push(TraceSource::new(out, world));
         }
 
-        let input = TraceTarget::new(
-            RequestId {
-                session: route.input.session,
-                source: route.input.target,
-                seq: target_seq,
-            },
-            world,
-        );
+        let target_request = RequestId {
+            session: route.input.session,
+            source: route.input.target,
+            seq: target_seq,
+        };
+        let input = TraceTarget::new(target_request, world);
+        let request_info = input
+            .info
+            .clone()
+            .or_else(|| output.iter().find_map(|source| source.info.clone()));
+        if let Some(info) = request_info {
+            world
+                .get_resource_or_init::<OperationLifecycleTracker>()
+                .operations
+                .insert(target_request, info);
+        }
 
         let event = MessageSent {
             output,
@@ -313,6 +337,86 @@ impl MessageSent {
             message,
         };
         world.write_trace(TracedEvent::now(event));
+    }
+}
+
+pub(crate) fn is_traced_request(request_id: RequestId, world: &World) -> bool {
+    world
+        .get_resource::<OperationLifecycleTracker>()
+        .is_some_and(|tracker| tracker.operations.contains_key(&request_id))
+}
+
+/// Tracks the lifecycle of one invocation of an operation.
+#[derive(Debug, Clone)]
+pub struct OperationLifecycle {
+    pub operation: TraceTarget,
+}
+
+#[derive(Resource, Default)]
+struct OperationLifecycleTracker {
+    active: HashSet<RequestId>,
+    deferred: HashSet<RequestId>,
+    operations: HashMap<RequestId, Arc<OperationInfo>>,
+}
+
+pub(crate) fn trace_operation_started(request_id: RequestId, world: &mut World) {
+    let universal = world
+        .get_resource::<UniversalTraceToggle>()
+        .and_then(|toggle| **toggle);
+    let trace_owner = find_trace_owner(request_id.source, world);
+    let toggle = universal
+        .or_else(|| trace_owner.and_then(|entity| world.get::<Trace>(entity).map(Trace::toggle)));
+    if !toggle.is_some_and(|toggle| toggle.is_on()) && !is_traced_request(request_id, world) {
+        return;
+    }
+
+    let operation = TraceTarget::new(request_id, world);
+    let mut tracker = world.get_resource_or_init::<OperationLifecycleTracker>();
+    tracker.active.insert(request_id);
+    if let Some(info) = &operation.info {
+        tracker.operations.insert(request_id, Arc::clone(info));
+    }
+    world.write_trace(TracedEvent::now(TracedEventKind::OperationStarted(
+        OperationLifecycle { operation },
+    )));
+}
+
+pub(crate) fn defer_operation_finished(request_id: RequestId, world: &mut World) {
+    let mut tracker = world.get_resource_or_init::<OperationLifecycleTracker>();
+    if tracker.active.contains(&request_id) {
+        tracker.deferred.insert(request_id);
+    }
+}
+
+pub(crate) fn trace_operation_finished(request_id: RequestId, world: &mut World) {
+    let should_trace = {
+        let mut tracker = world.get_resource_or_init::<OperationLifecycleTracker>();
+        tracker.deferred.remove(&request_id);
+        tracker.operations.remove(&request_id);
+        tracker.active.remove(&request_id)
+    };
+    if !should_trace {
+        return;
+    }
+
+    let operation = TraceTarget::new(request_id, world);
+    world.write_trace(TracedEvent::now(TracedEventKind::OperationFinished(
+        OperationLifecycle { operation },
+    )));
+}
+
+pub(crate) fn trace_immediate_operations_finished(source: Entity, world: &mut World) {
+    let ready = {
+        let tracker = world.get_resource_or_init::<OperationLifecycleTracker>();
+        tracker
+            .active
+            .iter()
+            .filter(|request| request.source == source && !tracker.deferred.contains(request))
+            .copied()
+            .collect::<SmallVec<[_; 4]>>()
+    };
+    for request_id in ready {
+        trace_operation_finished(request_id, world);
     }
 }
 
@@ -533,10 +637,12 @@ impl<'w, 's> BufferTracer<'w, 's> {
     pub(crate) fn get_trace_buffer(&self, key: &BufferKeyTag) -> TraceBuffer {
         let session_stack = get_session_stack(key.session, &self.child_of);
         let labels = self.labels.get(key.buffer).ok().map(|l| l.input.clone());
+        let info = self.trace.get(key.buffer).ok().map(|t| t.info.clone());
         TraceBuffer {
             session_stack,
             id: key.buffer,
             labels: labels,
+            info,
         }
     }
 
@@ -585,6 +691,15 @@ impl SessionEvent {
 
     pub(crate) fn despawned(session: Entity, world: &mut World) {
         let session_stack = get_session_stack_from_world(session, world);
+        if let Some(mut tracker) = world.get_resource_mut::<OperationLifecycleTracker>() {
+            tracker.active.retain(|request| request.session != session);
+            tracker
+                .deferred
+                .retain(|request| request.session != session);
+            tracker
+                .operations
+                .retain(|request, _| request.session != session);
+        }
         let event = SessionEvent {
             session_stack,
             change: SessionChange::Despawned,
@@ -683,6 +798,10 @@ pub enum PauseCause {
 pub enum TracedEventKind {
     /// A message was sent from one operation to another
     MessageSent(MessageSent),
+    /// An operation began processing one request.
+    OperationStarted(OperationLifecycle),
+    /// An operation finished processing one request.
+    OperationFinished(OperationLifecycle),
     /// A buffer was viewed or modified by an operation
     BufferEvent(BufferEvent),
     /// A session was spawned despawned, or changed state
@@ -707,6 +826,9 @@ impl TracedEventKind {
                         return true;
                     }
                 }
+            }
+            Self::OperationStarted(event) | Self::OperationFinished(event) => {
+                return event.operation.session_stack.contains(&session);
             }
             Self::SessionEvent(s) => {
                 return s.session_stack.contains(&session);

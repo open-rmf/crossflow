@@ -109,6 +109,8 @@ impl<Response: 'static + Send + Sync, Streams: StreamPack> OperateTask<Response,
 
     pub(crate) fn add(self, world: &mut World, roster: &mut OperationRoster) {
         let source = self.source;
+        #[cfg(feature = "trace")]
+        crate::defer_operation_finished(self.request_id, world);
         let scope = world.get::<InScope>(self.node()).map(|s| s.scope());
         let mut source_mut = world.entity_mut(source);
         source_mut.insert(ChildOf(self.node()));
@@ -154,6 +156,8 @@ where
             sender
                 .send(Box::new(
                     move |world: &mut World, roster: &mut OperationRoster| {
+                        #[cfg(feature = "trace")]
+                        crate::trace_operation_finished(request_id, world);
                         cleanup_task(source, node, unblock, being_cleaned, world, roster);
 
                         if disposed {
@@ -262,6 +266,8 @@ where
                     .get_mut::<OperateTask<Response, Streams>>(source)
                     .or_broken()?
                     .finished_normally = true;
+                #[cfg(feature = "trace")]
+                crate::trace_operation_finished(request_id, world);
                 cleanup_task(source, node, unblock, being_cleaned, world, roster);
 
                 if Streams::has_streams() {
@@ -338,6 +344,8 @@ where
             .or_broken()?;
         operation.being_cleaned = Some(cleanup);
         operation.finished_normally = true;
+        #[cfg(feature = "trace")]
+        let request_id = operation.request_id;
         let node = operation.node();
         let task = operation.task.take();
         let unblock = operation.blocker.take();
@@ -347,6 +355,8 @@ where
                 task.cancel().await;
                 if let Err(err) = sender.send(Box::new(
                     move |world: &mut World, roster: &mut OperationRoster| {
+                        #[cfg(feature = "trace")]
+                        crate::trace_operation_finished(request_id, world);
                         cleanup_task(source, node, unblock, Some(cleanup), world, roster);
                     },
                 )) {
@@ -354,6 +364,8 @@ where
                 }
             });
         } else {
+            #[cfg(feature = "trace")]
+            crate::trace_operation_finished(request_id, clean.world);
             cleanup_task(
                 source,
                 node,

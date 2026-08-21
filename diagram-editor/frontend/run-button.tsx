@@ -68,7 +68,8 @@ export function RunPanel({
   const {
     clearInteractionVisualization,
     markInteractionFinished,
-    markInteractionMessage,
+    markInteractionConnection,
+    markInteractionOperationFinished,
     markInteractionOperationStarted,
   } = useInteractionVisualization();
   const [templates] = useTemplates();
@@ -173,16 +174,15 @@ export function RunPanel({
       interactionSubscriptionRef.current =
         interactionSession.interactionMessages$.subscribe({
           next: (msg) => {
-            if (
-              msg.type === 'feedback' &&
-              'operationStarted' in msg &&
-              typeof msg.operationStarted === 'string'
-            ) {
+            if (msg.type === 'feedback' && 'operationStarted' in msg) {
               if (!showProgressRef.current) {
                 return;
               }
-              const operationId = msg.operationStarted;
-              markInteractionOperationStarted(operationId);
+              const { operationId, executionId } = msg.operationStarted as {
+                operationId: string;
+                executionId: string;
+              };
+              markInteractionOperationStarted(operationId, executionId);
               const entry = {
                 seq: ++interactionEventCounter.current,
                 operationId,
@@ -193,21 +193,28 @@ export function RunPanel({
               return;
             }
 
-            if (
-              msg.type === 'feedback' &&
-              'messageSent' in msg &&
-              typeof msg.messageSent === 'object' &&
-              msg.messageSent !== null &&
-              'sourceOperationId' in msg.messageSent &&
-              typeof msg.messageSent.sourceOperationId === 'string' &&
-              'targetOperationId' in msg.messageSent &&
-              typeof msg.messageSent.targetOperationId === 'string'
-            ) {
+            if (msg.type === 'feedback' && 'operationFinished' in msg) {
               if (!showProgressRef.current) {
                 return;
               }
-              const { sourceOperationId, targetOperationId } = msg.messageSent;
-              markInteractionMessage(sourceOperationId, targetOperationId);
+              const { operationId, executionId } = msg.operationFinished as {
+                operationId: string;
+                executionId: string;
+              };
+              markInteractionOperationFinished(operationId, executionId);
+              return;
+            }
+
+            if (msg.type === 'feedback' && 'connectionActivity' in msg) {
+              if (!showProgressRef.current) {
+                return;
+              }
+              const { sourceOperationId, targetOperationId } =
+                msg.connectionActivity as {
+                  sourceOperationId: string;
+                  targetOperationId: string;
+                };
+              markInteractionConnection(sourceOperationId, targetOperationId);
               return;
             }
 

@@ -37,6 +37,7 @@ use crate::{
 #[cfg(feature = "trace")]
 use crate::{
     Debug, DebugRoster, MessageSent, Trace, TraceToggle, TracedEvent, UniversalTraceToggle,
+    is_traced_request, trace_operation_started,
 };
 
 pub type Seq = u32;
@@ -407,11 +408,13 @@ impl ManageInput for World {
             if !perform_trace {
                 // Check if any of the sources want to trace
                 for output in &route.outputs {
-                    if let Some(trace) = self.get::<Trace>(output.source) {
-                        if trace.toggle().is_on() {
-                            perform_trace = true;
-                            break;
-                        }
+                    if self
+                        .get::<Trace>(output.source)
+                        .is_some_and(|trace| trace.toggle().is_on())
+                        || is_traced_request(output.request_id(), self)
+                    {
+                        perform_trace = true;
+                        break;
                     }
                 }
             }
@@ -498,7 +501,7 @@ impl ManageInput for World {
         #[cfg(feature = "trace")]
         {
             self.get_resource_or_init::<Debug>();
-            self.resource_scope::<Debug, _>(|world, mut debug| {
+            let input = self.resource_scope::<Debug, _>(|world, mut debug| {
                 if !debug.is_active() {
                     // Revert to the usual implementation of popping the next
                     let mut storage = world.get_mut::<InputStorage<T>>(source).or_broken()?;
@@ -546,7 +549,18 @@ impl ManageInput for World {
                         }
                     })
                 }
-            })
+            })?;
+            if let Some(input) = &input {
+                trace_operation_started(
+                    RequestId {
+                        session: input.session,
+                        source,
+                        seq: input.seq,
+                    },
+                    self,
+                );
+            }
+            Ok(input)
         }
     }
 

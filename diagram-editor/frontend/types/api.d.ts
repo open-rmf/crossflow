@@ -259,11 +259,23 @@ export type Schema =
 export type InteractionSessionMessage =
   | ((
       | {
-          operationStarted: string;
+          operationStarted: {
+            executionId: string;
+            operationId: string;
+            [k: string]: unknown;
+          };
           [k: string]: unknown;
         }
       | {
-          messageSent: {
+          operationFinished: {
+            executionId: string;
+            operationId: string;
+            [k: string]: unknown;
+          };
+          [k: string]: unknown;
+        }
+      | {
+          connectionActivity: {
             sourceOperationId: string;
             targetOperationId: string;
             [k: string]: unknown;

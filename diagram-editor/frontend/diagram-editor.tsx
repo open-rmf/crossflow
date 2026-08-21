@@ -322,21 +322,32 @@ function DiagramEditor() {
     React.useState(() => new Set<string>());
   const [interactionVisitedNodeIds, setInteractionVisitedNodeIds] =
     React.useState(() => new Set<string>());
+  const interactionExecutionNodeIds = React.useRef(new Map<string, string>());
   const clearInteractionVisualization = React.useCallback(() => {
+    interactionExecutionNodeIds.current.clear();
     setInteractionActiveNodeIds(new Set());
     setInteractionVisitedNodeIds(new Set());
   }, []);
   const markInteractionFinished = React.useCallback(() => {
+    interactionExecutionNodeIds.current.clear();
     setInteractionActiveNodeIds(new Set());
   }, []);
   const markInteractionOperationFinished = React.useCallback(
-    (operationId: string) => {
-      const nodeId = getInteractionNodeId(operationId, nodeManager);
+    (operationId: string, executionId: string) => {
+      const nodeId =
+        interactionExecutionNodeIds.current.get(executionId) ??
+        getInteractionNodeId(operationId, nodeManager);
       if (!nodeId) {
         return;
       }
 
+      interactionExecutionNodeIds.current.delete(executionId);
       setInteractionActiveNodeIds((prev) => {
+        if (
+          [...interactionExecutionNodeIds.current.values()].includes(nodeId)
+        ) {
+          return prev;
+        }
         const next = new Set(prev);
         next.delete(nodeId);
         return next;
@@ -350,12 +361,13 @@ function DiagramEditor() {
     [nodeManager],
   );
   const markInteractionOperationStarted = React.useCallback(
-    (operationId: string) => {
+    (operationId: string, executionId: string) => {
       const nodeId = getInteractionNodeId(operationId, nodeManager);
       if (!nodeId) {
         return;
       }
 
+      interactionExecutionNodeIds.current.set(executionId, nodeId);
       setInteractionVisitedNodeIds((prev) => {
         const next = new Set(prev);
         next.delete(nodeId);
@@ -369,9 +381,8 @@ function DiagramEditor() {
     },
     [nodeManager],
   );
-  const markInteractionMessage = React.useCallback(
+  const markInteractionConnection = React.useCallback(
     (sourceOperationId: string, targetOperationId: string) => {
-      markInteractionOperationFinished(sourceOperationId);
       const sourceNodeId = getInteractionNodeId(sourceOperationId, nodeManager);
       const targetNodeId = getInteractionNodeId(targetOperationId, nodeManager);
       if (!sourceNodeId || !targetNodeId) {
@@ -385,7 +396,7 @@ function DiagramEditor() {
         )
         .forEach((edge) => glowEdge(edge.id));
     },
-    [markInteractionOperationFinished, nodeManager],
+    [nodeManager],
   );
   const interactionVisualizationContext =
     React.useMemo<InteractionVisualizationContext>(
@@ -394,16 +405,18 @@ function DiagramEditor() {
         visitedNodeIds: interactionVisitedNodeIds,
         clearInteractionVisualization,
         markInteractionFinished,
+        markInteractionOperationFinished,
         markInteractionOperationStarted,
-        markInteractionMessage,
+        markInteractionConnection,
       }),
       [
         clearInteractionVisualization,
         interactionActiveNodeIds,
         interactionVisitedNodeIds,
         markInteractionFinished,
+        markInteractionOperationFinished,
         markInteractionOperationStarted,
-        markInteractionMessage,
+        markInteractionConnection,
       ],
     );
   const savedNodes = React.useRef<DiagramEditorNode[]>([]);

@@ -774,6 +774,9 @@ fn perform_operation<Op: Operation>(
             world.emit_broken(source, backtrace, roster);
         }
     }
+
+    #[cfg(feature = "trace")]
+    crate::trace_immediate_operations_finished(source, world);
 }
 
 pub struct DownstreamIter<'a> {

@@ -12,12 +12,12 @@ use axum::{
     routing::{self},
 };
 use bevy_ecs::{prelude::Entity, schedule::IntoScheduleConfigs};
-#[cfg(feature = "router")]
-use crossflow::TracedEventKind;
 use crossflow::{
     Diagram, DiagramElementRegistry, DiagramError, DiagramErrorCode, DiagramOperation,
     InferenceBoundaryConditions, MetadataAccess, Outcome, PortRef, RequestExt, TracedEvent, trace,
 };
+#[cfg(feature = "router")]
+use crossflow::{TraceTarget, TracedEventKind};
 use serde::{Deserialize, Serialize};
 use std::{
     error::Error,
@@ -891,8 +891,15 @@ impl InteractionSessionEnd {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum InteractionSessionFeedback {
-    OperationStarted(String),
-    MessageSent {
+    OperationStarted {
+        operation_id: String,
+        execution_id: String,
+    },
+    OperationFinished {
+        operation_id: String,
+        execution_id: String,
+    },
+    ConnectionActivity {
         source_operation_id: String,
         target_operation_id: String,
     },
@@ -1040,42 +1047,43 @@ async fn send_interaction_feedback<W>(write: &mut W, feedback: &TracedEvent)
 where
     W: WebsocketSinkExt<InteractionSessionMessage>,
 {
-    for message in message_sent_feedback(feedback) {
+    for message in connection_activity_feedback(feedback) {
         write
             .send_json(&InteractionSessionMessage::Feedback(message))
             .await;
     }
 
-    if let Some(op_id) = operation_started_id(feedback) {
+    if let Some(message) = operation_lifecycle_feedback(feedback) {
         write
-            .send_json(&InteractionSessionMessage::Feedback(
-                InteractionSessionFeedback::OperationStarted(op_id),
-            ))
+            .send_json(&InteractionSessionMessage::Feedback(message))
             .await;
     }
 }
 
 #[cfg(feature = "router")]
-fn operation_started_id(feedback: &TracedEvent) -> Option<String> {
-    match &feedback.event {
-        TracedEventKind::MessageSent(message) => message
-            .input
-            .info
-            .as_ref()
-            .and_then(|info| info.id().as_ref())
-            .map(ToString::to_string),
-        TracedEventKind::BufferEvent(event) => event
-            .accessor
-            .info
-            .as_ref()
-            .and_then(|info| info.id().as_ref())
-            .map(ToString::to_string),
-        _ => None,
-    }
+fn operation_lifecycle_feedback(feedback: &TracedEvent) -> Option<InteractionSessionFeedback> {
+    let (operation, started) = match &feedback.event {
+        TracedEventKind::OperationStarted(event) => (&event.operation, true),
+        TracedEventKind::OperationFinished(event) => (&event.operation, false),
+        _ => return None,
+    };
+    let operation_id = operation.info.as_ref()?.id().as_ref()?.to_string();
+    let execution_id = target_execution_id(operation);
+    Some(if started {
+        InteractionSessionFeedback::OperationStarted {
+            operation_id,
+            execution_id,
+        }
+    } else {
+        InteractionSessionFeedback::OperationFinished {
+            operation_id,
+            execution_id,
+        }
+    })
 }
 
 #[cfg(feature = "router")]
-fn message_sent_feedback(feedback: &TracedEvent) -> Vec<InteractionSessionFeedback> {
+fn connection_activity_feedback(feedback: &TracedEvent) -> Vec<InteractionSessionFeedback> {
     match &feedback.event {
         TracedEventKind::MessageSent(message) => {
             let Some(target_operation_id) = message
@@ -1096,15 +1104,53 @@ fn message_sent_feedback(feedback: &TracedEvent) -> Vec<InteractionSessionFeedba
                         .as_ref()
                         .and_then(|info| info.id().as_ref())
                         .map(ToString::to_string)?;
-                    Some(InteractionSessionFeedback::MessageSent {
+                    Some(InteractionSessionFeedback::ConnectionActivity {
                         source_operation_id,
                         target_operation_id: target_operation_id.clone(),
                     })
                 })
                 .collect()
         }
+        TracedEventKind::BufferEvent(event) => {
+            let Some(source_operation_id) = event
+                .buffer
+                .info
+                .as_ref()
+                .and_then(|info| info.id().as_ref())
+                .map(ToString::to_string)
+            else {
+                return Vec::new();
+            };
+            let Some(target_operation_id) = event
+                .accessor
+                .info
+                .as_ref()
+                .and_then(|info| info.id().as_ref())
+                .map(ToString::to_string)
+            else {
+                return Vec::new();
+            };
+            if source_operation_id == target_operation_id {
+                return Vec::new();
+            }
+            vec![InteractionSessionFeedback::ConnectionActivity {
+                source_operation_id,
+                target_operation_id,
+            }]
+        }
         _ => Vec::new(),
     }
+}
+
+#[cfg(feature = "router")]
+fn target_execution_id(target: &TraceTarget) -> String {
+    execution_id(&target.session_stack, target.target, target.seq)
+}
+
+#[cfg(feature = "router")]
+fn execution_id(session_stack: &[Entity], operation: Entity, seq: u32) -> String {
+    let session = session_stack.last().copied().unwrap_or(Entity::PLACEHOLDER);
+    format!("{}:{}:{seq}", session.to_bits(), operation.to_bits())
 }
 
 #[derive(bevy_ecs::prelude::Resource)]
@@ -1580,9 +1626,8 @@ mod tests {
             .await
             .unwrap();
 
-        // There should be 4 feedback messages: add7 starts, add7 finishes,
-        // terminate starts, and terminate finishes.
-        for _ in 0..4 {
+        // add7 and terminate each start and finish, with one connection event.
+        for _ in 0..5 {
             let msg = test_rx.next().await.unwrap();
             let feedback_msg: InteractionSessionMessage =
                 serde_json::from_slice(msg.into_text().unwrap().as_bytes()).unwrap();
@@ -1594,8 +1639,9 @@ mod tests {
             };
             assert!(matches!(
                 feedback,
-                InteractionSessionFeedback::OperationStarted(_)
-                    | InteractionSessionFeedback::MessageSent { .. }
+                InteractionSessionFeedback::OperationStarted { .. }
+                    | InteractionSessionFeedback::OperationFinished { .. }
+                    | InteractionSessionFeedback::ConnectionActivity { .. }
             ));
         }
 

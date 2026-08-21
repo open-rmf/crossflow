@@ -858,7 +858,19 @@
                 {
                   "properties": {
                     "operationStarted": {
-                      "type": "string"
+                      "properties": {
+                        "executionId": {
+                          "type": "string"
+                        },
+                        "operationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "operationId",
+                        "executionId"
+                      ],
+                      "type": "object"
                     }
                   },
                   "required": [
@@ -868,7 +880,30 @@
                 },
                 {
                   "properties": {
-                    "messageSent": {
+                    "operationFinished": {
+                      "properties": {
+                        "executionId": {
+                          "type": "string"
+                        },
+                        "operationId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "operationId",
+                        "executionId"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "operationFinished"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "connectionActivity": {
                       "properties": {
                         "sourceOperationId": {
                           "type": "string"
@@ -885,7 +920,7 @@
                     }
                   },
                   "required": [
-                    "messageSent"
+                    "connectionActivity"
                   ],
                   "type": "object"
                 }
