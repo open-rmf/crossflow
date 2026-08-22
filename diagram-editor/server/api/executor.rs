@@ -26,15 +26,10 @@ use std::{
 };
 use tokio::sync::mpsc::error::TryRecvError;
 use tracing::error;
-#[cfg(feature = "router")]
-use tracing::warn;
 
 #[cfg(feature = "router")]
 use super::websocket::{WebsocketSinkExt, WebsocketStreamExt};
 use crate::api::error_responses::WorkflowCancelledResponse;
-
-#[cfg(feature = "router")]
-type BroadcastRecvError = tokio::sync::broadcast::error::RecvError;
 
 type WorkflowResponseResult =
     Result<(Outcome<serde_json::Value>, Entity), Box<dyn Error + Send + Sync>>;
@@ -43,7 +38,7 @@ type WorkflowResponseSender = tokio::sync::oneshot::Sender<WorkflowResponseResul
 type WorkflowFeedback = TracedEvent;
 
 #[derive(bevy_ecs::component::Component)]
-struct FeedbackSender(tokio::sync::broadcast::Sender<WorkflowFeedback>);
+struct FeedbackSender(tokio::sync::mpsc::UnboundedSender<WorkflowFeedback>);
 
 pub struct Context {
     diagram: Diagram,
@@ -910,7 +905,9 @@ pub enum InteractionSessionFeedback {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum InteractionSessionMessage {
-    Feedback(InteractionSessionFeedback),
+    Feedback {
+        events: Vec<InteractionSessionFeedback>,
+    },
     Finish(InteractionSessionEnd),
 }
 
@@ -929,7 +926,7 @@ where
     };
 
     let (response_tx, response_rx) = tokio::sync::oneshot::channel();
-    let (feedback_tx, mut feedback_rx) = tokio::sync::broadcast::channel(10);
+    let (feedback_tx, mut feedback_rx) = tokio::sync::mpsc::unbounded_channel();
     if let Err(err) = state
         .send_chan
         .send(Context {
@@ -991,18 +988,10 @@ where
             tokio::select! {
                 feedback = feedback_rx.recv() => {
                     match feedback {
-                        Ok(feedback) => {
-                            send_interaction_feedback(&mut write, &feedback).await;
+                        Some(feedback) => {
+                            send_interaction_feedback(&mut write, feedback, &mut feedback_rx).await;
                         }
-                        Err(e) => match e {
-                            BroadcastRecvError::Closed => {
-                                feedback_open = false;
-                            }
-                            BroadcastRecvError::Lagged(_) => {
-                                warn!("{}", e);
-                                feedback_open = false;
-                            }
-                        },
+                        None => feedback_open = false,
                     }
                 }
                 result = &mut response => {
@@ -1026,38 +1015,46 @@ where
 #[cfg(feature = "router")]
 async fn drain_interaction_feedback<W>(
     write: &mut W,
-    feedback_rx: &mut tokio::sync::broadcast::Receiver<WorkflowFeedback>,
+    feedback_rx: &mut tokio::sync::mpsc::UnboundedReceiver<WorkflowFeedback>,
 ) where
     W: WebsocketSinkExt<InteractionSessionMessage>,
 {
-    loop {
-        match feedback_rx.try_recv() {
-            Ok(feedback) => send_interaction_feedback(write, &feedback).await,
-            Err(tokio::sync::broadcast::error::TryRecvError::Empty) => break,
-            Err(tokio::sync::broadcast::error::TryRecvError::Closed) => break,
-            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(skipped)) => {
-                warn!("interaction feedback lagged by {skipped} messages");
-            }
-        }
+    while let Ok(feedback) = feedback_rx.try_recv() {
+        send_interaction_feedback(write, feedback, feedback_rx).await;
     }
 }
 
 #[cfg(feature = "router")]
-async fn send_interaction_feedback<W>(write: &mut W, feedback: &TracedEvent)
-where
+async fn send_interaction_feedback<W>(
+    write: &mut W,
+    feedback: TracedEvent,
+    feedback_rx: &mut tokio::sync::mpsc::UnboundedReceiver<WorkflowFeedback>,
+) where
     W: WebsocketSinkExt<InteractionSessionMessage>,
 {
-    for message in connection_activity_feedback(feedback) {
+    let mut events = Vec::new();
+    append_interaction_feedback(&mut events, &feedback);
+    tokio::time::sleep(Duration::from_millis(1)).await;
+    for _ in 1..256 {
+        let Ok(feedback) = feedback_rx.try_recv() else {
+            break;
+        };
+        append_interaction_feedback(&mut events, &feedback);
+    }
+    if !events.is_empty() {
         write
-            .send_json(&InteractionSessionMessage::Feedback(message))
+            .send_json(&InteractionSessionMessage::Feedback { events })
             .await;
     }
+}
 
-    if let Some(message) = operation_lifecycle_feedback(feedback) {
-        write
-            .send_json(&InteractionSessionMessage::Feedback(message))
-            .await;
-    }
+#[cfg(feature = "router")]
+fn append_interaction_feedback(
+    events: &mut Vec<InteractionSessionFeedback>,
+    feedback: &TracedEvent,
+) {
+    events.extend(connection_activity_feedback(feedback));
+    events.extend(operation_lifecycle_feedback(feedback));
 }
 
 #[cfg(feature = "router")]
@@ -1402,6 +1399,27 @@ mod tests {
         .unwrap()
     }
 
+    fn new_add7_chain_diagram(count: usize) -> Diagram {
+        let mut ops = serde_json::Map::new();
+        for i in 0..count {
+            let next = if i + 1 == count {
+                json!({ "builtin": "terminate" })
+            } else {
+                json!(format!("add7_{next}", next = i + 1))
+            };
+            ops.insert(
+                format!("add7_{i}"),
+                json!({ "type": "node", "builder": "add7", "next": next }),
+            );
+        }
+        Diagram::from_json(json!({
+            "version": "0.1.0",
+            "start": "add7_0",
+            "ops": ops,
+        }))
+        .unwrap()
+    }
+
     #[tokio::test]
     #[test_log::test]
     async fn test_post_run() {
@@ -1600,7 +1618,8 @@ mod tests {
             cleanup_test,
         } = setup_ws_test();
 
-        let mut diagram = new_add7_diagram();
+        const OPERATION_COUNT: usize = 1000;
+        let mut diagram = new_add7_chain_diagram(OPERATION_COUNT);
         diagram.default_trace = crossflow::TraceToggle::On;
 
         let request_body = PostRunRequest {
@@ -1626,36 +1645,27 @@ mod tests {
             .await
             .unwrap();
 
-        // add7 and terminate each start and finish, with one connection event.
-        for _ in 0..5 {
+        // Each operation and terminate start and finish, with one connection per operation.
+        let mut feedback_frames = 0;
+        let mut feedback_events = 0;
+        let resp = loop {
             let msg = test_rx.next().await.unwrap();
-            let feedback_msg: InteractionSessionMessage =
+            let msg: serde_json::Value =
                 serde_json::from_slice(msg.into_text().unwrap().as_bytes()).unwrap();
-            let feedback = match feedback_msg {
-                InteractionSessionMessage::Feedback(feedback) => feedback,
-                _ => {
-                    panic!("expected feedback message");
+            match msg["type"].as_str() {
+                Some("feedback") => {
+                    feedback_frames += 1;
+                    feedback_events += msg["events"].as_array().map_or(1, Vec::len);
                 }
-            };
-            assert!(matches!(
-                feedback,
-                InteractionSessionFeedback::OperationStarted { .. }
-                    | InteractionSessionFeedback::OperationFinished { .. }
-                    | InteractionSessionFeedback::ConnectionActivity { .. }
-            ));
-        }
-
-        let resp_msg = test_rx.next().await.unwrap();
-        let resp_text = resp_msg.into_text().unwrap();
-        let resp_msg: InteractionSessionMessage =
-            serde_json::from_slice(resp_text.as_bytes()).unwrap();
-        let resp = match resp_msg {
-            InteractionSessionMessage::Finish(InteractionSessionEnd::Ok(resp)) => resp,
-            _ => {
-                panic!("expected response to be Ok");
+                Some("finish") => {
+                    break msg["ok"].clone();
+                }
+                _ => panic!("unexpected interaction message"),
             }
         };
-        assert_eq!(resp, serde_json::Value::from(12));
+        assert_eq!(feedback_events, 3 * OPERATION_COUNT + 2);
+        assert!(feedback_frames * 10 < feedback_events);
+        assert_eq!(resp, serde_json::Value::from(5 + 7 * OPERATION_COUNT));
 
         cleanup_test();
     }
