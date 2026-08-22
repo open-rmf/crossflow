@@ -46,18 +46,14 @@
 .react-flow__handle.handle-data-buffer {
   background-color: var(--mui-palette-secondary-main);
 }
-.react-flow__handle.handle-data-stream {
-  width: 10px;
-  height: 10px;
-  background-color: var(--mui-palette-background-default);
-  border: 2px solid var(--mui-palette-warning-dark);
-}
 .react-flow__handle.connectionindicator {
   opacity: 1;
   border: 1px solid transparent;
   box-shadow: none;
 }
-.react-flow__handle.handle-data-stream.connectionindicator {
+.react-flow__handle.handle-data-stream {
+  width: 10px;
+  height: 10px;
   background-color: var(--mui-palette-background-default);
   border: 2px solid var(--mui-palette-warning-dark);
 }

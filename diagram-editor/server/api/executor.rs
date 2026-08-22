@@ -12,12 +12,12 @@ use axum::{
     routing::{self},
 };
 use bevy_ecs::{prelude::Entity, schedule::IntoScheduleConfigs};
+#[cfg(feature = "router")]
+use crossflow::TracedEventKind;
 use crossflow::{
     Diagram, DiagramElementRegistry, DiagramError, DiagramErrorCode, DiagramOperation,
     InferenceBoundaryConditions, MetadataAccess, Outcome, PortRef, RequestExt, TracedEvent, trace,
 };
-#[cfg(feature = "router")]
-use crossflow::{TraceTarget, TracedEventKind};
 use serde::{Deserialize, Serialize};
 use std::{
     error::Error,
@@ -1065,7 +1065,13 @@ fn operation_lifecycle_feedback(feedback: &TracedEvent) -> Option<InteractionSes
         _ => return None,
     };
     let operation_id = operation.info.as_ref()?.id().as_ref()?.to_string();
-    let execution_id = target_execution_id(operation);
+    let session = operation
+        .session_stack
+        .last()
+        .copied()
+        .unwrap_or(Entity::PLACEHOLDER)
+        .to_bits();
+    let execution_id = format!("{session}:{}:{}", operation.target.to_bits(), operation.seq);
     Some(if started {
         InteractionSessionFeedback::OperationStarted {
             operation_id,
@@ -1137,17 +1143,6 @@ fn connection_activity_feedback(feedback: &TracedEvent) -> Vec<InteractionSessio
         }
         _ => Vec::new(),
     }
-}
-
-#[cfg(feature = "router")]
-fn target_execution_id(target: &TraceTarget) -> String {
-    execution_id(&target.session_stack, target.target, target.seq)
-}
-
-#[cfg(feature = "router")]
-fn execution_id(session_stack: &[Entity], operation: Entity, seq: u32) -> String {
-    let session = session_stack.last().copied().unwrap_or(Entity::PLACEHOLDER);
-    format!("{}:{}:{seq}", session.to_bits(), operation.to_bits())
 }
 
 #[derive(bevy_ecs::prelude::Resource)]

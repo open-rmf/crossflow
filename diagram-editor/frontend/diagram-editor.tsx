@@ -804,21 +804,6 @@ function DiagramEditor() {
       'open' | 'anchorReference' | 'anchorEl' | 'anchorPosition'
     >
   >({ open: false });
-  const openNodeEditor = React.useCallback(
-    (nodeId: string, nodeRect: Pick<DOMRect, 'left' | 'right' | 'top'>) => {
-      setEditingNodeId(nodeId);
-      setEditOpFormPopoverProps({
-        open: true,
-        anchorReference: 'anchorPosition',
-        anchorPosition: getEditPopoverPositionForNode({
-          nodeRect,
-          viewportWidth: window.innerWidth,
-          sidePanel: { open: sidePanelOpen, expanded: sidePanelExpanded },
-        }),
-      });
-    },
-    [sidePanelExpanded, sidePanelOpen],
-  );
   const renderEditForm = React.useCallback(
     (nodeId: string) => {
       const node = nodeManager.tryGetNode(nodeId);
@@ -1479,7 +1464,19 @@ function DiagramEditor() {
               false,
             );
           }
-          openNodeEditor(node.id, ev.currentTarget.getBoundingClientRect());
+          setEditingNodeId(node.id);
+          setEditOpFormPopoverProps({
+            open: true,
+            anchorReference: 'anchorPosition',
+            anchorPosition: getEditPopoverPositionForNode({
+              nodeRect: ev.currentTarget.getBoundingClientRect(),
+              viewportWidth: window.innerWidth,
+              sidePanel: {
+                open: sidePanelOpen,
+                expanded: sidePanelExpanded,
+              },
+            }),
+          });
         }}
         onEdgeClick={(ev, edge) => {
           ev.stopPropagation();

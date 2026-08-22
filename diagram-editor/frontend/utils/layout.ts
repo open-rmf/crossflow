@@ -3,8 +3,6 @@ import type { Rect, XYPosition } from '@xyflow/react';
 export interface LayoutOptions {
   nodeWidth: number;
   nodeHeight: number;
-  /** Width and height of nodes rendered as a circular icon, e.g. forks. */
-  compactNodeSize: number;
   scopePadding: {
     leftRight: number;
     topBottom: number;
@@ -14,7 +12,6 @@ export interface LayoutOptions {
 export const LAYOUT_OPTIONS: LayoutOptions = {
   nodeWidth: 200,
   nodeHeight: 50,
-  compactNodeSize: 42,
   scopePadding: {
     leftRight: 75,
     topBottom: 50,

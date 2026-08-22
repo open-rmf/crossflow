@@ -1,11 +1,8 @@
+import type { PopoverPosition } from '@mui/material';
+
 export interface SidePanelLayoutState {
   open: boolean;
   expanded: boolean;
-}
-
-export interface EditorAnchorPosition {
-  left: number;
-  top: number;
 }
 
 export const NormalSidePanelWidth = 420;
@@ -47,10 +44,10 @@ export function constrainEditPopoverPosition({
   viewportWidth,
   sidePanel,
 }: {
-  anchorPosition: EditorAnchorPosition;
+  anchorPosition: PopoverPosition;
   viewportWidth: number;
   sidePanel: SidePanelLayoutState;
-}): EditorAnchorPosition {
+}): PopoverPosition {
   const maximumLeft =
     getEditPopoverRightBoundary(viewportWidth, sidePanel) - EditPopoverWidth;
 
@@ -72,7 +69,7 @@ export function getEditPopoverPositionForNode({
   nodeRect: Pick<DOMRect, 'left' | 'right' | 'top'>;
   viewportWidth: number;
   sidePanel: SidePanelLayoutState;
-}): EditorAnchorPosition {
+}): PopoverPosition {
   const rightOfNode = nodeRect.right + EditPopoverMargin;
   const fitsRight =
     rightOfNode + EditPopoverWidth <=

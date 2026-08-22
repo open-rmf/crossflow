@@ -27,11 +27,11 @@ export function NodeIcon(): React.JSX.Element {
   return <MaterialSymbol symbol="line_start_circle" />;
 }
 
-export function CloneIcon(): React.JSX.Element {
+export function ForkCloneIcon(): React.JSX.Element {
   return <MaterialSymbol symbol="content_copy" />;
 }
 
-export function ResultIcon(): React.JSX.Element {
+export function ForkResultIcon(): React.JSX.Element {
   return <MaterialSymbol symbol="question_mark" />;
 }
 
@@ -102,11 +102,11 @@ export function getIcon(op: DiagramOperation): React.ComponentType {
     case 'section':
       return SectionIcon;
     case 'fork_clone':
-      return CloneIcon;
+      return ForkCloneIcon;
     case 'unzip':
       return UnzipIcon;
     case 'fork_result':
-      return ResultIcon;
+      return ForkResultIcon;
     case 'split':
       return SplitIcon;
     case 'join':

@@ -12,6 +12,8 @@ import { type JSX, memo } from 'react';
 import { useInteractionVisualization } from '../interaction-visualization-provider';
 import { LAYOUT_OPTIONS } from '../utils/layout';
 
+const CompactNodeSize = 42;
+
 export interface BaseNodeProps extends NodeProps {
   color?: ButtonProps['color'];
   icon?: React.JSX.Element | string;
@@ -31,7 +33,7 @@ function BaseNode({
   selected,
   id,
   highlight,
-  compact = false,
+  compact,
 }: BaseNodeProps) {
   const { activeNodeIds, visitedNodeIds } = useInteractionVisualization();
   const interactionActive = activeNodeIds.has(id);
@@ -81,9 +83,9 @@ function BaseNode({
           textTransform: 'none',
           ...(compact
             ? {
-                width: LAYOUT_OPTIONS.compactNodeSize,
-                minWidth: LAYOUT_OPTIONS.compactNodeSize,
-                height: LAYOUT_OPTIONS.compactNodeSize,
+                width: CompactNodeSize,
+                minWidth: CompactNodeSize,
+                height: CompactNodeSize,
                 borderRadius: '50%',
                 padding: 0,
               }
