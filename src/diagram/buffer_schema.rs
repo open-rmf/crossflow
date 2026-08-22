@@ -420,10 +420,9 @@ pub struct ListenSchema {
 impl BuildDiagramOperation for ListenSchema {
     fn build_diagram_operation(
         &self,
-        _: &OperationName,
+        id: &OperationName,
         ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
-        // TODO(@mxgrey): Figure out how to enable tracing for listen operations
         let target_type = ctx.inferred_message_type(&self.next)?;
 
         let buffer_map = match ctx.create_buffer_map(&self.buffers) {
@@ -435,6 +434,8 @@ impl BuildDiagramOperation for ListenSchema {
             .registry
             .messages
             .listen(&target_type, &buffer_map, ctx.builder)?;
+        let trace = TraceInfo::new(self, self.trace_settings.trace)?;
+        ctx.trace_output_source(id, &output, trace);
         ctx.add_output_into_target(&self.next, output);
         Ok(BuildStatus::Finished)
     }

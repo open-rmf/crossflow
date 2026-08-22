@@ -3,6 +3,16 @@
 .react-flow.dark {
   --xy-edge-stroke-default: var(--mui-palette-grey-700);
 }
+.react-flow__edge .react-flow__edge-path {
+  transition:
+    stroke 450ms ease-out,
+    filter 450ms ease-out;
+}
+.react-flow__edge.message-active .react-flow__edge-path {
+  stroke: var(--mui-palette-warning-dark);
+  filter: drop-shadow(0 0 4px var(--mui-palette-warning-dark));
+  transition-duration: 0ms;
+}
 .react-flow__pane.draggable {
   cursor: default;
 }
@@ -34,23 +44,18 @@
   background-color: var(--mui-palette-secondary-dark);
 }
 .react-flow__handle.handle-data-buffer {
-  background: linear-gradient(
-    -45deg,
-    var(--mui-palette-secondary-dark) 50%,
-    var(--xy-handle-background-color-default) 50%
-  );
-}
-.react-flow__handle.handle-data-stream {
-  background: linear-gradient(
-    -45deg,
-    var(--mui-palette-warning-dark) 50%,
-    var(--xy-handle-background-color-default) 50%
-  );
+  background-color: var(--mui-palette-secondary-main);
 }
 .react-flow__handle.connectionindicator {
   opacity: 1;
   border: 1px solid transparent;
   box-shadow: none;
+}
+.react-flow__handle.handle-data-stream {
+  width: 10px;
+  height: 10px;
+  background-color: var(--mui-palette-background-default);
+  border: 2px solid var(--mui-palette-warning-dark);
 }
 .react-flow__handle.handle-compatible {
   border: 1px solid var(--mui-palette-success-main);

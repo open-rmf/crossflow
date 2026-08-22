@@ -31,6 +31,10 @@ export function ForkCloneIcon(): React.JSX.Element {
   return <MaterialSymbol symbol="content_copy" />;
 }
 
+export function ForkResultIcon(): React.JSX.Element {
+  return <MaterialSymbol symbol="question_mark" />;
+}
+
 export function TransformIcon(): React.JSX.Element {
   return <MaterialSymbol symbol="change_circle" />;
 }
@@ -53,16 +57,14 @@ export function SplitIcon(): React.JSX.Element {
   );
 }
 
-export function ForkResultIcon(): React.JSX.Element {
-  return <MaterialSymbol symbol="question_mark" />;
-}
-
 export function ListenIcon(): React.JSX.Element {
   return <MaterialSymbol symbol="hearing" />;
 }
 
 export function JoinIcon(): React.JSX.Element {
-  return <MaterialSymbol symbol="arrow_and_edge" />;
+  return (
+    <MaterialSymbol symbol="call_merge" sx={{ transform: 'scaleY(-1)' }} />
+  );
 }
 
 export function StreamOutIcon(): React.JSX.Element {

@@ -254,22 +254,40 @@ export type Schema =
   | boolean;
 /**
  * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
+ * via the `definition` "InteractionSessionFeedback".
+ */
+export type InteractionSessionFeedback =
+  | {
+      operationStarted: {
+        executionId: string;
+        operationId: string;
+        [k: string]: unknown;
+      };
+    }
+  | {
+      operationFinished: {
+        executionId: string;
+        operationId: string;
+        [k: string]: unknown;
+      };
+    }
+  | {
+      connectionActivity: {
+        sourceOperationId: string;
+        targetOperationId: string;
+        [k: string]: unknown;
+      };
+    };
+/**
+ * This interface was referenced by `DiagramEditorApi`'s JSON-Schema
  * via the `definition` "InteractionSessionMessage".
  */
 export type InteractionSessionMessage =
-  | ((
-      | {
-          operationStarted: string;
-          [k: string]: unknown;
-        }
-      | {
-          operationFinished: string;
-          [k: string]: unknown;
-        }
-    ) & {
+  | {
+      events: InteractionSessionFeedback[];
       type: 'feedback';
       [k: string]: unknown;
-    })
+    }
   | ((
       | {
           ok: unknown;

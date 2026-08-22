@@ -131,6 +131,40 @@ impl<'a, 'c, 'w, 's, 'b> BuilderContext<'a, 'c, 'w, 's, 'b> {
             .push(output);
     }
 
+    /// Attach tracing to an operation whose input is driven internally.
+    pub fn trace_output_source(
+        &mut self,
+        #[allow(unused)] operation: impl Into<OperationRef>,
+        #[allow(unused)] output: &DynOutput,
+        #[allow(unused)] trace_info: TraceInfo,
+    ) {
+        #[cfg(feature = "trace")]
+        {
+            let operation = self.into_operation_ref(operation);
+            let operation_info = OperationInfo::new(
+                Some(operation),
+                Some(output.message_info().type_name.into()),
+                trace_info.construction,
+            );
+            let trace = Trace::new(
+                trace_info.trace.unwrap_or(self.default_trace),
+                Arc::new(operation_info),
+            );
+            let output = output.id();
+            self.builder
+                .commands()
+                .queue(move |world: &mut bevy_ecs::world::World| {
+                    let source = world
+                        .get::<crate::SingleInputStorage>(output)
+                        .and_then(|inputs| inputs.get().first())
+                        .copied();
+                    if let Some(source) = source {
+                        world.entity_mut(source).insert(trace);
+                    }
+                });
+        }
+    }
+
     /// Set the input slot of an operation. This should not be called more than
     /// once per operation, because only one input slot can be used for any
     /// operation.

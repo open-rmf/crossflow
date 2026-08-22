@@ -29,6 +29,29 @@ export interface HandleProps extends Omit<ReactFlowHandleProps, 'id'> {
   variant: HandleType;
 }
 
+const EdgeMessageIdleMs = 200;
+const edgeMessageTimers = new WeakMap<Element, number>();
+
+export function glowEdge(edgeId: string) {
+  const edge = document.querySelector(`.react-flow__edge[data-id="${edgeId}"]`);
+  if (!edge) {
+    return;
+  }
+
+  edge.classList.add('message-active');
+  const timer = edgeMessageTimers.get(edge);
+  if (timer !== undefined) {
+    window.clearTimeout(timer);
+  }
+  edgeMessageTimers.set(
+    edge,
+    window.setTimeout(() => {
+      edge.classList.remove('message-active');
+      edgeMessageTimers.delete(edge);
+    }, EdgeMessageIdleMs),
+  );
+}
+
 function variantClassName(handleType?: HandleType): string | undefined {
   if (handleType === undefined) {
     return undefined;

@@ -68,6 +68,7 @@ export function RunPanel({
   const {
     clearInteractionVisualization,
     markInteractionFinished,
+    markInteractionConnection,
     markInteractionOperationFinished,
     markInteractionOperationStarted,
   } = useInteractionVisualization();
@@ -173,35 +174,33 @@ export function RunPanel({
       interactionSubscriptionRef.current =
         interactionSession.interactionMessages$.subscribe({
           next: (msg) => {
-            if (
-              msg.type === 'feedback' &&
-              'operationStarted' in msg &&
-              typeof msg.operationStarted === 'string'
-            ) {
+            if (msg.type === 'feedback') {
               if (!showProgressRef.current) {
                 return;
               }
-              const operationId = msg.operationStarted;
-              markInteractionOperationStarted(operationId);
-              const entry = {
-                seq: ++interactionEventCounter.current,
-                operationId,
-              };
-              setExecutionTimeline((prev) =>
-                [...prev, entry].slice(-MaxExecutionTimelineEntries),
-              );
-              return;
-            }
-
-            if (
-              msg.type === 'feedback' &&
-              'operationFinished' in msg &&
-              typeof msg.operationFinished === 'string'
-            ) {
-              if (!showProgressRef.current) {
-                return;
+              for (const event of msg.events) {
+                if ('operationStarted' in event) {
+                  const { operationId, executionId } = event.operationStarted;
+                  markInteractionOperationStarted(operationId, executionId);
+                  const entry = {
+                    seq: ++interactionEventCounter.current,
+                    operationId,
+                  };
+                  setExecutionTimeline((prev) =>
+                    [...prev, entry].slice(-MaxExecutionTimelineEntries),
+                  );
+                } else if ('operationFinished' in event) {
+                  const { operationId, executionId } = event.operationFinished;
+                  markInteractionOperationFinished(operationId, executionId);
+                } else if ('connectionActivity' in event) {
+                  const { sourceOperationId, targetOperationId } =
+                    event.connectionActivity;
+                  markInteractionConnection(
+                    sourceOperationId,
+                    targetOperationId,
+                  );
+                }
               }
-              markInteractionOperationFinished(msg.operationFinished);
               return;
             }
 
