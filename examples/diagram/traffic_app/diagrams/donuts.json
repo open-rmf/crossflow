@@ -43,7 +43,7 @@
   "input_examples": [
     {
       "description": "Spin in circles",
-      "value": "{\n  \"throttle\": 10,\n  \"steer\": -10\n}"
+      "value": "{\n  \"throttle\": 20,\n  \"steer\": -45\n}"
     }
   ],
   "script_environments": {},

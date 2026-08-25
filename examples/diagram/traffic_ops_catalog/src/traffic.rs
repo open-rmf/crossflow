@@ -78,11 +78,9 @@ impl Velocity {
     }
 
     pub fn default_pedestrian() -> Self {
+        // Walking pace in m/s
         Velocity {
-            translation: Vec2 {
-                x: 40.0,
-                y: 0.0,
-            }
+            translation: Vec2 { x: 1.5, y: 0.0 },
         }
     }
 }

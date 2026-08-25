@@ -133,14 +133,17 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     registry.register_node_builder(
         NodeBuilderOptions::new("dashboard")
             .with_default_display_text("Dashboard")
-            .with_description("Get information from the vehicle's dashboard instruments"),
+            .with_description(
+                "Get information from the vehicle's dashboard instruments: \
+                speed (km/h) and steering wheel angle (degrees)",
+            ),
         move |builder, _: ()| builder.create_node(dashboard_service),
     );
 
     // =========================================================================
     let set_throttle_description = "Pass in a number to set the target speed \
-        of the vehicle. Pass in a dict to set both the target_speed and the \
-        max_acceleration fields.";
+        of the vehicle in km/h. Pass in a dict to set both the target_speed \
+        (km/h) and the max_acceleration (km/h per second) fields.";
     let set_throttle_config_examples = [
         ConfigExample::new(
             "Use the built-in default for max acceleration.",
@@ -188,9 +191,11 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         .with_result();
 
     // =========================================================================
-    let set_steering_description = "Pass in a number to set the target turn angle. \
-        Pass in a struct to set both target_turn_angle and max_steer_speed. Use \
-        max_steer_speed to limit how fast the turn angle can change.";
+    let set_steering_description = "Pass in a number to set the target turn angle \
+        of the front wheels in degrees (positive angles steer left). Pass in a \
+        struct to set both target_turn_angle and max_steer_speed. Use \
+        max_steer_speed (degrees per second) to limit how fast the turn angle \
+        can change.";
 
     registry.register_node_builder(
         NodeBuilderOptions::new("steer")
