@@ -184,6 +184,118 @@
         }
       ]
     },
+    "CompatibilityCandidate": {
+      "properties": {
+        "diagram": {
+          "$ref": "#/$defs/Diagram"
+        },
+        "focusPorts": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PortRef"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sourcePort": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PortRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "targetPort": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PortRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "diagram"
+      ],
+      "type": "object"
+    },
+    "CompatibilityRequest": {
+      "properties": {
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/CompatibilityCandidate"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "candidates"
+      ],
+      "type": "object"
+    },
+    "CompatibilityResponse": {
+      "properties": {
+        "results": {
+          "items": {
+            "$ref": "#/$defs/CompatibilityResult"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "results"
+      ],
+      "type": "object"
+    },
+    "CompatibilityResult": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "provisional": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "sourceType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/CompatibilityStatus"
+        },
+        "targetType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "CompatibilityStatus": {
+      "enum": [
+        "compatible",
+        "incompatible",
+        "unknown"
+      ],
+      "type": "string"
+    },
     "ConfigExample": {
       "properties": {
         "config": {
@@ -199,92 +311,6 @@
         "config"
       ],
       "type": "object"
-    },
-    "InteractionSessionMessage": {
-      "oneOf": [
-        {
-          "allOf": [
-            {
-              "oneOf": [
-                {
-                  "properties": {
-                    "operationStarted": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "operationStarted"
-                  ],
-                  "type": "object"
-                },
-                {
-                  "properties": {
-                    "operationFinished": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "operationFinished"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            {
-              "properties": {
-                "type": {
-                  "const": "feedback",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type"
-              ],
-              "type": "object"
-            }
-          ]
-        },
-        {
-          "allOf": [
-            {
-              "oneOf": [
-                {
-                  "properties": {
-                    "ok": true
-                  },
-                  "required": [
-                    "ok"
-                  ],
-                  "type": "object"
-                },
-                {
-                  "properties": {
-                    "err": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "err"
-                  ],
-                  "type": "object"
-                }
-              ]
-            },
-            {
-              "properties": {
-                "type": {
-                  "const": "finish",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type"
-              ],
-              "type": "object"
-            }
-          ]
-        }
-      ]
     },
     "Diagram": {
       "properties": {
@@ -330,7 +356,7 @@
             "$ref": "#/$defs/ScriptEnvironmentSchema"
           },
           "default": {},
-          "description": "Custom script environments used by this diagram.\n\nTo run a script operation you will need to specify what its environment\nis. A script environment determines the language and interpreter for the\nscript, as well as any other factors specific to the environment.\n\nScript environment builders may have automatic configs, which you should\nconsider using before creating a custom environment.\n\n[1]: ScriptEnvironmentMetadata",
+          "description": "Custom script environments used by this diagram.\n\nTo run a script operation you will need to specify what its environment\nis. A script environment determines the language and interpreter for the\nscript, as well as any other factors specific to the environment.\n\nScript environment builders may have automatic configs, which you should\nconsider using before creating a custom environment.",
           "type": "object"
         },
         "start": {
@@ -823,6 +849,92 @@
         }
       ]
     },
+    "InteractionSessionMessage": {
+      "oneOf": [
+        {
+          "allOf": [
+            {
+              "oneOf": [
+                {
+                  "properties": {
+                    "operationStarted": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operationStarted"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "operationFinished": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "operationFinished"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "feedback",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "oneOf": [
+                {
+                  "properties": {
+                    "ok": true
+                  },
+                  "required": [
+                    "ok"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "err": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "err"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "finish",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      ]
+    },
     "JoinSchema": {
       "description": "Wait for exactly one item to be available in each buffer listed in\n`buffers`, then join each of those items into a single output message\nthat gets sent to `next`.\n\nIf the `next` operation is not a `node` type (e.g. `fork_clone`) then\nyou must specify a `target_node` so that the diagram knows what data\nstructure to join the values into.\n\n# Examples\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"begin_measuring\",\n    \"ops\": {\n        \"begin_measuring\": {\n            \"type\": \"fork_clone\",\n            \"next\": [\"localize\", \"imu\"]\n        },\n        \"localize\": {\n            \"type\": \"node\",\n            \"builder\": \"localize\",\n            \"next\": \"estimated_position\"\n        },\n        \"imu\": {\n            \"type\": \"node\",\n            \"builder\": \"imu\",\n            \"config\": \"velocity\",\n            \"next\": \"estimated_velocity\"\n        },\n        \"estimated_position\": { \"type\": \"buffer\" },\n        \"estimated_velocity\": { \"type\": \"buffer\" },\n        \"gather_state\": {\n            \"type\": \"join\",\n            \"buffers\": {\n                \"position\": \"estimate_position\",\n                \"velocity\": \"estimate_velocity\"\n            },\n            \"next\": \"report_state\"\n        },\n        \"report_state\": {\n            \"type\": \"node\",\n            \"builder\": \"publish_state\",\n            \"next\": { \"builtin\": \"terminate\" }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```",
       "properties": {
@@ -1116,6 +1228,54 @@
         }
       ]
     },
+    "NamedOperationRef": {
+      "properties": {
+        "exposed_namespace": {
+          "description": "If this references an exposed operation, such as an exposed input or\noutput of a session, this will contain the session name. Suppose we have\na section named `sec` and it has an exposed output named `out`. Then\nthere are two values of `NamedOperationRef` to consider:\n\n```\n# use crossflow::diagram::{NamedOperationRef, NamespaceList};\n# use smallvec::smallvec;\n\nlet op_id = NamedOperationRef {\n    namespaces: NamespaceList::for_child_of(\"sec\".into()),\n    exposed_namespace: None,\n    name: \"out\".into(),\n};\n```\n\nis the internal reference to `sec:out` that will be used by other\noperations inside of `sec`. On the other hand, operations that are\nsiblings of `sec` would instead connect to\n\n```\n# use crossflow::diagram::NamedOperationRef;\n# use smallvec::smallvec;\n\nlet op_id = NamedOperationRef {\n    namespaces: Default::default(),\n    exposed_namespace: Some(\"sec\".into()),\n    name: \"out\".into(),\n};\n```\n\nWe need to make this distinction because operations inside `sec` do not\nknow which of their siblings are exposed, and we don't want operations\noutside of `sec` to accidentally connect to operations that are supposed\nto be internal to `sec`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "namespaces": {
+          "$ref": "#/$defs/NamespaceList"
+        }
+      },
+      "required": [
+        "namespaces",
+        "name"
+      ],
+      "type": "object"
+    },
+    "NamedOutputRef": {
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/OutputKey"
+        },
+        "namespaces": {
+          "$ref": "#/$defs/NamespaceList"
+        },
+        "operation": {
+          "description": "The name of the output's operation within the scope of the namespaces",
+          "type": "string"
+        }
+      },
+      "required": [
+        "namespaces",
+        "operation",
+        "key"
+      ],
+      "type": "object"
+    },
+    "NamespaceList": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
     "NamespacedOperation": {
       "additionalProperties": {
         "type": "string"
@@ -1242,6 +1402,145 @@
         "next"
       ],
       "type": "object"
+    },
+    "OperationRef": {
+      "oneOf": [
+        {
+          "enum": [
+            "dispose"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "named": {
+              "$ref": "#/$defs/NamedOperationRef"
+            }
+          },
+          "required": [
+            "named"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "terminate": {
+              "$ref": "#/$defs/NamespaceList"
+            }
+          },
+          "required": [
+            "terminate"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "cancel": {
+              "$ref": "#/$defs/NamespaceList"
+            }
+          },
+          "required": [
+            "cancel"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "implicit_cancel": {
+              "$ref": "#/$defs/NamespaceList"
+            }
+          },
+          "required": [
+            "implicit_cancel"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "stream_out": {
+              "$ref": "#/$defs/StreamOutRef"
+            }
+          },
+          "required": [
+            "stream_out"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "OutputKey": {
+      "items": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          }
+        ]
+      },
+      "type": "array"
+    },
+    "OutputRef": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Named": {
+              "$ref": "#/$defs/NamedOutputRef"
+            }
+          },
+          "required": [
+            "Named"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Start": {
+              "$ref": "#/$defs/NamespaceList"
+            }
+          },
+          "required": [
+            "Start"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PortRef": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Input": {
+              "$ref": "#/$defs/OperationRef"
+            }
+          },
+          "required": [
+            "Input"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Output": {
+              "$ref": "#/$defs/OutputRef"
+            }
+          },
+          "required": [
+            "Output"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "PostRunRequest": {
       "properties": {
@@ -1878,6 +2177,22 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "StreamOutRef": {
+      "properties": {
+        "name": {
+          "description": "The name of the stream (within its scope) that is being referred to",
+          "type": "string"
+        },
+        "namespaces": {
+          "$ref": "#/$defs/NamespaceList"
+        }
+      },
+      "required": [
+        "namespaces",
+        "name"
+      ],
       "type": "object"
     },
     "StreamOutSchema": {

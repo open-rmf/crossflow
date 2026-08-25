@@ -1,5 +1,12 @@
+import { python } from '@codemirror/lang-python';
+import type { LanguageSupport } from '@codemirror/language';
 import type { ComponentType } from 'react';
 import { PythonPropertiesForm } from './python-form';
+
+export type ScriptEnvironmentRegistry = {
+  schemas?: Record<string, unknown>;
+  scripting?: Record<string, { config_schema?: unknown }>;
+};
 
 export interface ScriptEnvironmentFormProps {
   /** The current raw JSON configuration string */
@@ -11,7 +18,7 @@ export interface ScriptEnvironmentFormProps {
   /** The current dialog mode */
   mode: 'view' | 'edit' | 'create';
   /** The dynamic backend registry metadata */
-  registry: any;
+  registry: ScriptEnvironmentRegistry;
   /** The current python/script text being edited in the main editor */
   scriptText: string;
 }
@@ -23,6 +30,8 @@ export interface ScriptEnvironmentPlugin {
   defaultCodeField?: string;
   /** Bootstraps a default config object string when a new environment is created */
   bootstrapConfig?: () => string;
+  /** Supplies CodeMirror language support for this builder */
+  codeExtensions?: () => LanguageSupport[];
 }
 
 export const scriptEnvironmentPlugins: Record<string, ScriptEnvironmentPlugin> =
@@ -32,5 +41,6 @@ export const scriptEnvironmentPlugins: Record<string, ScriptEnvironmentPlugin> =
       defaultCodeField: 'script',
       bootstrapConfig: () =>
         JSON.stringify({ ownership: 'persistent', script: '' }, null, 2),
+      codeExtensions: () => [python()],
     },
   };

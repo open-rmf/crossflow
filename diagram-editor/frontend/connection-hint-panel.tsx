@@ -1,17 +1,9 @@
 import { Paper, Stack, Typography } from '@mui/material';
 import { Panel, useConnection } from '@xyflow/react';
+import { useDraggedConnectionCompatibility } from './connection-compatibility-provider';
 import type { NodeManager } from './node-manager';
 import { useEdges } from './use-edges';
-import {
-  filterCompatibleAddOperations,
-  getVisibleAddOperations,
-} from './utils/add-operation-catalog';
-import {
-  createConnectionFromDraggedHandle,
-  validateConnectionSimple,
-  validateSourceOutputCapacity,
-} from './utils/connection';
-import { ROOT_NAMESPACE } from './utils/namespace';
+import { validateSourceOutputCapacity } from './utils/connection';
 
 export interface ConnectionHintPanelProps {
   nodeManager: NodeManager;
@@ -20,6 +12,12 @@ export interface ConnectionHintPanelProps {
 export function ConnectionHintPanel({ nodeManager }: ConnectionHintPanelProps) {
   const connection = useConnection();
   const edges = useEdges();
+  const compatibility = useDraggedConnectionCompatibility({
+    id: 'hovered-handle',
+    otherNodeId: connection.toHandle?.nodeId,
+    otherHandleId: connection.toHandle?.id,
+    otherHandleType: connection.toHandle?.type ?? 'target',
+  });
 
   if (!connection.inProgress || !connection.fromHandle) {
     return null;
@@ -38,21 +36,6 @@ export function ConnectionHintPanel({ nodeManager }: ConnectionHintPanelProps) {
           edges,
         )
       : { valid: true as const };
-  const compatibleOperations = sourceOutputCapacity.valid
-    ? filterCompatibleAddOperations(
-        getVisibleAddOperations({
-          isTemplateMode: false,
-          namespace: ROOT_NAMESPACE,
-        }),
-        sourceNode,
-        connection.fromHandle.id,
-        {
-          namespace: ROOT_NAMESPACE,
-          parentId: sourceNode.parentId,
-        },
-        connection.fromHandle.type,
-      )
-    : [];
 
   let message = !sourceOutputCapacity.valid
     ? sourceOutputCapacity.error
@@ -63,25 +46,15 @@ export function ConnectionHintPanel({ nodeManager }: ConnectionHintPanelProps) {
     ? 'info'
     : 'error';
 
-  if (connection.toHandle && connection.toNode) {
-    const result = validateConnectionSimple(
-      createConnectionFromDraggedHandle({
-        fromNodeId: connection.fromHandle.nodeId,
-        fromHandleId: connection.fromHandle.id,
-        fromHandleType: connection.fromHandle.type,
-        otherNodeId: connection.toHandle.nodeId,
-        otherHandleId: connection.toHandle.id,
-      }),
-      nodeManager,
-      edges,
-    );
-
-    if (result.valid) {
+  if (connection.toHandle && connection.toNode && compatibility) {
+    if (compatibility.status === 'compatible') {
       tone = 'success';
-      message = `Compatible target: ${connection.toNode.type}`;
+      message = compatibility.provisional
+        ? `${compatibility.reason} This connection is allowed provisionally; final compilation may still need more type context.`
+        : compatibility.reason;
     } else {
       tone = 'error';
-      message = result.error;
+      message = compatibility.reason;
     }
   }
 
@@ -105,12 +78,16 @@ export function ConnectionHintPanel({ nodeManager }: ConnectionHintPanelProps) {
         <Stack spacing={0.5}>
           <Typography variant="subtitle2">Connection Helper</Typography>
           <Typography variant="body2">{message}</Typography>
-          <Typography variant="caption" color="text.secondary">
-            {connection.fromHandle.type === 'target'
-              ? 'Compatible previous operations available: '
-              : 'Compatible next operations available: '}
-            {compatibleOperations.length}
-          </Typography>
+          {compatibility?.sourceType && (
+            <Typography variant="caption" color="text.secondary">
+              Source: {compatibility.sourceType}
+            </Typography>
+          )}
+          {compatibility?.targetType && (
+            <Typography variant="caption" color="text.secondary">
+              Target: {compatibility.targetType}
+            </Typography>
+          )}
         </Stack>
       </Paper>
     </Panel>

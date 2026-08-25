@@ -13,6 +13,8 @@ const calculatorDiagramsDir = path.join(
   __dirname,
   '../../../examples/diagram/calculator/diagrams',
 );
+const backendStartupTimeoutMs = 240000;
+const maxBackendLogLength = 20000;
 
 function getJsonDiagrams(dir: string): string[] {
   if (!fs.existsSync(dir)) {
@@ -31,10 +33,13 @@ function getJsonDiagrams(dir: string): string[] {
 
 describe('REST API Executor Integration Tests', () => {
   let backendProcess: ChildProcess;
+  let backendOutput = '';
   const apiClient = new ApiClient();
   const originalFetch = global.fetch;
 
   beforeAll(async () => {
+    backendOutput = '';
+
     // Setup fetch interceptor for relative REST API requests
     global.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
       if (typeof input === 'string' && input.startsWith('/api/')) {
@@ -50,14 +55,27 @@ describe('REST API Executor Integration Tests', () => {
       cwd: calculatorCwd,
       env: {
         ...process.env,
-        BUILD_FRONTEND: '1', // Prevent build-script blocking
+        BUILD_FRONTEND: '1',
       },
-      stdio: 'ignore', // Ignore server output
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    backendProcess.stdout?.on('data', (chunk) => {
+      backendOutput = appendBackendOutput(backendOutput, chunk);
+    });
+    backendProcess.stderr?.on('data', (chunk) => {
+      backendOutput = appendBackendOutput(backendOutput, chunk);
     });
 
     // Wait until the server is online and ready
-    await waitForServer('http://localhost:3001/api/registry', 120000);
-  }, 120000); // Allow up to 120s for compile & launch
+    await Promise.race([
+      waitForServer(
+        'http://localhost:3001/api/registry',
+        backendStartupTimeoutMs,
+        () => backendOutput,
+      ),
+      rejectOnBackendExit(backendProcess, () => backendOutput),
+    ]);
+  }, backendStartupTimeoutMs);
 
   afterAll(() => {
     // Restore global fetch
@@ -107,7 +125,49 @@ describe('REST API Executor Integration Tests', () => {
   }
 });
 
-async function waitForServer(url: string, timeoutMs = 30000): Promise<void> {
+function appendBackendOutput(current: string, chunk: unknown): string {
+  const next = `${current}${String(chunk)}`;
+  if (next.length <= maxBackendLogLength) {
+    return next;
+  }
+  return next.slice(next.length - maxBackendLogLength);
+}
+
+function formatBackendOutput(output: string): string {
+  return output.trim() || '[no backend output captured]';
+}
+
+function rejectOnBackendExit(
+  backendProcess: ChildProcess,
+  getBackendOutput: () => string,
+): Promise<never> {
+  return new Promise((_, reject) => {
+    backendProcess.once('error', (error) => {
+      reject(
+        new Error(
+          `Failed to start backend: ${error.message}\n\nBackend output:\n${formatBackendOutput(
+            getBackendOutput(),
+          )}`,
+        ),
+      );
+    });
+    backendProcess.once('exit', (code, signal) => {
+      reject(
+        new Error(
+          `Backend exited before it became ready (code: ${code}, signal: ${signal}).\n\nBackend output:\n${formatBackendOutput(
+            getBackendOutput(),
+          )}`,
+        ),
+      );
+    });
+  });
+}
+
+async function waitForServer(
+  url: string,
+  timeoutMs = 30000,
+  getBackendOutput: () => string = () => '',
+): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
@@ -120,5 +180,9 @@ async function waitForServer(url: string, timeoutMs = 30000): Promise<void> {
     }
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  throw new Error(`Server at ${url} did not become ready in time`);
+  throw new Error(
+    `Server at ${url} did not become ready in time.\n\nBackend output:\n${formatBackendOutput(
+      getBackendOutput(),
+    )}`,
+  );
 }

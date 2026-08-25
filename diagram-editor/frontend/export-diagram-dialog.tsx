@@ -26,7 +26,7 @@ import { exportDiagram } from './utils/export-diagram';
 export interface ExportDiagramDialogProps {
   open: boolean;
   suggestedFilename: string | null;
-  onExportedFilename: (filename: string) => void;
+  onExportCompleted: (filename: string) => void;
   onClose: () => void;
   onValidDiagram: (maybeValid: MaybeValid) => void;
 }
@@ -39,7 +39,7 @@ interface DialogData {
 function ExportDiagramDialogInternal({
   open,
   suggestedFilename,
-  onExportedFilename,
+  onExportCompleted,
   onClose,
   onValidDiagram,
 }: ExportDiagramDialogProps) {
@@ -163,11 +163,11 @@ function ExportDiagramDialogInternal({
     if (downloaded === null || downloaded.length === 0) {
       return;
     }
-    onExportedFilename(downloaded);
+    onExportCompleted(downloaded);
     setTimeout(() => {
       setDownloaded(null);
     }, 5000);
-  }, [downloaded, onExportedFilename]);
+  }, [downloaded, onExportCompleted]);
 
   const [copiedShareLink, setCopiedShareLink] = React.useState(false);
 

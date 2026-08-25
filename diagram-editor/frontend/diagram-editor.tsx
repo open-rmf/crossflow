@@ -1,6 +1,11 @@
 import {
   Alert,
   alpha,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   darken,
   Fab,
   Popover,
@@ -10,6 +15,7 @@ import {
   Typography,
   useTheme,
 } from '@mui/material';
+import type { PopoverActions } from '@mui/material/Popover';
 import {
   addEdge,
   applyEdgeChanges,
@@ -29,16 +35,26 @@ import {
 import { inflateSync, strFromU8 } from 'fflate';
 import React, { Suspense } from 'react';
 import AddOperation from './add-operation';
+import { useApiClient } from './api-client-provider';
 import CommandPanel from './command-panel';
+import { CompatibleAddOperation } from './compatible-add-operation';
+import { ConnectionCompatibilityProvider } from './connection-compatibility-provider';
 import { ConnectionHintPanel } from './connection-hint-panel';
-import { DiagramPropertiesProvider } from './diagram-properties-provider';
-import type { DiagramEditorEdge } from './edges';
 import {
-  createBaseEdge,
-  EDGE_CATEGORIES,
-  EDGE_TYPES,
-  EdgeCategory,
-} from './edges';
+  createEmptyDiagramProperties,
+  useDiagramProperties,
+} from './diagram-properties-provider';
+import { useDiagramSidePanel } from './diagram-side-panel-controller';
+import {
+  clearDraftWorkspace,
+  type DraftWorkspaceContent,
+  type DraftWorkspaceV1,
+  draftWorkspaceFingerprint,
+  readDraftWorkspace,
+  writeDraftWorkspace,
+} from './draft-workspace';
+import type { DiagramEditorEdge } from './edges';
+import { EDGE_TYPES } from './edges';
 import {
   EditorMode,
   type EditorModeContext,
@@ -46,13 +62,19 @@ import {
   type UseEditorModeContext,
 } from './editor-mode';
 import { ExportDiagramDialog } from './export-diagram-dialog';
-import { defaultEdgeData, EditEdgeForm, EditNodeForm } from './forms';
+import { EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
+import type { ScriptNodeEnvironmentBinding } from './forms/script-environment-workspace';
+import { useScriptEnvironmentNavigation } from './forms/use-script-environment-navigation';
 import {
   type InteractionVisualizationContext,
   InteractionVisualizationProvider,
 } from './interaction-visualization-provider';
 import { type LoadContext, LoadContextProvider } from './load-context-provider';
+import {
+  NewDiagramDialog,
+  useNewDiagramAfterExport,
+} from './new-diagram-dialog';
 import { NodeManager, NodeManagerProvider } from './node-manager';
 import {
   type DiagramEditorNode,
@@ -64,21 +86,36 @@ import {
 } from './nodes';
 import { NotificationProvider } from './notification-provider';
 import { useRegistry } from './registry-provider';
+import { ResponsiveEditPopover } from './responsive-edit-popover';
 import { useTemplates } from './templates-provider';
+import { useTransientEditorDrafts } from './transient-editor-drafts';
+import type { Diagram } from './types/api';
+import { useBeforeUnloadWarning } from './use-before-unload-warning';
+import { useDraftPagehideFlush } from './use-draft-pagehide-flush';
 import { EdgesProvider } from './use-edges';
 import { autoLayout } from './utils/auto-layout';
 import { isRemoveChange } from './utils/change';
 import {
-  createConnectionFromDraggedHandle,
+  buildCompatibilityCandidate,
+  checkCompatibilityCandidates,
+} from './utils/compatibility';
+import {
+  createConnectionFromHandles,
   getValidEdgeTypes,
   validateConnectionSimple,
-  validateEdgeSimple,
+  validateDraggedHandlePair,
   validateSourceOutputCapacity,
 } from './utils/connection';
+import { shouldIgnoreEscapeClose } from './utils/editing-target';
 import { exhaustiveCheck } from './utils/exhaustive-check';
 import { exportTemplate } from './utils/export-diagram';
 import { calculateScopeBounds, LAYOUT_OPTIONS } from './utils/layout';
-import { loadDiagramJson, loadEmpty, loadTemplate } from './utils/load-diagram';
+import {
+  type LoadedDiagram,
+  loadDiagramJson,
+  loadEmpty,
+  loadTemplate,
+} from './utils/load-diagram';
 import { joinNamespaces, ROOT_NAMESPACE } from './utils/namespace';
 
 const NonCapturingPopoverContainer = ({
@@ -91,6 +128,44 @@ interface EditingEdge {
   sourceNode: DiagramEditorNode;
   targetNode: DiagramEditorNode;
   edge: DiagramEditorEdge;
+}
+
+interface PreparedDiagram {
+  diagram: Diagram;
+  loaded: LoadedDiagram;
+  filename: string | null;
+}
+
+interface RecoveryCandidate {
+  draft: DraftWorkspaceV1;
+  linkedDiagram: PreparedDiagram | null;
+}
+
+function decodeDiagramParam(diagramParam: string): string {
+  const binaryString = atob(diagramParam);
+  const byteArray = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    byteArray[i] = binaryString.charCodeAt(i);
+  }
+  return strFromU8(inflateSync(byteArray));
+}
+
+function cloneSerializable<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function snapshotGraph(
+  nodes: DiagramEditorNode[],
+  edges: DiagramEditorEdge[],
+): { nodes: DiagramEditorNode[]; edges: DiagramEditorEdge[] } {
+  return {
+    nodes: nodes.map(({ selected: _selected, dragging: _dragging, ...node }) =>
+      cloneSerializable(node),
+    ) as DiagramEditorNode[],
+    edges: edges.map(({ selected: _selected, ...edge }) =>
+      cloneSerializable(edge),
+    ) as DiagramEditorEdge[],
+  };
 }
 
 /**
@@ -148,13 +223,16 @@ function Providers({
       <LoadContextProvider value={loadContext}>
         <NodeManagerProvider value={nodeManager}>
           <EdgesProvider value={edges}>
-            <InteractionVisualizationProvider
-              value={interactionVisualizationContext}
+            <ConnectionCompatibilityProvider
+              nodeManager={nodeManager}
+              edges={edges}
             >
-              <DiagramPropertiesProvider>
+              <InteractionVisualizationProvider
+                value={interactionVisualizationContext}
+              >
                 <NotificationProvider>{children}</NotificationProvider>
-              </DiagramPropertiesProvider>
-            </InteractionVisualizationProvider>
+              </InteractionVisualizationProvider>
+            </ConnectionCompatibilityProvider>
           </EdgesProvider>
         </NodeManagerProvider>
       </LoadContextProvider>
@@ -296,8 +374,21 @@ function DiagramEditor() {
   const [edges, setEdges] = React.useState<DiagramEditorEdge[]>([]);
   const savedEdges = React.useRef<DiagramEditorEdge[]>([]);
 
-  const [templates] = useTemplates();
+  const [templates, setTemplates] = useTemplates();
   const registry = useRegistry();
+  const apiClient = useApiClient();
+  const [diagramProperties, setDiagramProperties] = useDiagramProperties();
+  const {
+    drafts: transientEditorDrafts,
+    replaceDrafts: replaceTransientEditorDrafts,
+    clearDrafts: clearTransientEditorDrafts,
+    clearOperationConfigDrafts,
+    hasUncommittedBuffers,
+  } = useTransientEditorDrafts();
+  const openScriptEnvironment = useScriptEnvironmentNavigation();
+  const {
+    state: { open: sidePanelOpen, tab: sidePanelTab },
+  } = useDiagramSidePanel();
 
   const updateEditorModeAction = React.useCallback(
     (newMode: EditorModeContext) => {
@@ -351,8 +442,6 @@ function DiagramEditor() {
     },
     [handleEdgeChanges],
   );
-
-  const [_, setTemplates] = useTemplates();
 
   const theme = useTheme();
 
@@ -493,6 +582,8 @@ function DiagramEditor() {
         }
       }
 
+      clearOperationConfigDrafts(removedNodes);
+
       // clean up dangling edges when a node is removed.
       const edgeChanges: EdgeRemoveChange[] = [];
       for (const edge of edges) {
@@ -509,7 +600,7 @@ function DiagramEditor() {
         applyNodeChanges([...changes, ...transitiveChanges], prev),
       );
     },
-    [handleEdgeChanges, nodeManager, edges],
+    [clearOperationConfigDrafts, handleEdgeChanges, nodeManager, edges],
   );
 
   const handleNodeChange = React.useCallback(
@@ -534,6 +625,10 @@ function DiagramEditor() {
     parentId: null,
     sourceConnection: null,
   });
+  const addOperationPopoverActions = React.useRef<PopoverActions>(null);
+  const updateAddOperationPopoverPosition = React.useCallback(() => {
+    addOperationPopoverActions.current?.updatePosition();
+  }, []);
   const addOperationNewNodePosition = React.useMemo<XYPosition>(() => {
     if (!reactFlowInstance.current) {
       return { x: 0, y: 0 };
@@ -558,6 +653,54 @@ function DiagramEditor() {
   ]);
 
   const [editingNodeId, setEditingNodeId] = React.useState<string | null>(null);
+  const [pendingScriptEnvironmentNodeId, setPendingScriptEnvironmentNodeId] =
+    React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!sidePanelOpen || sidePanelTab !== 'environments') {
+      setPendingScriptEnvironmentNodeId(null);
+    }
+  }, [sidePanelOpen, sidePanelTab]);
+
+  const scriptNodeBinding = React.useMemo<
+    ScriptNodeEnvironmentBinding | undefined
+  >(() => {
+    const nodeId = editingNodeId || pendingScriptEnvironmentNodeId;
+    const node = nodeId ? nodeManager.tryGetNode(nodeId) : undefined;
+    if (!node || node.type !== 'script') {
+      return undefined;
+    }
+
+    const environmentName = node.data.op.environment;
+    return {
+      environmentName:
+        typeof environmentName === 'string'
+          ? environmentName || undefined
+          : undefined,
+      nodeControlsSelection: editingNodeId === node.id,
+      assignEnvironment: (environmentName) => {
+        handleNodeChange({
+          type: 'replace',
+          id: node.id,
+          item: {
+            ...node,
+            data: {
+              ...node.data,
+              op: { ...node.data.op, environment: environmentName },
+            },
+          },
+        });
+        if (pendingScriptEnvironmentNodeId === node.id) {
+          setPendingScriptEnvironmentNodeId(null);
+        }
+      },
+    };
+  }, [
+    editingNodeId,
+    handleNodeChange,
+    nodeManager,
+    pendingScriptEnvironmentNodeId,
+  ]);
 
   const [editingEdgeId, setEditingEdgeId] = React.useState<string | null>(null);
   const editingEdge: EditingEdge | null = (() => {
@@ -591,6 +734,7 @@ function DiagramEditor() {
 
   const closeAllPopovers = React.useCallback(() => {
     setEditingNodeId(null);
+    setPendingScriptEnvironmentNodeId(null);
     setEditingEdgeId(null);
     setAddOperationPopover((prev) => ({
       ...prev,
@@ -662,34 +806,108 @@ function DiagramEditor() {
   const [recentlyUsedFilename, setRecentlyUsedFilename] = React.useState<
     string | null
   >(null);
+  const [hydrationResolved, setHydrationResolved] = React.useState(false);
+  const [isDirty, setIsDirty] = React.useState(false);
+  const dirtyRef = React.useRef(false);
+  const baselineFingerprint = React.useRef<string | null>(null);
+  const markCleanOnNextSnapshot = React.useRef(false);
+  const latestDraftContent = React.useRef<DraftWorkspaceContent | null>(null);
+  const autosaveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const [draftStorageFailed, setDraftStorageFailed] = React.useState(false);
+  const [recoveryCandidate, setRecoveryCandidate] =
+    React.useState<RecoveryCandidate | null>(null);
+
+  const clearStoredDraft = React.useCallback(() => {
+    try {
+      clearDraftWorkspace();
+      setDraftStorageFailed(false);
+    } catch {
+      setDraftStorageFailed(true);
+    }
+  }, []);
+
+  const prepareDiagram = React.useCallback(
+    async (
+      jsonStr: string,
+      filename: string | null,
+    ): Promise<PreparedDiagram> => {
+      const [diagram, loaded] = await loadDiagramJson(jsonStr);
+      return { diagram, loaded, filename };
+    },
+    [],
+  );
+
+  const applyPreparedDiagram = React.useCallback(
+    (prepared: PreparedDiagram) => {
+      const { diagram, loaded, filename } = prepared;
+      const { graph, isRestored } = loaded;
+      clearInteractionVisualization();
+      setLoadContext({ diagram });
+      setDiagramProperties({
+        description: diagram.description ?? '',
+        input_examples: diagram.input_examples ?? [],
+        script_environments: diagram.script_environments ?? {},
+      });
+      const nextNodes = isRestored
+        ? graph.nodes
+        : applyNodeChanges(
+            autoLayout(graph.nodes, graph.edges, LAYOUT_OPTIONS),
+            graph.nodes,
+          );
+      savedNodes.current = [];
+      savedEdges.current = [];
+      setEditorMode({ mode: EditorMode.Normal });
+      setNodes(nextNodes);
+      setEdges(graph.edges);
+      setTemplates(diagram.templates || {});
+      setRecentlyUsedFilename(filename);
+      clearTransientEditorDrafts();
+      closeAllPopovers();
+      markCleanOnNextSnapshot.current = true;
+      setHydrationResolved(true);
+      clearStoredDraft();
+      requestAnimationFrame(() => reactFlowInstance.current?.fitView());
+    },
+    [
+      clearInteractionVisualization,
+      clearStoredDraft,
+      clearTransientEditorDrafts,
+      closeAllPopovers,
+      setDiagramProperties,
+    ],
+  );
 
   const loadDiagram = React.useCallback(
     async (jsonStr: string, filename: string | null) => {
       try {
-        const [diagram, { graph, isRestored }] = await loadDiagramJson(jsonStr);
-        clearInteractionVisualization();
-        setLoadContext({ diagram });
-        // do not perform auto layout if the diagram is restored from previous state.
-        if (!isRestored) {
-          const changes = autoLayout(graph.nodes, graph.edges, LAYOUT_OPTIONS);
-          setNodes(applyNodeChanges(changes, graph.nodes));
-        } else {
-          setNodes(graph.nodes);
+        const prepared = await prepareDiagram(jsonStr, filename);
+        if (
+          (isDirty || hasUncommittedBuffers) &&
+          !window.confirm(
+            'Replace the current diagram and discard its unsaved changes?',
+          )
+        ) {
+          return;
         }
-        setEdges(graph.edges);
-        setTemplates(diagram.templates || {});
-        setRecentlyUsedFilename(filename);
-        reactFlowInstance.current?.fitView();
-        closeAllPopovers();
+        applyPreparedDiagram(prepared);
       } catch (e) {
         showErrorToast(`failed to load diagram: ${e}`);
       }
     },
-    [clearInteractionVisualization, closeAllPopovers, showErrorToast],
+    [
+      applyPreparedDiagram,
+      hasUncommittedBuffers,
+      isDirty,
+      prepareDiagram,
+      showErrorToast,
+    ],
   );
 
   const [openExportDiagramDialog, setOpenExportDiagramDialog] =
     React.useState(false);
+  const [openNewDiagramDialog, setOpenNewDiagramDialog] = React.useState(false);
 
   const handleMouseDown = React.useCallback(() => {
     mouseDownTime.current = Date.now();
@@ -711,85 +929,301 @@ function DiagramEditor() {
     [],
   );
 
-  const tryCreateEdge = React.useCallback(
-    (
+  const tryCreateCompatibleEdge = React.useCallback(
+    async (
       conn: Connection,
       id?: string,
-      nodeOverride?: DiagramEditorNode,
-    ): DiagramEditorEdge | null => {
-      const sourceNode =
-        nodeOverride?.id === conn.source
-          ? nodeOverride
-          : nodeManager.tryGetNode(conn.source);
-      const targetNode =
-        nodeOverride?.id === conn.target
-          ? nodeOverride
-          : nodeManager.tryGetNode(conn.target);
-      if (!sourceNode || !targetNode) {
-        throw new Error('cannot find source or target node');
+      nodeChanges: Extract<
+        NodeChange<DiagramEditorNode>,
+        { type: 'add' }
+      >[] = [],
+    ): Promise<DiagramEditorEdge | null> => {
+      const built = buildCompatibilityCandidate({
+        id: id || 'new-edge',
+        registry,
+        nodeManager,
+        edges,
+        templates,
+        diagramProperties,
+        connection: conn,
+        nodeChanges,
+        edgeId: id,
+      });
+
+      if (!built.ok) {
+        showErrorToast(built.result.reason);
+        return null;
       }
 
-      const validEdges = getValidEdgeTypes(
-        sourceNode,
-        conn.sourceHandle,
-        targetNode,
-        conn.targetHandle,
-      );
-      if (validEdges.length === 0) {
+      let results: Awaited<ReturnType<typeof checkCompatibilityCandidates>>;
+      try {
+        results = await checkCompatibilityCandidates(apiClient, [
+          built.candidate,
+        ]);
+      } catch (error) {
         showErrorToast(
-          `cannot connect "${sourceNode.type}" to "${targetNode.type}"`,
+          error instanceof Error ? error.message : 'compatibility check failed',
         );
         return null;
       }
-
-      const newEdge = {
-        ...createBaseEdge(
-          conn.source,
-          conn.sourceHandle,
-          conn.target,
-          conn.targetHandle,
-          id,
-        ),
-        type: validEdges[0],
-        data: defaultEdgeData(validEdges[0]),
-      } as DiagramEditorEdge;
-
-      if (targetNode.type === 'section') {
-        if (EDGE_CATEGORIES[newEdge.type] === EdgeCategory.Buffer) {
-          newEdge.data.input = {
-            type: 'sectionBuffer',
-            inputId: '',
-          };
-        } else if (EDGE_CATEGORIES[newEdge.type] === EdgeCategory.Data) {
-          newEdge.data.input = {
-            type: 'sectionInput',
-            inputId: '',
-          };
-        }
-      }
-
-      const validationNodeManager = nodeOverride
-        ? new NodeManager([
-            ...nodeManager.nodes.filter((node) => node.id !== nodeOverride.id),
-            nodeOverride,
-          ])
-        : nodeManager;
-      const validationResult = validateEdgeSimple(
-        newEdge,
-        validationNodeManager,
-        edges,
-      );
-      if (!validationResult.valid) {
-        showErrorToast(validationResult.error);
+      const compatibility = results.get(built.candidate.id);
+      if (compatibility?.status !== 'compatible') {
+        showErrorToast(compatibility?.reason || 'connection is not compatible');
         return null;
       }
 
-      return newEdge;
+      return built.candidate.edge;
     },
-    [showErrorToast, nodeManager, edges],
+    [
+      apiClient,
+      diagramProperties,
+      edges,
+      nodeManager,
+      registry,
+      showErrorToast,
+      templates,
+    ],
   );
 
   const [enableExport, setEnableExport] = React.useState(true);
+
+  const draftContent = React.useMemo<DraftWorkspaceContent>(() => {
+    const {
+      highlightedEnvironment: _highlightedEnvironment,
+      ...persistedDiagramProperties
+    } = diagramProperties;
+    const mainGraph =
+      editorMode.mode === EditorMode.Template
+        ? snapshotGraph(savedNodes.current, savedEdges.current)
+        : snapshotGraph(nodes, edges);
+    const activeTemplate =
+      editorMode.mode === EditorMode.Template
+        ? {
+            templateId: editorMode.templateId,
+            graph: snapshotGraph(nodes, edges),
+          }
+        : undefined;
+    return {
+      mainGraph,
+      activeTemplate,
+      templates: cloneSerializable(templates),
+      diagramProperties: cloneSerializable(persistedDiagramProperties),
+      sourceExtensions: loadContext?.diagram.extensions
+        ? cloneSerializable(loadContext.diagram.extensions)
+        : undefined,
+      filename: recentlyUsedFilename,
+      transientEditors: cloneSerializable(transientEditorDrafts),
+    };
+  }, [
+    diagramProperties,
+    edges,
+    editorMode,
+    loadContext,
+    nodes,
+    recentlyUsedFilename,
+    templates,
+    transientEditorDrafts,
+  ]);
+
+  const persistLatestDraft = React.useCallback(() => {
+    if (!dirtyRef.current || !latestDraftContent.current) {
+      return;
+    }
+    try {
+      writeDraftWorkspace(latestDraftContent.current);
+      setDraftStorageFailed(false);
+    } catch {
+      setDraftStorageFailed(true);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    latestDraftContent.current = draftContent;
+    if (!hydrationResolved) {
+      return;
+    }
+
+    const fingerprint = draftWorkspaceFingerprint(draftContent);
+    if (markCleanOnNextSnapshot.current) {
+      markCleanOnNextSnapshot.current = false;
+      baselineFingerprint.current = fingerprint;
+      dirtyRef.current = false;
+      setIsDirty(false);
+      clearStoredDraft();
+      return;
+    }
+    if (baselineFingerprint.current === null) {
+      baselineFingerprint.current = fingerprint;
+      dirtyRef.current = false;
+      setIsDirty(false);
+      return;
+    }
+
+    const dirty = fingerprint !== baselineFingerprint.current;
+    dirtyRef.current = dirty;
+    setIsDirty(dirty);
+    if (!dirty) {
+      clearStoredDraft();
+      return;
+    }
+
+    if (autosaveTimer.current !== null) {
+      clearTimeout(autosaveTimer.current);
+    }
+    autosaveTimer.current = setTimeout(persistLatestDraft, 500);
+    return () => {
+      if (autosaveTimer.current !== null) {
+        clearTimeout(autosaveTimer.current);
+        autosaveTimer.current = null;
+      }
+    };
+  }, [clearStoredDraft, draftContent, hydrationResolved, persistLatestDraft]);
+
+  useDraftPagehideFlush(
+    latestDraftContent,
+    hydrationResolved && (isDirty || hasUncommittedBuffers),
+    setDraftStorageFailed,
+  );
+
+  useBeforeUnloadWarning(isDirty || hasUncommittedBuffers);
+
+  const resetToNewDiagram = React.useCallback(() => {
+    const empty = loadEmpty();
+    clearInteractionVisualization();
+    closeAllPopovers();
+    savedNodes.current = [];
+    savedEdges.current = [];
+    setEditorMode({ mode: EditorMode.Normal });
+    setNodes(empty.nodes);
+    setEdges(empty.edges);
+    setTemplates({});
+    setDiagramProperties(createEmptyDiagramProperties());
+    setLoadContext(null);
+    setRecentlyUsedFilename(null);
+    clearTransientEditorDrafts();
+    markCleanOnNextSnapshot.current = true;
+    setHydrationResolved(true);
+    clearStoredDraft();
+    requestAnimationFrame(() => reactFlowInstance.current?.fitView());
+  }, [
+    clearInteractionVisualization,
+    clearStoredDraft,
+    clearTransientEditorDrafts,
+    closeAllPopovers,
+    setDiagramProperties,
+  ]);
+
+  const handleNewDiagram = React.useCallback(() => {
+    if (isDirty || hasUncommittedBuffers) {
+      setOpenNewDiagramDialog(true);
+      return;
+    }
+    resetToNewDiagram();
+  }, [hasUncommittedBuffers, isDirty, resetToNewDiagram]);
+
+  const restoreRecoveryDraft = React.useCallback(() => {
+    if (!recoveryCandidate) {
+      return;
+    }
+    const { draft } = recoveryCandidate;
+    savedNodes.current = cloneSerializable(draft.mainGraph.nodes);
+    savedEdges.current = cloneSerializable(draft.mainGraph.edges);
+    if (draft.activeTemplate) {
+      setNodes(cloneSerializable(draft.activeTemplate.graph.nodes));
+      setEdges(cloneSerializable(draft.activeTemplate.graph.edges));
+      setEditorMode({
+        mode: EditorMode.Template,
+        templateId: draft.activeTemplate.templateId,
+      });
+    } else {
+      setNodes(cloneSerializable(draft.mainGraph.nodes));
+      setEdges(cloneSerializable(draft.mainGraph.edges));
+      setEditorMode({ mode: EditorMode.Normal });
+    }
+    setTemplates(cloneSerializable(draft.templates));
+    setDiagramProperties(cloneSerializable(draft.diagramProperties));
+    setRecentlyUsedFilename(draft.filename);
+    replaceTransientEditorDrafts(cloneSerializable(draft.transientEditors));
+    const restoredDiagram: Diagram = {
+      version: '0.1.0',
+      start: { builtin: 'dispose' },
+      ops: {},
+      templates: cloneSerializable(draft.templates),
+      description: draft.diagramProperties.description,
+      input_examples: draft.diagramProperties.input_examples,
+      script_environments: draft.diagramProperties.script_environments,
+      extensions: draft.sourceExtensions,
+    };
+    setLoadContext({ diagram: restoredDiagram });
+    baselineFingerprint.current = '__restored_recovery_draft__';
+    dirtyRef.current = true;
+    setIsDirty(true);
+    setHydrationResolved(true);
+    setRecoveryCandidate(null);
+    requestAnimationFrame(() => reactFlowInstance.current?.fitView());
+  }, [recoveryCandidate, replaceTransientEditorDrafts, setDiagramProperties]);
+
+  const discardRecoveryDraft = React.useCallback(() => {
+    if (!recoveryCandidate) {
+      return;
+    }
+    const linkedDiagram = recoveryCandidate.linkedDiagram;
+    setRecoveryCandidate(null);
+    clearStoredDraft();
+    if (linkedDiagram) {
+      applyPreparedDiagram(linkedDiagram);
+      return;
+    }
+    const empty = loadEmpty();
+    setNodes(empty.nodes);
+    setEdges(empty.edges);
+    setTemplates({});
+    setDiagramProperties(createEmptyDiagramProperties());
+    setLoadContext(null);
+    setRecentlyUsedFilename(null);
+    clearTransientEditorDrafts();
+    baselineFingerprint.current = null;
+    markCleanOnNextSnapshot.current = true;
+    setHydrationResolved(true);
+  }, [
+    applyPreparedDiagram,
+    clearStoredDraft,
+    clearTransientEditorDrafts,
+    recoveryCandidate,
+    setDiagramProperties,
+  ]);
+
+  const markExportCompleted = React.useCallback(
+    (filename: string) => {
+      setRecentlyUsedFilename(filename);
+      if (latestDraftContent.current) {
+        const exportedContent = {
+          ...latestDraftContent.current,
+          filename,
+        };
+        latestDraftContent.current = exportedContent;
+        baselineFingerprint.current =
+          draftWorkspaceFingerprint(exportedContent);
+      }
+      markCleanOnNextSnapshot.current = false;
+      dirtyRef.current = false;
+      setIsDirty(false);
+      clearStoredDraft();
+    },
+    [clearStoredDraft],
+  );
+
+  const handleStartNewAfterExport = React.useCallback(() => {
+    setOpenExportDiagramDialog(false);
+    resetToNewDiagram();
+  }, [resetToNewDiagram]);
+
+  const newDiagramAfterExport = useNewDiagramAfterExport(
+    markExportCompleted,
+    handleStartNewAfterExport,
+  );
+
+  const startupInitialized = React.useRef(false);
 
   return (
     <Providers
@@ -808,29 +1242,54 @@ function DiagramEditor() {
         edgeTypes={EDGE_TYPES}
         onInit={(instance) => {
           reactFlowInstance.current = instance;
-
-          const queryParams = new URLSearchParams(window.location.search);
-          const diagramParam = queryParams.get('diagram');
-
-          if (!diagramParam) {
+          if (startupInitialized.current) {
             return;
           }
+          startupInitialized.current = true;
 
-          try {
-            const binaryString = atob(diagramParam);
-            const byteArray = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              byteArray[i] = binaryString.charCodeAt(i);
+          void (async () => {
+            let linkedDiagram: PreparedDiagram | null = null;
+            const diagramParam = new URLSearchParams(
+              window.location.search,
+            ).get('diagram');
+            if (diagramParam) {
+              try {
+                linkedDiagram = await prepareDiagram(
+                  decodeDiagramParam(diagramParam),
+                  null,
+                );
+              } catch (error) {
+                showErrorToast(
+                  `failed to load linked diagram: ${
+                    error instanceof Error ? error.message : error
+                  }`,
+                );
+              }
             }
-            const diagramJson = strFromU8(inflateSync(byteArray));
-            loadDiagram(diagramJson, null);
-          } catch (e) {
-            if (e instanceof Error) {
-              showErrorToast(`failed to load diagram: ${e.message}`);
-            } else {
-              throw e;
+
+            let storedDraft: DraftWorkspaceV1 | null = null;
+            try {
+              storedDraft = readDraftWorkspace();
+            } catch (error) {
+              clearStoredDraft();
+              showErrorToast(
+                `failed to read recovery draft: ${
+                  error instanceof Error ? error.message : error
+                }`,
+              );
             }
-          }
+
+            if (storedDraft) {
+              setRecoveryCandidate({ draft: storedDraft, linkedDiagram });
+              return;
+            }
+            if (linkedDiagram) {
+              applyPreparedDiagram(linkedDiagram);
+              return;
+            }
+            markCleanOnNextSnapshot.current = true;
+            setHydrationResolved(true);
+          })();
         }}
         onNodesChange={handleNodeChanges}
         onNodesDelete={() => {
@@ -841,21 +1300,33 @@ function DiagramEditor() {
           closeAllPopovers();
         }}
         onConnect={(conn) => {
-          const newEdge = tryCreateEdge(conn);
-          if (newEdge) {
-            setEdges((prev) => addEdge(newEdge, prev));
-          }
+          void (async () => {
+            const newEdge = await tryCreateCompatibleEdge(conn);
+            if (newEdge) {
+              setEdges((prev) => addEdge(newEdge, prev));
+            }
+          })();
         }}
         isValidConnection={(conn) => {
           return validateConnectionSimple(conn, nodeManager, edges).valid;
         }}
         onReconnect={(oldEdge, newConnection) => {
-          const newEdge = tryCreateEdge(newConnection, oldEdge.id);
-          if (newEdge) {
-            oldEdge.type = newEdge.type;
-            oldEdge.data = newEdge.data;
-            setEdges((prev) => reconnectEdge(oldEdge, newConnection, prev));
-          }
+          void (async () => {
+            const newEdge = await tryCreateCompatibleEdge(
+              newConnection,
+              oldEdge.id,
+            );
+            if (newEdge) {
+              const updatedEdge = {
+                ...oldEdge,
+                type: newEdge.type,
+                data: newEdge.data,
+              } as DiagramEditorEdge;
+              setEdges((prev) =>
+                reconnectEdge(updatedEdge, newConnection, prev),
+              );
+            }
+          })();
         }}
         onConnectEnd={(event, connectionState) => {
           if (!connectionState.fromHandle) {
@@ -863,14 +1334,21 @@ function DiagramEditor() {
           }
 
           if (connectionState.isValid === false && connectionState.toHandle) {
+            const direction = validateDraggedHandlePair({
+              fromHandleType: connectionState.fromHandle.type,
+              otherHandleType: connectionState.toHandle.type,
+            });
+            if (!direction.valid) {
+              showErrorToast(direction.error);
+              return;
+            }
+
             const result = validateConnectionSimple(
-              createConnectionFromDraggedHandle({
-                fromNodeId: connectionState.fromHandle.nodeId,
-                fromHandleId: connectionState.fromHandle.id,
-                fromHandleType: connectionState.fromHandle.type,
-                otherNodeId: connectionState.toHandle.nodeId,
-                otherHandleId: connectionState.toHandle.id,
-              }),
+              createConnectionFromHandles(
+                connectionState.fromHandle,
+                connectionState.toHandle.nodeId,
+                connectionState.toHandle.id,
+              ),
               nodeManager,
               edges,
             );
@@ -881,7 +1359,7 @@ function DiagramEditor() {
             return;
           }
 
-          if (connectionState.toHandle || connectionState.isValid) {
+          if (connectionState.toHandle) {
             return;
           }
 
@@ -923,6 +1401,15 @@ function DiagramEditor() {
 
           if (isBuiltinNode(node)) {
             return;
+          }
+          if (node.type === 'script') {
+            const environmentName = node.data.op.environment;
+            openScriptEnvironment(
+              typeof environmentName === 'string'
+                ? environmentName || undefined
+                : undefined,
+              false,
+            );
           }
           setEditingNodeId(node.id);
 
@@ -991,12 +1478,20 @@ function DiagramEditor() {
         <ConnectionHintPanel nodeManager={nodeManager} />
         <CommandPanel
           onNodeChanges={handleNodeChanges}
+          onNewDiagram={handleNewDiagram}
           onExportClick={React.useCallback(
             () => setOpenExportDiagramDialog(true),
             [],
           )}
           onLoadDiagram={loadDiagram}
-          enableExport={enableExport}
+          enableExport={enableExport && !hasUncommittedBuffers}
+          exportDisabledReason={
+            hasUncommittedBuffers
+              ? 'Save or discard unfinished editor fields before exporting'
+              : undefined
+          }
+          isDirty={isDirty}
+          scriptNodeBinding={scriptNodeBinding}
         />
         {editorMode.mode === EditorMode.Template && (
           <Fab
@@ -1020,6 +1515,7 @@ function DiagramEditor() {
           </Fab>
         )}
         <Popover
+          action={addOperationPopoverActions}
           open={addOperationPopover.open}
           onClose={closeAllPopovers}
           anchorReference="anchorPosition"
@@ -1027,52 +1523,91 @@ function DiagramEditor() {
           // use a custom component to prevent the popover from creating an invisible element that blocks clicks
           component={NonCapturingPopoverContainer}
         >
-          <AddOperation
-            parentId={addOperationPopover.parentId || undefined}
-            newNodePosition={addOperationNewNodePosition}
-            sourceConnection={addOperationPopover.sourceConnection}
-            onAdd={({ changes, primaryNodeId }) => {
-              handleNodeChanges(changes);
-              if (addOperationPopover.sourceConnection) {
-                const targetNode =
+          {addOperationPopover.sourceConnection ? (
+            <CompatibleAddOperation
+              parentId={addOperationPopover.parentId || undefined}
+              newNodePosition={addOperationNewNodePosition}
+              sourceConnection={addOperationPopover.sourceConnection}
+              onContentChange={updateAddOperationPopoverPosition}
+              onAdd={({ changes, primaryNodeId }) => {
+                void (async () => {
+                  const targetNode =
+                    changes.find((change) => change.item.id === primaryNodeId)
+                      ?.item || null;
+                  if (!targetNode || !addOperationPopover.sourceConnection) {
+                    return;
+                  }
+
+                  const connection = createConnectionFromHandles(
+                    {
+                      nodeId: addOperationPopover.sourceConnection.sourceNodeId,
+                      id: addOperationPopover.sourceConnection.sourceHandle,
+                      type: addOperationPopover.sourceConnection
+                        .sourceHandleType,
+                    },
+                    targetNode.id,
+                    null,
+                  );
+                  const newEdge = await tryCreateCompatibleEdge(
+                    connection,
+                    undefined,
+                    changes,
+                  );
+                  if (!newEdge) {
+                    return;
+                  }
+
+                  handleNodeChanges(changes);
+                  setEdges((prev) => addEdge(newEdge, prev));
+                  closeAllPopovers();
+                  if (targetNode.type === 'script') {
+                    const environmentName = targetNode.data.op.environment;
+                    openScriptEnvironment(
+                      typeof environmentName === 'string'
+                        ? environmentName || undefined
+                        : undefined,
+                      true,
+                    );
+                    setPendingScriptEnvironmentNodeId(targetNode.id);
+                  }
+                })();
+              }}
+            />
+          ) : (
+            <AddOperation
+              parentId={addOperationPopover.parentId || undefined}
+              newNodePosition={addOperationNewNodePosition}
+              onAdd={({ changes, primaryNodeId }) => {
+                handleNodeChanges(changes);
+                const primaryNode =
                   changes.find((change) => change.item.id === primaryNodeId)
                     ?.item || null;
-                if (targetNode) {
-                  const newEdge = tryCreateEdge(
-                    addOperationPopover.sourceConnection.sourceHandleType ===
-                      'source'
-                      ? {
-                          source:
-                            addOperationPopover.sourceConnection.sourceNodeId,
-                          sourceHandle:
-                            addOperationPopover.sourceConnection.sourceHandle,
-                          target: targetNode.id,
-                          targetHandle: null,
-                        }
-                      : {
-                          source: targetNode.id,
-                          sourceHandle: null,
-                          target:
-                            addOperationPopover.sourceConnection.sourceNodeId,
-                          targetHandle:
-                            addOperationPopover.sourceConnection.sourceHandle,
-                        },
-                    undefined,
-                    targetNode,
+                closeAllPopovers();
+                if (primaryNode?.type === 'script') {
+                  const environmentName = primaryNode.data.op.environment;
+                  openScriptEnvironment(
+                    typeof environmentName === 'string'
+                      ? environmentName || undefined
+                      : undefined,
+                    true,
                   );
-                  if (newEdge) {
-                    setEdges((prev) => addEdge(newEdge, prev));
-                  }
+                  setPendingScriptEnvironmentNodeId(primaryNode.id);
                 }
-              }
-              closeAllPopovers();
-            }}
-          />
+              }}
+            />
+          )}
         </Popover>
-        <Popover
+        <ResponsiveEditPopover
           {...editOpFormPopoverProps}
-          onClose={() => setEditOpFormPopoverProps({ open: false })}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+          onClose={(_event, reason) => {
+            if (
+              reason === 'escapeKeyDown' &&
+              shouldIgnoreEscapeClose(document.activeElement)
+            ) {
+              return;
+            }
+            setEditOpFormPopoverProps({ open: false });
+          }}
           // use a custom component to prevent the popover from creating an invisible element that blocks clicks
           component={NonCapturingPopoverContainer}
         >
@@ -1095,7 +1630,7 @@ function DiagramEditor() {
               }}
             />
           )}
-        </Popover>
+        </ResponsiveEditPopover>
         <Snackbar
           open={openErrorToast}
           onClose={(_, reason) => {
@@ -1110,14 +1645,59 @@ function DiagramEditor() {
             {errorToast}
           </Alert>
         </Snackbar>
+        <Snackbar
+          open={draftStorageFailed}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert severity="warning">
+            Draft recovery is unavailable. Save your diagram to a file before
+            leaving.
+          </Alert>
+        </Snackbar>
+        <NewDiagramDialog
+          open={openNewDiagramDialog}
+          canSave={enableExport && !hasUncommittedBuffers}
+          onCancel={() => setOpenNewDiagramDialog(false)}
+          onDiscard={() => {
+            setOpenNewDiagramDialog(false);
+            resetToNewDiagram();
+          }}
+          onSave={() => {
+            if (!enableExport || hasUncommittedBuffers) {
+              return;
+            }
+            setOpenNewDiagramDialog(false);
+            newDiagramAfterExport.begin();
+            setOpenExportDiagramDialog(true);
+          }}
+        />
+        <Dialog open={recoveryCandidate !== null} disableEscapeKeyDown>
+          <DialogTitle>Restore previous diagram?</DialogTitle>
+          <DialogContent>
+            {recoveryCandidate?.linkedDiagram
+              ? 'Restore the previous diagram from this tab, or replace it with the linked diagram.'
+              : 'Restore the diagram from before the refresh, or start with an empty diagram.'}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={discardRecoveryDraft}>
+              {recoveryCandidate?.linkedDiagram
+                ? 'Load Linked Diagram'
+                : 'Start Empty'}
+            </Button>
+            <Button variant="contained" onClick={restoreRecoveryDraft}>
+              Restore
+            </Button>
+          </DialogActions>
+        </Dialog>
         <Suspense>
           <ExportDiagramDialog
             open={openExportDiagramDialog}
             suggestedFilename={recentlyUsedFilename}
-            onExportedFilename={(filename: string) =>
-              setRecentlyUsedFilename(filename)
-            }
-            onClose={() => setOpenExportDiagramDialog(false)}
+            onExportCompleted={newDiagramAfterExport.complete}
+            onClose={() => {
+              setOpenExportDiagramDialog(false);
+              newDiagramAfterExport.cancel();
+            }}
             onValidDiagram={(maybeValid: MaybeValid) => {
               setEnableExport(maybeValid.ok);
               if (!maybeValid.ok) {
