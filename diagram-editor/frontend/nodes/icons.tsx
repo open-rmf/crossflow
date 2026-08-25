@@ -1,6 +1,10 @@
 import { Box, type BoxProps } from '@mui/material';
 import type React from 'react';
 import type { DiagramOperation } from '../types/api';
+import type {
+  AddOperationCandidateKey,
+  AddOperationKey,
+} from '../utils/add-operation-catalog';
 import { exhaustiveCheck } from '../utils/exhaustive-check';
 
 export interface MaterialSymbolProps extends BoxProps {
@@ -127,4 +131,33 @@ export function getIcon(op: DiagramOperation): React.ComponentType {
       exhaustiveCheck(op);
       throw new Error('unknown op');
   }
+}
+
+export const OPERATION_ICONS: Record<AddOperationKey, React.ReactNode> = {
+  sectionInput: <SectionInputIcon />,
+  sectionOutput: <SectionOutputIcon />,
+  sectionBuffer: <SectionBufferIcon />,
+  node: <NodeIcon />,
+  fork_clone: <ForkCloneIcon />,
+  unzip: <UnzipIcon />,
+  fork_result: <ForkResultIcon />,
+  split: <SplitIcon />,
+  join: <JoinIcon />,
+  transform: <TransformIcon />,
+  buffer: <BufferIcon />,
+  buffer_access: <BufferAccessIcon />,
+  listen: <ListenIcon />,
+  stream_out: <StreamOutIcon />,
+  scope: <ScopeIcon />,
+  section: <SectionIcon />,
+  script: <ScriptIcon />,
+};
+
+export function getAddOperationIcon(
+  key: AddOperationCandidateKey,
+): React.ReactNode {
+  if (key.startsWith('node:')) {
+    return OPERATION_ICONS.node;
+  }
+  return OPERATION_ICONS[key as AddOperationKey] ?? OPERATION_ICONS.node;
 }
