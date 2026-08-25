@@ -19,14 +19,12 @@ use bevy::prelude::*;
 use core::f32;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use glam::Vec2;
 
 use crate::spawn_world::METERS_PER_SECOND_TO_KMH;
 
 pub const VEHICLE_LAYER_Z: f32 = 10.0;
 
-///
 #[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, PartialEq, PartialOrd, Component)]
 pub struct ThrottleCommand {
     pub target_speed: f32,
@@ -55,13 +53,6 @@ impl Lane {
             Lane::Right => Lane::Left,
         }
     }
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema)]
-pub enum ReadyState {
-    Ready,
-    #[default]
-    NotReady,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Component)]
@@ -94,7 +85,6 @@ impl VehicleDynamics {
         let dv = throttle.target_speed - self.speed;
         let a = cap(dv/dt, max_accel);
         self.speed += a * dt;
-        self.speed;
 
         let max_rot_speed = steering.max_steer_speed.unwrap_or(90.0 / 16.0);
         let dr = steering.target_turn_angle - self.wheel_rotation;
