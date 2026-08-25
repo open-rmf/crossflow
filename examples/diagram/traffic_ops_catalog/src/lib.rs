@@ -51,6 +51,11 @@ struct TrafficSignalStreams {
 }
 
 #[derive(StreamPack)]
+struct SpeedLimitStreams {
+    speed_limit: SpeedLimit,
+}
+
+#[derive(StreamPack)]
 struct TrafficObstacleStreams {
     obstacles: Vec<JsonVec2>,
 }
@@ -255,7 +260,29 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         move |builder, _config: ()| builder.create_node(detect_traffic_signal_service),
     );
 
+    // =========================================================================
+    fn detect_speed_limit(
+        srv: ContinuousService<(), (), SpeedLimitStreams>,
+        mut orders: ContinuousQuery<(), (), SpeedLimitStreams>,
+        current: Res<CurrentSpeedLimit>,
+    ) {
+        let Some(mut orders) = orders.get_mut(&srv.key) else {
+            return;
+        };
 
+        orders.for_each(|order| order.streams().speed_limit.send(current.0.clone()));
+    }
+
+    let detect_speed_limit_service = app.spawn_continuous_service(PostUpdate, detect_speed_limit);
+    registry.register_node_builder(
+        NodeBuilderOptions::new("detect_speed_limit")
+            .with_default_display_text("Detect Speed Limit")
+            .with_description(
+                "Streams the speed limit (km/h) posted by the road sign nearest \
+                to the vehicle",
+            ),
+        move |builder, _: ()| builder.create_node(detect_speed_limit_service),
+    );
 
     // =========================================================================
     let detect_obstacles_description = "Detects obstacles in range via query";
