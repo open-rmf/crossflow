@@ -88,15 +88,29 @@ describe('getAddOperationIcon', () => {
     expect(symbolSpan?.textContent).toBe('line_start_circle');
   });
 
-  test('falls back gracefully to NodeIcon for unknown keys', () => {
-    const { container } = render(
-      <div>
-        {getAddOperationIcon(
-          'unknown_key' as unknown as Parameters<typeof getAddOperationIcon>[0],
-        )}
-      </div>,
-    );
-    const symbolSpan = container.querySelector('.material-symbols-outlined');
-    expect(symbolSpan?.textContent).toBe('line_start_circle');
+  test('falls back gracefully to NodeIcon for unknown keys, prototype methods, and non-string inputs', () => {
+    const dangerousKeys = [
+      'unknown_key',
+      'toString',
+      'valueOf',
+      'constructor',
+      'hasOwnProperty',
+      '__proto__',
+      undefined,
+      null,
+      123,
+    ];
+
+    for (const key of dangerousKeys) {
+      const { container } = render(
+        <div>
+          {getAddOperationIcon(
+            key as unknown as Parameters<typeof getAddOperationIcon>[0],
+          )}
+        </div>,
+      );
+      const symbolSpan = container.querySelector('.material-symbols-outlined');
+      expect(symbolSpan?.textContent).toBe('line_start_circle');
+    }
   });
 });
