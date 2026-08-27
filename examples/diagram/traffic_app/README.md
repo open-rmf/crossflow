@@ -77,6 +77,11 @@ From the current directory, run
 cargo run -- serve
 ```
 
+The first build downloads the app's sprite and font assets from
+[Gazebo Fuel](https://app.gazebosim.org/Open-RMF/fuel/models/crossflow_traffic_app_assets)
+into `assets/`, so it needs an internet connection; later builds reuse the
+downloaded files.
+
 Then open http://localhost:3000 to run the diagram editor app from your web
 browser. Load one of the workflows from `traffic_app/diagrams/`, click
 `Run Workflow`, enter an input (each workflow's input examples are listed in

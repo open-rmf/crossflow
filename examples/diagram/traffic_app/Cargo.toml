@@ -17,3 +17,7 @@ crossflow = { version = "0.0.7", path = "../../..", features = ["diagram", "pyth
 crossflow_diagram_editor = { path = "../../../diagram-editor", features = ["basic_executor"] }
 rand = { workspace = true }
 traffic_ops_catalog = { path = "../traffic_ops_catalog" }
+
+[build-dependencies]
+ureq = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
