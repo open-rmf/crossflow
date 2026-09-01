@@ -69,9 +69,7 @@ pub struct ServeArgs {
 
 impl Default for ServeArgs {
     fn default() -> Self {
-        Self {
-            port: 3000,
-        }
+        Self { port: 3000 }
     }
 }
 

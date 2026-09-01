@@ -21,7 +21,7 @@ use crate::{
     speed_limit::CurrentSpeedLimit,
     traffic::{TrafficLight, TrafficSignal},
     traffic_signal::{NextTrafficLight, TrafficSignalChange},
-    vehicle::{VehicleDynamics, MainVehicle},
+    vehicle::{MainVehicle, VehicleDynamics},
 };
 use bevy::{
     ecs::system::{SystemParam, SystemState},

@@ -17,9 +17,9 @@
 
 use bevy::prelude::*;
 use core::f32;
+use glam::Vec2;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use glam::Vec2;
 
 use crate::spawn_world::METERS_PER_SECOND_TO_KMH;
 
@@ -34,7 +34,9 @@ pub const DEFAULT_MAX_STEER_SPEED_DEG_PER_S: f32 = 30.0;
 /// per second to match the unit of [`VehicleDynamics::speed`].
 pub const DEFAULT_MAX_ACCELERATION_KMH_PER_S: f32 = 2.0 * METERS_PER_SECOND_TO_KMH;
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, PartialEq, PartialOrd, Component)]
+#[derive(
+    Clone, Debug, Default, Serialize, Deserialize, JsonSchema, PartialEq, PartialOrd, Component,
+)]
 pub struct ThrottleCommand {
     /// Target speed in km/h.
     pub target_speed: f32,
@@ -43,7 +45,9 @@ pub struct ThrottleCommand {
     pub max_acceleration: Option<f32>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, PartialEq, PartialOrd, Component)]
+#[derive(
+    Clone, Debug, Default, Serialize, Deserialize, JsonSchema, PartialEq, PartialOrd, Component,
+)]
 pub struct SteeringCommand {
     /// Target angle for the front wheels in degrees. Positive angles steer
     /// to the left.
@@ -89,17 +93,14 @@ impl Default for VehicleDynamics {
 }
 
 impl VehicleDynamics {
-    pub fn command(
-        &mut self,
-        throttle: &ThrottleCommand,
-        steering: &SteeringCommand,
-        dt: f32,
-    ) {
+    pub fn command(&mut self, throttle: &ThrottleCommand, steering: &SteeringCommand, dt: f32) {
         if dt <= 0.0 {
             return;
         }
 
-        let max_accel = throttle.max_acceleration.unwrap_or(DEFAULT_MAX_ACCELERATION_KMH_PER_S);
+        let max_accel = throttle
+            .max_acceleration
+            .unwrap_or(DEFAULT_MAX_ACCELERATION_KMH_PER_S);
         let dv = throttle.target_speed - self.speed;
         let a = cap(dv / dt, max_accel);
         self.speed += a * dt;

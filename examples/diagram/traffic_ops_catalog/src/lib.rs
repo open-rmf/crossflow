@@ -16,7 +16,7 @@
 */
 
 use bevy::prelude::*;
-use crossflow::{ConfigExample, NodeBuilderOptions, ScriptMessage, Node, prelude::*};
+use crossflow::{ConfigExample, Node, NodeBuilderOptions, ScriptMessage, prelude::*};
 use crossflow_diagram_editor::basic_executor::BasicExecutorSetup;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -165,7 +165,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
             This will be ignored if the incoming request contains a max_acceleration field.",
             ThrottleConfig {
                 max_acceleration: Some(5.0),
-            }
+            },
         ),
     ];
 
@@ -208,12 +208,13 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         max_steer_speed (degrees per second) to limit how fast the turn angle \
         can change.";
 
-    registry.register_node_builder(
-        NodeBuilderOptions::new("steer")
-            .with_default_display_text("Steer")
-            .with_description(set_steering_description),
-        |builder, _: ()| {
-            let f = move |
+    registry
+        .register_node_builder(
+            NodeBuilderOptions::new("steer")
+                .with_default_display_text("Steer")
+                .with_description(set_steering_description),
+            |builder, _: ()| {
+                let f = move |
                 srv: Blocking<JsonMessage>,
                 mut main_vehicle: Query<&mut SteeringCommand, With<MainVehicle>>,
             | {
@@ -233,9 +234,9 @@ pub fn register(setup: &mut BasicExecutorSetup) {
                 Ok::<_, String>(())
             };
 
-            builder.create_node(f.into_callback())
-        }
-    )
+                builder.create_node(f.into_callback())
+            },
+        )
         .with_result();
 
     // =========================================================================
@@ -311,26 +312,25 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         };
 
         let scale = world_limits.convert_m_to_px;
-        let obstacles: Vec<JsonVec2> =
-            obstacles
-                .iter()
-                .filter(|ob| {
-                    let diff = ob.translation.y - vehicle.translation.y;
-                    // Ignore obstacles behind the main vehicle
-                    if diff < world_limits.vehicle_size.1 {
-                        return false;
-                    }
-                    // Ignore obstacles off screen
-                    if diff > 0.5 * world_limits.window.1 {
-                        return false;
-                    }
-                    true
-                })
-                .map(|t| JsonVec2 {
-                    x: (t.translation.x - vehicle.translation.x)/scale,
-                    y: (t.translation.y - vehicle.translation.y)/scale,
-                })
-                .collect();
+        let obstacles: Vec<JsonVec2> = obstacles
+            .iter()
+            .filter(|ob| {
+                let diff = ob.translation.y - vehicle.translation.y;
+                // Ignore obstacles behind the main vehicle
+                if diff < world_limits.vehicle_size.1 {
+                    return false;
+                }
+                // Ignore obstacles off screen
+                if diff > 0.5 * world_limits.window.1 {
+                    return false;
+                }
+                true
+            })
+            .map(|t| JsonVec2 {
+                x: (t.translation.x - vehicle.translation.x) / scale,
+                y: (t.translation.y - vehicle.translation.y) / scale,
+            })
+            .collect();
 
         if obstacles.is_empty() {
             return;
@@ -340,8 +340,7 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     }
     let detect_obstacles_service = app.spawn_continuous_service(PostUpdate, detect_obstacles);
     registry.register_node_builder(
-        NodeBuilderOptions::new("detect_obstacles")
-            .with_description(detect_obstacles_description),
+        NodeBuilderOptions::new("detect_obstacles").with_description(detect_obstacles_description),
         move |builder, _config: ()| builder.create_node(detect_obstacles_service),
     );
 
@@ -375,7 +374,11 @@ pub fn register(setup: &mut BasicExecutorSetup) {
     // =========================================================================
     fn lane_controller(
         srv: ContinuousService<(ChangeLaneConfig, BufferKey<ScriptMessage>), (), ChangeLaneStreams>,
-        mut orders: ContinuousQuery<(ChangeLaneConfig, BufferKey<ScriptMessage>), (), ChangeLaneStreams>,
+        mut orders: ContinuousQuery<
+            (ChangeLaneConfig, BufferKey<ScriptMessage>),
+            (),
+            ChangeLaneStreams,
+        >,
         mut target: BufferAccess<ScriptMessage>,
         query: Query<&Position, With<MainVehicle>>,
     ) {
@@ -390,7 +393,11 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         orders.for_each(|order| {
             let config = &order.request().0;
             let target_key = &order.request().1;
-            let Some(target) = target.get(order.id(), target_key).ok().and_then(|t| t.newest()) else {
+            let Some(target) = target
+                .get(order.id(), target_key)
+                .ok()
+                .and_then(|t| t.newest())
+            else {
                 return;
             };
             let Some(target) = target.data.as_number().and_then(|n| n.as_f64()) else {
@@ -417,24 +424,25 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         .no_serializing()
         .no_deserializing()
         .register_node_builder(
-        NodeBuilderOptions::new("lane_controller")
-            .with_description("Steer the robot to a certain x position with the lane")
-            .with_default_display_text("Lane Controller"),
-        move |builder, config: Option<ChangeLaneConfig>| {
-            let config = config.unwrap_or_default();
-            let insert_config = builder.create_map_block(move |(_, key): ((), BufferKey<ScriptMessage>)| {
-                (config, key)
-            });
+            NodeBuilderOptions::new("lane_controller")
+                .with_description("Steer the robot to a certain x position with the lane")
+                .with_default_display_text("Lane Controller"),
+            move |builder, config: Option<ChangeLaneConfig>| {
+                let config = config.unwrap_or_default();
+                let insert_config =
+                    builder.create_map_block(move |(_, key): ((), BufferKey<ScriptMessage>)| {
+                        (config, key)
+                    });
 
-            let node = builder.create_node(lane_controller_service);
-            builder.connect(insert_config.output, node.input);
-            Node::<_, _, ChangeLaneStreams> {
-                input: insert_config.input,
-                output: node.output,
-                streams: node.streams,
-            }
-        }
-    )
+                let node = builder.create_node(lane_controller_service);
+                builder.connect(insert_config.output, node.input);
+                Node::<_, _, ChangeLaneStreams> {
+                    input: insert_config.input,
+                    output: node.output,
+                    streams: node.streams,
+                }
+            },
+        )
         .with_buffer_access();
 
     fn detect_lane_position(
@@ -454,12 +462,12 @@ pub fn register(setup: &mut BasicExecutorSetup) {
             order.streams().position.send(position.translation.x);
         });
     }
-    let detect_lane_position_service = app.spawn_continuous_service(PostUpdate, detect_lane_position);
+    let detect_lane_position_service =
+        app.spawn_continuous_service(PostUpdate, detect_lane_position);
     registry.register_node_builder(
         NodeBuilderOptions::new("detect_lane_position")
             .with_description("Detect the current position within the lane")
             .with_default_display_text("Detect Lane Position"),
         move |builder, _: ()| builder.create_node(detect_lane_position_service),
     );
-
 }

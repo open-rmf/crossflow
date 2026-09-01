@@ -15,7 +15,7 @@
  *
 */
 
-pub const METERS_PER_SECOND_TO_KMH: f32 = 3600.0/1000.0;
+pub const METERS_PER_SECOND_TO_KMH: f32 = 3600.0 / 1000.0;
 pub const VEHICLE_LENGTH_M: f32 = 5.0;
 
 use crate::{Lane, MainVehicle, ScrollingWorld, TrafficLightColors, VehicleBundle};

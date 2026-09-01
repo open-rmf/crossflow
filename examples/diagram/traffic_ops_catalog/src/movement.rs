@@ -29,10 +29,7 @@ pub struct MovementPlugin {}
 
 impl Plugin for MovementPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            PostUpdate,
-            move_vehicles,
-        );
+        app.add_systems(PostUpdate, move_vehicles);
     }
 }
 
@@ -48,14 +45,25 @@ fn move_vehicles(
         &SteeringCommand,
         Option<&MainVehicle>,
     )>,
-    mut scrolling_world: Query<(&mut Transform, Option<&LaneDash>), (With<ScrollingWorld>, Without<ThrottleCommand>)>,
-    mut camera: Query<&mut Transform, (With<Camera>, Without<ThrottleCommand>, Without<ScrollingWorld>)>,
+    mut scrolling_world: Query<
+        (&mut Transform, Option<&LaneDash>),
+        (With<ScrollingWorld>, Without<ThrottleCommand>),
+    >,
+    mut camera: Query<
+        &mut Transform,
+        (
+            With<Camera>,
+            Without<ThrottleCommand>,
+            Without<ScrollingWorld>,
+        ),
+    >,
     world_limits: Res<WorldLimits>,
     time: Res<Time>,
 ) {
     let scale = world_limits.convert_m_to_px;
     let dt = time.delta_secs();
-    for (mut transform, mut position, mut dynamics, engine, steering, main) in transforms.iter_mut() {
+    for (mut transform, mut position, mut dynamics, engine, steering, main) in transforms.iter_mut()
+    {
         dynamics.command(&*engine, &*steering, dt);
         // dynamics.speed is a user-facing value in km/h; positions are in meters
         let speed = dynamics.speed / METERS_PER_SECOND_TO_KMH;
@@ -74,8 +82,10 @@ fn move_vehicles(
         let max_x = world_limits.lane_limits.1 / scale - half_width;
         position.translation.x = position.translation.x.clamp(min_x, max_x);
 
-        let p = position.translation;
-        transform.translation = scale * Vec3::new(p.x, p.y, 0.0);
+        // Update only x/y so the entity keeps the z layer it was spawned with
+        let p = scale * position.translation;
+        transform.translation.x = p.x;
+        transform.translation.y = p.y;
         transform.rotation = Quat::from_axis_angle(Vec3::Z, position.yaw);
 
         if main.is_some() {

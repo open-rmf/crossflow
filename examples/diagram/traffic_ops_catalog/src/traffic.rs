@@ -74,7 +74,9 @@ pub struct Velocity {
 
 impl Velocity {
     pub fn zero() -> Self {
-        Velocity { translation: Vec2::ZERO }
+        Velocity {
+            translation: Vec2::ZERO,
+        }
     }
 
     pub fn default_pedestrian() -> Self {
