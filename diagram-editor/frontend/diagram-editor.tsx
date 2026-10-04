@@ -209,6 +209,7 @@ interface ProvidersProps {
   loadContext: LoadContext | null;
   nodeManager: NodeManager;
   edges: DiagramEditorEdge[];
+  reconnectingEdgeId?: string;
 }
 
 function Providers({
@@ -217,6 +218,7 @@ function Providers({
   loadContext,
   nodeManager,
   edges,
+  reconnectingEdgeId,
   children,
 }: React.PropsWithChildren<ProvidersProps>) {
   return (
@@ -227,6 +229,7 @@ function Providers({
             <ConnectionCompatibilityProvider
               nodeManager={nodeManager}
               edges={edges}
+              reconnectingEdgeId={reconnectingEdgeId}
             >
               <InteractionVisualizationProvider
                 value={interactionVisualizationContext}
@@ -373,6 +376,8 @@ function DiagramEditor() {
   const savedNodes = React.useRef<DiagramEditorNode[]>([]);
 
   const [edges, setEdges] = React.useState<DiagramEditorEdge[]>([]);
+  const [reconnectingEdgeId, setReconnectingEdgeId] = React.useState<string>();
+  const reconnecting = React.useRef(false);
   const savedEdges = React.useRef<DiagramEditorEdge[]>([]);
 
   const [templates, setTemplates] = useTemplates();
@@ -1232,6 +1237,7 @@ function DiagramEditor() {
       loadContext={loadContext}
       nodeManager={nodeManager}
       edges={edges}
+      reconnectingEdgeId={reconnectingEdgeId}
     >
       <ReactFlow
         nodes={nodes}
@@ -1310,6 +1316,14 @@ function DiagramEditor() {
         isValidConnection={(conn) => {
           return validateConnectionQuick(conn, nodeManager).valid;
         }}
+        onReconnectStart={(_, edge) => {
+          reconnecting.current = true;
+          setReconnectingEdgeId(edge.id);
+        }}
+        onReconnectEnd={() => {
+          reconnecting.current = false;
+          setReconnectingEdgeId(undefined);
+        }}
         onReconnect={(oldEdge, newConnection) => {
           void (async () => {
             const newEdge = await tryCreateCompatibleEdge(
@@ -1329,6 +1343,10 @@ function DiagramEditor() {
           })();
         }}
         onConnectEnd={(event, connectionState) => {
+          // React Flow also calls this new-wire handler when reconnecting.
+          if (reconnecting.current && !connectionState.toHandle) {
+            return;
+          }
           if (!connectionState.fromHandle) {
             return;
           }
@@ -1475,7 +1493,10 @@ function DiagramEditor() {
             <Typography variant="h4">{editorMode.templateId}</Typography>
           </Panel>
         )}
-        <ConnectionHintPanel nodeManager={nodeManager} />
+        <ConnectionHintPanel
+          nodeManager={nodeManager}
+          reconnectingEdgeId={reconnectingEdgeId}
+        />
         <CommandPanel
           onNodeChanges={handleNodeChanges}
           onNewDiagram={handleNewDiagram}

@@ -1,13 +1,20 @@
 import { render, screen } from '@testing-library/react';
 import { Position, ReactFlowProvider } from '@xyflow/react';
 import { ConnectionHintPanel } from './connection-hint-panel';
+import { createDefaultEdge } from './edges';
 import { Handle, HandleType } from './handles';
 import { NodeManager } from './node-manager';
 import { createOperationNode } from './nodes';
 import type { CompatibilityResult } from './types/api';
+import { EdgesProvider } from './use-edges';
 import { ROOT_NAMESPACE } from './utils/namespace';
 
 let mockCompatibility: CompatibilityResult['status'] = 'unknown';
+let mockHovering = true;
+
+beforeEach(() => {
+  mockHovering = true;
+});
 
 jest.mock('./connection-compatibility-provider', () => ({
   useDraggedConnectionCompatibility: () => ({
@@ -22,8 +29,10 @@ jest.mock('@xyflow/react', () => ({
   useConnection: () => ({
     inProgress: true,
     fromHandle: { nodeId: 'source', id: null, type: 'source' },
-    toHandle: { nodeId: 'target', id: null, type: 'target' },
-    toNode: { id: 'target' },
+    toHandle: mockHovering
+      ? { nodeId: 'target', id: null, type: 'target' }
+      : null,
+    toNode: mockHovering ? { id: 'target' } : null,
   }),
 }));
 
@@ -67,5 +76,43 @@ test.each([
       .getByText('Compatibility result')
       .closest('.MuiPaper-root');
     expect(panel).toHaveStyle({ borderColor });
+  },
+);
+
+test.each([false, true])(
+  'capacity hint excludes the moving wire before hovering a target: %s',
+  (reconnecting) => {
+    mockHovering = false;
+    const source = {
+      ...createOperationNode(
+        ROOT_NAMESPACE,
+        undefined,
+        { x: 0, y: 0 },
+        { type: 'node', builder: '', next: { builtin: 'dispose' } },
+        'source',
+      ),
+      id: 'source',
+    };
+    const edge = createDefaultEdge(source.id, null, 'target', null);
+    const props = {
+      nodeManager: new NodeManager([source]),
+      reconnectingEdgeId: reconnecting ? edge.id : undefined,
+    };
+    render(
+      <ReactFlowProvider>
+        <EdgesProvider value={[edge]}>
+          <ConnectionHintPanel {...props} />
+        </EdgesProvider>
+      </ReactFlowProvider>,
+    );
+    const panel = screen
+      .getByText('Connection Helper')
+      .closest('.MuiPaper-root');
+    expect(panel).toHaveStyle({
+      borderColor: reconnecting ? 'rgba(0, 0, 0, 0.12)' : '#d32f2f',
+    });
+    if (reconnecting) {
+      expect(panel).toHaveTextContent('keep the original connection');
+    }
   },
 );

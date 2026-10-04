@@ -7,9 +7,13 @@ import { validateSourceOutputCapacity } from './utils/connection';
 
 export interface ConnectionHintPanelProps {
   nodeManager: NodeManager;
+  reconnectingEdgeId?: string;
 }
 
-export function ConnectionHintPanel({ nodeManager }: ConnectionHintPanelProps) {
+export function ConnectionHintPanel({
+  nodeManager,
+  reconnectingEdgeId,
+}: ConnectionHintPanelProps) {
   const connection = useConnection();
   const edges = useEdges();
   const compatibility = useDraggedConnectionCompatibility({
@@ -34,14 +38,17 @@ export function ConnectionHintPanel({ nodeManager }: ConnectionHintPanelProps) {
           sourceNode,
           connection.fromHandle.id,
           edges,
+          reconnectingEdgeId,
         )
       : { valid: true as const };
 
   let message = !sourceOutputCapacity.valid
     ? sourceOutputCapacity.error
-    : connection.fromHandle.type === 'target'
-      ? 'Drop on a compatible output, or release on empty space to add a compatible previous operation.'
-      : 'Drop on a compatible input, or release on empty space to add a compatible next operation.';
+    : reconnectingEdgeId
+      ? 'Drop on a compatible port, or release on empty space to keep the original connection.'
+      : connection.fromHandle.type === 'target'
+        ? 'Drop on a compatible output, or release on empty space to add a compatible previous operation.'
+        : 'Drop on a compatible input, or release on empty space to add a compatible next operation.';
   let tone: 'info' | 'success' | 'error' = sourceOutputCapacity.valid
     ? 'info'
     : 'error';

@@ -89,10 +89,12 @@ function incompatibleCompatibilityResult(
 export function ConnectionCompatibilityProvider({
   nodeManager,
   edges,
+  reconnectingEdgeId,
   children,
 }: React.PropsWithChildren<{
   nodeManager: NodeManager;
   edges: DiagramEditorEdge[];
+  reconnectingEdgeId?: string;
 }>) {
   const apiClient = useApiClient();
   const registry = useRegistry();
@@ -121,6 +123,7 @@ export function ConnectionCompatibilityProvider({
             diagramProperties,
             connection: input.connection,
             nodeChanges: input.nodeChanges,
+            edgeId: reconnectingEdgeId,
           });
         } catch (error) {
           results.set(
@@ -187,7 +190,15 @@ export function ConnectionCompatibilityProvider({
 
       return results;
     },
-    [apiClient, registry, nodeManager, edges, templates, diagramProperties],
+    [
+      apiClient,
+      registry,
+      nodeManager,
+      edges,
+      templates,
+      diagramProperties,
+      reconnectingEdgeId,
+    ],
   );
 
   const value = React.useMemo(() => ({ checkConnections }), [checkConnections]);
