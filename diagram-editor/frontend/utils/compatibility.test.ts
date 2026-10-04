@@ -1,9 +1,9 @@
 import { of } from 'rxjs';
 import type { BaseApiClient } from '../api-client/base-api-client';
-import { createBufferEdge } from '../edges';
+import { createBufferEdge, createSectionEdge } from '../edges';
 import { NodeManager } from '../node-manager';
 import { createOperationNode } from '../nodes';
-import type { DiagramElementMetadata } from '../types/api';
+import type { DiagramElementMetadata, SectionTemplate } from '../types/api';
 import {
   buildCompatibilityCandidate,
   checkCompatibilityCandidates,
@@ -25,6 +25,226 @@ const stubRegistry: DiagramElementMetadata = {
 };
 
 describe('compatibility candidate builder', () => {
+  test.each([
+    [
+      'template arrays',
+      { inputs: ['request'], outputs: ['response'] },
+      'request',
+      'response',
+    ],
+    [
+      'template remapping',
+      { inputs: { request: 'internal' }, outputs: ['response'] },
+      'request',
+      'response',
+    ],
+    ['registered section', null, 'request', 'response'],
+    [
+      'ambiguous ports',
+      { inputs: ['left', 'right'], outputs: ['yes', 'no'] },
+      '',
+      '',
+    ],
+    ['empty interface', {}, '', ''],
+    ['missing definition', undefined, '', ''],
+  ] as const)(
+    'selects only unambiguous section ports: %s',
+    (_, definition, inputId, output) => {
+      const op =
+        definition === null
+          ? { type: 'section' as const, builder: 'example' }
+          : { type: 'section' as const, template: 'example' };
+      const source = createOperationNode(
+        ROOT_NAMESPACE,
+        undefined,
+        { x: 0, y: 0 },
+        op,
+        'source',
+      );
+      const target = createOperationNode(
+        ROOT_NAMESPACE,
+        undefined,
+        { x: 0, y: 0 },
+        op,
+        'target',
+      );
+      const registry: DiagramElementMetadata = {
+        ...stubRegistry,
+        sections: {
+          example: {
+            config_examples: [],
+            config_schema: {},
+            default_display_text: 'Example',
+            interface: {
+              inputs: { request: { message_type: 0 } },
+              outputs: { response: { message_type: 0 } },
+              buffers: {},
+            },
+          },
+        },
+      };
+      const templates: Record<string, SectionTemplate> = definition
+        ? { example: JSON.parse(JSON.stringify({ ...definition, ops: {} })) }
+        : {};
+      const result = buildCompatibilityCandidate({
+        id: 'section-connection',
+        registry,
+        templates,
+        nodeManager: new NodeManager([source, target]),
+        edges: [],
+        diagramProperties: {},
+        connection: {
+          source: source.id,
+          sourceHandle: null,
+          target: target.id,
+          targetHandle: null,
+        },
+      });
+      expect(result).toMatchObject({
+        ok: true,
+        candidate: {
+          edge: {
+            data: {
+              input: { type: 'sectionInput', inputId },
+              output: { output },
+            },
+          },
+          diagram: {
+            ops: { source: { connect: { [output]: { target: inputId } } } },
+          },
+        },
+      });
+    },
+  );
+
+  test.each([
+    [['used'], undefined, ''],
+    [['used', 'free'], undefined, 'free'],
+    [['used'], 'existing', 'used'],
+  ])(
+    'selects only available section outputs %j when replacing %s',
+    (outputs, edgeId, output) => {
+      const source = createOperationNode(
+        ROOT_NAMESPACE,
+        undefined,
+        { x: 0, y: 0 },
+        { type: 'section', template: 'example' },
+        'source',
+      );
+      const target = createOperationNode(
+        ROOT_NAMESPACE,
+        undefined,
+        { x: 0, y: 0 },
+        { type: 'buffer' },
+        'target',
+      );
+      const existing = createSectionEdge(source.id, null, target.id, null, {
+        output: 'used',
+      });
+      existing.id = 'existing';
+      const result = buildCompatibilityCandidate({
+        id: 'section-connection',
+        registry: stubRegistry,
+        templates: { example: { outputs, ops: {} } },
+        nodeManager: new NodeManager([source, target]),
+        edges: [existing],
+        diagramProperties: {},
+        edgeId,
+        connection: {
+          source: source.id,
+          sourceHandle: null,
+          target: target.id,
+          targetHandle: null,
+        },
+      });
+      expect(result).toMatchObject({
+        ok: true,
+        candidate: { edge: { data: { output: { output } } } },
+      });
+    },
+  );
+
+  test('selects a section buffer input separately from its data inputs', () => {
+    const source = createOperationNode(
+      ROOT_NAMESPACE,
+      undefined,
+      { x: 0, y: 0 },
+      { type: 'buffer' },
+      'source',
+    );
+    const target = createOperationNode(
+      ROOT_NAMESPACE,
+      undefined,
+      { x: 0, y: 0 },
+      { type: 'section', template: 'example' },
+      'target',
+    );
+    const result = buildCompatibilityCandidate({
+      id: 'buffer-connection',
+      registry: stubRegistry,
+      templates: {
+        example: {
+          inputs: ['request'],
+          buffers: { storage: 'internal' },
+          ops: {},
+        },
+      },
+      nodeManager: new NodeManager([source, target]),
+      edges: [],
+      diagramProperties: {},
+      connection: {
+        source: source.id,
+        sourceHandle: null,
+        target: target.id,
+        targetHandle: null,
+      },
+    });
+    const edge = result.ok ? result.candidate.edge : result.edge;
+    expect(edge?.data.input).toEqual({
+      type: 'sectionBuffer',
+      inputId: 'storage',
+    });
+  });
+
+  test('an unrelated export failure keeps a structurally valid edge available', () => {
+    const source = createOperationNode(
+      ROOT_NAMESPACE,
+      undefined,
+      { x: 0, y: 0 },
+      { type: 'node', builder: '', next: { builtin: 'dispose' } },
+      'source',
+    );
+    const target = {
+      ...source,
+      id: 'target',
+      data: { ...source.data, opId: 'target' },
+    };
+    const unfinished = {
+      ...source,
+      id: 'unfinished',
+      data: { ...source.data, namespace: ':missing_scope' },
+    };
+    const result = buildCompatibilityCandidate({
+      id: 'connection',
+      registry: stubRegistry,
+      nodeManager: new NodeManager([source, target, unfinished]),
+      edges: [],
+      templates: {},
+      diagramProperties: {},
+      connection: {
+        source: source.id,
+        sourceHandle: null,
+        target: target.id,
+        targetHandle: null,
+      },
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      result: { status: 'unknown' },
+      edge: { source: source.id, target: target.id },
+    });
+  });
+
   test('buffer edges use the buffer input as an infer-only focused port', () => {
     const buffer = createOperationNode(
       ROOT_NAMESPACE,

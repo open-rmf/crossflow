@@ -127,7 +127,7 @@ impl CompatibilityResult {
     fn provisional(id: String, reason: impl Into<String>) -> Self {
         Self {
             provisional: true,
-            ..Self::terminal(id, CompatibilityStatus::Compatible, reason)
+            ..Self::terminal(id, CompatibilityStatus::Unknown, reason)
         }
     }
 
@@ -158,7 +158,7 @@ impl CompatibilityResult {
             provisional: true,
             ..Self::with_types(
                 id,
-                CompatibilityStatus::Compatible,
+                CompatibilityStatus::Unknown,
                 reason,
                 source_type,
                 target_type,
@@ -282,27 +282,27 @@ fn check_compatibility_candidate(
         );
     }
 
-    let inference =
-        match candidate
-            .diagram
-            .infer_message_types_for_ports(registry, boundary, focus_ports)
-        {
-            Ok(inference) => inference,
-            Err(err) => {
-                if is_missing_context_error(&err) {
-                    return CompatibilityResult::provisional(
-                        candidate.id,
-                        format!("Connection needs more type context: {err}"),
-                    );
-                }
-
-                return CompatibilityResult::terminal(
+    let (inference, fixed_ports) = match candidate.diagram.infer_message_types_for_ports_with_fixed(
+        registry,
+        boundary,
+        focus_ports,
+    ) {
+        Ok(inference) => inference,
+        Err(err) => {
+            if is_missing_context_error(&err) {
+                return CompatibilityResult::provisional(
                     candidate.id,
-                    compatibility_error_status(&err),
-                    err.to_string(),
+                    format!("Connection needs more type context: {err}"),
                 );
             }
-        };
+
+            return CompatibilityResult::terminal(
+                candidate.id,
+                CompatibilityStatus::Unknown,
+                err.to_string(),
+            );
+        }
+    };
 
     let source_type = candidate
         .source_port
@@ -346,11 +346,24 @@ fn check_compatibility_candidate(
         );
     };
 
+    let ports_are_fixed = candidate
+        .source_port
+        .as_ref()
+        .zip(candidate.target_port.as_ref())
+        .is_some_and(|(source, target)| {
+            fixed_ports.contains(source) && fixed_ports.contains(target)
+        });
     match can_connect_message_types(registry, source_type, target_type) {
         Ok(Some(reason)) => CompatibilityResult::with_types(
             candidate.id,
             CompatibilityStatus::Compatible,
             reason,
+            source_type_name,
+            target_type_name,
+        ),
+        Ok(None) if !ports_are_fixed => CompatibilityResult::provisional_with_types(
+            candidate.id,
+            "Inferred message types may change as the diagram gains more context",
             source_type_name,
             target_type_name,
         ),
@@ -386,14 +399,6 @@ fn is_missing_context_error(error: &DiagramError) -> bool {
             | DiagramErrorCode::NoConnection(_)
             | DiagramErrorCode::UnknownPort(_)
     )
-}
-
-fn compatibility_error_status(error: &DiagramError) -> CompatibilityStatus {
-    if is_missing_context_error(error) {
-        CompatibilityStatus::Unknown
-    } else {
-        CompatibilityStatus::Incompatible
-    }
 }
 
 fn can_connect_message_types(
@@ -597,6 +602,80 @@ mod compatibility_tests {
     }
 
     #[test]
+    fn compatibility_inferred_types_allow_matches_but_do_not_prove_mismatches() {
+        let mut registry = test_registry();
+        registry.register_node_builder(
+            NodeBuilderOptions::new("bool_to_json"),
+            |builder: &mut Builder, _config: ()| {
+                builder.create_map_block(|request: bool| JsonMessage::from(request))
+            },
+        );
+
+        for (target_builder, status) in [
+            ("i64_to_json", CompatibilityStatus::Compatible),
+            ("bool_to_json", CompatibilityStatus::Unknown),
+        ] {
+            let source_port: PortRef = output_ref(&"fork".into()).next_index(0).into();
+            let target_port: PortRef = (&NextOperation::Name("target".into())).into();
+            let diagram = Diagram::from_json(json!({
+                "version": "0.1.0",
+                "start": "source",
+                "ops": {
+                    "source": {
+                        "type": "node",
+                        "builder": "json_to_i64",
+                        "next": "fork"
+                    },
+                    "fork": { "type": "fork_clone", "next": ["target"] },
+                    "target": {
+                        "type": "node",
+                        "builder": target_builder,
+                        "next": { "builtin": "terminate" }
+                    }
+                }
+            }))
+            .unwrap();
+            let result = check_compatibility_candidate(
+                &registry,
+                CompatibilityCandidate {
+                    id: target_builder.to_string(),
+                    diagram,
+                    focus_ports: vec![],
+                    source_port: Some(source_port),
+                    target_port: Some(target_port),
+                },
+            );
+
+            assert_eq!(result.status, status);
+            assert_eq!(result.source_type.as_deref(), Some("i64"));
+            assert_eq!(result.provisional, status == CompatibilityStatus::Unknown);
+        }
+    }
+
+    #[test]
+    fn compatibility_isolated_buffer_is_unknown() {
+        let buffer_port: PortRef = (&NextOperation::Name("buffer".into())).into();
+        let result = check_compatibility_candidate(
+            &test_registry(),
+            CompatibilityCandidate {
+                id: "isolated-buffer".to_string(),
+                diagram: Diagram::from_json(json!({
+                    "version": "0.1.0",
+                    "start": { "builtin": "dispose" },
+                    "ops": { "buffer": { "type": "buffer" } }
+                }))
+                .unwrap(),
+                focus_ports: vec![buffer_port],
+                source_port: None,
+                target_port: None,
+            },
+        );
+
+        assert_eq!(result.status, CompatibilityStatus::Unknown);
+        assert!(result.provisional);
+    }
+
+    #[test]
     fn compatibility_ignores_unfocused_unfinished_ports() {
         let registry = test_registry();
         let source_port: PortRef = output_ref(&"source".into()).next().into();
@@ -635,14 +714,25 @@ mod compatibility_tests {
     }
 
     #[test]
-    fn compatibility_focused_unknown_builder_reports_failure() {
+    fn compatibility_focused_unknown_builder_is_unknown() {
         let result = check_compatibility_candidate(
             &test_registry(),
             node_pair_candidate("candidate", "json_to_i64", "missing_builder"),
         );
-        assert_eq!(result.status, CompatibilityStatus::Incompatible);
+        assert_eq!(result.status, CompatibilityStatus::Unknown);
         assert!(!result.provisional);
         assert!(result.reason.contains("missing_builder"));
+    }
+
+    #[test]
+    fn compatibility_unrelated_inference_error_is_unknown() {
+        let mut candidate = node_pair_candidate("candidate", "json_to_i64", "i64_to_json");
+        Arc::make_mut(&mut candidate.diagram.ops).insert(
+            "unfinished".into(),
+            node_pair_diagram("missing_builder", "i64_to_json").ops["source"].clone(),
+        );
+        let result = check_compatibility_candidate(&test_registry(), candidate);
+        assert_eq!(result.status, CompatibilityStatus::Unknown);
     }
 
     #[test]
@@ -659,7 +749,7 @@ mod compatibility_tests {
             },
         );
 
-        assert_eq!(result.status, CompatibilityStatus::Compatible);
+        assert_eq!(result.status, CompatibilityStatus::Unknown);
         assert!(result.provisional);
     }
 
@@ -694,7 +784,7 @@ mod compatibility_tests {
                 },
             );
 
-            assert_eq!(result.status, CompatibilityStatus::Compatible);
+            assert_eq!(result.status, CompatibilityStatus::Unknown);
             assert!(result.provisional);
             assert!(result.reason.contains("more type context"));
         }
@@ -730,7 +820,7 @@ mod compatibility_tests {
             },
         );
 
-        assert_eq!(result.status, CompatibilityStatus::Compatible);
+        assert_eq!(result.status, CompatibilityStatus::Unknown);
         assert!(result.provisional);
         assert!(result.reason.contains("more type context"));
     }
@@ -765,13 +855,13 @@ mod compatibility_tests {
             },
         );
 
-        assert_eq!(result.status, CompatibilityStatus::Compatible);
+        assert_eq!(result.status, CompatibilityStatus::Unknown);
         assert!(result.provisional);
         assert!(result.reason.contains("more type context"));
     }
 
     #[test]
-    fn compatibility_does_not_allow_hard_buffer_layout_mismatch_provisionally() {
+    fn compatibility_buffer_layout_error_is_not_a_proven_port_type_mismatch() {
         let mut registry = test_registry();
         registry
             .opt_out()
@@ -830,7 +920,7 @@ mod compatibility_tests {
             },
         );
 
-        assert_eq!(result.status, CompatibilityStatus::Incompatible);
+        assert_eq!(result.status, CompatibilityStatus::Unknown);
         assert!(!result.provisional);
     }
 
@@ -864,7 +954,7 @@ mod compatibility_tests {
             },
         );
 
-        assert_eq!(result.status, CompatibilityStatus::Compatible);
+        assert_eq!(result.status, CompatibilityStatus::Unknown);
         assert!(result.provisional);
         assert!(result.reason.contains("more type context"));
     }
@@ -1474,7 +1564,7 @@ mod tests {
         assert!(resp_str.contains("\"provisional\":true"));
         let resp: CompatibilityResponse = serde_json::from_str(resp_str).unwrap();
         assert_eq!(resp.results.len(), 1);
-        assert_eq!(resp.results[0].status, CompatibilityStatus::Compatible);
+        assert_eq!(resp.results[0].status, CompatibilityStatus::Unknown);
         assert!(resp.results[0].provisional);
 
         cleanup_test();

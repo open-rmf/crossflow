@@ -111,17 +111,34 @@ impl Diagram {
         boundary: InferenceBoundaryConditions,
         ports: impl IntoIterator<Item = PortRef>,
     ) -> Result<InferredMessageTypes, DiagramError> {
+        self.infer_message_types_for_ports_with_fixed(lookup, boundary, ports)
+            .map(|(inferred, _)| inferred)
+    }
+
+    /// Infer the requested ports and identify types fixed independently of connections.
+    ///
+    /// Other inferred types may change as an incomplete diagram gains more context.
+    pub fn infer_message_types_for_ports_with_fixed(
+        &self,
+        lookup: &dyn MetadataAccess,
+        boundary: InferenceBoundaryConditions,
+        ports: impl IntoIterator<Item = PortRef>,
+    ) -> Result<(InferredMessageTypes, HashSet<PortRef>), DiagramError> {
         let inferences = self.evaluate_message_type_inferences(lookup, boundary)?;
         let mut inferred = InferredMessageTypes::new();
+        let mut fixed = HashSet::new();
         for port in ports {
             let evaluation = inferences.get_evaluation(&port).in_port(|| port.clone())?;
             let Some(message_type) = evaluation.message_type else {
                 return Err(DiagramErrorCode::CannotInferType(port.clone()).in_port(port));
             };
+            if evaluation.constraint.is_none() {
+                fixed.insert(port.clone());
+            }
             inferred.insert(port, message_type);
         }
 
-        Ok(inferred)
+        Ok((inferred, fixed))
     }
 
     fn evaluate_message_type_inferences(

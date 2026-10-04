@@ -102,6 +102,7 @@ import {
 import {
   createConnectionFromHandles,
   getValidEdgeTypes,
+  validateConnectionQuick,
   validateConnectionSimple,
   validateDraggedHandlePair,
   validateSourceOutputCapacity,
@@ -951,8 +952,10 @@ function DiagramEditor() {
       });
 
       if (!built.ok) {
-        showErrorToast(built.result.reason);
-        return null;
+        if (built.result.status === 'incompatible') {
+          showErrorToast(built.result.reason);
+        }
+        return built.edge ?? null;
       }
 
       let results: Awaited<ReturnType<typeof checkCompatibilityCandidates>>;
@@ -960,14 +963,11 @@ function DiagramEditor() {
         results = await checkCompatibilityCandidates(apiClient, [
           built.candidate,
         ]);
-      } catch (error) {
-        showErrorToast(
-          error instanceof Error ? error.message : 'compatibility check failed',
-        );
-        return null;
+      } catch {
+        return built.candidate.edge;
       }
       const compatibility = results.get(built.candidate.id);
-      if (compatibility?.status !== 'compatible') {
+      if (compatibility?.status === 'incompatible') {
         showErrorToast(compatibility?.reason || 'connection is not compatible');
         return null;
       }
@@ -1308,7 +1308,7 @@ function DiagramEditor() {
           })();
         }}
         isValidConnection={(conn) => {
-          return validateConnectionSimple(conn, nodeManager, edges).valid;
+          return validateConnectionQuick(conn, nodeManager).valid;
         }}
         onReconnect={(oldEdge, newConnection) => {
           void (async () => {

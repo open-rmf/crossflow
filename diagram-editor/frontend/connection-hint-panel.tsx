@@ -53,7 +53,7 @@ export function ConnectionHintPanel({ nodeManager }: ConnectionHintPanelProps) {
         ? `${compatibility.reason} This connection is allowed provisionally; final compilation may still need more type context.`
         : compatibility.reason;
     } else {
-      tone = 'error';
+      tone = compatibility.status === 'incompatible' ? 'error' : 'info';
       message = compatibility.reason;
     }
   }

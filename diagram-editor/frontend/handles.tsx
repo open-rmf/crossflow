@@ -76,7 +76,11 @@ export function Handle({ id, variant, className, ...baseProps }: HandleProps) {
     classNames.push(className);
   }
 
-  if (compatibility && connection.inProgress) {
+  if (
+    compatibility &&
+    compatibility.status !== 'unknown' &&
+    connection.inProgress
+  ) {
     classNames.push(
       compatibility.status === 'compatible'
         ? 'handle-compatible'

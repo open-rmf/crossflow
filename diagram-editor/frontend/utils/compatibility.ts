@@ -41,13 +41,13 @@ export interface BuiltCompatibilityCandidate {
 
 export interface LocalCompatibilityFailure {
   id: string;
-  status: 'incompatible';
+  status: 'incompatible' | 'unknown';
   reason: string;
 }
 
 export type CompatibilityBuildResult =
   | { ok: true; candidate: BuiltCompatibilityCandidate }
-  | { ok: false; result: LocalCompatibilityFailure };
+  | { ok: false; result: LocalCompatibilityFailure; edge?: DiagramEditorEdge };
 
 function incompatibleBuildResult(
   id: string,
@@ -322,6 +322,48 @@ export function buildCompatibilityCandidate({
   }
   const { edge } = edgeResult;
 
+  function sectionPorts(
+    nodeId: string,
+    kind: 'inputs' | 'outputs' | 'buffers',
+  ) {
+    const node = candidateManager.getNode(nodeId);
+    if (node.type !== 'section') return [];
+    const op = node.data.op;
+    const definition =
+      typeof op.builder === 'string'
+        ? registry.sections[op.builder]?.interface
+        : typeof op.template === 'string'
+          ? templates[op.template]
+          : undefined;
+    const ports = definition?.[kind];
+    return Array.isArray(ports) ? ports : Object.keys(ports ?? {});
+  }
+
+  if (edge.type === 'section') {
+    const outputs = sectionPorts(edge.source, 'outputs').filter(
+      (output) =>
+        !edges.some(
+          (existing) =>
+            existing.id !== edge.id &&
+            existing.source === edge.source &&
+            existing.type === 'section' &&
+            existing.data.output.output === output,
+        ),
+    );
+    if (outputs.length === 1) edge.data.output = { output: outputs[0] };
+  }
+  if (
+    edge.data.input.type === 'sectionInput' ||
+    edge.data.input.type === 'sectionBuffer'
+  ) {
+    const inputs = sectionPorts(
+      edge.target,
+      edge.data.input.type === 'sectionInput' ? 'inputs' : 'buffers',
+    );
+    if (inputs.length === 1)
+      edge.data.input = { ...edge.data.input, inputId: inputs[0] };
+  }
+
   const candidateEdges = [
     ...cloneJson(edges).filter((candidateEdge) => candidateEdge.id !== edge.id),
     edge,
@@ -335,21 +377,29 @@ export function buildCompatibilityCandidate({
     return incompatibleBuildResult(id, simpleValidation.error);
   }
 
-  const diagram = exportDiagram(
-    registry,
-    candidateManager,
-    candidateEdges,
-    cloneJson(templates),
-    cloneJson(diagramProperties),
-  );
-  const ports = portRefsForEdge(candidateManager, edge, candidateEdges);
-
-  if (ports.focusPorts.length === 0) {
-    return incompatibleBuildResult(
-      id,
-      'connection does not expose compatible message ports',
+  let diagram: Diagram;
+  try {
+    diagram = exportDiagram(
+      registry,
+      candidateManager,
+      candidateEdges,
+      cloneJson(templates),
+      cloneJson(diagramProperties),
     );
+  } catch (error) {
+    // An unfinished diagram cannot establish a type mismatch for this edge.
+    return {
+      ok: false,
+      edge,
+      result: {
+        id,
+        status: 'unknown',
+        reason:
+          error instanceof Error ? error.message : 'Cannot infer port types',
+      },
+    };
   }
+  const ports = portRefsForEdge(candidateManager, edge, candidateEdges);
 
   return {
     ok: true,

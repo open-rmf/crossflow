@@ -125,7 +125,7 @@ export function ConnectionCompatibilityProvider({
         } catch (error) {
           results.set(
             input.id,
-            incompatibleCompatibilityResult(
+            unknownCompatibilityResult(
               input.id,
               error instanceof Error
                 ? error.message

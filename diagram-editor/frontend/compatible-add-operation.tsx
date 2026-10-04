@@ -1,8 +1,6 @@
 import {
-  Box,
   Button,
   ButtonGroup,
-  CircularProgress,
   Stack,
   styled,
   TextField,
@@ -141,13 +139,14 @@ export function CompatibleAddOperation({
         }
         setCompatibleCandidates(
           candidates.filter(
-            (candidate) => results.get(candidate.key)?.status === 'compatible',
+            (candidate) =>
+              results.get(candidate.key)?.status !== 'incompatible',
           ),
         );
       })
       .catch(() => {
         if (active) {
-          setCompatibleCandidates([]);
+          setCompatibleCandidates(candidates);
         }
       });
 
@@ -165,41 +164,27 @@ export function CompatibleAddOperation({
   ]);
 
   const operations = React.useMemo(() => {
-    if (!compatibleCandidates) {
-      return null;
-    }
-
+    const availableCandidates = compatibleCandidates ?? candidates;
     const trimmedSearch = search.trim().toLowerCase();
     if (!trimmedSearch) {
-      return compatibleCandidates;
+      return availableCandidates;
     }
 
-    return compatibleCandidates.filter((operation) =>
+    return availableCandidates.filter((operation) =>
       operation.label.toLowerCase().includes(trimmedSearch),
     );
-  }, [compatibleCandidates, search]);
+  }, [candidates, compatibleCandidates, search]);
 
   const title =
     sourceConnection.sourceHandleType === 'target'
-      ? 'Compatible previous operations'
-      : 'Compatible next operations';
+      ? 'Add previous operation'
+      : 'Add next operation';
 
   React.useEffect(() => {
     if (operations) {
       onContentChange?.();
     }
   }, [onContentChange, operations]);
-
-  if (!operations) {
-    return (
-      <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-        <CircularProgress size={16} />
-        <Typography variant="body2">
-          Checking compatible operations...
-        </Typography>
-      </Box>
-    );
-  }
 
   return (
     <Stack spacing={1} sx={{ px: 1.5, pt: 1.5, pb: 1.5, width: 260 }}>
@@ -215,7 +200,7 @@ export function CompatibleAddOperation({
           orientation="vertical"
           variant="contained"
           size="small"
-          aria-label="Add compatible operation button group"
+          aria-label="Add operation button group"
           sx={{ width: '100%' }}
         >
           {operations.map((operation) => (
@@ -244,8 +229,8 @@ export function CompatibleAddOperation({
       {operations.length === 0 && (
         <Typography variant="body2">
           {search.trim()
-            ? 'No compatible operations match this filter.'
-            : 'No compatible operations are available here yet.'}
+            ? 'No operations match this filter.'
+            : 'No operations are available here yet.'}
         </Typography>
       )}
     </Stack>
