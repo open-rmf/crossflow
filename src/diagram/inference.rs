@@ -21,6 +21,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{
     borrow::Cow,
+    cell::Cell,
     collections::{HashMap, HashSet, VecDeque},
     ops::Deref,
     sync::Arc,
@@ -96,7 +97,7 @@ impl Diagram {
         lookup: &dyn MetadataAccess,
         boundary: InferenceBoundaryConditions,
     ) -> Result<InferredMessageTypes, DiagramError> {
-        let inferences = self.evaluate_message_type_inferences(lookup, boundary)?;
+        let inferences = self.evaluate_message_type_inferences(lookup, boundary, false)?;
         Ok(inferences.try_infer_types()?)
     }
 
@@ -111,40 +112,49 @@ impl Diagram {
         boundary: InferenceBoundaryConditions,
         ports: impl IntoIterator<Item = PortRef>,
     ) -> Result<InferredMessageTypes, DiagramError> {
-        self.infer_message_types_for_ports_with_fixed(lookup, boundary, ports)
+        self.infer_message_types_for_ports_with_certainty(lookup, boundary, ports)
             .map(|(inferred, _)| inferred)
     }
 
-    /// Infer the requested ports and identify types fixed independently of connections.
+    /// Infer the requested ports and identify types determined by resolved dependencies.
     ///
     /// Other inferred types may change as an incomplete diagram gains more context.
-    pub fn infer_message_types_for_ports_with_fixed(
+    pub fn infer_message_types_for_ports_with_certainty(
         &self,
         lookup: &dyn MetadataAccess,
         boundary: InferenceBoundaryConditions,
         ports: impl IntoIterator<Item = PortRef>,
     ) -> Result<(InferredMessageTypes, HashSet<PortRef>), DiagramError> {
-        let inferences = self.evaluate_message_type_inferences(lookup, boundary)?;
+        let inferences = self.evaluate_message_type_inferences(lookup, boundary, true)?;
         let mut inferred = InferredMessageTypes::new();
-        let mut fixed = HashSet::new();
+        let mut certain = HashSet::new();
         for port in ports {
             let evaluation = inferences.get_evaluation(&port).in_port(|| port.clone())?;
+            if let Some(error) = &evaluation.error {
+                let error = if evaluation.certain {
+                    error.clone()
+                } else {
+                    DiagramErrorCode::CannotInferType(port.clone())
+                };
+                return Err(error.in_port(port));
+            }
             let Some(message_type) = evaluation.message_type else {
                 return Err(DiagramErrorCode::CannotInferType(port.clone()).in_port(port));
             };
-            if evaluation.constraint.is_none() {
-                fixed.insert(port.clone());
+            if evaluation.certain {
+                certain.insert(port.clone());
             }
             inferred.insert(port, message_type);
         }
 
-        Ok((inferred, fixed))
+        Ok((inferred, certain))
     }
 
     fn evaluate_message_type_inferences(
         &self,
         lookup: &dyn MetadataAccess,
         boundary: InferenceBoundaryConditions,
+        partial: bool,
     ) -> Result<Inferences, DiagramError> {
         self.validate_operation_names()?;
         self.validate_template_usage()?;
@@ -215,6 +225,8 @@ impl Diagram {
             }
         }
 
+        set_boundary_conditions(&mut inferences, self, lookup, boundary)?;
+
         let dependents = {
             let mut dependents = HashMap::<_, Vec<PortRef>>::new();
             for (id, inference) in &inferences.evaluations {
@@ -222,6 +234,7 @@ impl Diagram {
                     let ctx = ConstraintContext {
                         inferences: &inferences,
                         metadata: lookup,
+                        certain: None,
                     };
                     let dependencies = constraint.dependencies(&ctx);
                     for dependency in dependencies {
@@ -238,27 +251,41 @@ impl Diagram {
             queue.push_back(port.clone());
         }
 
-        set_boundary_conditions(&mut inferences, self, lookup, boundary)?;
-
         while let Some(port) = queue.pop_front() {
             let evaluation = inferences.get_evaluation(&port).in_port(|| port.clone())?;
-            if let Some(message_type) = evaluation
-                .evaluate(&inferences, lookup)
-                .in_port(|| port.clone())?
+            let (result, mut certain) = evaluation.evaluate(&inferences, lookup);
+            let (message_type, error) = match result {
+                Ok(None) => {
+                    // Retain only a provisional hint, so feedback cannot keep
+                    // erasing and recreating the same inferred type.
+                    certain = false;
+                    (evaluation.message_type, None)
+                }
+                Ok(message_type) => (message_type, None),
+                Err(error) if partial => (None, Some(error)),
+                Err(error) => return Err(error.in_port(port)),
+            };
+            // Editor inference must settle before reporting errors: downstream
+            // hints may be superseded by upstream types later in this queue.
+            if (partial || message_type.is_some())
+                && (message_type != evaluation.message_type
+                    || certain != evaluation.certain
+                    || error.is_some() != evaluation.error.is_some())
             {
-                if Some(message_type) != evaluation.message_type {
-                    // A new message type was determined for this port, so update
-                    // it and notify all dependents.
-                    inferences.evaluation(port.clone()).message_type = Some(message_type);
-                    if let Some(deps) = dependents.get(&port) {
-                        for dep in deps {
-                            if !queue.contains(&dep) {
-                                queue.push_back(dep.clone());
-                            }
+                if let Some(deps) = dependents.get(&port) {
+                    for dep in deps {
+                        if !queue.contains(dep) {
+                            queue.push_back(dep.clone());
                         }
                     }
                 }
             }
+            let evaluation = inferences.evaluation(port);
+            if partial || message_type.is_some() {
+                evaluation.message_type = message_type;
+            }
+            evaluation.error = error;
+            evaluation.certain = certain;
         }
 
         Ok(inferences)
@@ -316,11 +343,9 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
     /// Specify exactly what message types a port may have, irrespective of
     /// any connections to other operations.
     fn fixed(&mut self, port: PortRef, message_type: usize) {
-        self.inference
-            .evaluations
-            .entry(port)
-            .or_default()
-            .message_type = Some(message_type);
+        let evaluation = self.inference.evaluation(port);
+        evaluation.message_type = Some(message_type);
+        evaluation.certain = true;
     }
 
     /// Specify that the message type of an output should be directly inferred
@@ -832,6 +857,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 pub struct ConstraintContext<'a> {
     inferences: &'a Inferences,
     pub metadata: &'a dyn MetadataAccess,
+    certain: Option<&'a Cell<bool>>,
 }
 
 impl<'a> ConstraintContext<'a> {
@@ -840,22 +866,40 @@ impl<'a> ConstraintContext<'a> {
         port: impl Into<PortRef>,
     ) -> Result<&Option<usize>, DiagramErrorCode> {
         let port = port.into();
-        let one_of = &self
-            .inferences
-            .evaluations
-            .get(&port)
-            .ok_or_else(move || DiagramErrorCode::UnknownPort(port))?
-            .message_type;
-
-        Ok(one_of)
+        let evaluation = self.inferences.get_evaluation(&port);
+        if let Some(certain) = self.certain {
+            if !evaluation
+                .as_ref()
+                .is_ok_and(|e| e.certain && e.message_type.is_some() && e.error.is_none())
+            {
+                certain.set(false);
+            }
+        }
+        let evaluation = evaluation?;
+        if evaluation.error.is_some() {
+            // A broken dependency leaves this port unresolved; its error does
+            // not prove that a connection involving this port is incompatible.
+            return Err(DiagramErrorCode::CannotInferType(port));
+        }
+        Ok(&evaluation.message_type)
     }
 
     pub fn connections_into(&self, operation: &OperationRef) -> SmallVec<[OutputRef; 8]> {
-        let Some(connections) = self.inferences.connections_into.get(operation) else {
-            return smallvec![];
-        };
-
-        connections.iter().cloned().collect()
+        let mut connections = SmallVec::new();
+        let mut queue = vec![operation];
+        let mut visited = HashSet::new();
+        while let Some(input) = queue.pop() {
+            if !visited.insert(input) {
+                continue;
+            }
+            if let Some(incoming) = self.inferences.connections_into.get(input) {
+                connections.extend(incoming.iter().cloned());
+            }
+            if let Some(redirects) = self.inferences.redirections_into.get(input) {
+                queue.extend(redirects);
+            }
+        }
+        connections
     }
 
     fn get_message_types_into(
@@ -998,8 +1042,8 @@ impl<'a> ConstraintContext<'a> {
         let mut message_types: SmallVec<[usize; 8]> = Default::default();
         for target in targets {
             let port: PortRef = target.clone().into();
-            if let Some(message_type) = self.inferences.get_evaluation(&port)?.message_type {
-                message_types.push(message_type);
+            if let Some(message_type) = self.get_inference_of(port)? {
+                message_types.push(*message_type);
             }
         }
 
@@ -1352,6 +1396,8 @@ pub trait MessageTypeConstraint: std::fmt::Debug + 'static + Send + Sync {
 struct MessageTypeInference {
     message_type: Option<usize>,
     constraint: Option<Arc<dyn MessageTypeConstraint>>,
+    error: Option<DiagramErrorCode>,
+    certain: bool,
 }
 
 impl MessageTypeInference {
@@ -1359,16 +1405,18 @@ impl MessageTypeInference {
         &self,
         inference: &Inferences,
         registry: &dyn MetadataAccess,
-    ) -> MessageTypeEvaluation {
+    ) -> (MessageTypeEvaluation, bool) {
         let Some(constraint) = &self.constraint else {
-            return Ok(None);
+            return (Ok(self.message_type), true);
         };
 
+        let certain = Cell::new(true);
         let ctx = ConstraintContext {
             inferences: inference,
             metadata: registry,
+            certain: Some(&certain),
         };
-        constraint.evaluate(&ctx)
+        (constraint.evaluate(&ctx), certain.get())
     }
 }
 

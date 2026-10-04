@@ -47,6 +47,29 @@ test('export diagram', async () => {
   expect(diagram).toEqual(testDiagram);
 });
 
+test('export unzip with an unused first output', async () => {
+  const unzip = {
+    type: 'unzip',
+    next: [{ builtin: 'dispose' }, { builtin: 'terminate' }],
+  };
+  const [
+    _diagram,
+    {
+      graph: { nodes, edges },
+    },
+  ] = await loadDiagramJson(
+    JSON.stringify({ version: '0.1.0', start: 'unzip', ops: { unzip } }),
+  );
+  const diagram = exportDiagram(
+    stubRegistry,
+    new NodeManager(nodes),
+    edges,
+    {},
+    {},
+  );
+  expect(diagram.ops.unzip).toEqual(unzip);
+});
+
 test('export diagram with scope', async () => {
   const [
     _diagram,

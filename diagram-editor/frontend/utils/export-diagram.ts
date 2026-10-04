@@ -273,7 +273,11 @@ function syncEdge(
         if (edge.type !== 'unzip') {
           throw new Error('expected "unzip" edge');
         }
-        sourceOp.next[edge.data.output.seq] = nodeManager.getTargetNextOp(edge);
+        setSequentialKey(
+          sourceOp.next,
+          edge.data.output.seq,
+          nodeManager.getTargetNextOp(edge),
+        );
         break;
       }
       case 'fork_result': {
