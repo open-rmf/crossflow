@@ -99,8 +99,8 @@ fn spawn_speed_signs(
     }
 }
 
-// This system checks for a new speed limit sign that enters the window and
-// updates the CurrentSpeedLimit resource
+// This system updates the CurrentSpeedLimit resource when the vehicle passes a
+// speed limit sign. The posted limit stays in effect until the next sign.
 fn update_current_speed_limit(
     mut current_speed_limit: ResMut<CurrentSpeedLimit>,
     main_vehicle: Query<&Transform, With<MainVehicle>>,
@@ -111,27 +111,18 @@ fn update_current_speed_limit(
         return;
     };
 
-    let mut signs_in_window = Vec::<(SpeedLimit, f32)>::new();
+    // The world scrolls down past the vehicle, so signs that have been passed
+    // are below it. Only consider signs still in the window so that signs that
+    // wrapped back around to the top of the runway are not counted.
     let window_height = world_limits.window.1;
-    for (tf, speed) in speed_signs.iter() {
-        if tf.translation.y < -0.5 * window_height || tf.translation.y > 0.5 * window_height {
-            continue;
-        }
-        signs_in_window.push((speed.clone(), (vehicle_y - tf.translation.y).abs()));
+    let last_passed = speed_signs
+        .iter()
+        .filter(|(tf, _)| tf.translation.y >= -0.5 * window_height && tf.translation.y <= vehicle_y)
+        .max_by(|(a, _), (b, _)| a.translation.y.total_cmp(&b.translation.y));
+
+    if let Some((_, speed)) = last_passed
+        && current_speed_limit.0 != *speed
+    {
+        current_speed_limit.0 = speed.clone();
     }
-    if signs_in_window.is_empty() {
-        current_speed_limit.0 = SpeedLimit::default();
-        return;
-    }
-    if signs_in_window.len() == 1 {
-        current_speed_limit.0 = signs_in_window.into_iter().next().unwrap().0;
-        return;
-    }
-    let mut distance_to_vehicle = f32::INFINITY;
-    signs_in_window.into_iter().for_each(|(sp, dist)| {
-        if dist < distance_to_vehicle {
-            distance_to_vehicle = dist;
-            current_speed_limit.0 = sp;
-        }
-    });
 }

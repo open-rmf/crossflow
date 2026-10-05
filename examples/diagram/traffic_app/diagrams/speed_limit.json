@@ -92,7 +92,7 @@
       "type": "buffer"
     }
   },
-  "description": "Drive forward, following the speed limit posted by the road signs along the way. Runs for 10 seconds unless you input a different duration (in seconds). Press the STOP button in the simulator to end the trip early.",
+  "description": "Drive forward, following the speed limit posted by the road signs along the way. Runs for 10 seconds unless you input a different duration (in seconds). Press the simulator's Send stop request button to end the trip early.",
   "input_examples": [
     {
       "description": "Run for 60 seconds.",
@@ -104,13 +104,13 @@
       "builder": "process-bound-python",
       "config": {
         "ownership": "shared",
-        "script": "import asyncio\nfrom crossflow import *\n\nasync def execute(input: Input):\n    speed_limit = input.accessors['speed_limit'].fetch_by_clone()\n    stop_request = input.accessors['stop_request'].fetch_by_clone()\n\n    duration = input.data\n    if duration is None:\n        duration = 10.0\n\n    dt = 0.1\n    t = 0.0\n    while t < duration:\n        t += dt\n\n        # End the trip early when the user presses the STOP button\n        if await stop_request.try_fetch() is not None:\n            print('Stop requested by user, ending the trip early')\n            break\n\n        limit = await speed_limit.try_fetch()\n        if limit is None:\n            # No speed limit sign in sight yet; drive slowly\n            input.stream_out('speed', 20)\n        else:\n            input.stream_out('speed', limit)\n        await asyncio.sleep(dt)\n\ndef stop(input: Input):\n    input.stream_out('speed', 0)\n"
+        "script": "import asyncio\nfrom crossflow import *\n\nasync def execute(input: Input):\n    speed_limit = input.accessors['speed_limit'].fetch_by_clone()\n    stop_request = input.accessors['stop_request'].fetch_by_clone()\n\n    duration = input.data\n    if duration is None:\n        duration = 10.0\n\n    dt = 0.1\n    t = 0.0\n    while t < duration:\n        t += dt\n\n        # End the trip early when the user sends a stop request\n        if await stop_request.try_fetch() is not None:\n            print('Stop requested by user, ending the trip early')\n            break\n\n        limit = await speed_limit.try_fetch()\n        if limit is None:\n            # No speed limit sign in sight yet; drive slowly\n            input.stream_out('speed', 20)\n        else:\n            input.stream_out('speed', limit)\n        await asyncio.sleep(dt)\n\ndef stop(input: Input):\n    input.stream_out('speed', 0)\n"
       }
     }
   },
   "extensions": {
     "crossflow-diagram-editor-v1": {
-      "hash": "f2166827161cd2815d687c73d16b24ff6d40c5d6",
+      "hash": "db606f4296db61f12d2a7c3b0205253fa367bfa7",
       "state": {
         "nodes": [
           {
@@ -737,7 +737,7 @@
               "width": 20,
               "height": 20
             },
-            "type": "default",
+            "type": "streamOut",
             "data": {
               "output": {
                 "streamId": "stop"
@@ -756,7 +756,7 @@
               "width": 20,
               "height": 20
             },
-            "type": "default",
+            "type": "buffer",
             "data": {
               "output": {},
               "input": {

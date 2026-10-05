@@ -113,7 +113,7 @@
       "type": "buffer"
     }
   },
-  "description": "Drive forward at 20 km/h, changing lanes every 8 seconds. A Python script decides which lane to drive in and streams the target position into a buffer, while the lane_controller node continuously steers toward it. Runs for 30 seconds unless you input a different duration (in seconds). Press the STOP button in the simulator to end the trip early.",
+  "description": "Drive forward at 20 km/h, changing lanes every 8 seconds. A Python script decides which lane to drive in and streams the target position into a buffer, while the lane_controller node continuously steers toward it. Runs for 30 seconds unless you input a different duration (in seconds). Press the simulator's Send stop request button to end the trip early.",
   "input_examples": [
     {
       "description": "Run for 60 seconds.",
@@ -125,7 +125,7 @@
       "builder": "process-bound-python",
       "config": {
         "ownership": "shared",
-        "script": "import asyncio\nfrom crossflow import *\n\nasync def execute(input: Input):\n    stop_request = input.accessors['stop_request'].fetch_by_clone()\n\n    duration = input.data\n    if duration is None:\n        duration = 30.0\n\n    # x coordinates (in meters) of the two lane centers\n    left_lane = -9.0\n    right_lane = -3.0\n\n    input.stream_out('speed', 20)\n\n    dt = 0.1\n    t = 0.0\n    while t < duration:\n        t += dt\n\n        # End the trip early when the user presses the STOP button\n        if await stop_request.try_fetch() is not None:\n            print('Stop requested by user, ending the trip early')\n            break\n\n        # Change lanes every 8 seconds\n        if int(t / 8.0) % 2 == 0:\n            input.stream_out('target', left_lane)\n        else:\n            input.stream_out('target', right_lane)\n        await asyncio.sleep(dt)\n\ndef stop(input: Input):\n    input.stream_out('speed', 0)\n"
+        "script": "import asyncio\nfrom crossflow import *\n\nasync def execute(input: Input):\n    stop_request = input.accessors['stop_request'].fetch_by_clone()\n\n    duration = input.data\n    if duration is None:\n        duration = 30.0\n\n    # x coordinates (in meters) of the two lane centers\n    left_lane = -9.0\n    right_lane = -3.0\n\n    input.stream_out('speed', 20)\n\n    dt = 0.1\n    t = 0.0\n    while t < duration:\n        t += dt\n\n        # End the trip early when the user sends a stop request\n        if await stop_request.try_fetch() is not None:\n            print('Stop requested by user, ending the trip early')\n            break\n\n        # Change lanes every 8 seconds\n        if int(t / 8.0) % 2 == 0:\n            input.stream_out('target', left_lane)\n        else:\n            input.stream_out('target', right_lane)\n        await asyncio.sleep(dt)\n\ndef stop(input: Input):\n    input.stream_out('speed', 0)\n"
       }
     }
   }

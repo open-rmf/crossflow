@@ -21,7 +21,7 @@ use crate::{
     speed_limit::CurrentSpeedLimit,
     traffic::{TrafficLight, TrafficSignal},
     traffic_signal::{NextTrafficLight, TrafficSignalChange},
-    vehicle::{MainVehicle, VehicleDynamics},
+    vehicle::{MainVehicle, SteeringCommand, ThrottleCommand, VehicleDynamics},
 };
 use bevy::{
     ecs::system::{SystemParam, SystemState},
@@ -107,6 +107,12 @@ pub struct UserInteraction<'w, 's> {
     traffic_lights: Query<'w, 's, (Entity, &'static TrafficLight)>,
     user_panel: ResMut<'w, UserPanel>,
     vehicle_state: Query<'w, 's, &'static VehicleDynamics, With<MainVehicle>>,
+    vehicle_commands: Query<
+        'w,
+        's,
+        (&'static mut ThrottleCommand, &'static mut SteeringCommand),
+        With<MainVehicle>,
+    >,
 }
 
 impl<'w, 's> WidgetSystem for UserInteraction<'w, 's> {
@@ -139,8 +145,19 @@ impl<'w, 's> UserInteraction<'w, 's> {
             ui.add_space(20.0);
         }
 
-        if ui.button("STOP").clicked() {
+        if ui.button("Send stop request").clicked() {
             self.request_stop.write(StopRequested);
+        }
+
+        if ui
+            .button("Halt vehicle")
+            .on_hover_text("Resets throttle and steering")
+            .clicked()
+        {
+            for (mut throttle, mut steering) in &mut self.vehicle_commands {
+                *throttle = ThrottleCommand::default();
+                *steering = SteeringCommand::default();
+            }
         }
 
         ui.label(RichText::new("Traffic Settings").size(14.0));

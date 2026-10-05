@@ -285,8 +285,8 @@ pub fn register(setup: &mut BasicExecutorSetup) {
         NodeBuilderOptions::new("detect_speed_limit")
             .with_default_display_text("Detect Speed Limit")
             .with_description(
-                "Streams the speed limit (km/h) posted by the road sign nearest \
-                to the vehicle",
+                "Streams the speed limit (km/h) posted by the last road sign \
+                the vehicle passed",
             ),
         move |builder, _: ()| builder.create_node(detect_speed_limit_service),
     );

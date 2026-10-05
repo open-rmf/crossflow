@@ -112,7 +112,7 @@
       "type": "buffer"
     }
   },
-  "description": "Drive forward, avoiding any obstacles and stopping for traffic lights along the way. Runs for 10 seconds unless you input a different duration (in seconds). Press the STOP button in the simulator to end the trip early.",
+  "description": "Drive forward, avoiding any obstacles and stopping for traffic lights along the way. Runs for 10 seconds unless you input a different duration (in seconds). Press the simulator's Send stop request button to end the trip early.",
   "input_examples": [
     {
       "description": "Run this workflow for 30 seconds",
@@ -124,13 +124,13 @@
       "builder": "process-bound-python",
       "config": {
         "ownership": "shared",
-        "script": "import asyncio\nfrom crossflow import *\n\nasync def execute(input: Input):\n    stoplight = input.accessors['stoplight'].fetch_by_clone()\n    obstacles = input.accessors['obstacles'].fetch_by_clone()\n    stop_request = input.accessors['stop_request'].fetch_by_clone()\n    duration = input.data\n    if duration is None:\n        duration = 10.0\n\n    previously_stopped = False\n    dt = 0.1\n    t = 0.0\n    while t < duration:\n        t += dt\n\n        # End the trip early when the user presses the STOP button\n        if await stop_request.try_fetch() is not None:\n            print('Stop requested by user, ending the trip early')\n            break\n        light = await stoplight.try_fetch()\n\n        stop = False\n        if light == 'red':\n            # Stop if we a see a red light\n            stop = True\n            if not previously_stopped:\n                print('Stopping for a red light')\n\n        if not stop:\n            current_obstacles = await obstacles.try_fetch()\n            if current_obstacles is not None:\n                for obs in current_obstacles:\n                    if abs(obs['x']) < 2.0:\n                        # Stop if an obstacle is in front of us\n                        stop = True\n                        if not previously_stopped:\n                            print('Stopping for an obstacle')\n                        break\n\n        if stop:\n            previously_stopped = True\n            stop = {\n                'target_speed': 0,\n                'max_acceleration': 100\n            }\n            input.stream_out('speed', stop)\n        else:\n            previously_stopped = False\n            input.stream_out('speed', 30)\n        await asyncio.sleep(dt)\n\ndef print_messages(input: Input):\n    print(f'Traffic signal: {input.data}')\n\ndef stop(input: Input):\n    input.stream_out('speed', 0)"
+        "script": "import asyncio\nfrom crossflow import *\n\nasync def execute(input: Input):\n    stoplight = input.accessors['stoplight'].fetch_by_clone()\n    obstacles = input.accessors['obstacles'].fetch_by_clone()\n    stop_request = input.accessors['stop_request'].fetch_by_clone()\n    duration = input.data\n    if duration is None:\n        duration = 10.0\n\n    previously_stopped = False\n    dt = 0.1\n    t = 0.0\n    while t < duration:\n        t += dt\n\n        # End the trip early when the user sends a stop request\n        if await stop_request.try_fetch() is not None:\n            print('Stop requested by user, ending the trip early')\n            break\n        light = await stoplight.try_fetch()\n\n        stop = False\n        if light == 'red':\n            # Stop if we a see a red light\n            stop = True\n            if not previously_stopped:\n                print('Stopping for a red light')\n\n        if not stop:\n            current_obstacles = await obstacles.try_fetch()\n            if current_obstacles is not None:\n                for obs in current_obstacles:\n                    if abs(obs['x']) < 2.0:\n                        # Stop if an obstacle is in front of us\n                        stop = True\n                        if not previously_stopped:\n                            print('Stopping for an obstacle')\n                        break\n\n        if stop:\n            previously_stopped = True\n            stop = {\n                'target_speed': 0,\n                'max_acceleration': 100\n            }\n            input.stream_out('speed', stop)\n        else:\n            previously_stopped = False\n            input.stream_out('speed', 30)\n        await asyncio.sleep(dt)\n\ndef print_messages(input: Input):\n    print(f'Traffic signal: {input.data}')\n\ndef stop(input: Input):\n    input.stream_out('speed', 0)"
       }
     }
   },
   "extensions": {
     "crossflow-diagram-editor-v1": {
-      "hash": "d9818d118d8c2135c0961c5a91b335d46e30098e",
+      "hash": "5706a0853c27fc1de471a83fe53dea3934540f3b",
       "state": {
         "nodes": [
           {
@@ -907,7 +907,7 @@
               "width": 20,
               "height": 20
             },
-            "type": "default",
+            "type": "streamOut",
             "data": {
               "output": {
                 "streamId": "stop"
@@ -926,7 +926,7 @@
               "width": 20,
               "height": 20
             },
-            "type": "default",
+            "type": "buffer",
             "data": {
               "output": {},
               "input": {

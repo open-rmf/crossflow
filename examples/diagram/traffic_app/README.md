@@ -37,10 +37,10 @@ script can fetch the newest value on its own schedule:
 | ------ |------------ | --------- |
 | `dashboard` | Streams the vehicle's dashboard instruments every update. | `speed` (km/h), `steering_wheel` (degrees) |
 | `detect_traffic_signal` | Monitors the upcoming traffic signal via events and streams out changes. | `traffic_signal` (`red`/`yellow`/`green`/`empty`) |
-| `detect_speed_limit` | Streams the speed limit posted by the road sign nearest to the vehicle. | `speed_limit` (km/h) |
+| `detect_speed_limit` | Streams the speed limit posted by the last road sign the vehicle passed. The limit stays in effect until the next sign. | `speed_limit` (km/h) |
 | `detect_obstacles` | Monitors obstacles ahead of the vehicle via query and streams out their positions relative to the vehicle, in meters. | `obstacles` (list of `{x, y}`) |
 | `detect_lane_position` | Streams the vehicle's current x position within the lane, in meters. | `position` (meters) |
-| `detect_stop_request` | A "user cancellation sensor" that emits each time the STOP button in the simulator UI is pressed. Use this to let the user end an active workflow early. | `stop` (elapsed seconds) |
+| `detect_stop_request` | A "user cancellation sensor" that emits each time the "Send stop request" button in the simulator UI is pressed. Use this to let the user end an active workflow early. | `stop` (elapsed seconds) |
 
 ## Controllers
 
@@ -63,7 +63,10 @@ description and input examples, and they are worth exploring in this order:
 | `change_lane.json` | Splitting responsibilities between the diagram and compiled nodes: a script decides which lane to drive in and streams the target into a buffer, while the `lane_controller` node steers toward it. | Duration in seconds, e.g. `60` |
 
 All of the timed workflows also connect a `detect_stop_request` sensor, so you
-can press the STOP button in the simulator's user panel to end the trip early.
+can press the "Send stop request" button in the simulator's user panel to end
+the trip early. Workflows like `drive.json` and `donuts.json` terminate right
+after sending their commands, so there is no workflow left to stop; use the
+"Halt vehicle" button instead, which resets the throttle and steering directly.
 
 Try experimenting with the various settings, such as buffer sizes and fetch
 types (clone vs. pull), or edit the scripts and controller gains to see how
