@@ -1,22 +1,53 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { CompatibleAddOperation } from './compatible-add-operation';
 
-const mockCandidate = {
-  key: 'candidate',
-  label: 'Candidate operation',
-  createChanges: () => [
-    {
-      type: 'add',
-      item: { id: 'candidate-node' },
-    },
-  ],
-};
+const mockCandidates = [
+  {
+    key: 'transform',
+    label: 'Transform',
+    createChanges: () => [
+      {
+        type: 'add',
+        item: { id: 'transform-node' },
+      },
+    ],
+  },
+  {
+    key: 'fork_clone',
+    label: 'Fork Clone',
+    createChanges: () => [
+      {
+        type: 'add',
+        item: { id: 'fork-clone-node' },
+      },
+    ],
+  },
+  {
+    key: 'node:calculator',
+    label: 'Calculator',
+    createChanges: () => [
+      {
+        type: 'add',
+        item: { id: 'calc-node' },
+      },
+    ],
+  },
+];
+
 const mockCheckConnections = jest.fn(
   async () =>
     new Map([
       [
-        'candidate',
-        { id: 'candidate', status: 'compatible' as const, reason: '' },
+        'transform',
+        { id: 'transform', status: 'compatible' as const, reason: '' },
+      ],
+      [
+        'fork_clone',
+        { id: 'fork_clone', status: 'compatible' as const, reason: '' },
+      ],
+      [
+        'node:calculator',
+        { id: 'node:calculator', status: 'compatible' as const, reason: '' },
       ],
     ]),
 );
@@ -46,14 +77,14 @@ jest.mock('./registry-provider', () => ({
 
 jest.mock('./utils/add-operation-catalog', () => ({
   filterCompatibleAddOperations: (candidates: unknown[]) => candidates,
-  getAddOperationCandidates: () => [mockCandidate],
+  getAddOperationCandidates: () => mockCandidates,
   getVisibleAddOperations: () => [],
 }));
 
 jest.mock('./utils/connection', () => ({
-  createConnectionFromHandles: () => ({
+  createConnectionFromHandles: (_source: unknown, targetId: string) => ({
     source: 'source-node',
-    target: 'candidate-node',
+    target: targetId,
   }),
 }));
 
@@ -77,10 +108,51 @@ describe('CompatibleAddOperation', () => {
       screen.getByText('Checking compatible operations...'),
     ).toBeInTheDocument();
     expect(
-      await screen.findByRole('button', { name: /Candidate operation/ }),
+      await screen.findByRole('button', { name: /Transform/ }),
     ).toBeInTheDocument();
     await waitFor(() => {
       expect(onContentChange).toHaveBeenCalled();
     });
+  });
+
+  test('renders specific icons for compatible operations and registry builders', async () => {
+    render(
+      <CompatibleAddOperation
+        newNodePosition={{ x: 0, y: 0 }}
+        sourceConnection={{
+          sourceNodeId: 'source-node',
+          sourceHandle: null,
+          sourceHandleType: 'source',
+        }}
+      />,
+    );
+
+    const transformButton = await screen.findByRole('button', {
+      name: /Transform/,
+    });
+    const forkCloneButton = await screen.findByRole('button', {
+      name: /Fork Clone/,
+    });
+    const calculatorButton = await screen.findByRole('button', {
+      name: /Calculator/,
+    });
+
+    const transformIcon = transformButton.querySelector(
+      '.material-symbols-outlined',
+    );
+    const forkCloneIcon = forkCloneButton.querySelector(
+      '.material-symbols-outlined',
+    );
+    const calculatorIcon = calculatorButton.querySelector(
+      '.material-symbols-outlined',
+    );
+
+    expect(transformIcon).toBeInTheDocument();
+    expect(forkCloneIcon).toBeInTheDocument();
+    expect(calculatorIcon).toBeInTheDocument();
+
+    expect(transformIcon?.textContent).toBe('change_circle');
+    expect(forkCloneIcon?.textContent).toBe('content_copy');
+    expect(calculatorIcon?.textContent).toBe('line_start_circle');
   });
 });
