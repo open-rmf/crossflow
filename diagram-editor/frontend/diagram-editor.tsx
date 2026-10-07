@@ -47,6 +47,7 @@ import {
   useDiagramProperties,
 } from './diagram-properties-provider';
 import { useDiagramSidePanel } from './diagram-side-panel-controller';
+import { getEditPopoverPositionForNode } from './diagram-side-panel-layout';
 import {
   clearDraftWorkspace,
   type DraftWorkspaceContent,
@@ -426,7 +427,11 @@ function DiagramEditor() {
   } = useTransientEditorDrafts();
   const openScriptEnvironment = useScriptEnvironmentNavigation();
   const {
-    state: { open: sidePanelOpen, tab: sidePanelTab },
+    state: {
+      open: sidePanelOpen,
+      expanded: sidePanelExpanded,
+      tab: sidePanelTab,
+    },
   } = useDiagramSidePanel();
 
   const updateEditorModeAction = React.useCallback(
@@ -800,7 +805,6 @@ function DiagramEditor() {
         handleNodeChange(change);
         closeAllPopovers();
       };
-
       if (node.type === 'scope') {
         return (
           <EditScopeForm
@@ -1433,11 +1437,17 @@ function DiagramEditor() {
             );
           }
           setEditingNodeId(node.id);
-
           setEditOpFormPopoverProps({
             open: true,
             anchorReference: 'anchorPosition',
-            anchorPosition: { left: ev.clientX, top: ev.clientY },
+            anchorPosition: getEditPopoverPositionForNode({
+              nodeRect: ev.currentTarget.getBoundingClientRect(),
+              viewportWidth: window.innerWidth,
+              sidePanel: {
+                open: sidePanelOpen,
+                expanded: sidePanelExpanded,
+              },
+            }),
           });
         }}
         onEdgeClick={(ev, edge) => {

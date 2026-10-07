@@ -55,7 +55,7 @@ describe('getAddOperationIcon', () => {
       unzip: 'format_list_numbered',
       fork_result: 'question_mark',
       split: 'call_split',
-      join: 'arrow_and_edge',
+      join: 'call_merge',
       buffer: 'database',
       buffer_access: 'database_upload',
       listen: 'hearing',
