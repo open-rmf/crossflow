@@ -9,6 +9,16 @@ const mockCandidate = {
   label: 'Candidate operation',
   createChanges: mockCreateChanges,
 };
+const mockCandidates = [
+  mockCandidate,
+  { key: 'transform', label: 'Transform', createChanges: mockCreateChanges },
+  { key: 'fork_clone', label: 'Fork Clone', createChanges: mockCreateChanges },
+  {
+    key: 'node:calculator',
+    label: 'Calculator',
+    createChanges: mockCreateChanges,
+  },
+];
 const mockSetMenuPreview = jest.fn();
 const mockNodeManager = { tryGetNode: () => ({ id: 'source-node' }) };
 const mockRegistry = {};
@@ -24,7 +34,7 @@ jest.mock('./node-manager', () => ({ useNodeManager: () => mockNodeManager }));
 jest.mock('./registry-provider', () => ({ useRegistry: () => mockRegistry }));
 jest.mock('./utils/add-operation-catalog', () => ({
   filterCompatibleAddOperations: (candidates: unknown[]) => candidates,
-  getAddOperationCandidates: () => [mockCandidate],
+  getAddOperationCandidates: () => mockCandidates,
   getVisibleAddOperations: () => [],
 }));
 
@@ -90,4 +100,18 @@ test('keyboard focus previews previous operations and closing clears the preview
   );
   unmount();
   expect(mockSetMenuPreview).toHaveBeenLastCalledWith(null);
+});
+
+test('renders specific icons for compatible operations and registry builders', () => {
+  menu();
+  for (const [label, symbol] of [
+    ['Transform', 'change_circle'],
+    ['Fork Clone', 'content_copy'],
+    ['Calculator', 'line_start_circle'],
+  ]) {
+    const button = screen.getByRole('button', { name: new RegExp(label) });
+    expect(
+      button.querySelector('.material-symbols-outlined'),
+    ).toHaveTextContent(symbol);
+  }
 });

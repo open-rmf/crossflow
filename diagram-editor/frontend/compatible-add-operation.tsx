@@ -12,7 +12,7 @@ import type { AddOperationSelection } from './add-operation';
 import { useCompatibilityChecker } from './connection-compatibility-provider';
 import { EditorMode, useEditorMode } from './editor-mode';
 import { useNodeManager } from './node-manager';
-import { isOperationNode, NodeIcon } from './nodes';
+import { getAddOperationIcon, isOperationNode } from './nodes';
 import { useRegistry } from './registry-provider';
 import {
   filterCompatibleAddOperations,
@@ -173,7 +173,7 @@ export function CompatibleAddOperation({
           {operations.map((operation) => (
             <StyledOperationButton
               key={operation.key}
-              startIcon={<NodeIcon />}
+              startIcon={getAddOperationIcon(operation.key)}
               onMouseEnter={() => setInspectedKey(operation.key)}
               onMouseLeave={() => setInspectedKey(null)}
               onFocus={() => setInspectedKey(operation.key)}
