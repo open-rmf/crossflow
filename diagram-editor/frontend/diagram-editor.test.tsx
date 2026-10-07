@@ -2,8 +2,12 @@ import { Snackbar } from '@mui/material';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import type { Connection, ReactFlowProps } from '@xyflow/react';
 import React from 'react';
-import { of, throwError } from 'rxjs';
+import { of } from 'rxjs';
 import type { CompatibleAddOperationProps } from './compatible-add-operation';
+import {
+  ConnectionHintPanel,
+  type ConnectionHintPanelProps,
+} from './connection-hint-panel';
 import DiagramEditor from './diagram-editor';
 import { DiagramPropertiesProvider } from './diagram-properties-provider';
 import { DiagramSidePanelProvider } from './diagram-side-panel-controller';
@@ -23,26 +27,27 @@ type CapturedReactFlowProps = ReactFlowProps<
 };
 
 let mockReactFlowProps!: CapturedReactFlowProps;
-let mockCompatibility: CompatibilityResult['status'] | 'failure' = 'unknown';
+let mockCompatibility: CompatibilityResult['status'] = 'unknown';
 let mockHoveredConnection: Connection | null = null;
+let mockRawEdges: DiagramEditorEdge[];
+let mockSetWorkflowRunning: (running: boolean) => void;
 
 beforeEach(() => {
   mockHoveredConnection = null;
 });
 
+const mockApiClient = {
+  checkCompatibility: (request: CompatibilityRequest) =>
+    of({
+      results: request.connections.map(({ id }) => ({
+        id,
+        status: mockCompatibility,
+        reason: 'test compatibility result',
+      })),
+    }),
+};
 jest.mock('./api-client-provider', () => ({
-  useApiClient: () => ({
-    checkCompatibility: (request: CompatibilityRequest) =>
-      mockCompatibility === 'failure'
-        ? throwError(() => new Error('offline'))
-        : of({
-            results: request.candidates.map(({ id }) => ({
-              id,
-              status: mockCompatibility,
-              reason: 'test compatibility result',
-            })),
-          }),
-  }),
+  useApiClient: () => mockApiClient,
 }));
 
 jest.mock('@xyflow/react', () => {
@@ -55,6 +60,10 @@ jest.mock('@xyflow/react', () => {
         './connection-compatibility-provider',
       );
       const result = useConnectionCompatibility(mockHoveredConnection);
+      mockRawEdges = jest.requireActual('./use-edges').useEdges();
+      mockSetWorkflowRunning = jest
+        .requireActual('./interaction-visualization-provider')
+        .useInteractionVisualization().setWorkflowRunning;
       return (
         <output data-testid="compatibility-preview">{result?.status}</output>
       );
@@ -99,42 +108,104 @@ function findCompatibleAddElement(
 
 function renderEditor() {
   render(
-    <TemplatesProvider>
-      <DiagramPropertiesProvider>
-        <TransientEditorDraftProvider>
-          <DiagramSidePanelProvider>
-            <DiagramEditor />
-          </DiagramSidePanelProvider>
-        </TransientEditorDraftProvider>
-      </DiagramPropertiesProvider>
-    </TemplatesProvider>,
+    <React.StrictMode>
+      <TemplatesProvider>
+        <DiagramPropertiesProvider>
+          <TransientEditorDraftProvider>
+            <DiagramSidePanelProvider>
+              <DiagramEditor />
+            </DiagramSidePanelProvider>
+          </TransientEditorDraftProvider>
+        </DiagramPropertiesProvider>
+      </TemplatesProvider>
+    </React.StrictMode>,
   );
 }
 
-test.each(['compatible', 'unknown', 'incompatible', 'failure'] as const)(
-  'connection admission allows all but proven incompatibility: %s',
-  async (status) => {
-    mockCompatibility = status;
-    renderEditor();
-    const start = mockReactFlowProps.nodes.find(
-      (node) => node.type === 'start',
-    )!;
-    const terminate = mockReactFlowProps.nodes.find(
-      (node) => node.type === 'terminate',
-    )!;
-    await act(async () => {
-      mockReactFlowProps.onConnect?.({
-        source: start.id,
-        sourceHandle: null,
-        target: terminate.id,
-        targetHandle: null,
-      });
-    });
-    expect(mockReactFlowProps.edges).toHaveLength(
-      status === 'incompatible' ? 0 : 1,
-    );
-  },
-);
+function hintProps() {
+  return React.Children.toArray(mockReactFlowProps.children).find(
+    (child) =>
+      React.isValidElement(child) && child.type === ConnectionHintPanel,
+  ) as React.ReactElement<ConnectionHintPanelProps>;
+}
+
+test('type errors decorate edges and show details only on inspection, then clear after editing', async () => {
+  mockCompatibility = 'incompatible';
+  renderEditor();
+  const start = mockReactFlowProps.nodes.find(({ type }) => type === 'start')!;
+  const terminate = mockReactFlowProps.nodes.find(
+    ({ type }) => type === 'terminate',
+  )!;
+  act(() =>
+    mockReactFlowProps.onConnect?.({
+      source: start.id,
+      target: terminate.id,
+      sourceHandle: null,
+      targetHandle: null,
+    }),
+  );
+  expect(hintProps().props.edgeResult).toBeUndefined();
+  await waitFor(() =>
+    expect(mockReactFlowProps.edges[0].className).toContain(
+      'edge-incompatible',
+    ),
+  );
+  const edge = mockReactFlowProps.edges[0];
+  expect(mockRawEdges[0].className).toBeUndefined();
+  act(() =>
+    mockReactFlowProps.onEdgeMouseEnter?.({} as React.MouseEvent, edge),
+  );
+  expect(hintProps().props.edgeResult?.reason).toBe(
+    'test compatibility result',
+  );
+  act(() =>
+    mockReactFlowProps.onEdgeMouseLeave?.({} as React.MouseEvent, edge),
+  );
+  expect(hintProps().props.edgeResult).toBeUndefined();
+  act(() =>
+    mockReactFlowProps.onSelectionChange?.({ nodes: [], edges: [edge] }),
+  );
+  expect(hintProps().props.edgeResult?.status).toBe('incompatible');
+  act(() => mockSetWorkflowRunning(true));
+  expect(mockReactFlowProps.edges[0].className).toBeUndefined();
+  act(() => mockSetWorkflowRunning(false));
+  expect(mockReactFlowProps.edges[0].className).toContain('edge-incompatible');
+  act(() =>
+    mockReactFlowProps.onConnectStart?.(new MouseEvent('mousedown'), {
+      nodeId: start.id,
+      handleId: null,
+      handleType: 'source',
+    }),
+  );
+  expect(hintProps().props.edgeResult).toBeUndefined();
+  act(() =>
+    mockReactFlowProps.onReconnect?.(edge, {
+      source: edge.source,
+      target: edge.target,
+      sourceHandle: edge.sourceHandle ?? null,
+      targetHandle: edge.targetHandle ?? null,
+    }),
+  );
+  expect(mockRawEdges[0].className).toBeUndefined();
+  mockCompatibility = 'compatible';
+  act(() =>
+    mockReactFlowProps.onNodesChange?.([
+      {
+        type: 'add',
+        item: createOperationNode(
+          ROOT_NAMESPACE,
+          undefined,
+          { x: 0, y: 0 },
+          { type: 'buffer' },
+          'updated-context',
+        ),
+      },
+    ]),
+  );
+  await waitFor(() =>
+    expect(mockReactFlowProps.edges[0].className).toBeUndefined(),
+  );
+});
 
 test.each([false, true])(
   'reconnect preview excludes only the moving wire until drag ends (drop: %s)',
@@ -178,6 +249,8 @@ test.each([false, true])(
 
     // React Flow captures this callback before starting the reconnect.
     const onConnectEnd = mockReactFlowProps.onConnectEnd;
+    const isValidConnection = mockReactFlowProps.isValidConnection!;
+    expect(isValidConnection(connection)).toBe(false);
     act(() => {
       mockReactFlowProps.onReconnectStart?.(
         new MouseEvent('mousedown') as unknown as React.MouseEvent,
@@ -186,6 +259,7 @@ test.each([false, true])(
       );
     });
     await waitFor(() => expect(preview).toHaveTextContent(/^compatible$/));
+    expect(isValidConnection(connection)).toBe(true);
     await act(async () => {
       if (drop) mockReactFlowProps.onReconnect?.(originalEdge, connection);
       else {
@@ -202,6 +276,7 @@ test.each([false, true])(
       );
     });
     await waitFor(() => expect(preview).toHaveTextContent(/^incompatible$/));
+    expect(isValidConnection(connection)).toBe(false);
     expect(mockReactFlowProps.edges).toHaveLength(1);
     expect(mockReactFlowProps.edges[0]).toMatchObject({
       source: start.id,
@@ -226,8 +301,8 @@ test.each([false, true])(
   },
 );
 
-test('unknown types allow connect, reconnect, and add-and-connect', async () => {
-  mockCompatibility = 'unknown';
+test('type errors allow connect, reconnect, and add-and-connect', async () => {
+  mockCompatibility = 'incompatible';
   renderEditor();
 
   const start = mockReactFlowProps.nodes.find((node) => node.type === 'start')!;

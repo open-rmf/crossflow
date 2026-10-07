@@ -15,7 +15,6 @@ import { useNodeManager } from './node-manager';
 import { isOperationNode, NodeIcon } from './nodes';
 import { useRegistry } from './registry-provider';
 import {
-  type AddOperationCandidate,
   filterCompatibleAddOperations,
   getAddOperationCandidates,
   getVisibleAddOperations,
@@ -48,12 +47,10 @@ export function CompatibleAddOperation({
 }: CompatibleAddOperationProps) {
   const registry = useRegistry();
   const nodeManager = useNodeManager();
-  const checker = useCompatibilityChecker();
+  const { setMenuPreview } = useCompatibilityChecker();
   const [editorMode] = useEditorMode();
   const [search, setSearch] = React.useState('');
-  const [compatibleCandidates, setCompatibleCandidates] = React.useState<
-    AddOperationCandidate[] | null
-  >(null);
+  const [inspectedKey, setInspectedKey] = React.useState<string | null>(null);
 
   const namespace = React.useMemo(() => {
     const parentNode = parentId && nodeManager.tryGetNode(parentId);
@@ -99,24 +96,17 @@ export function CompatibleAddOperation({
   ]);
 
   React.useEffect(() => {
-    let active = true;
-    setCompatibleCandidates(null);
-
-    const checks = candidates.flatMap((candidate) => {
-      const changes = candidate.createChanges({
+    const candidate = candidates.find(({ key }) => key === inspectedKey);
+    if (candidate) {
+      const nodeChanges = candidate.createChanges({
         namespace,
         parentId,
         newNodePosition,
         nodeManager,
       });
-      const primaryNode = changes[0]?.item;
-      if (!primaryNode) {
-        return [];
-      }
-
-      return [
-        {
-          id: candidate.key,
+      const primaryNode = nodeChanges[0]?.item;
+      if (primaryNode)
+        setMenuPreview({
           connection: createConnectionFromHandles(
             {
               nodeId: sourceConnection.sourceNodeId,
@@ -126,54 +116,31 @@ export function CompatibleAddOperation({
             primaryNode.id,
             null,
           ),
-          nodeChanges: changes,
-        },
-      ];
-    });
-
-    checker
-      .checkConnections(checks)
-      .then((results) => {
-        if (!active) {
-          return;
-        }
-        setCompatibleCandidates(
-          candidates.filter(
-            (candidate) =>
-              results.get(candidate.key)?.status !== 'incompatible',
-          ),
-        );
-      })
-      .catch(() => {
-        if (active) {
-          setCompatibleCandidates(candidates);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
+          nodeChanges,
+        });
+    } else setMenuPreview(null);
+    return () => setMenuPreview(null);
   }, [
     candidates,
-    checker,
+    inspectedKey,
     namespace,
-    nodeManager,
     parentId,
     newNodePosition,
+    nodeManager,
     sourceConnection,
+    setMenuPreview,
   ]);
 
   const operations = React.useMemo(() => {
-    const availableCandidates = compatibleCandidates ?? candidates;
     const trimmedSearch = search.trim().toLowerCase();
     if (!trimmedSearch) {
-      return availableCandidates;
+      return candidates;
     }
 
-    return availableCandidates.filter((operation) =>
+    return candidates.filter((operation) =>
       operation.label.toLowerCase().includes(trimmedSearch),
     );
-  }, [candidates, compatibleCandidates, search]);
+  }, [candidates, search]);
 
   const title =
     sourceConnection.sourceHandleType === 'target'
@@ -207,6 +174,10 @@ export function CompatibleAddOperation({
             <StyledOperationButton
               key={operation.key}
               startIcon={<NodeIcon />}
+              onMouseEnter={() => setInspectedKey(operation.key)}
+              onMouseLeave={() => setInspectedKey(null)}
+              onFocus={() => setInspectedKey(operation.key)}
+              onBlur={() => setInspectedKey(null)}
               onClick={() => {
                 const changes = operation.createChanges({
                   namespace,

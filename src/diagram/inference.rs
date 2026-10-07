@@ -30,9 +30,10 @@ use std::{
 use crate::{
     BufferMapLayoutHints, BufferSelection, BuildDiagramOperation, Diagram, DiagramContext,
     DiagramElementRegistry, DiagramError, DiagramErrorCode, IdentifierRef, IncompatibleLayout,
-    MetadataAccess, NamedOutputRef, NamespaceList, NamespacedOperation, NextOperation, NodeSchema,
-    OperationName, OperationRef, Operations, OutputRef, ScopeSchema, ScriptSchema, SectionError,
-    SectionProvider, SectionSchema, StreamAvailability, StreamPack, WithContext, output_ref,
+    MessageTypeHint, MetadataAccess, NamedOutputRef, NamespaceList, NamespacedOperation,
+    NextOperation, NodeSchema, OperationName, OperationRef, Operations, OutputRef, ScopeSchema,
+    ScriptSchema, SectionError, SectionProvider, SectionSchema, StreamAvailability, StreamPack,
+    WithContext, output_ref,
 };
 
 pub type InferredMessageTypes = HashMap<PortRef, usize>;
@@ -112,42 +113,73 @@ impl Diagram {
         boundary: InferenceBoundaryConditions,
         ports: impl IntoIterator<Item = PortRef>,
     ) -> Result<InferredMessageTypes, DiagramError> {
-        self.infer_message_types_for_ports_with_certainty(lookup, boundary, ports)
-            .map(|(inferred, _)| inferred)
+        let inferences = self.evaluate_message_type_inferences(lookup, boundary, false)?;
+        let mut inferred = InferredMessageTypes::new();
+        for port in ports {
+            let evaluation = inferences.get_evaluation(&port).in_port(|| port.clone())?;
+            let Some(message_type) = evaluation.message_type else {
+                return Err(DiagramErrorCode::CannotInferType(port.clone()).in_port(port));
+            };
+            inferred.insert(port, message_type);
+        }
+
+        Ok(inferred)
     }
 
-    /// Infer the requested ports and identify types determined by resolved dependencies.
+    /// Evaluate a partially edited diagram once, then infer each requested port independently.
     ///
-    /// Other inferred types may change as an incomplete diagram gains more context.
-    pub fn infer_message_types_for_ports_with_certainty(
+    /// Each successful result includes whether its type is determined by resolved dependencies.
+    /// Template outputs return one result per internal producer, which may have different types.
+    /// Scope outputs use their boundary types, after the scope's conversions.
+    /// All other ports return one result, as do template outputs without any producers.
+    /// A port error does not prevent the remaining ports from being inferred.
+    pub fn infer_message_types_for_ports_individually(
         &self,
         lookup: &dyn MetadataAccess,
         boundary: InferenceBoundaryConditions,
         ports: impl IntoIterator<Item = PortRef>,
-    ) -> Result<(InferredMessageTypes, HashSet<PortRef>), DiagramError> {
+    ) -> Result<HashMap<PortRef, Vec<Result<(usize, bool), DiagramError>>>, DiagramError> {
         let inferences = self.evaluate_message_type_inferences(lookup, boundary, true)?;
-        let mut inferred = InferredMessageTypes::new();
-        let mut certain = HashSet::new();
-        for port in ports {
-            let evaluation = inferences.get_evaluation(&port).in_port(|| port.clone())?;
-            if let Some(error) = &evaluation.error {
-                let error = if evaluation.certain {
-                    error.clone()
-                } else {
-                    DiagramErrorCode::CannotInferType(port.clone())
+        let context = ConstraintContext {
+            inferences: &inferences,
+            metadata: lookup,
+            certain: None,
+        };
+        // A template forwards producers, but a scope first converts them at its boundary.
+        let scope_boundaries: HashMap<_, _> = inferences
+            .scope_outputs
+            .iter()
+            .map(|(output, input)| (input, output))
+            .collect();
+        Ok(ports
+            .into_iter()
+            .map(|port| {
+                let template_output = match &port {
+                    PortRef::Output(output) => inferences.template_outputs.get(output),
+                    PortRef::Input(_) => None,
                 };
-                return Err(error.in_port(port));
-            }
-            let Some(message_type) = evaluation.message_type else {
-                return Err(DiagramErrorCode::CannotInferType(port.clone()).in_port(port));
-            };
-            if evaluation.certain {
-                certain.insert(port.clone());
-            }
-            inferred.insert(port, message_type);
-        }
-
-        Ok((inferred, certain))
+                let inferred = if let Some(output) = template_output {
+                    let mut producers = context.connections_into_with_boundary(output, |input| {
+                        scope_boundaries.get(input).map(|output| (*output).clone())
+                    });
+                    producers.sort();
+                    producers.dedup();
+                    if producers.is_empty() {
+                        vec![Err(
+                            DiagramErrorCode::NoConnection(output.clone()).in_port(port.clone())
+                        )]
+                    } else {
+                        producers
+                            .into_iter()
+                            .map(|producer| inferences.infer_port(&producer.into(), lookup))
+                            .collect()
+                    }
+                } else {
+                    vec![inferences.infer_port(&port, lookup)]
+                };
+                (port, inferred)
+            })
+            .collect())
     }
 
     fn evaluate_message_type_inferences(
@@ -156,12 +188,17 @@ impl Diagram {
         boundary: InferenceBoundaryConditions,
         partial: bool,
     ) -> Result<Inferences, DiagramError> {
-        self.validate_operation_names()?;
-        self.validate_template_usage()?;
+        if !partial {
+            self.validate_operation_names()?;
+            self.validate_template_usage()?;
+        }
 
         let root_on_implicit_error: OperationRef = (&self.on_implicit_error()).into();
 
-        let mut inferences = Inferences::default();
+        let mut inferences = Inferences {
+            partial,
+            ..Default::default()
+        };
 
         let mut unfinished_operations: Vec<UnfinishedOperation> = self
             .ops
@@ -193,12 +230,19 @@ impl Diagram {
                     generated_operations: &mut generated_operations,
                 };
 
-                unfinished
-                    .op
-                    .apply_message_type_constraints(&unfinished.id, &mut ctx)
-                    .in_port(|| {
-                        OperationRef::from(&unfinished.id).in_namespaces(&unfinished.namespaces)
-                    })?;
+                let result = super::validate_operation_name(&unfinished.id).and_then(|_| {
+                    unfinished
+                        .op
+                        .apply_message_type_constraints(&unfinished.id, &mut ctx)
+                });
+                if let Err(error) = result {
+                    let operation =
+                        OperationRef::from(&unfinished.id).in_namespaces(&unfinished.namespaces);
+                    if !partial {
+                        return Err(error.in_port(operation));
+                    }
+                    inferences.setup_errors.insert(operation, error);
+                }
             }
 
             unfinished_operations.extend(generated_operations.drain(..));
@@ -215,10 +259,21 @@ impl Diagram {
                 visited.push(top);
 
                 if circular {
-                    return Err(DiagramErrorCode::CircularRedirect(
-                        visited.into_iter().cloned().collect(),
-                    )
-                    .into());
+                    let error = DiagramErrorCode::CircularRedirect(
+                        visited.iter().map(|op| (*op).clone()).collect(),
+                    );
+                    if !partial {
+                        return Err(error.into());
+                    }
+                    for operation in visited {
+                        inferences
+                            .setup_errors
+                            .insert(operation.clone(), error.clone());
+                        if let Some(owner) = port_operation(&operation.clone().into()) {
+                            inferences.setup_errors.insert(owner, error.clone());
+                        }
+                    }
+                    break;
                 }
 
                 next = inferences.redirected_input.get(top);
@@ -252,7 +307,9 @@ impl Diagram {
         }
 
         while let Some(port) = queue.pop_front() {
-            let evaluation = inferences.get_evaluation(&port).in_port(|| port.clone())?;
+            // Setup failures are exposed to dependents and queries through get_evaluation;
+            // they must not abort this queue if the failed operation registered ports.
+            let evaluation = &inferences.evaluations[&port];
             let (result, mut certain) = evaluation.evaluate(&inferences, lookup);
             let (message_type, error) = match result {
                 Ok(None) => {
@@ -440,10 +497,11 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                         namespace: id.clone(),
                         operation: buffer_name.clone(),
                     });
-                    let op = self.into_port_ref(&op);
+                    let op = self.into_operation_ref(&op);
+                    self.inference.buffer_inputs.insert(op.clone());
 
                     if let Some(buffer_message_type) = buffer_metadata.message_type {
-                        self.fixed(op, buffer_message_type);
+                        self.fixed(op.into(), buffer_message_type);
                     }
                 }
 
@@ -459,7 +517,18 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
                 }
             }
             SectionProvider::Template(section_template) => {
+                if self.inference.partial {
+                    // Validate before expanding so an invalid template remains local and
+                    // recursive templates cannot produce an endless editor inference loop.
+                    self.templates.validate_template(section_template)?;
+                }
                 let section = self.templates.get_template(section_template)?;
+
+                for expected_output in schema.connect.keys() {
+                    if !section.outputs.contains(expected_output) {
+                        return Err(SectionError::UnknownOutput(Arc::clone(expected_output)).into());
+                    }
+                }
 
                 for (child_id, op) in section.ops.iter() {
                     self.add_child_operation(id, child_id, op, section.ops.clone(), None);
@@ -474,24 +543,23 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
                 section.buffers.redirect(|op, next| {
                     let op = self.into_operation_ref(OperationRef::exposed_input(id, op));
+                    self.inference.buffer_inputs.insert(op.clone());
                     let next = self.into_operation_ref(next.in_namespace(id));
                     self.redirect(op, next);
                     Ok(())
                 })?;
 
-                for expected_output in schema.connect.keys() {
-                    if !section.outputs.contains(expected_output) {
-                        return Err(SectionError::UnknownOutput(Arc::clone(expected_output)).into());
-                    }
-                }
-
                 for output in &section.outputs {
+                    let internal_output = self.into_operation_ref(
+                        NextOperation::Name(Arc::clone(output)).in_namespace(id),
+                    );
+                    let public_output = self.into_output_ref(output_ref(id).section_output(output));
+                    self.inference
+                        .template_outputs
+                        .insert(public_output, internal_output.clone());
                     if let Some(target) = schema.connect.get(output) {
-                        let output = self.into_operation_ref(
-                            NextOperation::Name(Arc::clone(output)).in_namespace(id),
-                        );
                         let target = self.into_operation_ref(target);
-                        self.redirect(output, target);
+                        self.redirect(internal_output, target);
                     }
                 }
             }
@@ -506,6 +574,10 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
     pub fn scope(&mut self, id: &OperationName, schema: &ScopeSchema) {
         let operation = self.into_operation_ref(id);
+        let start = self.into_output_ref(OutputRef::start().in_namespaces(&[Arc::clone(id)]));
+        self.inference
+            .scope_outputs
+            .insert(start, operation.clone());
 
         // The request type of this scope must exactly match the request type
         // of the starting operation.
@@ -515,6 +587,8 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
 
         for (stream_name, stream_target) in &schema.stream_out {
             let stream = self.into_operation_ref(OperationRef::scope_stream_out(id, stream_name));
+            let output = self.into_output_ref(output_ref(id).stream_out(stream_name));
+            self.inference.scope_outputs.insert(output, stream.clone());
             let stream_target = self.into_operation_ref(stream_target);
             self.redirect(stream, stream_target);
         }
@@ -522,6 +596,10 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         // The terminating message type of this scope must exactly match the
         // request type of the next operation that the scope is connected to.
         let terminate = self.into_operation_ref(OperationRef::terminate_for(id));
+        let output = self.into_output_ref(output_ref(id).next());
+        self.inference
+            .scope_outputs
+            .insert(output, terminate.clone());
         let terminate_target = self.into_operation_ref(&schema.next);
         self.redirect(terminate, terminate_target);
 
@@ -639,6 +717,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         serialize: bool,
     ) -> Result<(), DiagramErrorCode> {
         let operation = self.into_operation_ref(operation_name);
+        self.inference.buffer_inputs.insert(operation.clone());
         if serialize {
             let json_index = self.metadata.json_message_index()?;
             self.fixed(operation.into(), json_index);
@@ -656,7 +735,9 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         selection: &BufferSelection,
         next: &NextOperation,
         serialize: bool,
+        cloned: &[IdentifierRef<'static>],
     ) -> Result<(), DiagramErrorCode> {
+        self.buffer_consumer(operation_name, selection, BufferConsumerKind::Join, cloned);
         let output = self.into_output_ref(output_ref(operation_name).next());
         let target = self.into_operation_ref(next);
         let evaluate = |context: &ConstraintContext, msg: usize, member: &IdentifierRef| {
@@ -700,6 +781,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         selection: &BufferSelection,
         next: &NextOperation,
     ) {
+        self.buffer_consumer(operation_name, selection, BufferConsumerKind::Access, &[]);
         let operation = self.into_operation_ref(operation_name);
         let output = self.into_output_ref(output_ref(operation_name).next());
         let target = self.into_operation_ref(next);
@@ -732,6 +814,7 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         selection: &BufferSelection,
         next: &NextOperation,
     ) {
+        self.buffer_consumer(operation_name, selection, BufferConsumerKind::Listen, &[]);
         let output = self.into_output_ref(output_ref(operation_name).next());
         let target = self.into_operation_ref(next);
         let evaluate = |context: &ConstraintContext, msg: usize, member: &IdentifierRef| {
@@ -753,6 +836,33 @@ impl<'a, 'b> InferenceContext<'a, 'b> {
         }
 
         self.infer_from_downstream(output, target);
+    }
+
+    fn buffer_consumer(
+        &mut self,
+        operation_name: &OperationName,
+        selection: &BufferSelection,
+        kind: BufferConsumerKind,
+        cloned: &[IdentifierRef<'static>],
+    ) {
+        if !self.inference.partial {
+            return;
+        }
+        let operation = self.into_operation_ref(operation_name);
+        let output = self.into_port_ref(output_ref(operation_name).next());
+        let buffers = selection
+            .iter()
+            .map(|(member, buffer)| (member.to_owned(), self.into_operation_ref(buffer)))
+            .collect();
+        self.inference.buffer_consumers.insert(
+            operation,
+            BufferConsumer {
+                output,
+                buffers,
+                kind,
+                cloned: cloned.to_vec(),
+            },
+        );
     }
 
     pub fn split<'s>(
@@ -885,11 +995,23 @@ impl<'a> ConstraintContext<'a> {
     }
 
     pub fn connections_into(&self, operation: &OperationRef) -> SmallVec<[OutputRef; 8]> {
+        self.connections_into_with_boundary(operation, |_| None)
+    }
+
+    fn connections_into_with_boundary(
+        &self,
+        operation: &OperationRef,
+        boundary: impl Fn(&OperationRef) -> Option<OutputRef>,
+    ) -> SmallVec<[OutputRef; 8]> {
         let mut connections = SmallVec::new();
         let mut queue = vec![operation];
         let mut visited = HashSet::new();
         while let Some(input) = queue.pop() {
             if !visited.insert(input) {
+                continue;
+            }
+            if let Some(output) = boundary(input) {
+                connections.push(output);
                 continue;
             }
             if let Some(incoming) = self.inferences.connections_into.get(input) {
@@ -1476,12 +1598,138 @@ impl From<NamedOutputRef> for PortRef {
 
 #[derive(Debug, Default)]
 struct Inferences {
+    partial: bool,
+    setup_errors: HashMap<OperationRef, DiagramErrorCode>,
     evaluations: HashMap<PortRef, MessageTypeInference>,
     connections_into: HashMap<OperationRef, HashSet<OutputRef>>,
     connection_from: HashMap<OutputRef, OperationRef>,
     redirected_input: HashMap<OperationRef, OperationRef>,
     redirections_into: HashMap<OperationRef, HashSet<OperationRef>>,
+    template_outputs: HashMap<OutputRef, OperationRef>,
+    // Editor queries use the actual typed scope boundary, after its conversions.
+    // These aliases do not introduce required evaluations into runtime inference.
+    scope_outputs: HashMap<OutputRef, OperationRef>,
     buffer_hints: HashMap<OperationRef, Vec<BufferInference>>,
+    buffer_inputs: HashSet<OperationRef>,
+    buffer_consumers: HashMap<OperationRef, BufferConsumer>,
+}
+
+#[derive(Debug)]
+enum BufferConsumerKind {
+    Join,
+    Listen,
+    Access,
+}
+
+#[derive(Debug)]
+struct BufferConsumer {
+    output: PortRef,
+    buffers: Vec<(IdentifierRef<'static>, OperationRef)>,
+    kind: BufferConsumerKind,
+    cloned: Vec<IdentifierRef<'static>>,
+}
+
+impl BufferConsumer {
+    fn validate(
+        &self,
+        inferences: &Inferences,
+        metadata: &dyn MetadataAccess,
+    ) -> Result<(), DiagramErrorCode> {
+        let output_type = inferences.resolved_type(&self.output)?;
+        let layout = match self.kind {
+            BufferConsumerKind::Join => {
+                if self.buffers.is_empty() {
+                    return Err(DiagramErrorCode::EmptyJoin);
+                }
+                metadata.join_layout(output_type)?
+            }
+            BufferConsumerKind::Listen => metadata.listen_layout(output_type)?,
+            BufferConsumerKind::Access => metadata.buffer_access_layout(output_type)?,
+        };
+        for member in &self.cloned {
+            if !self.buffers.iter().any(|(selected, _)| selected == member) {
+                return Err(DiagramErrorCode::UnknownJoinField {
+                    unknown: member.clone(),
+                    available: self
+                        .buffers
+                        .iter()
+                        .map(|(member, _)| member.clone())
+                        .collect(),
+                });
+            }
+        }
+        if let BufferMapLayoutHints::Static(hints) = layout {
+            let missing_buffers: Vec<_> = hints
+                .keys()
+                .filter(|member| !self.buffers.iter().any(|(selected, _)| selected == *member))
+                .cloned()
+                .collect();
+            if !missing_buffers.is_empty() {
+                return Err(DiagramErrorCode::IncompatibleBuffers(IncompatibleLayout {
+                    missing_buffers,
+                    ..Default::default()
+                }));
+            }
+        }
+        let mut unresolved = None;
+        for (member, buffer) in &self.buffers {
+            let hint = match layout {
+                BufferMapLayoutHints::Dynamic(dynamic) => {
+                    if !dynamic.is_compatible(member) {
+                        return Err(DiagramErrorCode::IncompatibleBuffers(IncompatibleLayout {
+                            forbidden_buffers: vec![member.clone()],
+                            ..Default::default()
+                        }));
+                    }
+                    dynamic.hint.as_ref()
+                }
+                BufferMapLayoutHints::Static(hints) => hints.get(member),
+            };
+            let buffer_type = match inferences
+                .validate_buffer(buffer)
+                .and_then(|_| inferences.resolved_type(&buffer.clone().into()))
+            {
+                Ok(message_type) => message_type,
+                Err(
+                    error @ (DiagramErrorCode::InvalidOperation(_)
+                    | DiagramErrorCode::CircularRedirect(_)),
+                ) => return Err(error),
+                Err(error) => {
+                    unresolved.get_or_insert(error);
+                    continue;
+                }
+            };
+            let incompatible_with = match hint {
+                Some(MessageTypeHint::Exact(required)) if *required != buffer_type => {
+                    Some(*required)
+                }
+                Some(MessageTypeHint::Fallback(required))
+                    if metadata
+                        .json_message_index()
+                        .is_ok_and(|json| json == *required)
+                        && !metadata.can_seralize(buffer_type)? =>
+                {
+                    Some(*required)
+                }
+                _ => None,
+            };
+            if self.cloned.contains(member) && !metadata.can_clone(buffer_type)? {
+                return Err(DiagramErrorCode::NotCloneable(
+                    metadata.message_type_name(buffer_type)?.to_owned().into(),
+                ));
+            }
+            if let Some(required) = incompatible_with {
+                return Err(DiagramErrorCode::IncompatibleBufferType {
+                    source_type: metadata.message_type_name(buffer_type)?.to_owned().into(),
+                    target_type: metadata.message_type_name(required)?.to_owned().into(),
+                });
+            }
+        }
+        if let Some(error) = unresolved {
+            return Err(error);
+        }
+        Ok(())
+    }
 }
 
 struct BufferInference {
@@ -1513,6 +1761,73 @@ type EvaluateBufferLayoutHintFn =
     fn(&ConstraintContext, usize, &IdentifierRef) -> MessageTypeEvaluation;
 
 impl Inferences {
+    fn validate_buffer<'a>(&'a self, mut buffer: &'a OperationRef) -> Result<(), DiagramErrorCode> {
+        let mut visited = HashSet::new();
+        loop {
+            if !visited.insert(buffer) {
+                return Err(DiagramErrorCode::CircularRedirect(
+                    visited.into_iter().cloned().collect(),
+                ));
+            }
+            if !self.buffer_inputs.contains(buffer) {
+                // Preserve missing-context/setup errors, but reject a known ordinary
+                // input used where runtime construction requires a buffer.
+                self.get_evaluation(&buffer.clone().into())?;
+                return Err(DiagramErrorCode::InvalidOperation(buffer.clone()));
+            }
+            match self.redirected_input.get(buffer) {
+                Some(next) => buffer = next,
+                None => return Ok(()),
+            }
+        }
+    }
+
+    fn infer_port(
+        &self,
+        port: &PortRef,
+        metadata: &dyn MetadataAccess,
+    ) -> Result<(usize, bool), DiagramError> {
+        let scope_input = match port {
+            PortRef::Output(output) => self.scope_outputs.get(output).cloned().map(PortRef::Input),
+            PortRef::Input(_) => None,
+        };
+        let evaluation = self
+            .get_evaluation(scope_input.as_ref().unwrap_or(port))
+            .in_port(|| port.clone())?;
+        if let Some(error) = &evaluation.error {
+            let error = if evaluation.certain {
+                error.clone()
+            } else {
+                DiagramErrorCode::CannotInferType(port.clone())
+            };
+            return Err(error.in_port(port.clone()));
+        }
+        let operation = port_operation(port);
+        if let Some(consumer) = operation
+            .as_ref()
+            .and_then(|op| self.buffer_consumers.get(op))
+        {
+            consumer.validate(self, metadata).in_port(|| port.clone())?;
+        }
+        let message_type = evaluation
+            .message_type
+            .ok_or_else(|| DiagramErrorCode::CannotInferType(port.clone()).in_port(port.clone()))?;
+        Ok((message_type, evaluation.certain))
+    }
+
+    fn resolved_type(&self, port: &PortRef) -> Result<usize, DiagramErrorCode> {
+        let evaluation = self.get_evaluation(port)?;
+        if !evaluation.certain {
+            return Err(DiagramErrorCode::CannotInferType(port.clone()));
+        }
+        if let Some(error) = &evaluation.error {
+            return Err(error.clone());
+        }
+        evaluation
+            .message_type
+            .ok_or_else(|| DiagramErrorCode::CannotInferType(port.clone()))
+    }
+
     fn evaluation(&mut self, key: impl Into<PortRef>) -> &mut MessageTypeInference {
         let key = key.into();
         self.evaluations.entry(key).or_default()
@@ -1527,6 +1842,16 @@ impl Inferences {
     }
 
     fn get_evaluation(&self, key: &PortRef) -> Result<&MessageTypeInference, DiagramErrorCode> {
+        if let PortRef::Input(input) = key {
+            if let Some(error) = self.setup_errors.get(input) {
+                return Err(error.clone());
+            }
+        }
+        if let Some(operation) = port_operation(key) {
+            if let Some(error) = self.setup_errors.get(&operation) {
+                return Err(error.clone());
+            }
+        }
         self.evaluations
             .get(&key)
             .ok_or_else(|| DiagramErrorCode::UnknownPort(key.clone()))
@@ -1541,6 +1866,19 @@ impl Inferences {
             inferred.insert(port.clone(), message_type);
         }
         Ok(inferred)
+    }
+}
+
+fn port_operation(port: &PortRef) -> Option<OperationRef> {
+    match port {
+        PortRef::Input(OperationRef::Named(named)) => Some(
+            OperationRef::from(named.exposed_namespace.as_ref().unwrap_or(&named.name))
+                .in_namespaces(&named.namespaces),
+        ),
+        PortRef::Output(OutputRef::Named(named)) => {
+            Some(OperationRef::from(&named.operation).in_namespaces(&named.namespaces))
+        }
+        _ => None,
     }
 }
 
@@ -2088,6 +2426,141 @@ mod tests {
         assert!(!inference.contains_key(&unfinished_input));
     }
 
-    // TODO(@mxgrey): Add tests with sections and scopes to validate type inference
-    // inside namespaces.
+    #[test]
+    fn infer_message_types_for_ports_individually_preserves_good_ports_after_errors() {
+        let fixture = DiagramTestFixture::new();
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "start": "source",
+            "ops": {
+                "source": { "type": "node", "builder": "add", "next": "unzip" },
+                "unzip": { "type": "unzip", "next": [{ "builtin": "dispose" }] },
+                "unfinished": { "type": "buffer" }
+            }
+        }))
+        .unwrap();
+        let source: PortRef = output_ref(&"source".into()).next().into();
+        let unzip: PortRef = (&NextOperation::Name("unzip".into())).into();
+        let unfinished: PortRef = (&NextOperation::Name("unfinished".into())).into();
+        let missing: PortRef = (&NextOperation::Name("missing".into())).into();
+        let ports = [
+            unzip.clone(),
+            unfinished.clone(),
+            missing.clone(),
+            source.clone(),
+        ];
+        assert!(
+            diagram
+                .infer_message_types_for_ports(
+                    &fixture.registry,
+                    InferenceBoundaryConditions::json_messages(&fixture.registry, []).unwrap(),
+                    ports.clone(),
+                )
+                .is_err()
+        );
+
+        let inference = diagram
+            .infer_message_types_for_ports_individually(
+                &fixture.registry,
+                InferenceBoundaryConditions::json_messages(&fixture.registry, []).unwrap(),
+                ports,
+            )
+            .unwrap();
+
+        let f64_index = fixture
+            .registry
+            .messages
+            .registration
+            .get_index::<f64>()
+            .unwrap();
+        assert!(inference.values().all(|results| results.len() == 1));
+        assert_eq!(inference[&source][0].as_ref().unwrap(), &(f64_index, true));
+        assert!(matches!(
+            inference[&unzip][0].as_ref().unwrap_err().code,
+            crate::DiagramErrorCode::NotUnzippable(_)
+        ));
+        assert!(matches!(
+            inference[&unfinished][0].as_ref().unwrap_err().code,
+            crate::DiagramErrorCode::CannotInferType(_)
+        ));
+        assert!(matches!(
+            inference[&missing][0].as_ref().unwrap_err().code,
+            crate::DiagramErrorCode::UnknownPort(_)
+        ));
+    }
+
+    #[test]
+    fn infer_nested_template_output_from_internal_producer() {
+        let fixture = DiagramTestFixture::new();
+        let diagram = Diagram::from_json(json!({
+            "version": "0.1.0",
+            "templates": {
+                "inner": {
+                    "inputs": ["source"],
+                    "outputs": ["result"],
+                    "ops": {
+                        "source": { "type": "node", "builder": "add", "next": "result" }
+                    }
+                },
+                "outer": {
+                    "inputs": { "input": { "nested": "source" } },
+                    "outputs": ["result", "unused"],
+                    "ops": {
+                        "nested": {
+                            "type": "section",
+                            "template": "inner",
+                            "connect": { "result": "result" }
+                        }
+                    }
+                }
+            },
+            "start": { "section": "input" },
+            "ops": {
+                "section": {
+                    "type": "section",
+                    "template": "outer",
+                    "connect": { "result": { "builtin": "terminate" } }
+                }
+            }
+        }))
+        .unwrap();
+        let output: PortRef = output_ref(&"section".into())
+            .section_output(&"result")
+            .into();
+        let unused: PortRef = output_ref(&"section".into())
+            .section_output(&"unused")
+            .into();
+        let f64_index = fixture
+            .registry
+            .messages
+            .registration
+            .get_index::<f64>()
+            .unwrap();
+
+        // Resolving public outputs must not add mandatory evaluations to full inference.
+        diagram
+            .infer_message_types(
+                &fixture.registry,
+                InferenceBoundaryConditions::json_messages(&fixture.registry, []).unwrap(),
+            )
+            .unwrap();
+
+        let inference = diagram
+            .infer_message_types_for_ports_individually(
+                &fixture.registry,
+                InferenceBoundaryConditions::json_messages(&fixture.registry, []).unwrap(),
+                [output.clone(), unused.clone()],
+            )
+            .unwrap();
+
+        assert_eq!(inference[&output].len(), 1);
+        assert_eq!(inference[&output][0].as_ref().unwrap(), &(f64_index, true));
+        assert_eq!(inference[&unused].len(), 1);
+        assert!(matches!(
+            inference[&unused][0].as_ref().unwrap_err().code,
+            crate::DiagramErrorCode::NoConnection(_)
+        ));
+    }
+
+    // TODO(@mxgrey): Add tests with scopes to validate type inference inside namespaces.
 }

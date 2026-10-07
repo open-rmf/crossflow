@@ -60,11 +60,9 @@ export function Handle({ id, variant, className, ...baseProps }: HandleProps) {
   const connection = useConnection();
   const handleType = baseProps.type || 'source';
   const compatibility = useDraggedConnectionCompatibility({
-    id: `handle:${nodeId ?? ''}:${handleType}:${id ?? ''}`,
     otherNodeId: nodeId,
     otherHandleId: id,
     otherHandleType: handleType,
-    skipSelf: true,
   });
 
   const classNames: string[] = [];

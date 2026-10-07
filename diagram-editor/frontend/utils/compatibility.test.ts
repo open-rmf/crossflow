@@ -1,14 +1,37 @@
 import { of } from 'rxjs';
 import type { BaseApiClient } from '../api-client/base-api-client';
-import { createBufferEdge, createSectionEdge } from '../edges';
+import {
+  createBufferEdge,
+  createDefaultEdge,
+  createSectionEdge,
+} from '../edges';
 import { NodeManager } from '../node-manager';
 import { createOperationNode } from '../nodes';
 import type { DiagramElementMetadata, SectionTemplate } from '../types/api';
 import {
-  buildCompatibilityCandidate,
-  checkCompatibilityCandidates,
+  buildCompatibilityRequest,
+  buildConnectionPreview,
+  checkCompatibility,
+  prepareConnection,
 } from './compatibility';
+import { loadTemplate } from './load-diagram';
 import { ROOT_NAMESPACE } from './namespace';
+
+function operationNode(
+  op: Parameters<typeof createOperationNode>[3],
+  id: string,
+) {
+  return createOperationNode(ROOT_NAMESPACE, undefined, { x: 0, y: 0 }, op, id);
+}
+
+function connect(source: { id: string }, target: { id: string }) {
+  return {
+    source: source.id,
+    target: target.id,
+    sourceHandle: null,
+    targetHandle: null,
+  };
+}
 
 const stubRegistry: DiagramElementMetadata = {
   messages: [],
@@ -24,226 +47,205 @@ const stubRegistry: DiagramElementMetadata = {
   trace_supported: false,
 };
 
-describe('compatibility candidate builder', () => {
-  test.each([
-    [
-      'template arrays',
-      { inputs: ['request'], outputs: ['response'] },
-      'request',
-      'response',
-    ],
-    [
-      'template remapping',
-      { inputs: { request: 'internal' }, outputs: ['response'] },
-      'request',
-      'response',
-    ],
-    ['registered section', null, 'request', 'response'],
-    [
-      'ambiguous ports',
-      { inputs: ['left', 'right'], outputs: ['yes', 'no'] },
-      '',
-      '',
-    ],
-    ['empty interface', {}, '', ''],
-    ['missing definition', undefined, '', ''],
-  ] as const)(
-    'selects only unambiguous section ports: %s',
-    (_, definition, inputId, output) => {
-      const op =
-        definition === null
-          ? { type: 'section' as const, builder: 'example' }
-          : { type: 'section' as const, template: 'example' };
-      const source = createOperationNode(
-        ROOT_NAMESPACE,
-        undefined,
-        { x: 0, y: 0 },
-        op,
-        'source',
-      );
-      const target = createOperationNode(
-        ROOT_NAMESPACE,
-        undefined,
-        { x: 0, y: 0 },
-        op,
-        'target',
-      );
-      const registry: DiagramElementMetadata = {
-        ...stubRegistry,
-        sections: {
-          example: {
-            config_examples: [],
-            config_schema: {},
-            default_display_text: 'Example',
-            interface: {
-              inputs: { request: { message_type: 0 } },
-              outputs: { response: { message_type: 0 } },
-              buffers: {},
-            },
-          },
-        },
-      };
-      const templates: Record<string, SectionTemplate> = definition
-        ? { example: JSON.parse(JSON.stringify({ ...definition, ops: {} })) }
-        : {};
-      const result = buildCompatibilityCandidate({
-        id: 'section-connection',
-        registry,
-        templates,
-        nodeManager: new NodeManager([source, target]),
-        edges: [],
-        diagramProperties: {},
-        connection: {
-          source: source.id,
-          sourceHandle: null,
-          target: target.id,
-          targetHandle: null,
-        },
-      });
-      expect(result).toMatchObject({
-        ok: true,
-        candidate: {
-          edge: {
-            data: {
-              input: { type: 'sectionInput', inputId },
-              output: { output },
-            },
-          },
-          diagram: {
-            ops: { source: { connect: { [output]: { target: inputId } } } },
-          },
-        },
-      });
+describe('isolated template compatibility', () => {
+  const editedTemplate: SectionTemplate = {
+    inputs: { request: 'processor' },
+    outputs: ['response'],
+    buffers: { cache: 'storage' },
+    ops: {
+      processor: { type: 'node', builder: 'updated', next: 'response' },
+      storage: { type: 'buffer' },
     },
-  );
+  };
 
-  test.each([
-    [['used'], undefined, ''],
-    [['used', 'free'], undefined, 'free'],
-    [['used'], 'existing', 'used'],
-  ])(
-    'selects only available section outputs %j when replacing %s',
-    (outputs, edgeId, output) => {
-      const source = createOperationNode(
-        ROOT_NAMESPACE,
-        undefined,
-        { x: 0, y: 0 },
-        { type: 'section', template: 'example' },
-        'source',
-      );
-      const target = createOperationNode(
-        ROOT_NAMESPACE,
-        undefined,
-        { x: 0, y: 0 },
-        { type: 'buffer' },
-        'target',
-      );
-      const existing = createSectionEdge(source.id, null, target.id, null, {
-        output: 'used',
-      });
-      existing.id = 'existing';
-      const result = buildCompatibilityCandidate({
-        id: 'section-connection',
-        registry: stubRegistry,
-        templates: { example: { outputs, ops: {} } },
-        nodeManager: new NodeManager([source, target]),
-        edges: [existing],
-        diagramProperties: {},
-        edgeId,
-        connection: {
-          source: source.id,
-          sourceHandle: null,
-          target: target.id,
-          targetHandle: null,
-        },
-      });
-      expect(result).toMatchObject({
-        ok: true,
-        candidate: { edge: { data: { output: { output } } } },
-      });
-    },
-  );
+  function editedGraph() {
+    const { nodes, edges } = loadTemplate(editedTemplate);
+    return {
+      registry: stubRegistry,
+      nodeManager: new NodeManager(nodes),
+      edges,
+      templates: { edited: { ops: {} } },
+      templateId: 'edited',
+      diagramProperties: {},
+    };
+  }
 
-  test('selects a section buffer input separately from its data inputs', () => {
-    const source = createOperationNode(
-      ROOT_NAMESPACE,
-      undefined,
-      { x: 0, y: 0 },
-      { type: 'buffer' },
+  test('exports the currently edited interface and remapping instead of its saved definition', () => {
+    const graph = editedGraph();
+    const before = JSON.stringify(graph);
+    const { request } = buildCompatibilityRequest(graph);
+    expect(request.diagram).toMatchObject({
+      start: { builtin: 'dispose' },
+      ops: { __template__: { type: 'section', template: 'edited' } },
+      templates: { edited: editedTemplate },
+    });
+    expect(request.connections).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourcePort: undefined,
+          targetPort: expect.anything(),
+        }),
+        expect.objectContaining({
+          sourcePort: expect.anything(),
+          targetPort: undefined,
+        }),
+      ]),
+    );
+    expect(JSON.stringify(graph)).toBe(before);
+  });
+});
+
+describe('connection preparation and compatibility previews', () => {
+  function bufferGraph() {
+    const buffer = operationNode({ type: 'buffer' }, 'buffer');
+    const listen = operationNode(
+      { type: 'listen', buffers: [], next: { builtin: 'dispose' } },
+      'listen',
+    );
+    const source = operationNode({ type: 'fork_clone', next: [] }, 'source');
+    return {
+      buffer,
+      listen,
+      valid: createDefaultEdge(source.id, null, buffer.id, null),
+      registry: stubRegistry,
+      nodeManager: new NodeManager([buffer, listen, source]),
+      templates: {},
+      diagramProperties: {},
+    };
+  }
+
+  test('excludes invalid buffer selections from compatibility export without dropping unrelated edges', () => {
+    const graph = bufferGraph();
+    const { buffer, listen, valid } = graph;
+    const edges = [
+      createBufferEdge(buffer.id, null, listen.id, null, {
+        type: 'bufferSeq',
+        seq: 0,
+      }),
+      createBufferEdge(buffer.id, null, listen.id, null, {
+        type: 'bufferKey',
+        key: 'route',
+      }),
+      valid,
+    ];
+    const { request } = buildCompatibilityRequest({
+      ...graph,
+      edges,
+    });
+    expect(request.connections.map(({ id }) => id)).toEqual([valid.id]);
+    expect(request.diagram.ops.listen).toMatchObject({ buffers: [] });
+    expect(request.diagram.ops.source).toMatchObject({ next: ['buffer'] });
+  });
+
+  test('automatically selects a sole section buffer for a buffer consumer', () => {
+    const source = operationNode(
+      { type: 'section', template: 'test' },
       'source',
     );
-    const target = createOperationNode(
-      ROOT_NAMESPACE,
-      undefined,
-      { x: 0, y: 0 },
+    const target = operationNode(
+      { type: 'listen', buffers: [], next: { builtin: 'dispose' } },
+      'target',
+    );
+    const result = prepareConnection({
+      registry: stubRegistry,
+      nodeManager: new NodeManager([source, target]),
+      edges: [],
+      templates: {
+        test: { buffers: ['storage'], ops: { storage: { type: 'buffer' } } },
+      },
+      connection: connect(source, target),
+    });
+    expect(result).toMatchObject({
+      valid: true,
+      edge: { type: 'buffer', data: { output: { bufferId: 'storage' } } },
+    });
+  });
+  test('existing-edge diagnostics preserve configured ports and do not mutate the graph', () => {
+    const source = operationNode(
+      { type: 'section', template: 'example' },
+      'source',
+    );
+    const target = operationNode(
       { type: 'section', template: 'example' },
       'target',
     );
-    const result = buildCompatibilityCandidate({
-      id: 'buffer-connection',
+    const edge = createSectionEdge(source.id, null, target.id, null, {
+      output: 'right',
+    });
+    edge.data.input = { type: 'sectionInput', inputId: 'second' };
+    const nodes = [source, target];
+    const before = JSON.stringify({ nodes, edge });
+    const { request } = buildCompatibilityRequest({
       registry: stubRegistry,
+      nodeManager: new NodeManager(nodes),
+      edges: [edge],
       templates: {
         example: {
-          inputs: ['request'],
-          buffers: { storage: 'internal' },
+          inputs: ['first', 'second'],
+          outputs: ['left', 'right'],
           ops: {},
         },
       },
-      nodeManager: new NodeManager([source, target]),
-      edges: [],
       diagramProperties: {},
-      connection: {
-        source: source.id,
-        sourceHandle: null,
-        target: target.id,
-        targetHandle: null,
+    });
+    expect(request.connections).toMatchObject([
+      {
+        id: edge.id,
+        sourcePort: {
+          Output: { Named: { operation: 'source', key: ['connect', 'right'] } },
+        },
+        targetPort: {
+          Input: { named: { name: 'second', exposed_namespace: 'target' } },
+        },
       },
+    ]);
+    expect(request.diagram.ops.source).toMatchObject({
+      connect: { right: { target: 'second' } },
     });
-    const edge = result.ok ? result.candidate.edge : result.edge;
-    expect(edge?.data.input).toEqual({
-      type: 'sectionBuffer',
-      inputId: 'storage',
-    });
+    expect(JSON.stringify({ nodes, edge })).toBe(before);
   });
-
-  test('an unrelated export failure keeps a structurally valid edge available', () => {
-    const source = createOperationNode(
-      ROOT_NAMESPACE,
-      undefined,
-      { x: 0, y: 0 },
-      { type: 'node', builder: '', next: { builtin: 'dispose' } },
-      'source',
-    );
-    const target = {
-      ...source,
-      id: 'target',
-      data: { ...source.data, opId: 'target' },
-    };
-    const unfinished = {
-      ...source,
-      id: 'unfinished',
-      data: { ...source.data, namespace: ':missing_scope' },
-    };
-    const result = buildCompatibilityCandidate({
-      id: 'connection',
-      registry: stubRegistry,
-      nodeManager: new NodeManager([source, target, unfinished]),
-      edges: [],
-      templates: {},
-      diagramProperties: {},
-      connection: {
-        source: source.id,
-        sourceHandle: null,
-        target: target.id,
-        targetHandle: null,
-      },
-    });
-    expect(result).toMatchObject({
-      ok: false,
-      result: { status: 'unknown' },
-      edge: { source: source.id, target: target.id },
-    });
-  });
+  test.each([
+    {
+      inputs: ['request'],
+      outputs: ['response'],
+      input: 'request',
+      output: 'response',
+    },
+    {
+      inputs: ['left', 'right'],
+      outputs: ['yes', 'no'],
+      input: '',
+      output: '',
+    },
+  ])(
+    'autoselects section ports only when unambiguous: $inputs',
+    ({ inputs, outputs, input, output }) => {
+      const source = operationNode(
+        { type: 'section', template: 'example' },
+        'source',
+      );
+      const target = operationNode(
+        { type: 'section', template: 'example' },
+        'target',
+      );
+      const result = prepareConnection({
+        registry: stubRegistry,
+        templates: { example: { inputs, outputs, ops: {} } },
+        nodeManager: new NodeManager([source, target]),
+        edges: [],
+        connection: connect(source, target),
+      });
+      expect(result).toMatchObject({
+        valid: true,
+        edge: {
+          data: {
+            input: { type: 'sectionInput', inputId: input },
+            output: { output },
+          },
+        },
+      });
+    },
+  );
 
   test('buffer edges use the buffer input as an infer-only focused port', () => {
     const buffer = createOperationNode(
@@ -261,8 +263,7 @@ describe('compatibility candidate builder', () => {
       'listen',
     );
 
-    const result = buildCompatibilityCandidate({
-      id: 'buffer-to-listen',
+    const result = buildConnectionPreview({
       registry: stubRegistry,
       nodeManager: new NodeManager([buffer, listen]),
       edges: [],
@@ -276,14 +277,11 @@ describe('compatibility candidate builder', () => {
       },
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-
-    expect(result.candidate.sourcePort).toBeUndefined();
-    expect(result.candidate.targetPort).toBeUndefined();
-    expect(result.candidate.focusPorts).toEqual([
+    expect(result.request).not.toBeNull();
+    const connection = result.request!.connections[0];
+    expect(connection.sourcePort).toBeUndefined();
+    expect(connection.targetPort).toBeUndefined();
+    expect(connection.focusPorts).toEqual([
       {
         Input: {
           named: {
@@ -293,69 +291,12 @@ describe('compatibility candidate builder', () => {
           },
         },
       },
-    ]);
-  });
-
-  test('compatibility checks preserve provisional compatible results', async () => {
-    const buffer = createOperationNode(
-      ROOT_NAMESPACE,
-      undefined,
-      { x: 0, y: 0 },
-      { type: 'buffer' },
-      'buffer',
-    );
-    const listen = createOperationNode(
-      ROOT_NAMESPACE,
-      undefined,
-      { x: 0, y: 0 },
-      { type: 'listen', buffers: [], next: { builtin: 'terminate' } },
-      'listen',
-    );
-
-    const built = buildCompatibilityCandidate({
-      id: 'buffer-to-listen',
-      registry: stubRegistry,
-      nodeManager: new NodeManager([buffer, listen]),
-      edges: [],
-      templates: {},
-      diagramProperties: {},
-      connection: {
-        source: buffer.id,
-        sourceHandle: null,
-        target: listen.id,
-        targetHandle: null,
+      {
+        Output: {
+          Named: { namespaces: [], operation: 'listen', key: ['next'] },
+        },
       },
-    });
-
-    expect(built.ok).toBe(true);
-    if (!built.ok) {
-      return;
-    }
-
-    const apiClient = {
-      getRegistry: jest.fn(() => of(stubRegistry)),
-      postRunWorkflow: jest.fn(() => of(null)),
-      checkCompatibility: jest.fn((request) =>
-        of({
-          results: request.candidates.map((candidate) => ({
-            id: candidate.id,
-            status: 'compatible' as const,
-            provisional: true,
-            reason: 'connection needs more type context',
-          })),
-        }),
-      ),
-    } satisfies BaseApiClient;
-
-    const results = await checkCompatibilityCandidates(apiClient, [
-      built.candidate,
     ]);
-
-    expect(results.get('buffer-to-listen')).toMatchObject({
-      status: 'compatible',
-      provisional: true,
-      reason: 'connection needs more type context',
-    });
   });
 
   test('reconnect candidates replace the old edge with the same id', () => {
@@ -386,8 +327,7 @@ describe('compatibility candidate builder', () => {
     });
     oldEdge.id = 'reconnected-edge';
 
-    const result = buildCompatibilityCandidate({
-      id: 'buffer-to-new-listen',
+    const result = buildConnectionPreview({
       registry: stubRegistry,
       nodeManager: new NodeManager([buffer, oldListen, newListen]),
       edges: [oldEdge],
@@ -402,18 +342,34 @@ describe('compatibility candidate builder', () => {
       edgeId: oldEdge.id,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-
-    expect(result.candidate.diagram.ops.old_listen).toMatchObject({
+    expect(result.request).not.toBeNull();
+    expect(result.request!.diagram.ops.old_listen).toMatchObject({
       type: 'listen',
       buffers: [],
     });
-    expect(result.candidate.diagram.ops.new_listen).toMatchObject({
+    expect(result.request!.diagram.ops.new_listen).toMatchObject({
       type: 'listen',
       buffers: ['buffer'],
     });
   });
+});
+
+// Retain the original API-result regression with the current advisory status.
+test('compatibility checks preserve provisional unknown results', async () => {
+  const response = {
+    id: 'edge',
+    status: 'unknown' as const,
+    provisional: true,
+    reason: 'more type context',
+  };
+  const apiClient = {
+    getRegistry: jest.fn(() => of(stubRegistry)),
+    postRunWorkflow: jest.fn(() => of(null)),
+    checkCompatibility: jest.fn(() => of({ results: [response] })),
+  } satisfies BaseApiClient;
+  const results = await checkCompatibility(apiClient, {
+    diagram: { version: '0.1.0', start: { builtin: 'dispose' }, ops: {} },
+    connections: [{ id: 'edge' }],
+  });
+  expect(results.get('edge')).toEqual(response);
 });
