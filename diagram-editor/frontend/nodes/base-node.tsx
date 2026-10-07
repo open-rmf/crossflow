@@ -87,7 +87,7 @@ function BaseNode({
           textTransform: 'none',
           ...(cylinder && {
             borderRadius,
-            paddingTop: '10px',
+            paddingTop: '16px',
             '&::before': {
               content: '""',
               position: 'absolute',
