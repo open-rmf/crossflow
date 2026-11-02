@@ -138,7 +138,10 @@ mod frontend {
             x == "1" || x == "true" || x == "yes"
         });
 
-        if !force_rebuild && dist_tar_gz_exists && let Ok(cached_dist_hash_file) = cached_dist_hash_file {
+        if !force_rebuild
+            && dist_tar_gz_exists
+            && let Ok(cached_dist_hash_file) = cached_dist_hash_file
+        {
             // We have a compressed frontend build available and hash file saved.
             // Now just check if the saved hash matches the latest uncompressed hash.
             if verify_hashes(cached_dist_hash_file, &dist_hash) {
@@ -149,7 +152,9 @@ mod frontend {
         // The dist.tar.gz doesn't exist already, or the hash doesn't exist to
         // verify it.
         if force_rebuild {
-            println!("cargo::warning=Rebuilding frontend server because BUILD_FRONTEND env var is activated");
+            println!(
+                "cargo::warning=Rebuilding frontend server because BUILD_FRONTEND env var is activated"
+            );
         } else {
             println!("Rebuilding frontend server after a change in the frontend UI");
         }
