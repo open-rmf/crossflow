@@ -7,12 +7,12 @@
 #[cfg(feature = "frontend")]
 mod frontend {
     use flate2::{Compression, write::GzEncoder};
+    use sha2::Digest;
     use std::fs::File;
     use std::io::{BufReader, Read};
     use std::path::{Path, PathBuf};
     use std::process::Command;
     use tar::Builder;
-    use sha2::Digest;
 
     fn build_pnpm<W: std::io::Write>(make_encoding: impl FnOnce() -> W) {
         let status = Command::new("pnpm")
@@ -99,12 +99,12 @@ mod frontend {
         format!("{:x}", hash)
     }
 
-    fn verify_hashes(
-        mut cached_dist_hash_file: File,
-        expected_hash: &str,
-    ) -> bool {
+    fn verify_hashes(mut cached_dist_hash_file: File, expected_hash: &str) -> bool {
         let mut actual_hash = String::new();
-        if cached_dist_hash_file.read_to_string(&mut actual_hash).is_err() {
+        if cached_dist_hash_file
+            .read_to_string(&mut actual_hash)
+            .is_err()
+        {
             return false;
         }
 
@@ -122,7 +122,8 @@ mod frontend {
         let dist_tar_path = Path::new(&out_dir).join("dist.tar");
         build_uncompressed_pnpm(&dist_tar_path);
 
-        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set");
+        let manifest_dir =
+            std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set");
         let cached_dist_hash_path = Path::new(&manifest_dir).join("dist.hash");
         let cached_dist_hash_file = File::open(&cached_dist_hash_path);
 
