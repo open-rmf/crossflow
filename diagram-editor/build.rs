@@ -116,6 +116,7 @@ mod frontend {
         println!("cargo::rerun-if-changed=../pnpm-lock.yaml");
         println!("cargo::rerun-if-changed=rsbuild.config.ts");
         println!("cargo::rerun-if-changed=frontend");
+        println!("cargo::rerun-if-env-changed=BUILD_FRONTEND");
 
         let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
 
@@ -132,7 +133,12 @@ mod frontend {
 
         let dist_hash = create_dist_hash(dist_tar_path);
 
-        if dist_tar_gz_exists && let Ok(cached_dist_hash_file) = cached_dist_hash_file {
+        let force_rebuild = std::env::var("BUILD_FRONTEND").is_ok_and(|x| {
+            let x = x.to_lowercase();
+            x == "1" || x == "true" || x == "yes"
+        });
+
+        if !force_rebuild && dist_tar_gz_exists && let Ok(cached_dist_hash_file) = cached_dist_hash_file {
             // We have a compressed frontend build available and hash file saved.
             // Now just check if the saved hash matches the latest uncompressed hash.
             if verify_hashes(cached_dist_hash_file, &dist_hash) {
@@ -142,10 +148,14 @@ mod frontend {
 
         // The dist.tar.gz doesn't exist already, or the hash doesn't exist to
         // verify it.
-        println!("cargo::warning=Rebuilding frontend server after a change in the frontend UI");
+        if force_rebuild {
+            println!("cargo::warning=Rebuilding frontend server because BUILD_FRONTEND env var is activated");
+        } else {
+            println!("Rebuilding frontend server after a change in the frontend UI");
+        }
+
         build_compressed_pnpm(&dist_tar_gz_path);
         std::fs::write(cached_dist_hash_path, &dist_hash).expect("Failed to save dist.hash");
-        println!("cargo::rerun-if-changed=dist.hash");
     }
 }
 
