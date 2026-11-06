@@ -114,7 +114,7 @@ pub trait Joining: Buffering {
     /// and join them into a tuple that gets sent to the target.
     ///
     /// If you need a more general way to get access to one or more buffers,
-    /// use [`listen`](Accessing::listen) instead.
+    /// use [`listen`](Accessing::create_listen) instead.
     fn join<'w, 's, 'a, 'b>(
         self,
         builder: &'b mut Builder<'w, 's, 'a>,

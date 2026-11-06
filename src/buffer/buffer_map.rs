@@ -622,7 +622,7 @@ pub trait Joined: 'static + Send + Sync + Sized {
     /// This converts from the buffer Joining::Item type into the Joined type
     fn from_item(item: <Self::Buffers as Joining>::Item) -> Self;
 
-    /// Used by [`Builder::create_join`]
+    /// Used by [`Builder::try_create_join`]
     fn create_join_from<'w, 's, 'a, 'b>(
         buffers: &BufferMap,
         builder: &'b mut Builder<'w, 's, 'a>,
