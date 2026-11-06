@@ -17,7 +17,12 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    sync::Arc,
+};
+
+use bevy_ecs::prelude::Entity;
 
 use super::{
     BufferSelection, BuildDiagramOperation, BuildStatus, BuilderContext, DiagramErrorCode,
@@ -27,7 +32,11 @@ use crate::{
     BufferMap, BufferMapLayout, BufferMapLayoutHints, Builder, DynOutput, IdentifierRef,
     InferenceContext, Joined, MessageRegistry, TraceSettings, default_as_false, is_default,
     is_false, output_ref,
+    TraceInfo,
 };
+
+#[cfg(feature = "trace")]
+use crate::{OperationInfo, Trace};
 
 /// Wait for exactly one item to be available in each buffer listed in
 /// `buffers`, then join each of those items into a single output message
@@ -133,18 +142,38 @@ impl BuildDiagramOperation for JoinSchema {
             })?;
         }
 
-        if self.serialize {
-            let output = ctx.builder.try_join::<JsonMessage>(&buffer_map)?.output();
+        let join = if self.serialize {
+            let (join, output) = ctx.builder.try_create_join::<JsonMessage>(&buffer_map)?;
             ctx.add_output_into_target(&self.next, output.into());
+            join
         } else {
             let target_type = ctx.inferred_message_type(output_ref(id).next())?;
 
-            let output = ctx
+            let (join, output) = ctx
                 .registry
                 .messages
                 .join(&target_type, &buffer_map, ctx.builder)?;
             ctx.add_output_into_target(&self.next, output);
+            join
+        };
+
+        #[cfg(feature = "trace")]
+        {
+            let trace_info = TraceInfo::new(self, self.trace_settings.trace)?;
+            let trace_toggle = trace_info.trace.unwrap_or(ctx.default_trace);
+            let operation = ctx.into_operation_ref(id);
+            let operation_info = OperationInfo::new(
+                Some(operation),
+                // TODO(@mxgrey): Should we express that the "input" is listening to buffers?
+                None,
+                trace_info.construction,
+            );
+
+            ctx.builder.commands().entity(join).insert(
+                Trace::new(trace_toggle, Arc::new(operation_info)),
+            );
         }
+
         Ok(BuildStatus::Finished)
     }
 
@@ -165,7 +194,7 @@ impl BuildDiagramOperation for JoinSchema {
     }
 }
 
-type CreateJoinFn = fn(&BufferMap, &mut Builder) -> Result<DynOutput, DiagramErrorCode>;
+type CreateJoinFn = fn(&BufferMap, &mut Builder) -> Result<(Entity, DynOutput), DiagramErrorCode>;
 
 pub struct JoinRegistration {
     pub create: CreateJoinFn,
@@ -175,8 +204,9 @@ pub struct JoinRegistration {
 impl JoinRegistration {
     pub fn new<T: Joined>(messages: &mut MessageRegistry) -> Self {
         let create =
-            |buffers: &BufferMap, builder: &mut Builder| -> Result<DynOutput, DiagramErrorCode> {
-                Ok(builder.try_join::<T>(buffers)?.output().into())
+            |buffers: &BufferMap, builder: &mut Builder| -> Result<(Entity, DynOutput), DiagramErrorCode> {
+                let (op, output) = builder.try_create_join::<T>(buffers)?;
+                Ok((op, output.into()))
             };
         let layout = <T::Buffers as BufferMapLayout>::get_layout_hints().export(messages);
 

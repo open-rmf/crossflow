@@ -427,13 +427,27 @@ impl<'a> OperationReachability<'a> {
     }
 
     pub fn check_upstream(&mut self, source: Entity) -> ReachabilityResult {
+        use crate::trace::Trace;
+        let id = if let Some(id) = self.world.get::<Trace>(source).and_then(|t| t.info().id().as_ref()) {
+            format!("{id}")
+        } else {
+            if let Some(op) = self.world.get::<OperationType>(source) {
+                let id: String = op.0.chars().take(50).collect();
+                format!("({})({})", source.index(), id)
+            } else {
+                String::from("<unknown>")
+            }
+        };
+
         match self.visited.entry(source) {
             Entry::Occupied(occupied) => {
+                println!("{id} - occupied: {}", occupied.get());
                 // We have looped back to this node, so whatever value we
                 // currently have for it is what we should return.
                 return Ok(*occupied.get());
             }
             Entry::Vacant(vacant) => {
+                println!("{id} - vacant");
                 // We assume that the node is not reachable unless proven
                 // otherwise.
                 vacant.insert(false);
@@ -457,10 +471,11 @@ impl<'a> OperationReachability<'a> {
             visited: self.visited,
         })?;
 
+        println!("{id} - is_reachable: {is_reachable}");
         if is_reachable {
             self.visited.insert(source, is_reachable);
         } else {
-            self.visited.remove(&source);
+            // self.visited.remove(&source);
         }
 
         Ok(is_reachable)

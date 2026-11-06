@@ -31,6 +31,7 @@ use crate::{
     BufferMap, BufferMapLayout, BufferMut, BufferView, BufferWorldAccess, Builder, Chain,
     CloneError, Identifiable, IdentifierRef, IncompatibleLayout, ManageBufferSessions, Node,
     NotifyAwaitingBuffer, RequestId, Sendish, Seq, format_vertical_list, is_buffer_reachable,
+    Output,
 };
 
 use futures_concurrency::future::Race;
@@ -81,12 +82,12 @@ pub use crossflow_derive::{Accessor, Joined};
 pub trait Accessor: 'static + Send + Sync + Sized + Clone {
     type Buffers: 'static + BufferMapLayout + Accessing<Key = Self> + Send + Sync;
 
-    fn try_listen_from<'w, 's, 'a, 'b>(
+    fn create_listen_from<'w, 's, 'a, 'b>(
         buffers: &BufferMap,
         builder: &'b mut Builder<'w, 's, 'a>,
-    ) -> Result<Chain<'w, 's, 'a, 'b, Self>, IncompatibleLayout> {
+    ) -> Result<(Entity, Output<Self>), IncompatibleLayout> {
         let buffers: Self::Buffers = Self::Buffers::try_from_buffer_map(buffers)?;
-        Ok(buffers.listen(builder))
+        Ok(buffers.create_listen(builder))
     }
 
     fn try_buffer_access<InputMessage, OutputMessage>(

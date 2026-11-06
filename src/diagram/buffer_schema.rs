@@ -17,12 +17,17 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use bevy_ecs::prelude::Entity;
 
 use crate::{
     Accessor, ArcAny, BufferKeyMap, BufferMap, BufferMapLayout, BufferMapLayoutHints,
     BufferSettings, Builder, DynNode, DynOutput, InferenceContext, JsonMessage, ScriptMessage,
     default_as_false, is_false,
 };
+
+#[cfg(feature = "trace")]
+use crate::{OperationInfo, Trace};
 
 use super::{
     BufferSelection, BuildDiagramOperation, BuildStatus, BuilderContext, DeserializeFn,
@@ -420,7 +425,7 @@ pub struct ListenSchema {
 impl BuildDiagramOperation for ListenSchema {
     fn build_diagram_operation(
         &self,
-        _: &OperationName,
+        id: &OperationName,
         ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
         // TODO(@mxgrey): Figure out how to enable tracing for listen operations
@@ -431,11 +436,29 @@ impl BuildDiagramOperation for ListenSchema {
             Err(reason) => return Ok(BuildStatus::defer(reason)),
         };
 
-        let output = ctx
+        let (listen, output) = ctx
             .registry
             .messages
             .listen(&target_type, &buffer_map, ctx.builder)?;
         ctx.add_output_into_target(&self.next, output);
+
+        #[cfg(feature = "trace")]
+        {
+            let trace_info = TraceInfo::new(self, self.trace_settings.trace)?;
+            let trace_toggle = trace_info.trace.unwrap_or(ctx.default_trace);
+            let operation = ctx.into_operation_ref(id);
+            let operation_info = OperationInfo::new(
+                Some(operation),
+                // TODO(@mxgrey): Should we express that the "input" is listening to buffers?
+                None,
+                trace_info.construction,
+            );
+
+            ctx.builder.commands().entity(listen).insert(
+                Trace::new(trace_toggle, Arc::new(operation_info)),
+            );
+        }
+
         Ok(BuildStatus::Finished)
     }
 
@@ -456,7 +479,7 @@ impl BuildDiagramOperation for ListenSchema {
     }
 }
 
-pub type ListenFn = fn(&BufferMap, &mut Builder) -> Result<DynOutput, DiagramErrorCode>;
+pub type ListenFn = fn(&BufferMap, &mut Builder) -> Result<(Entity, DynOutput), DiagramErrorCode>;
 pub(crate) type ListenToScriptMessageFn =
     fn(&mut Builder) -> Result<DynForkResult, DiagramErrorCode>;
 pub(crate) type ScriptMessageToListenFn =
@@ -476,7 +499,8 @@ pub struct ListenRegistration {
 impl ListenRegistration {
     pub fn new<T: Accessor>(messages: &mut MessageRegistry) -> Self {
         let create = |buffers: &BufferMap, builder: &mut Builder| {
-            Ok(builder.try_listen::<T>(buffers)?.output().into())
+            let (listen, output) = builder.try_create_listen::<T>(buffers)?;
+            Ok((listen, output.into()))
         };
         let layout = <T::Buffers as BufferMapLayout>::get_layout_hints().export(messages);
 
