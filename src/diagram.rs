@@ -1614,4 +1614,23 @@ mod tests {
         assert!(fixture.context.no_unhandled_errors());
         assert_eq!(result, 5.0);
     }
+
+    #[test]
+    fn test_multi_loop() {
+        let mut fixture = DiagramTestFixture::new();
+
+        let diagram = Diagram::from_json_str(include_str!(
+            "../examples/diagram/calculator/diagrams/cyclical_join.json"
+        ))
+        .unwrap();
+
+        let input = json!({
+            "a": "A",
+            "b": "B",
+            "c": "C",
+        });
+
+        let result: JsonMessage = fixture.spawn_and_run(&diagram, input.clone()).unwrap();
+        assert_eq!(input, result);
+    }
 }
