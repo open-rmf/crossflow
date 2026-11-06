@@ -459,6 +459,8 @@ impl<'a> OperationReachability<'a> {
 
         if is_reachable {
             self.visited.insert(source, is_reachable);
+        } else {
+            self.visited.remove(&source);
         }
 
         Ok(is_reachable)

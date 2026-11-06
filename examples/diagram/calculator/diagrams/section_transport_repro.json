@@ -1,0 +1,173 @@
+{
+  "$schema": "https://raw.githubusercontent.com/open-rmf/crossflow/refs/heads/main/diagram.schema.json",
+  "version": "0.1.0",
+  "description": "Reproduction variant of section5_transport.json without the watchdog branch. The transport fragment of MFPP formulation Section 5 (Tables 5.1 and 5.2, Fig. 5.1): jobs A and B compete for one shared transport section; each transfer takes 2 s. Every run can reach the final marking, yet about half of the runs are cancelled with 'termination node cannot be reached'.",
+  "input_examples": [
+    {
+      "description": "Initial marking of Fig. 5.1: A and B waiting, the transport section available. Due times 6 and 3 as in Section 5.3.",
+      "value": {
+        "A": {
+          "job": "A",
+          "due": 6
+        },
+        "B": {
+          "job": "B",
+          "due": 3
+        },
+        "section": {
+          "resource": "transport section"
+        }
+      }
+    }
+  ],
+  "templates": {},
+  "start": "initial_marking",
+  "ops": {
+    "initial_marking": {
+      "type": "fork_clone",
+      "display_text": "Initial marking",
+      "next": [
+        "token_A",
+        "token_B",
+        "token_section"
+      ]
+    },
+    "token_A": {
+      "type": "transform",
+      "display_text": "Token A",
+      "cel": "request.A",
+      "next": "A_waiting"
+    },
+    "token_B": {
+      "type": "transform",
+      "display_text": "Token B",
+      "cel": "request.B",
+      "next": "B_waiting"
+    },
+    "token_section": {
+      "type": "transform",
+      "display_text": "Section token",
+      "cel": "request.section",
+      "next": "section_free"
+    },
+    "A_waiting": {
+      "type": "buffer",
+      "display_text": "A waiting",
+      "settings": {
+        "retention": "keep_all"
+      }
+    },
+    "B_waiting": {
+      "type": "buffer",
+      "display_text": "B waiting",
+      "settings": {
+        "retention": "keep_all"
+      }
+    },
+    "section_free": {
+      "type": "buffer",
+      "display_text": "Transport section available",
+      "settings": {
+        "retention": "keep_all"
+      }
+    },
+    "admit_A": {
+      "type": "join",
+      "display_text": "Admit A",
+      "buffers": {
+        "job": "A_waiting",
+        "section": "section_free"
+      },
+      "next": "A_transporting"
+    },
+    "admit_B": {
+      "type": "join",
+      "display_text": "Admit B",
+      "buffers": {
+        "job": "B_waiting",
+        "section": "section_free"
+      },
+      "next": "B_transporting"
+    },
+    "A_transporting": {
+      "type": "node",
+      "display_text": "A transporting (2 s)",
+      "builder": "delay_ms",
+      "config": 2000,
+      "next": "complete_A"
+    },
+    "B_transporting": {
+      "type": "node",
+      "display_text": "B transporting (2 s)",
+      "builder": "delay_ms",
+      "config": 2000,
+      "next": "complete_B"
+    },
+    "complete_A": {
+      "type": "fork_clone",
+      "display_text": "Complete A",
+      "next": [
+        "receive_A",
+        "release_section_A"
+      ]
+    },
+    "complete_B": {
+      "type": "fork_clone",
+      "display_text": "Complete B",
+      "next": [
+        "receive_B",
+        "release_section_B"
+      ]
+    },
+    "receive_A": {
+      "type": "transform",
+      "display_text": "Job token A",
+      "cel": "request.job",
+      "next": "A_received"
+    },
+    "release_section_A": {
+      "type": "transform",
+      "display_text": "Return section token",
+      "cel": "request.section",
+      "next": "section_free"
+    },
+    "receive_B": {
+      "type": "transform",
+      "display_text": "Job token B",
+      "cel": "request.job",
+      "next": "B_received"
+    },
+    "release_section_B": {
+      "type": "transform",
+      "display_text": "Return section token",
+      "cel": "request.section",
+      "next": "section_free"
+    },
+    "A_received": {
+      "type": "buffer",
+      "display_text": "A received at workcell",
+      "settings": {
+        "retention": "keep_all"
+      }
+    },
+    "B_received": {
+      "type": "buffer",
+      "display_text": "B received at workcell",
+      "settings": {
+        "retention": "keep_all"
+      }
+    },
+    "final_marking": {
+      "type": "join",
+      "display_text": "Final marking",
+      "buffers": {
+        "A": "A_received",
+        "B": "B_received",
+        "section": "section_free"
+      },
+      "next": {
+        "builtin": "terminate"
+      }
+    }
+  }
+}
