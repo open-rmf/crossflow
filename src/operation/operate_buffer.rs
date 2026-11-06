@@ -115,11 +115,24 @@ where
         let r = RelatedGateNodes::is_opening_reachable(&mut reachability).ready()?;
         unsure |= r.is_none();
         if r.is_some_and(|r| !r) {
-            if BufferAccessors::is_reachable(&mut reachability)? {
-                // A buffer accessor can open the buffer gate and also push new
-                // items which would then wake up listeners, so we consider this
-                // buffer to be reachable.
-                return Ok(true);
+            // The gate of this buffer is closed, meaning no other reachability
+            // conditions matter unless the gate can be opened.
+            match BufferAccessors::is_reachable(&mut reachability).ready()? {
+                Some(accessor_is_reachable) => {
+                    if accessor_is_reachable {
+                        // A buffer accessor can open the buffer gate and also push new
+                        // items which would then wake up listeners, so we consider this
+                        // buffer to be reachable.
+                        return Ok(true);
+                    }
+                }
+                None => {
+                    // We cannot be certain yet whether an accessor is reachable.
+                    // For now we should return NotReady. We should not test any
+                    // other reachability conditions, because a buffer with a
+                    // closed gate is considered unreachable no matter what.
+                    return Err(OperationError::NotReady);
+                }
             }
 
             // If this gate is closed and will never be able to open again, then
