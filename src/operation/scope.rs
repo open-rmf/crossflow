@@ -553,7 +553,12 @@ fn dyn_is_reachable<Request: 'static + Send + Sync>(
         .find(|pair| pair.parent_session == reachability.session)
     {
         let terminate = source_ref.get::<ScopeEndpoints>().or_broken()?.terminate;
-        if check_reachability(pair.scoped_session, terminate, reachability.disposed, reachability.world)? {
+        if check_reachability(
+            pair.scoped_session,
+            terminate,
+            reachability.disposed,
+            reachability.world,
+        )? {
             return Ok(true);
         }
     }

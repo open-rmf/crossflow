@@ -30,8 +30,8 @@ use crate::{
     Accessing, AnyBufferKey, AwaitingHandle, Buffer, BufferAccessMut, BufferError, BufferKey,
     BufferMap, BufferMapLayout, BufferMut, BufferView, BufferWorldAccess, Builder, Chain,
     CloneError, Identifiable, IdentifierRef, IncompatibleLayout, ManageBufferSessions, Node,
-    NotifyAwaitingBuffer, RequestId, Sendish, Seq, format_vertical_list, is_buffer_reachable,
-    Output,
+    NotifyAwaitingBuffer, Output, RequestId, Sendish, Seq, format_vertical_list,
+    is_buffer_reachable,
 };
 
 use futures_concurrency::future::Race;

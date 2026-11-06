@@ -32,7 +32,8 @@ use crate::{
     Accessing, BufferChangeBroadcasters, BufferKeyBuilder, BufferKeyTag, ChannelQueue, InScope,
     Input, InputBundle, ManageInput, MessageRoute, Operation, OperationCleanup, OperationError,
     OperationReachability, OperationRequest, OperationResult, OperationSetup, OrBroken,
-    ReachabilityResult, RequestId, Seq, SingleInputStorage, SingleTargetStorage, output_port,
+    ReachabilityResult, Ready, RequestId, Seq, SingleInputStorage, SingleTargetStorage,
+    output_port,
 };
 
 #[derive(Default, Component, Deref, DerefMut)]
@@ -320,12 +321,6 @@ impl BufferAccessors {
             }
         }
 
-        for accessor in &accessors.0 {
-            if r.check_upstream(*accessor)? {
-                return Ok(true);
-            }
-        }
-
-        Ok(false)
+        r.check_any_upstream(accessors.0.iter().map(|x| Ok(x)))
     }
 }

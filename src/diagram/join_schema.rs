@@ -17,10 +17,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::{
-    borrow::Cow,
-    sync::Arc,
-};
+use std::{borrow::Cow, sync::Arc};
 
 use bevy_ecs::prelude::Entity;
 
@@ -30,9 +27,8 @@ use super::{
 };
 use crate::{
     BufferMap, BufferMapLayout, BufferMapLayoutHints, Builder, DynOutput, IdentifierRef,
-    InferenceContext, Joined, MessageRegistry, TraceSettings, default_as_false, is_default,
-    is_false, output_ref,
-    TraceInfo,
+    InferenceContext, Joined, MessageRegistry, TraceInfo, TraceSettings, default_as_false,
+    is_default, is_false, output_ref,
 };
 
 #[cfg(feature = "trace")]
@@ -149,10 +145,10 @@ impl BuildDiagramOperation for JoinSchema {
         } else {
             let target_type = ctx.inferred_message_type(output_ref(id).next())?;
 
-            let (join, output) = ctx
-                .registry
-                .messages
-                .join(&target_type, &buffer_map, ctx.builder)?;
+            let (join, output) =
+                ctx.registry
+                    .messages
+                    .join(&target_type, &buffer_map, ctx.builder)?;
             ctx.add_output_into_target(&self.next, output);
             join
         };
@@ -169,9 +165,10 @@ impl BuildDiagramOperation for JoinSchema {
                 trace_info.construction,
             );
 
-            ctx.builder.commands().entity(join).insert(
-                Trace::new(trace_toggle, Arc::new(operation_info)),
-            );
+            ctx.builder
+                .commands()
+                .entity(join)
+                .insert(Trace::new(trace_toggle, Arc::new(operation_info)));
         }
 
         Ok(BuildStatus::Finished)
@@ -203,11 +200,12 @@ pub struct JoinRegistration {
 
 impl JoinRegistration {
     pub fn new<T: Joined>(messages: &mut MessageRegistry) -> Self {
-        let create =
-            |buffers: &BufferMap, builder: &mut Builder| -> Result<(Entity, DynOutput), DiagramErrorCode> {
-                let (op, output) = builder.try_create_join::<T>(buffers)?;
-                Ok((op, output.into()))
-            };
+        let create = |buffers: &BufferMap,
+                      builder: &mut Builder|
+         -> Result<(Entity, DynOutput), DiagramErrorCode> {
+            let (op, output) = builder.try_create_join::<T>(buffers)?;
+            Ok((op, output.into()))
+        };
         let layout = <T::Buffers as BufferMapLayout>::get_layout_hints().export(messages);
 
         Self { create, layout }

@@ -23,10 +23,10 @@ use smallvec::SmallVec;
 
 use crate::{
     Disposal, DisposalInformation, DisposalListener, DisposalUpdate, Input, InputBundle,
-    ManageDisposal, ManageInput, Operation, OperationCleanup, OperationReachability,
+    InspectInput, ManageDisposal, ManageInput, Operation, OperationCleanup, OperationReachability,
     OperationRequest, OperationResult, OperationRoster, OperationSetup, OrBroken,
     ReachabilityResult, RouteSource, RouteTarget, Routing, Seq, SingleInputStorage,
-    SingleTargetStorage, is_downstream_of, output_port, check_reachability, InspectInput,
+    SingleTargetStorage, check_reachability, is_downstream_of, output_port,
 };
 
 pub(crate) struct Collect<T, const N: usize> {
@@ -255,12 +255,19 @@ fn is_upstream_active<T: 'static + Send + Sync>(
 ) -> ReachabilityResult {
     // NOTE: Unlike Collect::is_reachable, we do not check the current progress
     // of the collection. That's why we don't reuse that function.
-    let has_input = world.get_entity(source).or_broken()?.has_input::<T>(session);
+    let has_input = world
+        .get_entity(source)
+        .or_broken()?
+        .has_input::<T>(session);
     if has_input? {
         return Ok(true);
     }
 
-    let Some(inputs) = world.get_entity(source).or_broken()?.get::<SingleInputStorage>() else {
+    let Some(inputs) = world
+        .get_entity(source)
+        .or_broken()?
+        .get::<SingleInputStorage>()
+    else {
         return Ok(false);
     };
 

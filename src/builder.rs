@@ -905,6 +905,22 @@ mod tests {
     use std::time::Instant;
 
     #[test]
+    fn test_circular_unreachability() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let node = builder.create_map_block(|a: i32| a);
+            builder.chain(node.output).map_block(|a| a).fork_clone((
+                |chain: Chain<_>| chain.connect(node.input),
+                |chain: Chain<_>| chain.connect(scope.terminate),
+            ));
+        });
+
+        let r = context.try_resolve_request(0, workflow, 10);
+        assert!(r.is_err());
+    }
+
+    #[test]
     fn test_disconnected_workflow() {
         let mut context = TestingContext::minimal_plugins();
 

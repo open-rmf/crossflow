@@ -15,10 +15,10 @@
  *
 */
 
+use bevy_ecs::prelude::Entity;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use bevy_ecs::prelude::Entity;
 
 use crate::{
     Accessor, ArcAny, BufferKeyMap, BufferMap, BufferMapLayout, BufferMapLayoutHints,
@@ -436,10 +436,10 @@ impl BuildDiagramOperation for ListenSchema {
             Err(reason) => return Ok(BuildStatus::defer(reason)),
         };
 
-        let (listen, output) = ctx
-            .registry
-            .messages
-            .listen(&target_type, &buffer_map, ctx.builder)?;
+        let (listen, output) =
+            ctx.registry
+                .messages
+                .listen(&target_type, &buffer_map, ctx.builder)?;
         ctx.add_output_into_target(&self.next, output);
 
         #[cfg(feature = "trace")]
@@ -454,9 +454,10 @@ impl BuildDiagramOperation for ListenSchema {
                 trace_info.construction,
             );
 
-            ctx.builder.commands().entity(listen).insert(
-                Trace::new(trace_toggle, Arc::new(operation_info)),
-            );
+            ctx.builder
+                .commands()
+                .entity(listen)
+                .insert(Trace::new(trace_toggle, Arc::new(operation_info)));
         }
 
         Ok(BuildStatus::Finished)
