@@ -19,9 +19,8 @@ use bevy_ecs::prelude::{Component, Entity};
 
 use crate::{
     FunnelInputStorage, Input, InputBundle, Joined, Joining, ManageInput, Operation,
-    OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
-    OperationSetup, OrBroken, ReachabilityResult, Ready, RequestId, SingleInputStorage,
-    SingleTargetStorage, output_port,
+    OperationCleanup, OperationReachability, OperationRequest, OperationResult, OperationSetup,
+    OrBroken, ReachabilityResult, RequestId, SingleInputStorage, SingleTargetStorage, output_port,
 };
 
 pub(crate) struct Join<Buffers: Joining, Target = <Buffers as Joining>::Item> {

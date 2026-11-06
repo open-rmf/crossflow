@@ -29,7 +29,7 @@ use bevy_ecs::prelude::{Entity, World};
 
 use crate::{
     Accessing, AddOperation, AnyBuffer, AnyBufferKey, AsAnyBuffer, Buffer, BufferKeyBuilder,
-    Bufferable, Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer, Gate, GateState,
+    Bufferable, Buffering, Builder, CloneFromBuffer, FetchFromBuffer, Gate, GateState,
     Identifiable, IdentifierRef, Join, Joining, OperationError, OperationResult, OperationRoster,
     Output, RequestId, TypeInfo, UnusedTarget, add_listener_to_source,
 };

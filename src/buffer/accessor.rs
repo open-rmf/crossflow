@@ -28,8 +28,8 @@ use bevy_ecs::{
 
 use crate::{
     Accessing, AnyBufferKey, AwaitingHandle, Buffer, BufferAccessMut, BufferError, BufferKey,
-    BufferMap, BufferMapLayout, BufferMut, BufferView, BufferWorldAccess, Builder, Chain,
-    CloneError, Identifiable, IdentifierRef, IncompatibleLayout, ManageBufferSessions, Node,
+    BufferMap, BufferMapLayout, BufferMut, BufferView, BufferWorldAccess, Builder, CloneError,
+    Identifiable, IdentifierRef, IncompatibleLayout, ManageBufferSessions, Node,
     NotifyAwaitingBuffer, Output, RequestId, Sendish, Seq, format_vertical_list,
     is_buffer_reachable,
 };

@@ -26,12 +26,10 @@ use bevy_ecs::{
     prelude::{Command, Component, Entity, World},
 };
 
-use thiserror::Error as ThisError;
-
 use backtrace::Backtrace;
 
 use std::{
-    collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
+    collections::{HashMap, HashSet, VecDeque},
     sync::Arc,
 };
 
@@ -565,9 +563,8 @@ fn evaluate_reachability(
     evaluation.queue.push_back(requested_source);
 
     while let Some(source) = evaluation.queue.pop() {
-        let ty = world.get::<OperationType>(source).or_broken()?;
         if evaluation.evaluated.contains_key(&source) {
-            // Ff this operation was already evaluated after it was put into the
+            // If this operation was already evaluated after it was put into the
             // queue then we don't need to redo it.
             continue;
         }
