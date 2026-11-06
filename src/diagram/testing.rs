@@ -1,7 +1,4 @@
-use std::{
-    error::Error,
-    time::Duration,
-};
+use std::{error::Error, time::Duration};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
