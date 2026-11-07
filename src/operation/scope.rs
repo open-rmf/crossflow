@@ -552,17 +552,13 @@ fn dyn_is_reachable<Request: 'static + Send + Sync>(
         .iter()
         .find(|pair| pair.parent_session == reachability.session)
     {
-        let mut visited = HashMap::new();
-        let mut scoped_reachability = OperationReachability::new(
+        let terminate = source_ref.get::<ScopeEndpoints>().or_broken()?.terminate;
+        if check_reachability(
             pair.scoped_session,
-            reachability.source,
+            terminate,
             reachability.disposed,
             reachability.world,
-            &mut visited,
-        );
-
-        let terminate = source_ref.get::<ScopeEndpoints>().or_broken()?.terminate;
-        if scoped_reachability.check_upstream(terminate)? {
+        )? {
             return Ok(true);
         }
     }

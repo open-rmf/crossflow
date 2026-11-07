@@ -731,7 +731,7 @@ impl MessageRegistry {
         joinable: &TypeInfo,
         buffers: &BufferMap,
         builder: &mut Builder,
-    ) -> Result<DynOutput, DiagramErrorCode> {
+    ) -> Result<(Entity, DynOutput), DiagramErrorCode> {
         let create = self
             .get_operations(joinable)?
             .join
@@ -787,7 +787,7 @@ impl MessageRegistry {
         target_type: &TypeInfo,
         buffers: &BufferMap,
         builder: &mut Builder,
-    ) -> Result<DynOutput, DiagramErrorCode> {
+    ) -> Result<(Entity, DynOutput), DiagramErrorCode> {
         let create = self
             .get_operations(target_type)?
             .listen

@@ -320,12 +320,6 @@ impl BufferAccessors {
             }
         }
 
-        for accessor in &accessors.0 {
-            if r.check_upstream(*accessor)? {
-                return Ok(true);
-            }
-        }
-
-        Ok(false)
+        r.check_any_upstream(accessors.0.iter().map(|x| Ok(x)))
     }
 }

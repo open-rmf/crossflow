@@ -18,6 +18,8 @@
 use smallvec::SmallVec;
 use variadics_please::all_tuples;
 
+use bevy_ecs::prelude::Entity;
+
 use crate::{
     Accessing, Buffer, BufferSettings, Buffering, Builder, Chain, CloneFromBuffer, DuplicateBuffer,
     Joining, Output,
@@ -107,7 +109,7 @@ where
 }
 
 /// This trait is used to create operations that access buffers or outputs.
-pub trait Accessible: Bufferable {
+pub trait Accessible: Bufferable + Sized {
     type Keys: 'static + Send + Sync;
 
     /// Create an operation that will output buffer access keys each time any
@@ -120,7 +122,15 @@ pub trait Accessible: Bufferable {
     fn listen<'w, 's, 'a, 'b>(
         self,
         builder: &'b mut Builder<'w, 's, 'a>,
-    ) -> Chain<'w, 's, 'a, 'b, Self::Keys>;
+    ) -> Chain<'w, 's, 'a, 'b, Self::Keys> {
+        let (_, output) = self.create_listen(builder);
+        output.chain(builder)
+    }
+
+    fn create_listen<'w, 's, 'a>(
+        self,
+        builder: &mut Builder<'w, 's, 'a>,
+    ) -> (Entity, Output<Self::Keys>);
 }
 
 impl<B> Accessible for B
@@ -130,11 +140,11 @@ where
 {
     type Keys = BufferKeys<Self>;
 
-    fn listen<'w, 's, 'a, 'b>(
+    fn create_listen<'w, 's, 'a>(
         self,
-        builder: &'b mut Builder<'w, 's, 'a>,
-    ) -> Chain<'w, 's, 'a, 'b, Self::Keys> {
-        self.into_buffer(builder).listen(builder)
+        builder: &mut Builder<'w, 's, 'a>,
+    ) -> (Entity, Output<Self::Keys>) {
+        self.into_buffer(builder).create_listen(builder)
     }
 }
 

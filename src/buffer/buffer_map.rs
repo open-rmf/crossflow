@@ -29,7 +29,7 @@ use bevy_ecs::prelude::{Entity, World};
 
 use crate::{
     Accessing, AddOperation, AnyBuffer, AnyBufferKey, AsAnyBuffer, Buffer, BufferKeyBuilder,
-    Bufferable, Buffering, Builder, Chain, CloneFromBuffer, FetchFromBuffer, Gate, GateState,
+    Bufferable, Buffering, Builder, CloneFromBuffer, FetchFromBuffer, Gate, GateState,
     Identifiable, IdentifierRef, Join, Joining, OperationError, OperationResult, OperationRoster,
     Output, RequestId, TypeInfo, UnusedTarget, add_listener_to_source,
 };
@@ -622,11 +622,11 @@ pub trait Joined: 'static + Send + Sync + Sized {
     /// This converts from the buffer Joining::Item type into the Joined type
     fn from_item(item: <Self::Buffers as Joining>::Item) -> Self;
 
-    /// Used by [`Builder::try_join`]
-    fn try_join_from<'w, 's, 'a, 'b>(
+    /// Used by [`Builder::try_create_join`]
+    fn create_join_from<'w, 's, 'a, 'b>(
         buffers: &BufferMap,
         builder: &'b mut Builder<'w, 's, 'a>,
-    ) -> Result<Chain<'w, 's, 'a, 'b, Self>, IncompatibleLayout> {
+    ) -> Result<(Entity, Output<Self>), IncompatibleLayout> {
         let buffers: Self::Buffers = Self::Buffers::try_from_buffer_map(buffers)?;
         let scope = builder.scope();
         buffers.verify_scope(scope);
@@ -639,7 +639,7 @@ pub trait Joined: 'static + Send + Sync + Sized {
             Join::<_, Self>::for_joined(buffers, target),
         ));
 
-        Ok(Output::new(scope, target).chain(builder))
+        Ok((join, Output::new(scope, target)))
     }
 }
 
