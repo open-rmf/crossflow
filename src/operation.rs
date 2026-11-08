@@ -29,7 +29,7 @@ use bevy_ecs::{
 use backtrace::Backtrace;
 
 use std::{
-    collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
+    collections::{HashMap, HashSet, VecDeque},
     sync::Arc,
 };
 
@@ -105,7 +105,7 @@ pub(crate) use spread::*;
 /// input is provided to them. There may be multiple nodes that can feed into
 /// this node, but this node gets triggered any time any one of them provides
 /// an input.
-#[derive(Component, Clone)]
+#[derive(Component, Clone, Deref)]
 pub struct SingleInputStorage(SmallVec<[Entity; 8]>);
 
 impl SingleInputStorage {
@@ -136,13 +136,7 @@ impl SingleInputStorage {
             return Ok(false);
         };
 
-        for input in &inputs.0 {
-            if r.check_upstream(*input)? {
-                return Ok(true);
-            }
-        }
-
-        Ok(false)
+        r.check_any_upstream(inputs.0.iter().map(|x| Ok(x)))
     }
 }
 
@@ -400,68 +394,84 @@ pub struct OperationReachability<'a> {
     /// reachability without forcing a positive result by its own access.
     requested_by_accessor: Option<Entity>,
     world: &'a World,
-    visited: &'a mut HashMap<Entity, bool>,
+    evaluation: &'a mut ReachabilityEvaluation,
 }
 
 impl<'a> OperationReachability<'a> {
-    pub fn new(
-        session: Entity,
-        source: Entity,
-        disposed: Option<Entity>,
-        world: &'a World,
-        visited: &'a mut HashMap<Entity, bool>,
-    ) -> OperationReachability<'a> {
-        Self {
-            session,
-            source,
-            disposed,
-            requested_by_accessor: None,
-            world,
-            visited,
+    /// Check whether a single upstream source is reachable.
+    pub fn check_upstream(&mut self, source: Entity) -> ReachabilityResult {
+        let dependents = self.evaluation.dependents.entry(source).or_default();
+        if !dependents.contains(&self.source) {
+            dependents.push(self.source);
         }
+
+        if let Some(eval) = self.evaluation.evaluated.get(&source) {
+            return Ok(*eval);
+        }
+
+        // This upstream evaluation isn't available yet, so add it the queue and
+        // re-evaluate it later.
+        self.evaluation.queue.push_back(source);
+        Err(OperationError::NotReady)
+    }
+
+    /// Check whether at least one upstream source is reachable.
+    pub fn check_any_upstream<'b>(
+        &mut self,
+        sources: impl IntoIterator<Item = Result<&'b Entity, OperationError>>,
+    ) -> ReachabilityResult {
+        let mut unsure = false;
+        for source in sources {
+            match self.check_upstream(*source?) {
+                Ok(value) => {
+                    if value {
+                        return Ok(true);
+                    }
+                }
+                Err(OperationError::NotReady) => {
+                    unsure = true;
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        if unsure {
+            return Err(OperationError::NotReady);
+        }
+
+        Ok(false)
+    }
+
+    /// Check whether all upstream sources are reachable
+    pub fn check_all_upstream<'b>(
+        &mut self,
+        sources: impl IntoIterator<Item = Result<&'b Entity, OperationError>>,
+    ) -> ReachabilityResult {
+        let mut unsure = false;
+        for source in sources {
+            match self.check_upstream(*source?) {
+                Ok(value) => {
+                    if !value {
+                        return Ok(false);
+                    }
+                }
+                Err(OperationError::NotReady) => {
+                    unsure = true;
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        if unsure {
+            return Err(OperationError::NotReady);
+        }
+
+        Ok(true)
     }
 
     pub fn ignore_accessor(mut self, accessor: Entity) -> Self {
         self.requested_by_accessor = Some(accessor);
         self
-    }
-
-    pub fn check_upstream(&mut self, source: Entity) -> ReachabilityResult {
-        match self.visited.entry(source) {
-            Entry::Occupied(occupied) => {
-                // We have looped back to this node, so whatever value we
-                // currently have for it is what we should return.
-                return Ok(*occupied.get());
-            }
-            Entry::Vacant(vacant) => {
-                // We assume that the node is not reachable unless proven
-                // otherwise.
-                vacant.insert(false);
-            }
-        }
-
-        let reachabiility = self
-            .world
-            .get_entity(source)
-            .or_broken()?
-            .get::<OperationReachabilityStorage>()
-            .or_broken()?
-            .0;
-
-        let is_reachable = reachabiility(OperationReachability {
-            source,
-            session: self.session,
-            disposed: self.disposed,
-            requested_by_accessor: self.requested_by_accessor,
-            world: self.world,
-            visited: self.visited,
-        })?;
-
-        if is_reachable {
-            self.visited.insert(source, is_reachable);
-        }
-
-        Ok(is_reachable)
     }
 
     pub fn has_input<T: 'static + Send + Sync>(&self) -> ReachabilityResult {
@@ -484,35 +494,122 @@ impl<'a> OperationReachability<'a> {
     }
 }
 
+#[derive(Default, Debug)]
+struct ReachabilityEvaluation {
+    evaluated: HashMap<Entity, bool>,
+    queue: ReachabilityQueue,
+    dependents: HashMap<Entity, SmallVec<[Entity; 16]>>,
+}
+
+#[derive(Default, Debug)]
+struct ReachabilityQueue {
+    queue: VecDeque<Entity>,
+    queued: HashSet<Entity>,
+    visited: HashSet<Entity>,
+}
+
+impl ReachabilityQueue {
+    fn push_front(&mut self, source: Entity) {
+        if self.queued.insert(source) {
+            self.queue.push_front(source);
+        }
+    }
+
+    fn push_back(&mut self, source: Entity) {
+        if self.queued.insert(source) {
+            self.queue.push_back(source);
+        }
+    }
+
+    fn pop(&mut self) -> Option<Entity> {
+        loop {
+            let next = self.queue.pop_front();
+            if let Some(next) = &next {
+                self.queued.remove(next);
+                if !self.visited.insert(*next) {
+                    // We already visited this without any evaluation succeeding.
+                    // There is no point visiting it again. This is important to
+                    // prevent infinite loops of searching for reachability.
+                    continue;
+                }
+            }
+
+            return next;
+        }
+    }
+}
+
 pub fn check_reachability(
     session: Entity,
-    source: Entity,
+    requested_source: Entity,
     disposed: Option<Entity>,
     world: &World,
 ) -> ReachabilityResult {
-    let mut visited = HashMap::new();
-    let mut r = OperationReachability {
-        source,
-        session,
-        disposed,
-        requested_by_accessor: None,
-        world,
-        visited: &mut visited,
-    };
-    r.check_upstream(source)
+    evaluate_reachability(session, requested_source, disposed, None, world)
 }
 
 pub fn is_buffer_reachable(tag: &BufferKeyTag, world: &World) -> ReachabilityResult {
-    let mut visited = HashMap::new();
-    let mut r = OperationReachability {
-        source: tag.buffer,
-        session: tag.session,
-        disposed: None,
-        requested_by_accessor: Some(tag.accessor),
-        world,
-        visited: &mut visited,
-    };
-    r.check_upstream(tag.buffer)
+    evaluate_reachability(tag.session, tag.buffer, None, Some(tag.accessor), world)
+}
+
+fn evaluate_reachability(
+    session: Entity,
+    requested_source: Entity,
+    disposed: Option<Entity>,
+    requested_by_accessor: Option<Entity>,
+    world: &World,
+) -> ReachabilityResult {
+    let mut evaluation = ReachabilityEvaluation::default();
+    evaluation.queue.push_back(requested_source);
+
+    while let Some(source) = evaluation.queue.pop() {
+        if evaluation.evaluated.contains_key(&source) {
+            // If this operation was already evaluated after it was put into the
+            // queue then we don't need to redo it.
+            continue;
+        }
+
+        let reachability = world
+            .get_entity(source)
+            .or_broken()?
+            .get::<OperationReachabilityStorage>()
+            .or_broken()?
+            .0;
+
+        let r = OperationReachability {
+            source,
+            session,
+            disposed,
+            requested_by_accessor,
+            world,
+            evaluation: &mut evaluation,
+        };
+
+        let is_reachable = match reachability(r) {
+            Ok(is_reachable) => is_reachable,
+            Err(OperationError::NotReady) => {
+                continue;
+            }
+            Err(OperationError::Broken(backtrace)) => {
+                return Err(OperationError::Broken(backtrace));
+            }
+        };
+
+        if source == requested_source {
+            return Ok(is_reachable);
+        }
+
+        evaluation.queue.visited.clear();
+        evaluation.evaluated.insert(source, is_reachable);
+        if let Some(dependents) = evaluation.dependents.get(&source) {
+            for dependent in dependents {
+                evaluation.queue.push_front(*dependent);
+            }
+        }
+    }
+
+    // The queue was exhausted without finding proof of reachability
+    Ok(false)
 }
 
 #[derive(Clone, Copy)]
@@ -615,6 +712,23 @@ impl<T> OrBroken for Option<T> {
             self.ok_or_else(|| OperationError::Broken(Some(Backtrace::new())))
         } else {
             self.ok_or(OperationError::Broken(None))
+        }
+    }
+}
+
+pub trait Ready: Sized {
+    type Value;
+    fn ready(self) -> Result<Option<Self::Value>, OperationError>;
+}
+
+impl<T> Ready for Result<T, OperationError> {
+    type Value = T;
+
+    fn ready(self) -> Result<Option<Self::Value>, OperationError> {
+        match self {
+            Ok(value) => Ok(Some(value)),
+            Err(OperationError::NotReady) => Ok(None),
+            Err(err) => Err(err),
         }
     }
 }

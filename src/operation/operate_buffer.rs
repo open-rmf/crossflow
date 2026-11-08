@@ -29,8 +29,8 @@ use crate::{
     BufferStorage, BufferWorldAccess, DeferredRoster, ForkTargetStorage, Gate, GateActionStorage,
     Input, InputBundle, InspectBufferSessions, ManageBufferSessions, ManageInput, Operation,
     OperationCleanup, OperationError, OperationReachability, OperationRequest, OperationResult,
-    OperationRoster, OperationSetup, OrBroken, ReachabilityResult, RequestId, RouteTarget, Routing,
-    Seq, SingleInputStorage, UnhandledErrors, output_port,
+    OperationRoster, OperationSetup, OrBroken, ReachabilityResult, Ready, RequestId, RouteTarget,
+    Routing, Seq, SingleInputStorage, UnhandledErrors, output_port,
 };
 
 #[derive(Bundle)]
@@ -110,12 +110,31 @@ where
     }
 
     fn is_reachable(mut reachability: OperationReachability) -> ReachabilityResult {
-        if !RelatedGateNodes::is_opening_reachable(&mut reachability)? {
-            if BufferAccessors::is_reachable(&mut reachability)? {
-                // A buffer accessor can open the buffer gate and also push new
-                // items which would then wake up listeners, so we consider this
-                // buffer to be reachable.
-                return Ok(true);
+        let mut unsure = false;
+
+        let r = RelatedGateNodes::is_opening_reachable(&mut reachability).ready()?;
+        unsure |= r.is_none();
+        if r.is_some_and(|r| !r) {
+            // The gate of this buffer is closed, and no gate opening operations
+            // are reachable, meaning no other reachability conditions matter
+            // unless an accessor is still alive or reachable. If an accessor is
+            // alive or reachable, then the buffer may still be reachable.
+            match BufferAccessors::is_reachable(&mut reachability).ready()? {
+                Some(accessor_is_reachable) => {
+                    if accessor_is_reachable {
+                        // A buffer accessor can open the buffer gate and also push new
+                        // items which would then wake up listeners, so we consider this
+                        // buffer to be reachable.
+                        return Ok(true);
+                    }
+                }
+                None => {
+                    // We cannot be certain yet whether an accessor is alive or
+                    // reachable. For now we should return NotReady. We should not
+                    // test any other reachability conditions, because a buffer
+                    // with a closed gate is considered unreachable no matter what.
+                    return Err(OperationError::NotReady);
+                }
             }
 
             // If this gate is closed and will never be able to open again, then
@@ -127,11 +146,23 @@ where
             return Ok(true);
         }
 
-        if BufferAccessors::is_reachable(&mut reachability)? {
+        let r = BufferAccessors::is_reachable(&mut reachability).ready()?;
+        unsure |= r.is_none();
+        if r.is_some_and(|r| r) {
             return Ok(true);
         }
 
-        SingleInputStorage::is_reachable(&mut reachability)
+        let r = SingleInputStorage::is_reachable(&mut reachability).ready()?;
+        unsure |= r.is_none();
+        if r.is_some_and(|r| r) {
+            return Ok(true);
+        }
+
+        if unsure {
+            return Err(OperationError::NotReady);
+        }
+
+        Ok(false)
     }
 }
 
@@ -187,17 +218,27 @@ impl RelatedGateNodes {
         }
 
         let Some(gate_nodes) = source_ref.get::<Self>() else {
+            // The buffer gate is closed and there are no nodes that can open it.
             return Ok(false);
         };
 
-        for gate in &gate_nodes.0 {
-            let action = r.world.get::<GateActionStorage>(*gate).or_broken()?.0;
-            if action.is_open() && r.check_upstream(*gate)? {
-                return Ok(true);
-            }
-        }
+        let world = r.world;
+        r.check_any_upstream(gate_nodes.0.iter().filter_map(|gate| {
+            // This is an gate opening node, so we should check if it's
+            // reachable.
+            let action = match world.get::<GateActionStorage>(*gate).or_broken() {
+                Ok(action) => action,
+                Err(err) => return Some(Err(err)),
+            };
 
-        Ok(false)
+            if action.0.is_open() {
+                // This is a gate opening node, so check if it is reachable
+                Some(Ok(gate))
+            } else {
+                // This is not a gate opening node, so filter it out
+                None
+            }
+        }))
     }
 }
 

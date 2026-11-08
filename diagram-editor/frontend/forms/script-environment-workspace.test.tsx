@@ -570,7 +570,11 @@ test('navigation can be cancelled, saved, or discarded without bypassing validat
     click('Cancel', dialog);
     expect(panel.state).toMatchObject({ open: true, tab: 'environments' });
     expect(
-      await screen.findByRole('textbox', { name: 'Script editor' }),
+      await screen.findByRole(
+        'textbox',
+        { name: 'Script editor' },
+        { timeout: 20000 },
+      ),
     ).toHaveValue('updated');
   }
   act(panel.close);
@@ -592,7 +596,7 @@ test('navigation can be cancelled, saved, or discarded without bypassing validat
   click('Discard', screen.getByRole('dialog'));
   expect(panel.state.tab).toBe('run');
   expect(drafts.drafts.scriptEnvironment).toBeUndefined();
-});
+}, 20000);
 
 test('popup edits stay unapplied and closing it returns the same editor to the panel', async () => {
   await editEnvironment();

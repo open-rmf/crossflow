@@ -15,7 +15,7 @@
  *
 */
 
-use std::{collections::HashMap, usize};
+use std::collections::HashMap;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

@@ -144,17 +144,23 @@ where
             .or_broken()?
             .get::<FunnelInputStorage>()
             .or_broken()?;
-        for input in &inputs.0 {
-            if !r.check_upstream(*input)? {
-                // This input buffer is no longer reachable, so if it is also
-                // empty then there will be no way to ever perform a join.
-                if buffers.buffered_count_for(*input, r.session, r.world)? == 0 {
-                    return Ok(false);
-                }
-            }
-        }
 
-        Ok(true)
+        let world = r.world;
+        let session = r.session;
+        r.check_all_upstream(inputs.0.iter().filter_map(|input| {
+            let item_count = match buffers.buffered_count_for(*input, session, world) {
+                Ok(x) => x,
+                Err(err) => return Some(Err(err)),
+            };
+
+            if item_count > 0 {
+                // If the buffer already has at least one item, we don't
+                // need to check upstream
+                return None;
+            }
+
+            Some(Ok(input))
+        }))
     }
 }
 

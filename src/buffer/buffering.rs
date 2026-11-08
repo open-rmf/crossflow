@@ -114,7 +114,7 @@ pub trait Joining: Buffering {
     /// and join them into a tuple that gets sent to the target.
     ///
     /// If you need a more general way to get access to one or more buffers,
-    /// use [`listen`](Accessing::listen) instead.
+    /// use [`listen`](Accessing::create_listen) instead.
     fn join<'w, 's, 'a, 'b>(
         self,
         builder: &'b mut Builder<'w, 's, 'a>,
@@ -137,10 +137,10 @@ pub trait Accessing: Buffering {
     ///
     /// For an operation that simply joins the contents of two or more outputs
     /// or buffers, use [`join`](Joining::join) instead.
-    fn listen<'w, 's, 'a, 'b>(
+    fn create_listen<'w, 's, 'a>(
         self,
-        builder: &'b mut Builder<'w, 's, 'a>,
-    ) -> Chain<'w, 's, 'a, 'b, Self::Key> {
+        builder: &mut Builder<'w, 's, 'a>,
+    ) -> (Entity, Output<Self::Key>) {
         let scope = builder.scope();
         self.verify_scope(scope);
 
@@ -152,7 +152,7 @@ pub trait Accessing: Buffering {
             Listen::new(self, target),
         ));
 
-        Output::new(scope, target).chain(builder)
+        (listen, Output::new(scope, target))
     }
 
     fn access<T: 'static + Send + Sync>(self, builder: &mut Builder) -> Node<T, (T, Self::Key)> {

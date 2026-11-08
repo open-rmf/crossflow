@@ -349,6 +349,16 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
         &'b mut self,
         buffers: &BufferMap,
     ) -> Result<Chain<'w, 's, 'a, 'b, J>, TryJoinError> {
+        let (_, output) = self.try_create_join(buffers)?;
+        Ok(output.chain(self))
+    }
+
+    /// Create a join operation, getting back both the ID of the join operation
+    /// and its output.
+    pub fn try_create_join<J: Joined>(
+        &mut self,
+        buffers: &BufferMap,
+    ) -> Result<(Entity, Output<J>), TryJoinError> {
         let mut seen = HashSet::new();
         for buffer in buffers.values() {
             let id = buffer.id();
@@ -357,7 +367,7 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
             }
         }
 
-        Ok(J::try_join_from(buffers, self)?)
+        Ok(J::create_join_from(buffers, self)?)
     }
 
     /// Alternative way of calling [`Accessible::listen`].
@@ -370,7 +380,17 @@ impl<'w, 's, 'a> Builder<'w, 's, 'a> {
         &'b mut self,
         buffers: &BufferMap,
     ) -> Result<Chain<'w, 's, 'a, 'b, Keys>, IncompatibleLayout> {
-        Keys::try_listen_from(buffers, self)
+        let (_, output) = Keys::create_listen_from(buffers, self)?;
+        Ok(output.chain(self))
+    }
+
+    /// Create a listen operation, getting back both the ID of the listen operation
+    /// and its output.
+    pub fn try_create_listen<'b, Keys: Accessor>(
+        &mut self,
+        buffers: &BufferMap,
+    ) -> Result<(Entity, Output<Keys>), IncompatibleLayout> {
+        Keys::create_listen_from(buffers, self)
     }
 
     /// Create a node that combines its inputs with access to some buffers. You
@@ -883,6 +903,22 @@ mod tests {
     use crate::{CancellationCause, prelude::*, testing::*};
     use smallvec::SmallVec;
     use std::time::Instant;
+
+    #[test]
+    fn test_circular_unreachability() {
+        let mut context = TestingContext::minimal_plugins();
+
+        let workflow = context.spawn_io_workflow(|scope, builder| {
+            let node = builder.create_map_block(|a: i32| a);
+            builder.chain(node.output).map_block(|a| a).fork_clone((
+                |chain: Chain<_>| chain.connect(node.input),
+                |chain: Chain<_>| chain.connect(scope.terminate),
+            ));
+        });
+
+        let r = context.try_resolve_request(0, workflow, 10);
+        assert!(r.is_err());
+    }
 
     #[test]
     fn test_disconnected_workflow() {

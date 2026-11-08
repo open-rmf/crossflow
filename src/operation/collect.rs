@@ -23,10 +23,10 @@ use smallvec::SmallVec;
 
 use crate::{
     Disposal, DisposalInformation, DisposalListener, DisposalUpdate, Input, InputBundle,
-    ManageDisposal, ManageInput, Operation, OperationCleanup, OperationReachability,
+    InspectInput, ManageDisposal, ManageInput, Operation, OperationCleanup, OperationReachability,
     OperationRequest, OperationResult, OperationRoster, OperationSetup, OrBroken,
     ReachabilityResult, RouteSource, RouteTarget, Routing, Seq, SingleInputStorage,
-    SingleTargetStorage, is_downstream_of, output_port,
+    SingleTargetStorage, check_reachability, is_downstream_of, output_port,
 };
 
 pub(crate) struct Collect<T, const N: usize> {
@@ -172,7 +172,7 @@ where
                 // The current progress will be emitted if a disposal is happening.
                 if let Some(disposed) = reachability.disposed {
                     if is_downstream_of(disposed, source, reachability.world()) {
-                        // A downstream disposal occurred and the current progress
+                        // An upstream disposal occurred and the current progress
                         // reached the minimum requirement. Either this disposal
                         // will trigger the current progress to be released or
                         // a future arrival / disposal will trigger it, so we
@@ -253,25 +253,31 @@ fn is_upstream_active<T: 'static + Send + Sync>(
     disposed: Option<Entity>,
     world: &World,
 ) -> ReachabilityResult {
-    let mut visited = HashMap::new();
-    visited.insert(source, false);
-    let mut r = OperationReachability {
-        source,
-        session,
-        disposed,
-        requested_by_accessor: None,
-        world,
-        visited: &mut visited,
-    };
-
-    if r.has_input::<T>()? {
+    // NOTE: Unlike Collect::is_reachable, we do not check the current progress
+    // of the collection. That's why we don't reuse that function.
+    let has_input = world
+        .get_entity(source)
+        .or_broken()?
+        .has_input::<T>(session);
+    if has_input? {
         return Ok(true);
     }
 
-    // NOTE: Unlike fn is_reachable, we do not check the current progress of
-    // the collection. That's why we don't reuse that function.
+    let Some(inputs) = world
+        .get_entity(source)
+        .or_broken()?
+        .get::<SingleInputStorage>()
+    else {
+        return Ok(false);
+    };
 
-    SingleInputStorage::is_reachable(&mut r)
+    for input in inputs.iter() {
+        if check_reachability(session, *input, disposed, world)? {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }
 
 fn on_unreachable_collection<T: 'static + Send + Sync, const N: usize>(
