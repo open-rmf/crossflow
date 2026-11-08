@@ -570,7 +570,11 @@ test('navigation can be cancelled, saved, or discarded without bypassing validat
     click('Cancel', dialog);
     expect(panel.state).toMatchObject({ open: true, tab: 'environments' });
     expect(
-      await screen.findByRole('textbox', { name: 'Script editor' }, { timeout: 20000 }),
+      await screen.findByRole(
+        'textbox',
+        { name: 'Script editor' },
+        { timeout: 20000 },
+      ),
     ).toHaveValue('updated');
   }
   act(panel.close);
