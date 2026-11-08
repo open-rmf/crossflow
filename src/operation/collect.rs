@@ -172,7 +172,7 @@ where
                 // The current progress will be emitted if a disposal is happening.
                 if let Some(disposed) = reachability.disposed {
                     if is_downstream_of(disposed, source, reachability.world()) {
-                        // A downstream disposal occurred and the current progress
+                        // An upstream disposal occurred and the current progress
                         // reached the minimum requirement. Either this disposal
                         // will trigger the current progress to be released or
                         // a future arrival / disposal will trigger it, so we
