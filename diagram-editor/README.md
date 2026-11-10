@@ -96,3 +96,6 @@ cargo install wasm-pack
 pnpm install
 pnpm deploy-ghpages
 ```
+
+> [!NOTE]
+> Repo maintainers that want to publish this to crates.io will need to use the `--allow-dirty` flag because `dist.tar.gz` deliberately does not get committed to git.
