@@ -10,7 +10,7 @@ This contains a SPA React web app to create and edit a `crossflow` diagram and a
 that can be used to serve the embedded frontend.
 
 ```bash
-cargo add crossflow_diagram_editor
+cargo add crossflow_diagram_editor --features basic_executor
 ```
 
 ```rust
