@@ -128,7 +128,7 @@ mod frontend {
         let cached_dist_hash_path = Path::new(&manifest_dir).join("dist.hash");
         let cached_dist_hash_file = File::open(&cached_dist_hash_path);
 
-        let dist_tar_gz_path = Path::new(&out_dir).join("dist.tar.gz");
+        let dist_tar_gz_path = Path::new(&manifest_dir).join("dist.tar.gz");
         let dist_tar_gz_exists = std::fs::exists(&dist_tar_gz_path).is_ok_and(|x| x);
 
         let dist_hash = create_dist_hash(dist_tar_path);
