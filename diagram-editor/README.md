@@ -10,7 +10,7 @@ This contains a SPA React web app to create and edit a `crossflow` diagram and a
 that can be used to serve the embedded frontend.
 
 ```bash
-cargo add crossflow_diagram_editor
+cargo add crossflow_diagram_editor --features basic_executor
 ```
 
 ```rust
@@ -96,3 +96,6 @@ cargo install wasm-pack
 pnpm install
 pnpm deploy-ghpages
 ```
+
+> [!NOTE]
+> Repo maintainers that want to publish this to crates.io will need to use the `--allow-dirty` flag because `dist.tar.gz` deliberately does not get committed to git.
