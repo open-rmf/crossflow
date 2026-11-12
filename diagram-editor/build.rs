@@ -3,7 +3,6 @@
 ///
 /// This build script is excluded from the crate, the output tarball is included instead.
 /// This allows downstream to build the crate without any of the js stack.
-
 #[cfg(feature = "frontend")]
 mod frontend {
     use flate2::{Compression, write::GzEncoder};
@@ -15,25 +14,29 @@ mod frontend {
     use tar::Builder;
 
     fn build_pnpm<W: std::io::Write>(make_encoding: impl FnOnce() -> W) {
-        let status = Command::new("pnpm")
-            .arg("install")
-            .arg("--frozen-lockfile")
-            .status()
+        // Helper to run pnpm with fallback for Windows shims (`pnpm.cmd`) vs standalone binaries
+        fn run_pnpm(args: &[&str]) -> std::io::Result<std::process::ExitStatus> {
+            let run = |program: &str| Command::new(program).args(args).status();
+            if cfg!(windows) {
+                run("pnpm.cmd").or_else(|_| run("pnpm"))
+            } else {
+                run("pnpm")
+            }
+        }
+
+        let status = run_pnpm(&["install", "--frozen-lockfile"])
             .expect("Failed to execute pnpm install");
 
         if !status.success() {
             panic!("pnpm install failed with status: {:?}", status);
         }
 
-        let status = Command::new("pnpm")
-            .arg("build")
-            .status()
+        let status = run_pnpm(&["build"])
             .expect("Failed to execute pnpm build");
 
         if !status.success() {
             panic!("pnpm build failed with status: {:?}", status);
         }
-
         let dist_dir_path = "dist";
 
         if Path::new(dist_dir_path).exists() {
@@ -59,7 +62,7 @@ mod frontend {
                     .expect("Failed to add file to tar archive");
             }
             tar_builder.finish().expect("Failed to finish tar archive");
-            println!("Successfully compressed '{}'", dist_dir_path,);
+            println!("Successfully compressed '{}'", dist_dir_path);
         } else {
             panic!(
                 "Directory '{}' not found after pnpm build. Frontend build might have failed.",
