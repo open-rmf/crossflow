@@ -12,7 +12,7 @@ use tar::Archive;
 
 // This will include the bytes of the dist.tar.gz file from the OUT_DIR
 // The path is constructed at compile time.
-const DIST_TAR_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/dist.tar.gz"));
+const DIST_TAR_GZ: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/dist.tar.gz"));
 
 fn load_dist() -> HashMap<std::path::PathBuf, Vec<u8>> {
     let mut archive = Archive::new(GzDecoder::new(DIST_TAR_GZ));
