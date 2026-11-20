@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
-*/
+ */
 
 // ANCHOR: calculator_example
 use crossflow_diagram_editor::basic_executor::{self, DiagramElementRegistry, Error};

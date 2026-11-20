@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
-*/
+ */
 
 /// A struct to provide the default implementation for various operations.
 pub struct Supported<T = ()> {

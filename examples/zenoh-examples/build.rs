@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
-*/
+ */
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     prost_build::compile_protos(&["protos/door.proto"], &["protos/"]).map_err(box_error)?;

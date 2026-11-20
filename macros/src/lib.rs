@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
-*/
+ */
 
 mod derive_buffer;
 use derive_buffer::{impl_buffer_accessor, impl_joined_value};
