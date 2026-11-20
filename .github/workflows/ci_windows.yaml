@@ -29,12 +29,28 @@ jobs:
         rustup target add x86_64-pc-windows-msvc
       shell: powershell
 
+    # Added pnpm setup as requested by maintainers
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: latest
+        run_install: false
+
     - name: Build default features
       run: cargo build --package crossflow
       shell: cmd
 
     - name: Test default features
       run: cargo test --package crossflow
+      shell: cmd
+
+    - name: Test diagram editor
+      run: cargo test --package crossflow_diagram_editor
       shell: cmd
 
     - name: Test diagram
