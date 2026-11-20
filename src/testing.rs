@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
-*/
+ */
 
 pub use bevy_app::{App, Update};
 pub use bevy_ecs::{
