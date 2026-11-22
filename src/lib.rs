@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
-*/
+ */
 
 //! ![sense-think-act workflow](https://raw.githubusercontent.com/open-rmf/crossflow/main/assets/sense-think-act_workflow.svg)
 //!

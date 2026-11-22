@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
-*/
+ */
 
 use bevy_app::{App, AppExit, Update};
 use bevy_ecs::prelude::{EventWriter, Res};

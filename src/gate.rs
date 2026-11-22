@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
-*/
+ */
 
 /// Indicate whether a buffer gate should open or close.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

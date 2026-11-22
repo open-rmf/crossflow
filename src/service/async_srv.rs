@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
-*/
+ */
 
 use crate::{
     Async, AsyncService, Blocker, Channel, ChannelQueue, ChooseAsyncServiceDelivery, Deliver,

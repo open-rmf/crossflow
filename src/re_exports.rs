@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
-*/
+ */
 
 //! This module contains symbols that are being re-exported so they can be used
 //! by crossflow_derive.
