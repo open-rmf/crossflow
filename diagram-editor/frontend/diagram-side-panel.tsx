@@ -28,10 +28,12 @@ import {
   type DiagramSidePanelTab,
   useDiagramSidePanel,
 } from './diagram-side-panel-controller';
+import { useTemplateId } from './editor-mode';
 import {
   ScriptEnvironmentWorkspace,
   type ScriptNodeEnvironmentBinding,
 } from './forms/script-environment-workspace';
+import TemplatePanel from './forms/template-panel';
 import { useLoadContext } from './load-context-provider';
 import { MaterialSymbol } from './nodes';
 import { RunPanel } from './run-button';
@@ -63,11 +65,15 @@ function DiagramSidePanel({
   scriptNodeBinding,
 }: DiagramSidePanelProps) {
   const {
-    state: { open, tab, expanded },
+    state: { open, tab: selectedTab, expanded },
     close,
     showTab,
     setWidth,
   } = useDiagramSidePanel();
+  const templateId = useTemplateId();
+  const editingTemplate = templateId !== undefined;
+  const tab =
+    editingTemplate && selectedTab === 'run' ? 'properties' : selectedTab;
   const [diagramProperties, setDiagramProperties] = useDiagramProperties();
   const loadContext = useLoadContext();
   const theme = useTheme();
@@ -184,16 +190,18 @@ function DiagramSidePanel({
           >
             <Tab
               value="properties"
-              label="Properties"
+              label={editingTemplate ? 'Template' : 'Properties'}
               icon={<MaterialSymbol symbol="info" />}
               iconPosition="start"
             />
-            <Tab
-              value="run"
-              label="Run"
-              icon={<MaterialSymbol symbol="play_arrow" />}
-              iconPosition="start"
-            />
+            {!editingTemplate && (
+              <Tab
+                value="run"
+                label="Run"
+                icon={<MaterialSymbol symbol="play_arrow" />}
+                iconPosition="start"
+              />
+            )}
             <Tab
               value="environments"
               label="Environments"
@@ -216,14 +224,19 @@ function DiagramSidePanel({
             minHeight: 0,
           }}
         >
-          <RunPanel
-            requestJsonString={runRequestJson}
-            onRequestJsonStringChange={onRunRequestJsonChange}
-          />
+          {!editingTemplate && (
+            <RunPanel
+              requestJsonString={runRequestJson}
+              onRequestJsonStringChange={onRunRequestJsonChange}
+            />
+          )}
         </Box>
+        {editingTemplate && tab === 'properties' && (
+          <TemplatePanel templateId={templateId} />
+        )}
         <Box
           sx={{
-            display: tab === 'properties' ? 'flex' : 'none',
+            display: !editingTemplate && tab === 'properties' ? 'flex' : 'none',
             flexDirection: 'column',
             flex: 1,
             minHeight: 0,

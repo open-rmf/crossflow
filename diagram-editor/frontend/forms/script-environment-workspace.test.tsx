@@ -224,20 +224,25 @@ describe('ScriptEnvironmentWorkspace', () => {
       screen.getByRole('option', { name: 'generic-script-builder' }),
     );
 
-    await waitFor(() => {
-      expect(
-        screen.getByLabelText('Builder Config (JSON)'),
-      ).toBeInTheDocument();
-    });
-    const config = screen.getByLabelText('Builder Config (JSON)');
-    fireEvent.change(config, {
-      target: { value: '{"script_content":"first"}' },
-    });
+    fireEvent.change(
+      await screen.findByRole('textbox', { name: 'script_content' }),
+      {
+        target: { value: 'first' },
+      },
+    );
     fireEvent.mouseDown(screen.getByLabelText('Code Field'));
     fireEvent.click(screen.getByRole('option', { name: 'script_content' }));
     expect(scriptEditor()).toHaveValue('first');
+    expect(
+      screen.queryByRole('textbox', { name: 'script_content' }),
+    ).not.toBeInTheDocument();
     changeScript('second');
-    expect(JSON.parse((config as HTMLTextAreaElement).value)).toEqual({
+    fireEvent.click(screen.getByRole('button', { name: 'Edit as JSON' }));
+    expect(
+      JSON.parse(
+        (screen.getByLabelText('Builder Config') as HTMLTextAreaElement).value,
+      ),
+    ).toEqual({
       script_content: 'second',
     });
   });

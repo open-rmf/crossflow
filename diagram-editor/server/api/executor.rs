@@ -266,7 +266,7 @@ fn check_connections(
         .connections
         .into_iter()
         .map(|connection| match &inference {
-            Ok(inference) => check_connection(registry, connection, inference),
+            Ok(inference) => check_connection(registry, &request.diagram, connection, inference),
             Err(error) => CompatibilityResult::terminal(
                 connection.id,
                 CompatibilityStatus::Unknown,
@@ -279,6 +279,7 @@ fn check_connections(
 
 fn check_connection(
     registry: &DiagramElementRegistry,
+    diagram: &Diagram,
     connection: CompatibilityConnection,
     inference: &HashMap<PortRef, Vec<Result<(usize, bool), DiagramError>>>,
 ) -> CompatibilityResult {
@@ -397,8 +398,71 @@ fn check_connection(
         names.dedup();
         (!names.is_empty()).then(|| names.join(" | "))
     };
-    let source_type_name = type_names(&source_types);
-    let target_type_name = type_names(&target_types);
+    let source_declared = connection
+        .source_port
+        .as_ref()
+        .and_then(|p| declared_port_schema(diagram, p));
+    let target_declared = connection
+        .target_port
+        .as_ref()
+        .and_then(|p| declared_port_schema(diagram, p));
+    let declared_label = |schema: &serde_json::Value| {
+        ["title", "type", "$ref"]
+            .iter()
+            .find_map(|key| schema[key].as_str().map(str::to_owned))
+    };
+    let source_type_name = source_declared
+        .and_then(declared_label)
+        .or_else(|| type_names(&source_types));
+    let target_type_name = target_declared
+        .and_then(declared_label)
+        .or_else(|| type_names(&target_types));
+    if source_declared.is_some() || target_declared.is_some() {
+        let inferred_schemas = |types: &[(usize, bool)]| {
+            types
+                .iter()
+                .filter(|(_, certain)| *certain)
+                .map(|(index, _)| {
+                    registry
+                        .message_schema(*index)
+                        .map(|schema| schema.as_value())
+                })
+                .collect::<Vec<_>>()
+        };
+        let sources = source_declared
+            .map(|s| vec![Some(s)])
+            .unwrap_or_else(|| inferred_schemas(&source_types));
+        let targets = target_declared
+            .map(|s| vec![Some(s)])
+            .unwrap_or_else(|| inferred_schemas(&target_types));
+        let mut uncertain = sources.is_empty() || targets.is_empty();
+        for source in &sources {
+            for target in &targets {
+                let compatible = source
+                    .zip(*target)
+                    .and_then(|(s, t)| registry.message_schemas_compatible(s, t));
+                match compatible {
+                    Some(true) => {}
+                    Some(false) => {
+                        return CompatibilityResult::with_types(
+                            connection.id,
+                            CompatibilityStatus::Incompatible,
+                            "The source and target schemas accept no common value",
+                            source_type_name,
+                            target_type_name,
+                        );
+                    }
+                    None => uncertain = true,
+                }
+            }
+        }
+        if uncertain {
+            unknown.get_or_insert((
+                "Cannot determine whether the port schemas match".into(),
+                true,
+            ));
+        }
+    }
     if let Some((reason, provisional)) = unknown {
         return CompatibilityResult {
             provisional,
@@ -438,6 +502,51 @@ fn check_connection(
         source_type_name,
         target_type_name,
     )
+}
+
+fn declared_port_schema<'a>(diagram: &'a Diagram, port: &PortRef) -> Option<&'a serde_json::Value> {
+    use crossflow::{Identifier, OperationRef, OutputRef, SectionProvider};
+    let (namespaces, section, name, input) = match port {
+        PortRef::Input(OperationRef::Named(port)) => (
+            &port.namespaces,
+            port.exposed_namespace.as_ref()?,
+            &port.name,
+            true,
+        ),
+        PortRef::Output(OutputRef::Named(port)) => {
+            let [Identifier::Name(key), Identifier::Name(name)] = &port.key[..] else {
+                return None;
+            };
+            if key.as_ref() != "connect" {
+                return None;
+            }
+            (&port.namespaces, &port.operation, name, false)
+        }
+        _ => return None,
+    };
+    let template = |op: &DiagramOperation| {
+        let DiagramOperation::Section(section) = op else {
+            return None;
+        };
+        let SectionProvider::Template(template) = &section.provider else {
+            return None;
+        };
+        diagram.templates.get(template)
+    };
+    let mut ops = &diagram.ops;
+    for namespace in namespaces.iter() {
+        ops = match ops.get(namespace)?.as_ref() {
+            DiagramOperation::Scope(scope) => &scope.ops,
+            op => &template(op)?.ops,
+        };
+    }
+    let section = template(ops.get(section)?)?;
+    let declarations = if input {
+        &section.input_schemas
+    } else {
+        &section.output_schemas
+    };
+    Some(declarations.get(name)?.as_value())
 }
 
 fn is_missing_context_error(error: &DiagramError) -> bool {

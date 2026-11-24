@@ -654,6 +654,13 @@
           "type": "string"
         },
         "config": true,
+        "config_bindings": {
+          "description": "JSON pointers within config linked to properties of the enclosing template.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "display_text": {
           "description": "Override for text that should be displayed for an operation within an\neditor.",
           "type": [
@@ -731,6 +738,12 @@
           "type": "string",
           "const": "keep_all"
         }
+      ]
+    },
+    "Schema": {
+      "type": [
+        "object",
+        "boolean"
       ]
     },
     "ScopeSchema": {
@@ -844,6 +857,13 @@
         "config": {
           "description": "Configured data to pass into the function that `run` refers to. This will\nbe passed in as a keyword argument named `config`."
         },
+        "config_bindings": {
+          "description": "JSON pointers within config linked to properties of the enclosing template.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "display_text": {
           "description": "Override for text that should be displayed for an operation within an\neditor.",
           "type": [
@@ -909,8 +929,12 @@
       "description": "Connect the request to a registered section.\n\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"start\": \"section_op\",\n    \"ops\": {\n        \"section_op\": {\n            \"type\": \"section\",\n            \"builder\": \"my_section_builder\",\n            \"connect\": {\n                \"my_section_output\": { \"builtin\": \"terminate\" }\n            }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```\n\nCustom sections can also be created via templates\n```\n# crossflow::Diagram::from_json_str(r#\"\n{\n    \"version\": \"0.1.0\",\n    \"templates\": {\n        \"my_template\": {\n            \"inputs\": [\"section_input\"],\n            \"outputs\": [\"section_output\"],\n            \"buffers\": [],\n            \"ops\": {\n                \"section_input\": {\n                    \"type\": \"node\",\n                    \"builder\": \"my_node\",\n                    \"next\": \"section_output\"\n                }\n            }\n        }\n    },\n    \"start\": \"section_op\",\n    \"ops\": {\n        \"section_op\": {\n            \"type\": \"section\",\n            \"template\": \"my_template\",\n            \"connect\": {\n                \"section_output\": { \"builtin\": \"terminate\" }\n            }\n        }\n    }\n}\n# \"#)?;\n# Ok::<_, serde_json::Error>(())\n```",
       "type": "object",
       "properties": {
-        "config": {
-          "default": null
+        "config": true,
+        "config_bindings": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
         },
         "connect": {
           "type": "object",
@@ -977,6 +1001,24 @@
           "$ref": "#/$defs/InputRemapping",
           "default": []
         },
+        "config_schema": {
+          "description": "The JSON Schema of a section instance's configuration.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Schema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "input_schemas": {
+          "description": "JSON Schemas for the template's exposed input ports.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Schema"
+          }
+        },
         "inputs": {
           "description": "These are the inputs that the section is exposing for its sibling\noperations to send outputs into.",
           "$ref": "#/$defs/InputRemapping",
@@ -987,6 +1029,13 @@
           "type": "object",
           "additionalProperties": {
             "$ref": "#/$defs/DiagramOperation"
+          }
+        },
+        "output_schemas": {
+          "description": "JSON Schemas for the template's exposed output ports.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Schema"
           }
         },
         "outputs": {

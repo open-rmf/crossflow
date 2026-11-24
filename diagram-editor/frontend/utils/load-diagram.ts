@@ -198,18 +198,18 @@ export function loadTemplate(template: SectionTemplate): Graph {
   stubDiagram.ops = template.ops;
   const initialNodes: DiagramEditorNode[] = [];
 
-  if (template.inputs) {
-    if (Array.isArray(template.inputs)) {
-      for (const input of template.inputs) {
-        initialNodes.push(createSectionInputNode(input, input, { x: 0, y: 0 }));
-      }
-    } else {
-      for (const [remappedId, targetId] of Object.entries(template.inputs)) {
-        initialNodes.push(
-          createSectionInputNode(remappedId, targetId, { x: 0, y: 0 }),
-        );
-      }
-    }
+  const inputs = Array.isArray(template.inputs)
+    ? template.inputs.map((name) => [name, name] as const)
+    : Object.entries(template.inputs ?? {});
+  for (const [name, target] of inputs) {
+    initialNodes.push(
+      createSectionInputNode(
+        name,
+        target,
+        { x: 0, y: 0 },
+        template.input_schemas?.[name],
+      ),
+    );
   }
 
   if (template.buffers) {
@@ -230,7 +230,13 @@ export function loadTemplate(template: SectionTemplate): Graph {
 
   if (template.outputs) {
     for (const output of template.outputs) {
-      initialNodes.push(createSectionOutputNode(output, { x: 0, y: 0 }));
+      initialNodes.push(
+        createSectionOutputNode(
+          output,
+          { x: 0, y: 0 },
+          template.output_schemas?.[output],
+        ),
+      );
     }
   }
 

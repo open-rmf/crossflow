@@ -37,6 +37,7 @@ import { useRegistry } from '../registry-provider';
 import { useTransientEditorDrafts } from '../transient-editor-drafts';
 import type { DiagramElementMetadata } from '../types/api';
 import { EnvironmentWindow } from './environment-window';
+import SchemaConfigForm from './schema-config-form';
 import { ScriptEnvironmentPanel } from './script-environment-panel';
 import { scriptEnvironmentPlugins } from './script-environments/registry';
 
@@ -191,6 +192,7 @@ export function ScriptEnvironmentWorkspace({
   }, [draft, editorWindow, expanded, width, updateDraft]);
   const plugin = scriptEnvironmentPlugins[builder];
   const activeCodeField = plugin?.defaultCodeField || selectedCodeField;
+  const builderSchema = registry.scripting?.[builder]?.config_schema;
 
   const builderDraft = useCallback(
     (builder: string) => ({
@@ -215,7 +217,7 @@ export function ScriptEnvironmentWorkspace({
       const values = builderDraft(environment?.builder || defaultBuilder);
       if (environment)
         values.config = JSON.stringify(
-          objectConfig(environment.config),
+          environment.config === undefined ? {} : environment.config,
           null,
           2,
         );
@@ -260,13 +262,14 @@ export function ScriptEnvironmentWorkspace({
     [nodeManager.nodes],
   );
 
-  let parsedConfig: Record<string, unknown> = {};
+  let configValue: unknown;
   let jsonError: string | null = null;
   try {
-    parsedConfig = objectConfig(JSON.parse(config));
+    configValue = JSON.parse(config);
   } catch (error) {
     jsonError = (error as Error).message;
   }
+  const parsedConfig = objectConfig(configValue);
   const configKeys = Object.keys(parsedConfig).filter(
     (key) => typeof parsedConfig[key] === 'string',
   );
@@ -731,6 +734,29 @@ export function ScriptEnvironmentWorkspace({
                 mode={mode}
                 registry={registry}
                 scriptText={scriptText}
+              />
+            ) : builderSchema &&
+              typeof builderSchema === 'object' &&
+              Object.keys(builderSchema).length ? (
+              <SchemaConfigForm
+                key={builder}
+                label="Builder Config"
+                allowJson
+                schema={builderSchema}
+                definitions={registry.schemas}
+                value={configValue}
+                uiSchema={
+                  configKeys.includes(activeCodeField)
+                    ? { [activeCodeField]: { 'ui:widget': 'hidden' } }
+                    : undefined
+                }
+                rawDraft={jsonError ? config : undefined}
+                onRawDraftChange={(text) => {
+                  if (text !== undefined) updateDraft({ config: text });
+                }}
+                onChange={(value) =>
+                  updateDraft({ config: JSON.stringify(value, null, 2) ?? '' })
+                }
               />
             ) : (
               <TextField

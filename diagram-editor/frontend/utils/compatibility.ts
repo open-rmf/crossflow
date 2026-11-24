@@ -283,12 +283,15 @@ function portRefsForEdge(
     focusPorts,
     sourcePort:
       templateSection &&
-      (sourceNode.type === 'sectionInput' ||
+      ((sourceNode.type === 'sectionInput' &&
+        sourceNode.data.schema === undefined) ||
         sourceNode.type === 'sectionBuffer')
         ? undefined
         : sourcePort,
     targetPort:
-      templateSection && targetNode.type === 'sectionOutput'
+      templateSection &&
+      targetNode.type === 'sectionOutput' &&
+      targetNode.data.schema === undefined
         ? undefined
         : targetPort,
   };
@@ -345,6 +348,7 @@ export function buildCompatibilityRequest(
               graph.registry,
               nodeManager,
               edges,
+              graph.templates[graph.templateId],
             ),
           },
           script_environments: cloneJson(graph.diagramProperties)

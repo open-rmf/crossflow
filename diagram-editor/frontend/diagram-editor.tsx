@@ -83,6 +83,7 @@ import { NodeManager, NodeManagerProvider } from './node-manager';
 import {
   type DiagramEditorNode,
   isBuiltinNode,
+  isOperationNode,
   MaterialSymbol,
   NODE_TYPES,
   type OperationNode,
@@ -415,6 +416,7 @@ function DiagramEditor() {
   const {
     state: sidePanelState,
     restoreState: restoreSidePanel,
+    showTab,
     finishEnvironmentEdit,
     requestEnvironmentLeave,
   } = useDiagramSidePanel();
@@ -444,6 +446,7 @@ function DiagramEditor() {
           if (!template) {
             throw new Error(`template ${newMode.templateId} not found`);
           }
+          showTab('properties');
           const graph = loadTemplate(template);
           const changes = autoLayout(graph.nodes, graph.edges, LAYOUT_OPTIONS);
           // using callback form so that `nodes` and `edges` don't need to be part of dependencies.
@@ -466,7 +469,7 @@ function DiagramEditor() {
 
       setEditorMode(newMode);
     },
-    [templates],
+    [templates, showTab],
   );
 
   const handleEdgeChanges = React.useCallback(
@@ -1594,17 +1597,30 @@ function DiagramEditor() {
           <Fab
             color="primary"
             aria-label="Save"
-            sx={{ position: 'absolute', right: 64, bottom: 64 }}
+            sx={{ position: 'absolute', left: 16, bottom: 16 }}
             onClick={() => {
+              const unfinished = nodes.find(
+                (node) =>
+                  `${node.type}:${node.id}:config` in
+                  transientEditorDrafts.operationConfigs,
+              );
+              if (unfinished && isOperationNode(unfinished)) {
+                showErrorToast(
+                  `Finish editing the config for "${unfinished.data.opId}" before saving.`,
+                );
+                return;
+              }
               const exportedTemplate = exportTemplate(
                 registry,
                 nodeManager,
                 edges,
+                templates[editorMode.templateId],
               );
               setTemplates((prev) => ({
                 ...prev,
                 [editorMode.templateId]: exportedTemplate,
               }));
+              closeAllPopovers();
               updateEditorModeAction({ mode: EditorMode.Normal });
             }}
           >

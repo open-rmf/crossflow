@@ -7,14 +7,14 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useDiagramProperties } from '../diagram-properties-provider';
 import { useDiagramSidePanel } from '../diagram-side-panel-controller';
 import { MaterialSymbol } from '../nodes';
-import { useTransientEditorDrafts } from '../transient-editor-drafts';
 import BaseEditOperationForm, {
   type BaseEditOperationFormProps,
 } from './base-edit-operation-form';
+import OperationConfigForm from './operation-config-form';
 import { useScriptEnvironmentNavigation } from './use-script-environment-navigation';
 
 export type ScriptFormProps = BaseEditOperationFormProps<'script'>;
@@ -23,7 +23,6 @@ const CREATE_ENVIRONMENT_VALUE = '__create_script_environment__';
 
 function ScriptForm(props: ScriptFormProps) {
   const [diagramProperties] = useDiagramProperties();
-  const { drafts, setOperationConfigDraft } = useTransientEditorDrafts();
   const environments = diagramProperties.script_environments || {};
   const openScriptEnvironment = useScriptEnvironmentNavigation();
   const {
@@ -32,26 +31,6 @@ function ScriptForm(props: ScriptFormProps) {
     startEnvironmentCreate,
     requestEnvironmentLeave,
   } = useDiagramSidePanel();
-
-  // Track raw string of node config to support JSON editing
-  const configDraftKey = `script:${props.node.id}:config`;
-  const [configValue, setConfigValue] = useState(
-    () =>
-      drafts.operationConfigs[configDraftKey] ??
-      (props.node.data.op.config
-        ? JSON.stringify(props.node.data.op.config, null, 2)
-        : ''),
-  );
-
-  const configError = useMemo(() => {
-    if (configValue === '') return false;
-    try {
-      JSON.parse(configValue);
-      return false;
-    } catch {
-      return true;
-    }
-  }, [configValue]);
 
   const handleEnvChange = (envName: string) =>
     requestEnvironmentLeave(() => {
@@ -215,33 +194,10 @@ function ScriptForm(props: ScriptFormProps) {
         )}
       />
 
-      <TextField
-        multiline
-        rows={4}
+      <OperationConfigForm
+        {...props}
+        schema={undefined}
         label="Node Config (JSON)"
-        value={configValue}
-        onChange={(ev) => {
-          setConfigValue(ev.target.value);
-          try {
-            const updatedNode = { ...props.node };
-            updatedNode.data.op.config =
-              ev.target.value === '' ? undefined : JSON.parse(ev.target.value);
-            props.onChange?.({
-              type: 'replace',
-              id: props.node.id,
-              item: updatedNode,
-            });
-            setOperationConfigDraft(configDraftKey, undefined);
-          } catch {
-            setOperationConfigDraft(configDraftKey, ev.target.value);
-          }
-        }}
-        error={configError}
-        slotProps={{
-          htmlInput: {
-            sx: { fontFamily: 'monospace', whiteSpace: 'nowrap' },
-          },
-        }}
       />
     </BaseEditOperationForm>
   );

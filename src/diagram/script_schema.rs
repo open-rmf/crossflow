@@ -27,10 +27,11 @@ use std::{
 };
 
 use crate::{
-    Async, BasicConnect, BuildDiagramOperation, BuildStatus, BuilderContext, ConnectIntoTarget,
-    DiagramErrorCode, DynInputSlot, DynOutput, DynamicallyNamedStream, InferenceContext,
-    IntoCallback, JsonMessage, NextOperation, Node, OperationName, Operations, ScriptMessage,
-    StreamOf, Templates, Text, TraceInfo, TraceSettings, TypeInfo, TypeMismatch, is_default,
+    Async, BasicConnect, BuildDiagramOperation, BuildStatus, BuilderContext, ConfigBindings,
+    ConnectIntoTarget, DiagramErrorCode, DynInputSlot, DynOutput, DynamicallyNamedStream,
+    InferenceContext, IntoCallback, JsonMessage, NextOperation, Node, OperationName, Operations,
+    ScriptMessage, StreamOf, Templates, Text, TraceInfo, TraceSettings, TypeInfo, TypeMismatch,
+    is_default,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -44,6 +45,9 @@ pub struct ScriptSchema {
     /// be passed in as a keyword argument named `config`.
     #[serde(default, skip_serializing_if = "is_default")]
     pub config: Arc<JsonMessage>,
+    /// JSON pointers within config linked to properties of the enclosing template.
+    #[serde(default, skip_serializing_if = "ConfigBindings::is_empty")]
+    pub config_bindings: ConfigBindings,
     /// The operation that the final output of this Python operation will be passed to
     pub next: NextOperation,
     /// Specify what happens if an error occurs during the script, such as an
@@ -70,6 +74,9 @@ impl BuildDiagramOperation for ScriptSchema {
         id: &OperationName,
         ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
+        if !self.config_bindings.is_empty() {
+            return Err(super::SectionError::UnresolvedConfigBindings.into());
+        }
         let env = ctx.get_script_environment(&self.environment)?;
         let script = env.compile(&self.run, &self.config).map_err(|error| {
             DiagramErrorCode::ScriptCompileError {

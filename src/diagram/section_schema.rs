@@ -15,9 +15,12 @@
  *
  */
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
-use schemars::JsonSchema;
+use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -26,12 +29,15 @@ use crate::{
 
 use super::{
     BuildDiagramOperation, BuildStatus, BuilderContext, BuilderId, DiagramElementRegistry,
-    DiagramErrorCode, DynInputSlot, DynOutput, MessageRegistrations, NamespacedOperation,
-    NextOperation, OperationName, OperationRef, Operations, RedirectConnection, Templates,
-    TraceInfo, TraceSettings,
+    DiagramErrorCode, DiagramOperation, DynInputSlot, DynOutput, MessageRegistrations,
+    NamespacedOperation, NextOperation, OperationName, OperationRef, Operations,
+    RedirectConnection, Templates, TraceInfo, TraceSettings,
 };
 
 pub use crossflow_derive::Section;
+
+/// Maps JSON pointers in an operation's config to properties of its enclosing template.
+pub type ConfigBindings = BTreeMap<String, OperationName>;
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -99,8 +105,15 @@ pub enum SectionProvider {
 pub struct SectionSchema {
     #[serde(flatten)]
     pub provider: SectionProvider,
-    #[serde(default)]
-    pub config: Arc<JsonMessage>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "serde_with::rust::unwrap_or_skip::deserialize"
+    )]
+    #[schemars(with = "JsonMessage")]
+    pub config: Option<Arc<JsonMessage>>,
+    #[serde(default, skip_serializing_if = "ConfigBindings::is_empty")]
+    pub config_bindings: ConfigBindings,
     #[serde(default)]
     pub connect: HashMap<OperationName, NextOperation>,
     #[serde(flatten)]
@@ -113,13 +126,19 @@ impl BuildDiagramOperation for SectionSchema {
         id: &OperationName,
         ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
+        if !self.config_bindings.is_empty() {
+            return Err(SectionError::UnresolvedConfigBindings.into());
+        }
         match &self.provider {
             SectionProvider::Builder(section_builder) => {
                 let section_registration =
                     ctx.registry.get_section_registration(section_builder)?;
 
                 let section = section_registration
-                    .create_section(ctx.builder, (*self.config).clone())?
+                    .create_section(
+                        ctx.builder,
+                        self.config.as_deref().cloned().unwrap_or_default(),
+                    )?
                     .into_slots();
 
                 // TODO(@mxgrey): Figure out how to automatically trace operations
@@ -162,8 +181,9 @@ impl BuildDiagramOperation for SectionSchema {
             SectionProvider::Template(section_template) => {
                 let section = ctx.templates.get_template(section_template)?;
 
-                for (child_id, op) in section.ops.iter() {
-                    ctx.add_child_operation(id, child_id, op, section.ops.clone(), None, None);
+                let ops = section.configured_ops(self.config.as_deref(), ctx.registry)?;
+                for (child_id, op) in ops.iter() {
+                    ctx.add_child_operation(id, child_id, op, ops.clone(), None, None);
                 }
 
                 section
@@ -393,6 +413,15 @@ pub struct SectionBuffer {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct SectionTemplate {
+    /// The JSON Schema of a section instance's configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_schema: Option<Schema>,
+    /// JSON Schemas for the template's exposed input ports.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub input_schemas: HashMap<OperationName, Schema>,
+    /// JSON Schemas for the template's exposed output ports.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub output_schemas: HashMap<OperationName, Schema>,
     /// These are the inputs that the section is exposing for its sibling
     /// operations to send outputs into.
     #[serde(default)]
@@ -407,6 +436,101 @@ pub struct SectionTemplate {
     pub buffers: InputRemapping,
     /// Operations that define the behavior of the section.
     pub ops: Operations,
+}
+
+impl SectionTemplate {
+    fn configured_ops(
+        &self,
+        config: Option<&JsonMessage>,
+        registry: &DiagramElementRegistry,
+    ) -> Result<Operations, SectionError> {
+        let Some(schema) = &self.config_schema else {
+            // Unresolved bindings, including those outside a template, fail when built.
+            return Ok(self.ops.clone());
+        };
+        let schema = registry.schema_with_definitions(schema.as_value());
+        let validator = jsonschema::draft202012::options()
+            .should_validate_formats(false)
+            .build(&schema)
+            .map_err(|e| SectionError::InvalidConfig(e.to_string()))?;
+        let mut values = config.cloned().unwrap_or_else(|| serde_json::json!({}));
+        let properties = schema["properties"].as_object();
+        if let (Some(properties), Some(values)) = (properties, values.as_object_mut()) {
+            for (key, property) in properties {
+                let required = schema["required"]
+                    .as_array()
+                    .is_some_and(|keys| keys.iter().any(|value| value.as_str() == Some(key)));
+                if !required && let Some(default) = property.get("default") {
+                    values.entry(key).or_insert_with(|| default.clone());
+                }
+            }
+        }
+        validator
+            .validate(&values)
+            .map_err(|e| SectionError::InvalidConfig(format!("#{}: {e}", e.instance_path())))?;
+        let mut ops = self.ops.clone();
+        bind_config(&mut ops, &values, properties)?;
+        Ok(ops)
+    }
+}
+
+fn bind_config(
+    ops: &mut Operations,
+    values: &JsonMessage,
+    properties: Option<&serde_json::Map<String, JsonMessage>>,
+) -> Result<(), SectionError> {
+    for op in Arc::make_mut(ops).values_mut() {
+        let op = Arc::make_mut(op);
+        let bindings = match op {
+            DiagramOperation::Node(node) => &mut node.config_bindings,
+            DiagramOperation::Script(script) => &mut script.config_bindings,
+            DiagramOperation::Section(section) => &mut section.config_bindings,
+            DiagramOperation::Scope(scope) => {
+                bind_config(&mut scope.ops, values, properties)?;
+                continue;
+            }
+            _ => continue,
+        };
+        for (pointer, name) in std::mem::take(bindings) {
+            if !properties.is_some_and(|p| p.contains_key(name.as_ref())) {
+                return Err(SectionError::UnknownConfigProperty(name));
+            }
+            if let Some(value) = values.get(name.as_ref()) {
+                let config = match op {
+                    DiagramOperation::Node(node) => &mut node.config,
+                    DiagramOperation::Script(script) => &mut script.config,
+                    DiagramOperation::Section(section) => {
+                        section.config.get_or_insert_with(Default::default)
+                    }
+                    _ => unreachable!(),
+                };
+                set_config_value(Arc::make_mut(config), &pointer, value.clone())
+                    .ok_or(SectionError::InvalidBinding(pointer))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn set_config_value(config: &mut JsonMessage, pointer: &str, value: JsonMessage) -> Option<()> {
+    let mut field = config;
+    let mut tokens = pointer.split('/');
+    if tokens.next() != Some("") {
+        return None;
+    }
+    for token in tokens {
+        let key = token.replace("~1", "/").replace("~0", "~");
+        if field.is_null() {
+            *field = serde_json::json!({});
+        }
+        field = match field {
+            JsonMessage::Object(object) => object.entry(key).or_insert(JsonMessage::Null),
+            JsonMessage::Array(array) => array.get_mut(key.parse::<usize>().ok()?)?,
+            _ => return None,
+        };
+    }
+    *field = value;
+    Some(())
 }
 
 /// This defines how sections remap their inner operations (inputs and buffers)
@@ -474,6 +598,14 @@ impl InputRemapping {
 pub enum SectionError {
     #[error("operation has extra output [{0}] that is not in the section")]
     UnknownOutput(OperationName),
+    #[error("invalid section configuration: {0}")]
+    InvalidConfig(String),
+    #[error("unknown section configuration property [{0}]")]
+    UnknownConfigProperty(OperationName),
+    #[error("invalid configuration binding path [{0}]")]
+    InvalidBinding(String),
+    #[error("configuration bindings require an enclosing template with a configuration schema")]
+    UnresolvedConfigBindings,
 }
 
 #[cfg(test)]

@@ -13,7 +13,7 @@ Whereas section builders have static message types for their inputs and outputs,
 
 ### Section Template Schema
 
-The [`SectionTemplate`][SectionTemplate] schema consists of four fields:
+The [`SectionTemplate`][SectionTemplate] schema describes the graph and its interface:
 
 * [`"inputs"`][SectionTemplate::inputs]: an [input remapping] that says which input slots inside the section should be exposed to operations that are outside of the section.
   These are similar to the `InputSlot<_>` fields of a [section builder](./diagram-section-builders.md#closure).
@@ -22,6 +22,24 @@ The [`SectionTemplate`][SectionTemplate] schema consists of four fields:
   None of the operations inside `"ops"` can use any of these names as a key.
 * [`"ops"`][SectionTemplate::ops]: a dictionary of operation instances that exist inside this section, along with information about how they connect to each other.
   The syntax of this section is exactly the same as the `"ops"` section of regular [diagrams](./diagram-syntax.md#operations) and scope operations.
+* `config_schema` is an optional JSON Schema for the configuration supplied by each instance.
+* `input_schemas` and `output_schemas` optionally declare schemas by exposed port name. The editor uses these declarations to check connections. Ports without declarations use the existing type inference.
+
+### Configuring an Instance
+
+For example, a template can expose a required integer named `factor` through this configuration schema.
+
+```json
+{
+    "type": "object",
+    "properties": { "factor": { "type": "integer" } },
+    "required": ["factor"]
+}
+```
+
+Bindings refer to names in the configuration schema’s top-level `properties`. A property can itself use a registered type or alternatives. In the editor, add `factor` in the Template panel. Open the multiply node inside the template and use the link beside its numeric config to select `factor`. The editor saves `"config_bindings": { "": "factor" }` on that node. The empty JSON Pointer addresses its entire numeric config. A pointer such as `"/scale"` addresses a field inside an object config.
+
+Give one section instance `"config": { "factor": 3 }` and another `"config": { "factor": 5 }`. The same template now multiplies an input of 2 by 3 or 5, producing 6 or 10. The executor validates each instance when building the diagram. For an omitted optional property it uses the property's declared default, or keeps the node's own value if there is no default.
 
 ### Referencing Section Templates
 

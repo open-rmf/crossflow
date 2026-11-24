@@ -371,6 +371,51 @@ impl DiagramElementRegistry {
         self.messages.registration.get::<T>()
     }
 
+    /// JSON schema of a registered message, for comparing it with a declared port.
+    pub fn message_schema(&self, index: usize) -> Option<&Schema> {
+        self.messages
+            .registration
+            .get_by_index(index)
+            .ok()?
+            .schema
+            .as_ref()
+    }
+
+    pub(super) fn schema_with_definitions(&self, schema: &JsonMessage) -> JsonMessage {
+        let mut schema = schema.clone();
+        if let Some(object) = schema.as_object_mut() {
+            object.entry("schemas").or_insert_with(|| {
+                JsonMessage::Object(self.messages.schema_generator.definitions().clone())
+            });
+        }
+        schema
+    }
+
+    /// Whether all source messages satisfy the target schema. Partially overlapping
+    /// schemas and cases that cannot be decided statically return `None`.
+    pub fn message_schemas_compatible(
+        &self,
+        source: &JsonMessage,
+        target: &JsonMessage,
+    ) -> Option<bool> {
+        use jsonschema::canonical::{Containment, Satisfiability};
+        let canonical = |schema| {
+            jsonschema::canonical::options()
+                .should_validate_formats(false)
+                .canonicalize(&self.schema_with_definitions(schema))
+                .ok()
+        };
+        let source = canonical(source)?;
+        let target = canonical(target)?;
+        if target.covers(&source).ok()? == Containment::Yes {
+            Some(true)
+        } else if source.intersect(&target).ok()?.satisfiability() == Satisfiability::No {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
     pub fn get_message_operations_by_index(
         &self,
         message_index: usize,

@@ -1,7 +1,7 @@
 import { type NodeProps, Position } from '@xyflow/react';
 import { Handle, HandleType } from '../handles';
 import { useRegistry } from '../registry-provider';
-import type { NextOperation } from '../types/api';
+import type { NextOperation, Schema } from '../types/api';
 import type { Node } from '../types/react-flow';
 import { isSectionBuilder } from '../utils/operation';
 import type { OperationNode } from '.';
@@ -16,12 +16,14 @@ import {
 export type SectionInputData = {
   remappedId: string;
   targetId: NextOperation;
+  schema?: Schema;
 };
 
 export type SectionInputNode = Node<SectionInputData, 'sectionInput'>;
 
 export type SectionOutputData = {
   outputId: string;
+  schema?: Schema;
 };
 
 export type SectionOutputNode = Node<SectionOutputData, 'sectionOutput'>;

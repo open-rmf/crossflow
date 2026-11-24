@@ -1,23 +1,14 @@
-import { MenuItem, TextField } from '@mui/material';
+import type { RJSFSchema } from '@rjsf/utils';
 import { useEffect, useMemo } from 'react';
+import SchemaConfigForm from '../schema-config-form';
 import type { ScriptEnvironmentFormProps } from './registry';
 
-type JsonSchemaProperty = {
-  $ref?: string;
-  anyOf?: JsonSchemaProperty[];
-  enum?: string[];
+const fallback = {
+  type: 'object',
+  properties: {
+    ownership: { type: 'string', enum: ['shared', 'persistent', 'isolated'] },
+  },
 };
-
-type JsonSchemaObject = JsonSchemaProperty & {
-  definitions?: Record<string, JsonSchemaProperty>;
-  properties?: Record<string, JsonSchemaProperty>;
-};
-
-function schemaObject(value: unknown): JsonSchemaObject | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as JsonSchemaObject)
-    : null;
-}
 
 export function PythonPropertiesForm({
   config,
@@ -27,73 +18,32 @@ export function PythonPropertiesForm({
   registry,
   scriptText,
 }: ScriptEnvironmentFormProps) {
-  const ownershipOptions = useMemo(() => {
-    const schema = schemaObject(
-      registry?.scripting?.['process-bound-python']?.config_schema,
-    );
-    const ownershipProp = schema?.properties?.ownership;
-    const ref = ownershipProp?.$ref || ownershipProp?.anyOf?.[0]?.$ref;
-    let enumValues: string[] = ['shared', 'persistent', 'isolated'];
-    if (ref) {
-      const defName = ref.split('/').pop();
-      const def = defName
-        ? schemaObject(schema?.definitions?.[defName]) ||
-          schemaObject(registry?.schemas?.[defName])
-        : null;
-      if (def?.enum) {
-        enumValues = def.enum;
-      }
-    } else if (ownershipProp?.enum) {
-      enumValues = ownershipProp.enum;
-    }
-    return enumValues;
-  }, [registry]);
-
-  const getOwnershipValue = () => {
+  const parsed = useMemo(() => {
     try {
-      const obj = JSON.parse(config);
-      return obj.ownership || 'persistent';
-    } catch {
-      return 'persistent';
+      return { value: JSON.parse(config), error: null };
+    } catch (error) {
+      return { value: { script: scriptText }, error: String(error) };
     }
-  };
-
-  // Validate config is valid JSON
-  useEffect(() => {
-    try {
-      JSON.parse(config);
-      onValidationError(null);
-    } catch (err) {
-      onValidationError(err instanceof Error ? err.message : 'Invalid JSON');
-    }
-  }, [config, onValidationError]);
-
-  const handleOwnershipChange = (newVal: string) => {
-    try {
-      const obj = JSON.parse(config) || {};
-      obj.ownership = newVal;
-      onChange(JSON.stringify(obj, null, 2));
-    } catch {
-      const obj = { ownership: newVal, script: scriptText };
-      onChange(JSON.stringify(obj, null, 2));
-    }
-  };
-
+  }, [config, scriptText]);
+  useEffect(
+    () => onValidationError(parsed.error),
+    [parsed.error, onValidationError],
+  );
+  const schema = registry?.scripting?.['process-bound-python']?.config_schema as
+    | RJSFSchema
+    | undefined;
   return (
-    <TextField
-      select={mode !== 'view'}
-      label="Environment Ownership"
-      value={getOwnershipValue()}
-      onChange={(e) => handleOwnershipChange(e.target.value)}
-      fullWidth
+    <SchemaConfigForm
+      schema={schema ?? fallback}
+      definitions={registry?.schemas}
+      value={{ ownership: 'persistent', ...parsed.value }}
+      onChange={(value) => onChange(JSON.stringify(value, null, 2))}
       disabled={mode === 'view'}
-      sx={{ flex: 1 }}
-    >
-      {ownershipOptions.map((opt) => (
-        <MenuItem key={opt} value={opt}>
-          {opt.charAt(0).toUpperCase() + opt.slice(1)}
-        </MenuItem>
-      ))}
-    </TextField>
+      uiSchema={{
+        'ui:label': false,
+        ownership: { 'ui:title': 'Environment Ownership' },
+        script: { 'ui:widget': 'hidden' },
+      }}
+    />
   );
 }

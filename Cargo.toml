@@ -114,6 +114,7 @@ serde_json = { workspace = true, optional = true }
 
 
 # --- Dependencies for diagram feature
+jsonschema = { version = "0.62", default-features = false, optional = true }
 schemars = { workspace = true, optional = true }
 serde_with = { workspace = true, optional = true }
 cel-interpreter = { version = "0.9.0", features = ["json"], optional = true }
@@ -152,6 +153,7 @@ json = [
 single_threaded_async = ["dep:async-task"]
 diagram = [
   "json",
+  "dep:jsonschema",
   "dep:cel-interpreter",
   "dep:semver",
   "dep:serde_with",
