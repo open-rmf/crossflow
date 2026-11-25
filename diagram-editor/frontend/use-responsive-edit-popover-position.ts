@@ -20,9 +20,9 @@ function useViewportWidth(): number {
   return viewportWidth;
 }
 
-export function useDiagramSidePanelWidth(): number {
+export function useDiagramSidePanelWidth(open: boolean): number {
   const {
-    state: { open, expanded, width },
+    state: { expanded, width },
   } = useDiagramSidePanel();
   const viewportWidth = useViewportWidth();
 

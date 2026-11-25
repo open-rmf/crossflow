@@ -237,12 +237,9 @@ describe('ScriptEnvironmentWorkspace', () => {
       screen.queryByRole('textbox', { name: 'script_content' }),
     ).not.toBeInTheDocument();
     changeScript('second');
-    fireEvent.click(screen.getByRole('button', { name: 'Edit as JSON' }));
-    expect(
-      JSON.parse(
-        (screen.getByLabelText('Builder Config') as HTMLTextAreaElement).value,
-      ),
-    ).toEqual({
+    fireEvent.click(screen.getByRole('button', { name: 'Edit JSON' }));
+    const config = screen.getByLabelText('Builder Config');
+    expect(JSON.parse((config as HTMLTextAreaElement).value)).toEqual({
       script_content: 'second',
     });
   });

@@ -10,6 +10,7 @@ import { MaterialSymbol } from '../nodes';
 import { useRegistry } from '../registry-provider';
 import BaseEditOperationForm, {
   type BaseEditOperationFormProps,
+  operationUpdater,
 } from './base-edit-operation-form';
 import ConfigExamples from './config-examples';
 import OperationConfigForm from './operation-config-form';
@@ -24,14 +25,7 @@ function NodeForm(props: NodeFormProps) {
   const existingConfig = op.config;
   const builderMetadata = registry.nodes[op.builder];
 
-  const replaceOp = (updatedOp: typeof op) => {
-    props.onChange?.({
-      type: 'replace',
-      id: props.node.id,
-      item: { ...props.node, data: { ...props.node.data, op: updatedOp } },
-    });
-  };
-
+  const replaceOp = operationUpdater(props);
   const updateConfig = (config: unknown) => {
     const { config: _config, ...rest } = op;
     replaceOp(config === undefined ? rest : { ...rest, config });
@@ -100,11 +94,7 @@ function NodeForm(props: NodeFormProps) {
           {builderMetadata.description}
         </Typography>
       )}
-      <OperationConfigForm
-        {...props}
-        schema={builderMetadata?.config_schema}
-        definitions={registry.schemas}
-      />
+      <OperationConfigForm {...props} schema={builderMetadata?.config_schema} />
       <ConfigExamples
         examples={builderMetadata?.config_examples ?? []}
         onApply={updateConfig}

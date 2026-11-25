@@ -1,6 +1,6 @@
 import type { XYPosition } from '@xyflow/react';
 import { v4 as uuidv4 } from 'uuid';
-import type { DiagramOperation, NextOperation, Schema } from '../types/api';
+import type { DiagramOperation, NextOperation } from '../types/api';
 import { calculateScopeBounds, LAYOUT_OPTIONS } from '../utils/layout';
 import { joinNamespaces } from '../utils/namespace';
 import { generateOperationId } from '../utils/operation-id';
@@ -49,12 +49,11 @@ export function createSectionInputNode(
   remappedId: string,
   targetId: NextOperation,
   position: XYPosition,
-  schema?: Schema,
 ): SectionInputNode {
   return {
     id: uuidv4(),
     type: 'sectionInput',
-    data: { remappedId, targetId, schema },
+    data: { remappedId, targetId },
     position,
   };
 }
@@ -62,12 +61,11 @@ export function createSectionInputNode(
 export function createSectionOutputNode(
   outputId: string,
   position: XYPosition,
-  schema?: Schema,
 ): SectionOutputNode {
   return {
     id: uuidv4(),
     type: 'sectionOutput',
-    data: { outputId, schema },
+    data: { outputId },
     position,
   };
 }

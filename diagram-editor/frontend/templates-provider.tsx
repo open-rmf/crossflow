@@ -9,14 +9,6 @@ import {
 import { useTemplateId } from './editor-mode';
 import type { SectionTemplate } from './types/api';
 
-export function templatePropertyNames(
-  schema: SectionTemplate['config_schema'],
-): string[] {
-  return typeof schema === 'object' && schema?.properties
-    ? Object.keys(schema.properties)
-    : [];
-}
-
 export type TemplatesContext = [
   Record<string, SectionTemplate>,
   Dispatch<SetStateAction<Record<string, SectionTemplate>>>,

@@ -198,18 +198,18 @@ export function loadTemplate(template: SectionTemplate): Graph {
   stubDiagram.ops = template.ops;
   const initialNodes: DiagramEditorNode[] = [];
 
-  const inputs = Array.isArray(template.inputs)
-    ? template.inputs.map((name) => [name, name] as const)
-    : Object.entries(template.inputs ?? {});
-  for (const [name, target] of inputs) {
-    initialNodes.push(
-      createSectionInputNode(
-        name,
-        target,
-        { x: 0, y: 0 },
-        template.input_schemas?.[name],
-      ),
-    );
+  if (template.inputs) {
+    if (Array.isArray(template.inputs)) {
+      for (const input of template.inputs) {
+        initialNodes.push(createSectionInputNode(input, input, { x: 0, y: 0 }));
+      }
+    } else {
+      for (const [remappedId, targetId] of Object.entries(template.inputs)) {
+        initialNodes.push(
+          createSectionInputNode(remappedId, targetId, { x: 0, y: 0 }),
+        );
+      }
+    }
   }
 
   if (template.buffers) {
@@ -230,15 +230,16 @@ export function loadTemplate(template: SectionTemplate): Graph {
 
   if (template.outputs) {
     for (const output of template.outputs) {
-      initialNodes.push(
-        createSectionOutputNode(
-          output,
-          { x: 0, y: 0 },
-          template.output_schemas?.[output],
-        ),
-      );
+      initialNodes.push(createSectionOutputNode(output, { x: 0, y: 0 }));
     }
   }
 
+  for (const port of initialNodes) {
+    if (port.type === 'sectionInput') {
+      port.data.schema = template.input_schemas?.[port.data.remappedId];
+    } else if (port.type === 'sectionOutput') {
+      port.data.schema = template.output_schemas?.[port.data.outputId];
+    }
+  }
   return buildGraph(stubDiagram, { nodes: initialNodes, edges: [] });
 }

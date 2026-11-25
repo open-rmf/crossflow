@@ -24,10 +24,10 @@ import { useTemplates } from '../templates-provider';
 import { useTransientEditorDrafts } from '../transient-editor-drafts';
 import BaseEditOperationForm, {
   type BaseEditOperationFormProps,
+  operationUpdater,
 } from './base-edit-operation-form';
-
 import OperationConfigForm from './operation-config-form';
-import SchemaEditor from './schema-editor';
+import { PortSchemaEditor } from './schema-editor';
 
 export interface BaseSectionInterfaceFormProps {
   node: SectionInterfaceNode;
@@ -84,17 +84,7 @@ export function SectionInputForm({
             });
           }}
         />
-        <SchemaEditor
-          label="Input schema"
-          value={node.data.schema}
-          onChange={(schema) =>
-            onChange?.({
-              type: 'replace',
-              id: node.id,
-              item: { ...node, data: { ...node.data, schema } },
-            })
-          }
-        />
+        <PortSchemaEditor node={node} onChange={onChange} />
       </Stack>
     </BaseSectionInterfaceForm>
   );
@@ -159,17 +149,7 @@ export function SectionOutputForm({
             });
           }}
         />
-        <SchemaEditor
-          label="Output schema"
-          value={node.data.schema}
-          onChange={(schema) =>
-            onChange?.({
-              type: 'replace',
-              id: node.id,
-              item: { ...node, data: { ...node.data, schema } },
-            })
-          }
-        />
+        <PortSchemaEditor node={node} onChange={onChange} />
       </Stack>
     </BaseSectionInterfaceForm>
   );
@@ -180,26 +160,19 @@ export type SectionFormProps = BaseEditOperationFormProps<'section'>;
 export function SectionForm(props: SectionFormProps) {
   const { clearOperationConfigDrafts } = useTransientEditorDrafts();
   const registry = useRegistry();
-  const [templates, _setTemplates] = useTemplates();
+  const [templates] = useTemplates();
   const sectionBuilders = Object.keys(registry.sections);
   const sectionTemplates = Object.keys(templates);
   const sections = [...sectionBuilders, ...sectionTemplates].sort();
 
   const op = props.node.data.op;
+  const replaceOp = operationUpdater(props);
   const template =
     typeof op.template === 'string' ? templates[op.template] : undefined;
   const schema =
     typeof op.builder === 'string'
       ? registry.sections[op.builder]?.config_schema
       : template?.config_schema;
-
-  function replaceOp(next: typeof op) {
-    props.onChange?.({
-      type: 'replace',
-      id: props.node.id,
-      item: { ...props.node, data: { ...props.node.data, op: next } },
-    });
-  }
 
   return (
     <BaseEditOperationForm {...props}>
@@ -236,11 +209,7 @@ export function SectionForm(props: SectionFormProps) {
         )}
       />
       {(!template || schema != null) && (
-        <OperationConfigForm
-          {...props}
-          schema={schema}
-          definitions={registry.schemas}
-        />
+        <OperationConfigForm {...props} schema={schema} />
       )}
     </BaseEditOperationForm>
   );

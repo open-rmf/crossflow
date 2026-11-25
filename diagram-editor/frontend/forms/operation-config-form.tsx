@@ -1,12 +1,4 @@
-import {
-  Box,
-  Chip,
-  IconButton,
-  Menu,
-  MenuItem,
-  Stack,
-  Tooltip,
-} from '@mui/material';
+import { Chip, MenuItem, Stack, Tooltip, Typography } from '@mui/material';
 import { Templates } from '@rjsf/mui';
 import type { FieldTemplateProps } from '@rjsf/utils';
 import {
@@ -14,40 +6,42 @@ import {
   createContext,
   type PropsWithChildren,
   useContext,
-  useState,
 } from 'react';
 import { MaterialSymbol } from '../nodes';
-import {
-  templatePropertyNames,
-  useActiveTemplate,
-} from '../templates-provider';
+import { useRegistry } from '../registry-provider';
+import { useActiveTemplate } from '../templates-provider';
 import { useTransientEditorDrafts } from '../transient-editor-drafts';
-import type { BaseEditOperationFormProps } from './base-edit-operation-form';
+import { bindingProperties, schemaDocument } from '../utils/schema-types';
+import {
+  type BaseEditOperationFormProps,
+  operationUpdater,
+} from './base-edit-operation-form';
+import { FieldActions, FieldMenu } from './field-actions';
 import SchemaConfigForm, {
   type SchemaConfigFormProps,
 } from './schema-config-form';
 
 type Bindings = Record<string, string>;
 const BindingContext = createContext<{
-  properties: string[];
+  schema: ReturnType<typeof schemaDocument>;
+  pointer?: string;
   bindings: Bindings;
   update: (bindings: Bindings) => void;
 } | null>(null);
-const ParentPointer = createContext<string | undefined>(undefined);
 const MuiField = Templates.FieldTemplate as ComponentType<FieldTemplateProps>;
 
 function BindableField({
-  pointer,
-  label,
+  field,
+  pointer = '',
+  label = field?.label ?? 'Config',
   children,
 }: PropsWithChildren<{
-  pointer: string;
-  label: string;
+  field?: FieldTemplateProps;
+  pointer?: string;
+  label?: string;
 }>) {
   const context = useContext(BindingContext);
-  const parent = useContext(ParentPointer);
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  if (!context || parent === pointer) return children;
+  if (!context || context.pointer === pointer) return children;
 
   const linked = context.bindings[pointer];
   const select = (property?: string) => {
@@ -61,54 +55,77 @@ function BindableField({
       next[pointer] = property;
     }
     context.update(next);
-    setAnchor(null);
   };
-  return (
-    <ParentPointer.Provider value={pointer}>
-      {linked !== undefined ? (
-        <Stack spacing={0.5} alignItems="flex-start">
-          <Box
-            component="span"
-            sx={{ typography: 'caption', color: 'text.secondary' }}
+  if (linked !== undefined) {
+    return (
+      <Stack spacing={0.5} alignItems="flex-start">
+        <Typography variant="caption" color="text.secondary">
+          {label}
+        </Typography>
+        <Chip
+          label={linked}
+          color="primary"
+          icon={<MaterialSymbol symbol="link" />}
+          onDelete={() => select()}
+        />
+      </Stack>
+    );
+  }
+
+  const menu = (
+    <FieldMenu
+      symbol="link"
+      label={`Link ${label} to a section property`}
+      menuListSx={{
+        display: 'grid',
+        gridTemplateColumns: '1fr auto auto',
+        columnGap: 1,
+        '& > li': {
+          display: 'grid',
+          gridColumn: '1 / -1',
+          gridTemplateColumns: 'subgrid',
+        },
+      }}
+    >
+      {() => {
+        const properties = bindingProperties(context.schema, field);
+        if (!properties.length)
+          return <MenuItem disabled>No section properties</MenuItem>;
+        return properties.map(({ name, type, warning }) => (
+          <MenuItem
+            key={name}
+            aria-label={name}
+            aria-description={warning ? `${type}, ${warning}` : type}
+            onClick={() => select(name)}
           >
-            {label}
-          </Box>
-          <Chip
-            label={linked}
-            color="primary"
-            icon={<MaterialSymbol symbol="link" />}
-            onDelete={() => select()}
-          />
-        </Stack>
-      ) : (
-        <Stack direction="row" alignItems="flex-start" spacing={1}>
-          <Box sx={{ flex: 1, minWidth: 0 }}>{children}</Box>
-          <Tooltip title={`Link ${label} to a section property`}>
-            <IconButton
-              aria-label={`Link ${label} to a section property`}
-              sx={{ mt: 1 }}
-              onClick={(event) => setAnchor(event.currentTarget)}
+            <span>{name}</span>
+            {warning && (
+              <Tooltip title={warning}>
+                <MaterialSymbol
+                  symbol="warning"
+                  sx={{ fontSize: 18, color: 'warning.main' }}
+                />
+              </Tooltip>
+            )}
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              align="right"
+              sx={{ gridColumn: 3 }}
             >
-              <MaterialSymbol symbol="link" />
-            </IconButton>
-          </Tooltip>
-        </Stack>
-      )}
-      <Menu
-        anchorEl={anchor}
-        open={Boolean(anchor)}
-        onClose={() => setAnchor(null)}
-      >
-        {!context.properties.length && (
-          <MenuItem disabled>No section properties</MenuItem>
-        )}
-        {context.properties.map((name) => (
-          <MenuItem key={name} onClick={() => select(name)}>
-            {name}
+              {type}
+            </Typography>
           </MenuItem>
-        ))}
-      </Menu>
-    </ParentPointer.Provider>
+        ));
+      }}
+    </FieldMenu>
+  );
+  return (
+    <BindingContext.Provider value={{ ...context, pointer }}>
+      <FieldActions id={field?.id ?? ''} actions={menu}>
+        {children}
+      </FieldActions>
+    </BindingContext.Provider>
   );
 }
 
@@ -126,7 +143,7 @@ function OperationField(props: FieldTemplateProps) {
     .map((key) => `/${String(key).replace(/~/g, '~0').replace(/\//g, '~1')}`)
     .join('');
   return (
-    <BindableField pointer={pointer} label={props.label}>
+    <BindableField field={props} pointer={pointer}>
       {field}
     </BindableField>
   );
@@ -135,30 +152,21 @@ function OperationField(props: FieldTemplateProps) {
 type OperationProps = BaseEditOperationFormProps<
   'node' | 'script' | 'section'
 > &
-  Pick<SchemaConfigFormProps, 'schema' | 'definitions' | 'label'>;
+  Pick<SchemaConfigFormProps, 'schema' | 'label'>;
 
-export default function OperationConfigForm({
-  node,
-  onChange,
-  schema,
-  definitions,
-  label = 'Config',
-}: OperationProps) {
+export default function OperationConfigForm(props: OperationProps) {
+  const { node, schema, label = 'Config' } = props;
+  const { schemas: definitions } = useRegistry();
   const template = useActiveTemplate();
   const { drafts, setOperationConfigDraft } = useTransientEditorDrafts();
   const op = node.data.op;
+  const replaceOp = operationUpdater(props);
   const key = `${op.type}:${node.id}:config`;
-  const replace = (next: typeof op) =>
-    onChange?.({
-      type: 'replace',
-      id: node.id,
-      item: { ...node, data: { ...node.data, op: next } },
-    });
   const binding = template && {
     bindings: op.config_bindings ?? {},
-    properties: templatePropertyNames(template.config_schema),
+    schema: schemaDocument(template.config_schema, definitions),
     update: (next: Bindings) =>
-      replace({
+      replaceOp({
         ...op,
         config_bindings: Object.keys(next).length ? next : undefined,
       }),
@@ -171,7 +179,7 @@ export default function OperationConfigForm({
       allowJson
       nodeDefaults={op.type === 'node'}
       value={op.config}
-      onChange={(config) => replace({ ...op, config })}
+      onChange={(config) => replaceOp({ ...op, config })}
       fieldTemplate={binding ? OperationField : undefined}
       rawDraft={drafts.operationConfigs[key]}
       onRawDraftChange={(text) => setOperationConfigDraft(key, text)}
@@ -180,9 +188,7 @@ export default function OperationConfigForm({
   return (
     <BindingContext.Provider value={binding ?? null}>
       {binding && (!schema || typeof schema === 'boolean') ? (
-        <BindableField pointer="" label={label}>
-          {form}
-        </BindableField>
+        <BindableField label={label}>{form}</BindableField>
       ) : (
         form
       )}

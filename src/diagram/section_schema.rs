@@ -15,10 +15,7 @@
  *
  */
 
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
@@ -37,7 +34,7 @@ use super::{
 pub use crossflow_derive::Section;
 
 /// Maps JSON pointers in an operation's config to properties of its enclosing template.
-pub type ConfigBindings = BTreeMap<String, OperationName>;
+pub type ConfigBindings = std::collections::BTreeMap<String, OperationName>;
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -454,13 +451,13 @@ impl SectionTemplate {
             .build(&schema)
             .map_err(|e| SectionError::InvalidConfig(e.to_string()))?;
         let mut values = config.cloned().unwrap_or_else(|| serde_json::json!({}));
-        let properties = schema["properties"].as_object();
-        if let (Some(properties), Some(values)) = (properties, values.as_object_mut()) {
+        let properties = &schema["properties"];
+        if let (Some(properties), Some(values)) = (properties.as_object(), values.as_object_mut()) {
+            let required = schema["required"].as_array();
             for (key, property) in properties {
-                let required = schema["required"]
-                    .as_array()
-                    .is_some_and(|keys| keys.iter().any(|value| value.as_str() == Some(key)));
-                if !required && let Some(default) = property.get("default") {
+                if let Some(default) = property.get("default")
+                    && !required.is_some_and(|keys| keys.iter().any(|k| k == key))
+                {
                     values.entry(key).or_insert_with(|| default.clone());
                 }
             }
@@ -477,7 +474,7 @@ impl SectionTemplate {
 fn bind_config(
     ops: &mut Operations,
     values: &JsonMessage,
-    properties: Option<&serde_json::Map<String, JsonMessage>>,
+    properties: &JsonMessage,
 ) -> Result<(), SectionError> {
     for op in Arc::make_mut(ops).values_mut() {
         let op = Arc::make_mut(op);
@@ -492,7 +489,7 @@ fn bind_config(
             _ => continue,
         };
         for (pointer, name) in std::mem::take(bindings) {
-            if !properties.is_some_and(|p| p.contains_key(name.as_ref())) {
+            if properties.get(name.as_ref()).is_none() {
                 return Err(SectionError::UnknownConfigProperty(name));
             }
             if let Some(value) = values.get(name.as_ref()) {
@@ -520,11 +517,8 @@ fn set_config_value(config: &mut JsonMessage, pointer: &str, value: JsonMessage)
     }
     for token in tokens {
         let key = token.replace("~1", "/").replace("~0", "~");
-        if field.is_null() {
-            *field = serde_json::json!({});
-        }
         field = match field {
-            JsonMessage::Object(object) => object.entry(key).or_insert(JsonMessage::Null),
+            JsonMessage::Null | JsonMessage::Object(_) => &mut field[key],
             JsonMessage::Array(array) => array.get_mut(key.parse::<usize>().ok()?)?,
             _ => return None,
         };

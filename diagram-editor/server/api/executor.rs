@@ -398,43 +398,31 @@ fn check_connection(
         names.dedup();
         (!names.is_empty()).then(|| names.join(" | "))
     };
-    let source_declared = connection
-        .source_port
-        .as_ref()
-        .and_then(|p| declared_port_schema(diagram, p));
-    let target_declared = connection
-        .target_port
-        .as_ref()
-        .and_then(|p| declared_port_schema(diagram, p));
-    let declared_label = |schema: &serde_json::Value| {
-        ["title", "type", "$ref"]
-            .iter()
-            .find_map(|key| schema[key].as_str().map(str::to_owned))
+    let port_info = |port: &Option<PortRef>, types: &[(usize, bool)]| {
+        let schema = port.as_ref().and_then(|p| declared_port_schema(diagram, p));
+        let label = schema.and_then(|s| {
+            ["title", "type", "$ref"]
+                .into_iter()
+                .find_map(|key| s[key].as_str())
+        });
+        let name = label.map(str::to_owned).or_else(|| type_names(types));
+        (schema, name)
     };
-    let source_type_name = source_declared
-        .and_then(declared_label)
-        .or_else(|| type_names(&source_types));
-    let target_type_name = target_declared
-        .and_then(declared_label)
-        .or_else(|| type_names(&target_types));
+    let (source_declared, source_type_name) = port_info(&connection.source_port, &source_types);
+    let (target_declared, target_type_name) = port_info(&connection.target_port, &target_types);
     if source_declared.is_some() || target_declared.is_some() {
-        let inferred_schemas = |types: &[(usize, bool)]| {
+        let schemas = |declared, types: &[(usize, bool)]| {
+            if let Some(schema) = declared {
+                return vec![Some(schema)];
+            }
             types
                 .iter()
                 .filter(|(_, certain)| *certain)
-                .map(|(index, _)| {
-                    registry
-                        .message_schema(*index)
-                        .map(|schema| schema.as_value())
-                })
+                .map(|(index, _)| registry.message_schema(*index).map(|s| s.as_value()))
                 .collect::<Vec<_>>()
         };
-        let sources = source_declared
-            .map(|s| vec![Some(s)])
-            .unwrap_or_else(|| inferred_schemas(&source_types));
-        let targets = target_declared
-            .map(|s| vec![Some(s)])
-            .unwrap_or_else(|| inferred_schemas(&target_types));
+        let sources = schemas(source_declared, &source_types);
+        let targets = schemas(target_declared, &target_types);
         let mut uncertain = sources.is_empty() || targets.is_empty();
         for source in &sources {
             for target in &targets {
@@ -505,48 +493,38 @@ fn check_connection(
 }
 
 fn declared_port_schema<'a>(diagram: &'a Diagram, port: &PortRef) -> Option<&'a serde_json::Value> {
-    use crossflow::{Identifier, OperationRef, OutputRef, SectionProvider};
-    let (namespaces, section, name, input) = match port {
-        PortRef::Input(OperationRef::Named(port)) => (
-            &port.namespaces,
-            port.exposed_namespace.as_ref()?,
-            &port.name,
-            true,
-        ),
-        PortRef::Output(OutputRef::Named(port)) => {
-            let [Identifier::Name(key), Identifier::Name(name)] = &port.key[..] else {
-                return None;
-            };
-            if key.as_ref() != "connect" {
-                return None;
-            }
-            (&port.namespaces, &port.operation, name, false)
+    use crossflow::{
+        BuildDiagramOperation, Identifier, OperationName, OperationRef, OutputRef, SectionProvider,
+    };
+    let template = |namespaces: &[OperationName], id: &OperationName| {
+        let mut ops = diagram.ops.clone();
+        for namespace in namespaces {
+            let parent = ops.get(namespace)?;
+            ops = parent.child_operations(&diagram.templates).ok()??;
         }
+        let DiagramOperation::Section(section) = ops.get(id)?.as_ref() else {
+            return None;
+        };
+        let SectionProvider::Template(id) = &section.provider else {
+            return None;
+        };
+        diagram.templates.get(id)
+    };
+    let schema = match port {
+        PortRef::Input(OperationRef::Named(port)) => {
+            let section = template(&port.namespaces, port.exposed_namespace.as_ref()?)?;
+            section.input_schemas.get(&port.name)
+        }
+        PortRef::Output(OutputRef::Named(port)) => match &port.key[..] {
+            [Identifier::Name(key), Identifier::Name(name)] if key.as_ref() == "connect" => {
+                let section = template(&port.namespaces, &port.operation)?;
+                section.output_schemas.get(name)
+            }
+            _ => None,
+        },
         _ => return None,
-    };
-    let template = |op: &DiagramOperation| {
-        let DiagramOperation::Section(section) = op else {
-            return None;
-        };
-        let SectionProvider::Template(template) = &section.provider else {
-            return None;
-        };
-        diagram.templates.get(template)
-    };
-    let mut ops = &diagram.ops;
-    for namespace in namespaces.iter() {
-        ops = match ops.get(namespace)?.as_ref() {
-            DiagramOperation::Scope(scope) => &scope.ops,
-            op => &template(op)?.ops,
-        };
-    }
-    let section = template(ops.get(section)?)?;
-    let declarations = if input {
-        &section.input_schemas
-    } else {
-        &section.output_schemas
-    };
-    Some(declarations.get(name)?.as_value())
+    }?;
+    Some(schema.as_value())
 }
 
 fn is_missing_context_error(error: &DiagramError) -> bool {

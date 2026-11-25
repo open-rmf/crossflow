@@ -48,7 +48,10 @@ import {
   useDiagramProperties,
 } from './diagram-properties-provider';
 import { useDiagramSidePanel } from './diagram-side-panel-controller';
-import { getEditPopoverPositionForNode } from './diagram-side-panel-layout';
+import {
+  getEditPopoverPositionForNode,
+  MinimumVisibleCanvasWidth,
+} from './diagram-side-panel-layout';
 import {
   clearDraftWorkspace,
   type DraftWorkspaceContent,
@@ -98,6 +101,7 @@ import type { Diagram } from './types/api';
 import { useBeforeUnloadWarning } from './use-before-unload-warning';
 import { useDraftPagehideFlush } from './use-draft-pagehide-flush';
 import { EdgesProvider } from './use-edges';
+import { useDiagramSidePanelWidth } from './use-responsive-edit-popover-position';
 import { autoLayout } from './utils/auto-layout';
 import { isRemoveChange } from './utils/change';
 import { prepareConnection } from './utils/compatibility';
@@ -121,11 +125,15 @@ import {
 import { joinNamespaces, ROOT_NAMESPACE } from './utils/namespace';
 import { updateOperationIds } from './utils/operation-id';
 
-const NonCapturingPopoverContainer = ({
-  children,
-}: {
-  children: React.ReactNode;
-}) => <>{children}</>;
+// Keep canvas clicks available while giving MUI a real modal root to restore
+// focus and accessibility when a nested select or field menu closes.
+const canvasPopover = {
+  hideBackdrop: true,
+  sx: {
+    pointerEvents: 'none',
+    '& .MuiPopover-paper': { pointerEvents: 'auto' },
+  },
+} as const;
 
 interface EditingEdge {
   sourceNode: DiagramEditorNode;
@@ -426,6 +434,7 @@ function DiagramEditor() {
     width: sidePanelWidth,
     tab: sidePanelTab,
   } = sidePanelState;
+  const drawerWidth = useDiagramSidePanelWidth(sidePanelOpen);
   const [viewport, setViewport] = React.useState<Viewport>({
     x: 0,
     y: 0,
@@ -1597,7 +1606,16 @@ function DiagramEditor() {
           <Fab
             color="primary"
             aria-label="Save"
-            sx={{ position: 'absolute', left: 16, bottom: 16 }}
+            sx={{
+              position: 'absolute',
+              right: `min(${drawerWidth + 64}px, calc(100% - ${MinimumVisibleCanvasWidth}px))`,
+              bottom: 64,
+              transition: theme.transitions.create([
+                'right',
+                'box-shadow',
+                'background-color',
+              ]),
+            }}
             onClick={() => {
               const unfinished = nodes.find(
                 (node) =>
@@ -1633,8 +1651,7 @@ function DiagramEditor() {
           onClose={closeAllPopovers}
           anchorReference="anchorPosition"
           anchorPosition={addOperationPopover.popOverPosition}
-          // use a custom component to prevent the popover from creating an invisible element that blocks clicks
-          component={NonCapturingPopoverContainer}
+          {...canvasPopover}
         >
           {addOperationPopover.sourceConnection ? (
             <CompatibleAddOperation
@@ -1696,8 +1713,7 @@ function DiagramEditor() {
             }
             setEditOpFormPopoverProps({ open: false });
           }}
-          // use a custom component to prevent the popover from creating an invisible element that blocks clicks
-          component={NonCapturingPopoverContainer}
+          {...canvasPopover}
         >
           {editingNodeId && renderEditForm(editingNodeId)}
           {editingEdge && (

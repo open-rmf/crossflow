@@ -88,36 +88,31 @@ function CommandPanel({
               </Button>
             </Tooltip>
           )}
-          <Tooltip title="Script Environment Manager">
-            <Button
-              onClick={() => toggleTab('environments')}
-              sx={
-                openSidePanel && sidePanelTab === 'environments'
-                  ? { backgroundColor: theme.palette.primary.light }
-                  : undefined
-              }
-            >
-              <MaterialSymbol symbol="code" />
-            </Button>
-          </Tooltip>
-          <Tooltip
-            title={
-              editorMode.mode === EditorMode.Template
-                ? 'Template settings'
-                : 'Diagram properties'
-            }
-          >
-            <Button
-              onClick={() => toggleTab('properties')}
-              sx={
-                openSidePanel && sidePanelTab === 'properties'
-                  ? { backgroundColor: theme.palette.primary.light }
-                  : undefined
-              }
-            >
-              <MaterialSymbol symbol="info" />
-            </Button>
-          </Tooltip>
+          {(
+            [
+              ['environments', 'Script Environment Manager', 'code'],
+              [
+                'properties',
+                editorMode.mode === EditorMode.Template
+                  ? 'Template settings'
+                  : 'Diagram properties',
+                'info',
+              ],
+            ] as const
+          ).map(([tab, title, symbol]) => (
+            <Tooltip key={tab} title={title}>
+              <Button
+                onClick={() => toggleTab(tab)}
+                sx={
+                  openSidePanel && sidePanelTab === tab
+                    ? { backgroundColor: theme.palette.primary.light }
+                    : undefined
+                }
+              >
+                <MaterialSymbol symbol={symbol} />
+              </Button>
+            </Tooltip>
+          ))}
           {editorMode.mode === EditorMode.Normal && (
             <Tooltip title="Templates">
               <Button onClick={() => setOpenEditTemplatesDialog(true)}>

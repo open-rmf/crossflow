@@ -35,8 +35,7 @@ describe('PythonPropertiesForm', () => {
     );
 
     const selectElement = screen.getByLabelText('Environment Ownership');
-    expect(selectElement).toBeTruthy();
-    expect(screen.getByText('persistent')).toBeTruthy();
+    expect(selectElement).toHaveValue('persistent');
   });
 
   test('invokes onChange when ownership option is changed', async () => {
@@ -106,7 +105,10 @@ describe('PythonPropertiesForm', () => {
             },
             definitions: {
               PythonEnvironmentOwnership: {
-                enum: ['shared_custom', 'persistent_custom'],
+                oneOf: [
+                  { type: 'string', const: 'shared_custom' },
+                  { type: 'string', const: 'persistent_custom' },
+                ],
               },
             },
           },

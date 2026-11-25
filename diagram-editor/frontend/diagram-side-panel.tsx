@@ -77,7 +77,8 @@ function DiagramSidePanel({
   const [diagramProperties, setDiagramProperties] = useDiagramProperties();
   const loadContext = useLoadContext();
   const theme = useTheme();
-  const drawerWidth = useDiagramSidePanelWidth();
+  const paperWidth = useDiagramSidePanelWidth(true);
+  const drawerWidth = open ? paperWidth : 0;
   const [resizing, setResizing] = React.useState(false);
   const widthTransition = theme.transitions.create('width', {
     easing: theme.transitions.easing.easeInOut,
@@ -119,7 +120,7 @@ function DiagramSidePanel({
           flexShrink: 0,
           transition: widthTransition,
           '& .MuiDrawer-paper': {
-            width: drawerWidth,
+            width: paperWidth,
             display: 'flex',
             flexDirection: 'column',
             overflowX: 'hidden',
@@ -129,13 +130,15 @@ function DiagramSidePanel({
         variant="persistent"
         anchor="right"
         open={open}
+        transitionDuration={theme.transitions.duration.standard}
         data-testid="diagram-side-panel-paper"
         data-expanded={expanded}
         style={{ width: drawerWidth, transition: widthTransition }}
         slotProps={{
+          transition: { easing: theme.transitions.easing.easeInOut },
           paper: {
             style: {
-              width: drawerWidth,
+              width: paperWidth,
               transition: widthTransition,
             },
           },

@@ -19,6 +19,18 @@ export interface BaseEditOperationFormProps<
   onDelete?: (change: NodeRemoveChange) => void;
 }
 
+export function operationUpdater<K extends OperationNodeTypes>({
+  node,
+  onChange,
+}: BaseEditOperationFormProps<K>) {
+  return (op: OperationNode<K>['data']['op']) =>
+    onChange?.({
+      type: 'replace',
+      id: node.id,
+      item: { ...node, data: { ...node.data, op } },
+    });
+}
+
 function BaseEditOperationForm({
   node,
   onChange,

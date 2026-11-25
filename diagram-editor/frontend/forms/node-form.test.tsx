@@ -98,7 +98,7 @@ test('renders typed controls for a supported object schema and loads existing co
   );
   expect(screen.getByRole('spinbutton', { name: /attempts/ })).toHaveValue(3);
   expect(screen.getByRole('checkbox', { name: /enabled/ })).toBeChecked();
-  expect(screen.getByRole('combobox', { name: /strategy/ })).toHaveTextContent(
+  expect(screen.getByRole('combobox', { name: /strategy/ })).toHaveValue(
     'safe',
   );
   expect(screen.queryByLabelText('Config')).not.toBeInTheDocument();
@@ -183,8 +183,10 @@ test('choosing the null alternative writes JSON null', async () => {
   });
   render(<NodeForm node={createNode(5)} onChange={onChange} />, registry);
 
-  fireEvent.mouseDown(await screen.findByRole('combobox', { name: /Config/ }));
-  fireEvent.click(await screen.findByRole('option', { name: 'null' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Config value options' }),
+  );
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Set to null' }));
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toBeNull();
 });
 
@@ -197,7 +199,7 @@ test('an absent optional nullable property stays absent when the form opens', as
     },
   });
   render(<NodeForm node={createNode({})} onChange={onChange} />, registry);
-  await screen.findByRole('combobox', { name: 'compared_to' });
+  await screen.findByRole('button', { name: 'compared_to value options' });
   expect(onChange).not.toHaveBeenCalled();
 });
 
@@ -324,7 +326,7 @@ test('groups object fields and writes nested config values', async () => {
   });
 });
 
-test('optional properties can be entered and cleared', async () => {
+test('optional properties can be added and omitted', async () => {
   const onChange = jest.fn();
   const registry = createRegistry({
     type: 'object',
@@ -348,16 +350,12 @@ test('optional properties can be entered and cleared', async () => {
     optional_text: 'present',
   });
   fireEvent.change(input, { target: { value: '' } });
-  expect(
-    JSON.parse(
-      JSON.stringify(onChange.mock.calls.at(-1)?.[0].item.data.op.config),
-    ),
-  ).toEqual({
+  expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
     required_text: 'required',
   });
 });
 
-test('successive edits keep the string, number, boolean, and enum values', async () => {
+test('control edits write the same JSON-compatible config object', async () => {
   const onChange = jest.fn();
   const registry = createRegistry(supportedSchema);
   const config = {

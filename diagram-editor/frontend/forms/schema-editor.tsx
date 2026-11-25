@@ -13,33 +13,45 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import type { FieldProps, RJSFSchema, UiSchema } from '@rjsf/utils';
-import { useMemo, useState } from 'react';
-import { MaterialSymbol } from '../nodes';
+import {
+  type FieldProps,
+  isObject,
+  type RJSFSchema,
+  type UiSchema,
+} from '@rjsf/utils';
+import type { NodeChange } from '@xyflow/react';
+import { createContext, useContext, useMemo, useState } from 'react';
+import {
+  MaterialSymbol,
+  type SectionInputNode,
+  type SectionOutputNode,
+} from '../nodes';
 import { useRegistry } from '../registry-provider';
-import type { Schema } from '../types/api';
 import ajv from '../utils/ajv';
 import SchemaConfigForm from './schema-config-form';
 
-type SchemaObject = Exclude<Schema, boolean>;
-const types = [
-  'string',
-  'integer',
-  'number',
-  'boolean',
-  'null',
-  'array',
-  'object',
-];
-const kinds = [...types, 'enum', 'anyOf', 'oneOf', '$ref', 'any'];
-const initial = { type: 'string' };
+type Schema = RJSFSchema | boolean;
+const initial: RJSFSchema = { type: 'string' };
+const schemasByKind: Record<string, RJSFSchema> = {
+  string: initial,
+  integer: { type: 'integer' },
+  number: { type: 'number' },
+  boolean: { type: 'boolean' },
+  null: { type: 'null' },
+  array: { type: 'array', items: initial },
+  object: { type: 'object' },
+  enum: { enum: ['option'] },
+  anyOf: { anyOf: [initial] },
+  oneOf: { oneOf: [initial] },
+  any: {},
+};
 const choiceRef = { $ref: '#/$defs/choice' };
 const choice: RJSFSchema = {
   default: '',
-  anyOf: [
+  oneOf: [
     { type: 'string', default: '' },
     { type: 'number', default: 0 },
-    { type: 'boolean', default: false },
+    { type: 'boolean', enum: [true, false], default: false },
     { type: 'null' },
     { type: 'array', items: choiceRef, default: [] },
     { type: 'object', additionalProperties: choiceRef, default: {} },
@@ -49,10 +61,12 @@ const choice: RJSFSchema = {
 function concreteType(type: unknown) {
   if (Array.isArray(type) && type.length === 2 && type.includes('null'))
     type = type.find((t) => t !== 'null');
-  return typeof type === 'string' && types.includes(type) ? type : undefined;
+  return typeof type === 'string' && schemasByKind[type]?.type === type
+    ? type
+    : undefined;
 }
 
-function withNull(schema: SchemaObject, allow: boolean): SchemaObject {
+function withNull(schema: RJSFSchema, allow: boolean): RJSFSchema {
   const next = { ...schema };
   const type = concreteType(schema.type);
   if (type && type !== 'null') next.type = allow ? [type, 'null'] : type;
@@ -75,27 +89,6 @@ function kindOf(schema: Schema) {
   return 'JSON';
 }
 
-function schemaForKind(
-  kind: string,
-  registeredRef: string | undefined,
-): SchemaObject {
-  switch (kind) {
-    case 'any':
-      return {};
-    case '$ref':
-      return { $ref: registeredRef };
-    case 'enum':
-      return { enum: ['option'] };
-    case 'anyOf':
-    case 'oneOf':
-      return { [kind]: [initial] };
-    case 'array':
-      return { type: kind, items: initial };
-    default:
-      return { type: kind };
-  }
-}
-
 export function schemaSummary(schema: Schema) {
   if (typeof schema === 'boolean') return schema ? 'any' : 'never';
   if (typeof schema.title === 'string') return schema.title;
@@ -104,10 +97,7 @@ export function schemaSummary(schema: Schema) {
 }
 
 function schemaError(value: unknown) {
-  if (
-    typeof value !== 'boolean' &&
-    (!value || typeof value !== 'object' || Array.isArray(value))
-  )
+  if (typeof value !== 'boolean' && !isObject(value))
     return 'A JSON Schema must be an object or a boolean.';
   try {
     if (!ajv.validateSchema(value)) return ajv.errorsText(ajv.errors);
@@ -123,6 +113,28 @@ interface EditorProps {
   object?: boolean;
   removable?: boolean;
   alternative?: boolean;
+}
+
+const PortSchemaContext = createContext(false);
+
+export function PortSchemaEditor<
+  N extends SectionInputNode | SectionOutputNode,
+>({ node, onChange }: { node: N; onChange?: (change: NodeChange<N>) => void }) {
+  return (
+    <PortSchemaContext.Provider value>
+      <SchemaEditor
+        label={node.type === 'sectionInput' ? 'Input schema' : 'Output schema'}
+        value={node.data.schema}
+        onChange={(schema) =>
+          onChange?.({
+            type: 'replace',
+            id: node.id,
+            item: { ...node, data: { ...node.data, schema } },
+          })
+        }
+      />
+    </PortSchemaContext.Provider>
+  );
 }
 
 function SchemaItem({ formData, onChange, fieldPathId }: FieldProps<Schema>) {
@@ -141,27 +153,43 @@ function SchemaItem({ formData, onChange, fieldPathId }: FieldProps<Schema>) {
 }
 
 function schemaList(items: UiSchema): UiSchema {
-  const paper = { elevation: 0, sx: { bgcolor: 'transparent' } };
-  const slots = (rjsfSlotProps: Record<string, unknown>) => ({
-    'ui:options': { mui: { rjsfSlotProps } },
-  });
+  // RJSF provides the add button and item toolbar. Share the title row with
+  // the add button, keeping a single column of items below it.
+  const flatPaper = { elevation: 0, sx: { bgcolor: 'transparent' } };
   return {
-    ...slots({
-      arrayPaper: paper,
-      arrayBox: { sx: { p: 0 } },
-      titleBox: { sx: { mt: 0, mb: 2 } },
-      titleTypography: { variant: 'subtitle2' },
-    }),
+    'ui:mui': {
+      rjsfSlotProps: {
+        arrayPaper: flatPaper,
+        arrayBox: { sx: { p: 0, display: 'grid', rowGap: 2 } },
+        titleBox: {
+          sx: {
+            gridArea: '1 / 1',
+            m: 0,
+            alignContent: 'center',
+            borderBottom: 1,
+            borderColor: 'divider',
+          },
+        },
+        titleTypography: { variant: 'subtitle2', sx: { width: 'fit-content' } },
+        titleDivider: { sx: { display: 'none' } },
+        arrayAddButtonGridContainer: {
+          sx: { gridArea: '1 / 1', justifySelf: 'end' },
+        },
+        arrayAddButtonBox: { sx: { mt: 0 } },
+      },
+    },
     items: {
       ...items,
-      ...slots({
-        arrayItemPaper: paper,
-        arrayItemInnerBox: { sx: { p: 0 } },
-        arrayItemOuterBox: { sx: { mb: 0 } },
-        arrayItemGridContainer: { sx: { gap: 1, mb: 2 } },
-        arrayItemGridItem: { size: 'grow', sx: { overflow: 'visible' } },
-        arrayItemToolbarGrid: { sx: { mt: 0 } },
-      }),
+      'ui:mui': {
+        rjsfSlotProps: {
+          arrayItemPaper: flatPaper,
+          arrayItemInnerBox: { sx: { p: 0 } },
+          arrayItemOuterBox: { sx: { mb: 0 } },
+          arrayItemGridContainer: { sx: { gap: 1 } },
+          arrayItemGridItem: { size: 'grow', sx: { overflow: 'visible' } },
+          arrayItemToolbarGrid: { sx: { mt: 0 } },
+        },
+      },
     },
   };
 }
@@ -173,14 +201,15 @@ function SchemaFields({
   onChange,
   inlineTitle,
 }: {
-  value: SchemaObject;
-  onChange: (value: SchemaObject) => void;
+  value: RJSFSchema;
+  onChange: (value: RJSFSchema) => void;
   inlineTitle?: boolean;
 }) {
   const registry = useRegistry();
+  const port = useContext(PortSchemaContext);
   const kind = kindOf(value);
   const type = concreteType(value.type);
-  const choices = Array.isArray(value.enum) ? value.enum : undefined;
+  const choices = value.enum;
   // A sibling constraint can reject null even when the type admits it.
   // Those schemas retain their explicit alternatives or JSON editor.
   const canAllowNull =
@@ -218,8 +247,7 @@ function SchemaFields({
       title: 'Registered type',
       enum: [...new Set([...refs, String(value.$ref)])],
     };
-  if (kind === 'enum') {
-    const values = value.enum as NonNullable<RJSFSchema['enum']>;
+  if (choices) {
     fields.enum = {
       type: 'array',
       title: 'Choices',
@@ -227,8 +255,8 @@ function SchemaFields({
       uniqueItems: true,
       items: { ...choiceRef, title: 'Choice type' },
     };
-    if (values.length)
-      fields.default = { title: 'Default value', enum: values };
+    if (!port && choices.length)
+      fields.default = { title: 'Default value', enum: choices };
   }
   if (kind === 'array') fields.items = { type: 'object', title: 'Items' };
   if (kind === 'anyOf' || kind === 'oneOf')
@@ -242,18 +270,15 @@ function SchemaFields({
     fields.minimum = { type: 'number', title: 'Minimum' };
     fields.maximum = { type: 'number', title: 'Maximum' };
   }
-  if (['string', 'integer', 'number', 'boolean'].includes(kind))
+  if (!port && ['string', 'integer', 'number', 'boolean'].includes(kind))
     fields.default = {
       title: 'Default value',
       ...(kind === 'boolean'
         ? { enum: nullable ? [true, false, null] : [true, false] }
-        : { type: value.type as RJSFSchema['type'] }),
+        : { type: value.type }),
     };
-  const data = Object.fromEntries(
-    Object.keys(fields)
-      .filter((k) => k in value)
-      .map((k) => [k, value[k]]),
-  );
+  const kinds = { ...schemasByKind };
+  if (refs.length || kind === '$ref') kinds.$ref = { $ref: refs[0] };
   return (
     <Stack spacing={2}>
       <Stack direction="row" spacing={2} alignItems="center">
@@ -263,31 +288,26 @@ function SchemaFields({
           label="Type"
           value={kind}
           onChange={({ target }) => {
-            const next = schemaForKind(target.value, refs[0]);
+            const next = kinds[target.value];
             onChange({
               ...(canAllowNull && nullable ? withNull(next, true) : next),
               ...(value.title !== undefined && { title: value.title }),
             });
           }}
         >
-          {kinds
-            .filter((k) => k !== '$ref' || refs.length || kind === '$ref')
-            .map((k) => (
-              <MenuItem key={k} value={k}>
-                {k === '$ref' ? 'Registered type' : k}
-              </MenuItem>
-            ))}
+          {Object.keys(kinds).map((k) => (
+            <MenuItem key={k} value={k}>
+              {k === '$ref' ? 'Registered type' : k}
+            </MenuItem>
+          ))}
         </TextField>
         {canAllowNull && (
           <FormControlLabel
             sx={{ flexShrink: 0 }}
             label="Allow null"
-            control={
-              <Checkbox
-                checked={nullable}
-                onChange={(_, checked) => onChange(withNull(value, checked))}
-              />
-            }
+            control={<Checkbox />}
+            checked={nullable}
+            onChange={(_, checked) => onChange(withNull(value, checked))}
           />
         )}
       </Stack>
@@ -298,7 +318,7 @@ function SchemaFields({
           properties: fields,
           ...(kind === 'enum' && { $defs: { choice } }),
         }}
-        value={data}
+        value={value}
         uiSchema={{
           default: { 'ui:placeholder': 'No default' },
           enum: schemaList({ 'ui:emptyValue': '' }),
@@ -306,19 +326,18 @@ function SchemaFields({
           anyOf: schemaList(nested),
           oneOf: schemaList(nested),
         }}
-        onChange={(next) => {
-          const kept = Object.fromEntries(
-            Object.entries(value).filter(([key]) => !(key in fields)),
-          );
+        onChange={(data) => {
+          const next = data as RJSFSchema;
           // Older enums declared a redundant type. Widen it when the author
           // adds a choice of another type, preserving other schema constraints.
           if (
             enumType &&
-            (value.enum as unknown[]).every((item) => enumType(item)) &&
-            (next as { enum: unknown[] }).enum.some((item) => !enumType(item))
-          )
-            delete kept.type;
-          onChange({ ...kept, ...(next as SchemaObject) });
+            choices?.every((item) => enumType(item)) &&
+            next.enum?.some((item) => !enumType(item))
+          ) {
+            const { type: _oldType, ...widened } = next;
+            onChange(widened);
+          } else onChange(next);
         }}
       />
       {kind === 'object' && <Properties value={value} onChange={onChange} />}
@@ -341,22 +360,20 @@ interface DraftProps {
 function SchemaDialog(props: DraftProps) {
   const [name, setName] = useState(props.name ?? '');
   const [required, setRequired] = useState(props.required ?? false);
-  const [value, setValue] = useState(props.value);
-  const [json, setJson] = useState<string | undefined>(
-    props.json || schemaError(value) || kindOf(value) === 'JSON'
-      ? JSON.stringify(value, null, 2)
-      : undefined,
+  const [draft, setDraft] = useState<Schema | string>(() =>
+    props.json || schemaError(props.value) || kindOf(props.value) === 'JSON'
+      ? JSON.stringify(props.value, null, 2)
+      : props.value,
   );
-  let schema: unknown = value;
+  const json = typeof draft === 'string';
+  let schema = props.value;
   let error: string | undefined;
-  if (json !== undefined) {
-    try {
-      schema = JSON.parse(json);
-    } catch (err) {
-      error = String(err);
-    }
+  try {
+    schema = json ? JSON.parse(draft) : draft;
+    error = schemaError(schema);
+  } catch (err) {
+    error = String(err);
   }
-  error ??= schemaError(schema);
   const duplicate = props.name === '' && props.names?.includes(name);
   return (
     <Dialog open onClose={props.onClose} fullWidth maxWidth="sm">
@@ -378,35 +395,33 @@ function SchemaDialog(props: DraftProps) {
               onChange={({ target }) => setName(target.value)}
             />
           )}
-          {json !== undefined ? (
+          {json ? (
             <TextField
               fullWidth
               multiline
               minRows={4}
               maxRows={16}
               label="JSON Schema"
-              value={json}
-              onChange={({ target }) => setJson(target.value)}
+              value={draft}
+              onChange={({ target }) => setDraft(target.value)}
               error={!!error}
               helperText={error}
               slotProps={{ input: { sx: { fontFamily: 'monospace' } } }}
             />
           ) : (
             <SchemaFields
-              value={value as SchemaObject}
-              onChange={setValue}
+              value={schema as RJSFSchema}
+              onChange={setDraft}
               inlineTitle={props.inlineTitle}
             />
           )}
           {props.name !== undefined && (
             <FormControlLabel
+              sx={{ ml: 0 }}
               label="Required"
-              control={
-                <Checkbox
-                  checked={required}
-                  onChange={(_, checked) => setRequired(checked)}
-                />
-              }
+              control={<Checkbox />}
+              checked={required}
+              onChange={(_, checked) => setRequired(checked)}
             />
           )}
         </Stack>
@@ -414,26 +429,19 @@ function SchemaDialog(props: DraftProps) {
       <DialogActions>
         <Button
           sx={{ mr: 'auto' }}
-          disabled={
-            json !== undefined &&
-            (!!error || kindOf(schema as Schema) === 'JSON')
+          disabled={json && (!!error || kindOf(schema) === 'JSON')}
+          onClick={() =>
+            setDraft(json ? schema : JSON.stringify(schema, null, 2))
           }
-          onClick={() => {
-            if (json === undefined) setJson(JSON.stringify(value, null, 2));
-            else {
-              setValue(schema as Schema);
-              setJson(undefined);
-            }
-          }}
         >
-          {json !== undefined ? 'Form' : 'JSON'}
+          {json ? 'Edit form' : 'Edit JSON'}
         </Button>
         <Button onClick={props.onClose}>Cancel</Button>
         <Button
           disabled={
             !!error || !!duplicate || (props.name !== undefined && name === '')
           }
-          onClick={() => props.onSave(schema as Schema, name, required)}
+          onClick={() => props.onSave(schema, name, required)}
         >
           Apply
         </Button>
@@ -442,19 +450,32 @@ function SchemaDialog(props: DraftProps) {
   );
 }
 
+function iconButton(label: string, symbol: string, onClick: () => void) {
+  return (
+    <IconButton size="small" aria-label={label} onClick={onClick}>
+      <MaterialSymbol symbol={symbol} />
+    </IconButton>
+  );
+}
+
 function Properties({
   value,
   onChange,
 }: {
-  value: SchemaObject;
-  onChange: (schema: SchemaObject) => void;
+  value: RJSFSchema;
+  onChange: (schema: RJSFSchema) => void;
 }) {
-  const fields = (value.properties ?? {}) as Record<string, Schema>;
-  const required = (value.required ?? []) as string[];
-  const [editing, setEditing] = useState<{ key?: string } | null>(null);
-  function update(name: string, schema?: Schema, isRequired = false) {
-    const properties = { ...fields, [name]: schema };
+  const fields = value.properties ?? {};
+  const required = value.required ?? [];
+  const [editing, setEditing] = useState<string | null>();
+  function update(
+    schema: Schema | undefined,
+    name: string,
+    isRequired = false,
+  ) {
+    const properties = { ...fields };
     if (schema === undefined) delete properties[name];
+    else properties[name] = schema;
     const keys = isRequired
       ? [...new Set([...required, name])]
       : required.filter((key) => key !== name);
@@ -464,7 +485,7 @@ function Properties({
       properties,
       ...(keys.length > 0 && { required: keys }),
     });
-    setEditing(null);
+    setEditing(undefined);
   }
   return (
     <Stack spacing={1}>
@@ -486,43 +507,30 @@ function Properties({
           <Typography variant="body2" color="text.secondary">
             {schemaSummary(schema)}
           </Typography>
-          <IconButton
-            size="small"
-            aria-label={`Edit ${name}`}
-            onClick={() => setEditing({ key: name })}
-          >
-            <MaterialSymbol symbol="edit" />
-          </IconButton>
-          <IconButton
-            size="small"
-            aria-label={`Delete ${name}`}
-            onClick={() => {
-              if (window.confirm(`Delete property “${name}”?`)) update(name);
-            }}
-          >
-            <MaterialSymbol symbol="delete" />
-          </IconButton>
+          {iconButton(`Edit ${name}`, 'edit', () => setEditing(name))}
+          {iconButton(`Delete ${name}`, 'delete', () => {
+            if (window.confirm(`Delete property “${name}”?`))
+              update(undefined, name);
+          })}
         </Stack>
       ))}
       <Button
         aria-label="Add property"
         sx={{ alignSelf: 'start' }}
         startIcon={<MaterialSymbol symbol="add" />}
-        onClick={() => setEditing({})}
+        onClick={() => setEditing(null)}
       >
         Add property
       </Button>
-      {editing && (
+      {editing !== undefined && (
         <SchemaDialog
-          label={
-            editing.key === undefined ? 'Add property' : `Edit ${editing.key}`
-          }
-          name={editing.key ?? ''}
-          value={editing.key === undefined ? initial : fields[editing.key]}
+          label={editing === null ? 'Add property' : `Edit ${editing}`}
+          name={editing ?? ''}
+          value={editing === null ? initial : fields[editing]}
           names={Object.keys(fields)}
-          required={required.includes(editing.key ?? '')}
-          onClose={() => setEditing(null)}
-          onSave={(schema, name, required) => update(name, schema, required)}
+          required={editing !== null && required.includes(editing)}
+          onClose={() => setEditing(undefined)}
+          onSave={update}
         />
       )}
     </Stack>
@@ -573,23 +581,17 @@ export default function SchemaEditor({
         <Button size="small" onClick={() => setOpen(true)}>
           {object ? 'Edit JSON' : value === undefined ? 'Declare' : 'Edit'}
         </Button>
-        {removable && value !== undefined && (
-          <IconButton
-            size="small"
-            aria-label={`Remove ${label}`}
-            onClick={() => {
-              if (!object || window.confirm('Remove the configuration schema?'))
-                onChange(undefined);
-            }}
-          >
-            <MaterialSymbol symbol="delete" />
-          </IconButton>
-        )}
+        {removable &&
+          value !== undefined &&
+          iconButton(`Remove ${label}`, 'delete', () => {
+            if (!object || window.confirm('Remove the configuration schema?'))
+              onChange(undefined);
+          })}
       </Stack>
       {object && !schemaError(schema) && kindOf(schema) === 'object' && (
         <>
           <Divider />
-          <Properties value={schema as SchemaObject} onChange={onChange} />
+          <Properties value={schema as RJSFSchema} onChange={onChange} />
         </>
       )}
       {open && (

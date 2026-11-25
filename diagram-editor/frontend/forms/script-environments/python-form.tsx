@@ -1,4 +1,3 @@
-import type { RJSFSchema } from '@rjsf/utils';
 import { useEffect, useMemo } from 'react';
 import SchemaConfigForm from '../schema-config-form';
 import type { ScriptEnvironmentFormProps } from './registry';
@@ -29,13 +28,11 @@ export function PythonPropertiesForm({
     () => onValidationError(parsed.error),
     [parsed.error, onValidationError],
   );
-  const schema = registry?.scripting?.['process-bound-python']?.config_schema as
-    | RJSFSchema
-    | undefined;
+  const schema = registry.scripting?.['process-bound-python']?.config_schema;
   return (
     <SchemaConfigForm
       schema={schema ?? fallback}
-      definitions={registry?.schemas}
+      definitions={registry.schemas}
       value={{ ownership: 'persistent', ...parsed.value }}
       onChange={(value) => onChange(JSON.stringify(value, null, 2))}
       disabled={mode === 'view'}
