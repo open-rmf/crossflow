@@ -100,7 +100,7 @@ export function FieldActions({
   );
 }
 
-export function useFieldActions(id: string) {
+function useFieldActions(id: string) {
   const field = useContext(FieldActionContext);
   if (!field) return null;
   // RJSF gives the title and the alternative selector their own DOM ids.
@@ -114,69 +114,55 @@ export function useFieldActions(id: string) {
     : null;
 }
 
-const MuiInput =
-  Templates.BaseInputTemplate as ComponentType<BaseInputTemplateProps>;
 const MuiTitle = Templates.TitleFieldTemplate as ComponentType<TitleFieldProps>;
 const actionGutter = { paddingInlineEnd: 2 };
 
-function useInputProps(
-  id: string,
-  props?: TextFieldProps['InputProps'],
+// The MUI input template, select widget and raw text field all forward InputProps.
+function withFieldActions<P extends Pick<TextFieldProps, 'id' | 'InputProps'>>(
+  Input: ComponentType<P>,
   select = false,
 ) {
-  const actions = useFieldActions(id);
-  if (!actions) return props;
-  return {
-    ...props,
-    endAdornment: (
-      <>
-        <InputAdornment position="end">{actions}</InputAdornment>
-        {props?.endAdornment}
-      </>
-    ),
-    sx: [
-      ...(Array.isArray(props?.sx) ? props.sx : [props?.sx ?? {}]),
-      !props?.endAdornment && actionGutter,
-      select && {
-        display: 'grid',
-        gridTemplateColumns: 'minmax(0, 1fr) auto',
-        alignItems: 'center',
-        '& .MuiSelect-select, & .MuiSelect-icon': { gridArea: '1 / 1' },
-        '& .MuiSelect-icon': { position: 'static', justifySelf: 'end' },
-      },
-    ],
+  return function InputWithActions(props: P) {
+    const actions = useFieldActions(props.id ?? '');
+    if (!actions) return <Input {...props} fullWidth />;
+    const input = props.InputProps;
+    return (
+      <Input
+        {...props}
+        fullWidth
+        InputProps={{
+          ...input,
+          endAdornment: (
+            <>
+              <InputAdornment position="end">{actions}</InputAdornment>
+              {input?.endAdornment}
+            </>
+          ),
+          sx: [
+            ...(Array.isArray(input?.sx) ? input.sx : [input?.sx ?? {}]),
+            !input?.endAdornment && actionGutter,
+            select && {
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) auto',
+              alignItems: 'center',
+              '& .MuiSelect-select, & .MuiSelect-icon': { gridArea: '1 / 1' },
+              '& .MuiSelect-icon': { position: 'static', justifySelf: 'end' },
+            },
+          ],
+        }}
+      />
+    );
   };
 }
 
-export function ActionTextField(props: TextFieldProps) {
-  return (
-    <TextField
-      {...props}
-      fullWidth
-      InputProps={useInputProps(props.id ?? '', props.InputProps)}
-    />
-  );
-}
-
-export function InputWithActions(props: BaseInputTemplateProps) {
-  return (
-    <MuiInput
-      {...props}
-      fullWidth
-      InputProps={useInputProps(props.id, props.InputProps)}
-    />
-  );
-}
-
-export function SelectWithActions(props: WidgetProps) {
-  return (
-    <Widgets.SelectWidget
-      {...props}
-      fullWidth
-      InputProps={useInputProps(props.id, props.InputProps, true)}
-    />
-  );
-}
+export const ActionTextField = withFieldActions<TextFieldProps>(TextField);
+export const InputWithActions = withFieldActions<BaseInputTemplateProps>(
+  Templates.BaseInputTemplate as ComponentType<BaseInputTemplateProps>,
+);
+export const SelectWithActions = withFieldActions<WidgetProps>(
+  Widgets.SelectWidget,
+  true,
+);
 
 export function FieldRow({ id, children }: PropsWithChildren<{ id: string }>) {
   const actions = useFieldActions(id);

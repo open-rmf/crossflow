@@ -20,6 +20,7 @@ export interface CommandPanelProps {
   exportDisabledReason?: string;
   isDirty: boolean;
   scriptNodeBinding?: ScriptNodeEnvironmentBinding;
+  templatePanel?: React.ReactNode;
 }
 
 const VisuallyHiddenInput = styled('input')({
@@ -43,6 +44,7 @@ function CommandPanel({
   exportDisabledReason,
   isDirty,
   scriptNodeBinding,
+  templatePanel,
 }: CommandPanelProps) {
   const theme = useTheme();
   const [openEditTemplatesDialog, setOpenEditTemplatesDialog] =
@@ -167,6 +169,7 @@ function CommandPanel({
         runRequestJson={runRequestJson}
         onRunRequestJsonChange={setRunRequestJson}
         scriptNodeBinding={scriptNodeBinding}
+        templatePanel={templatePanel}
       />
     </>
   );

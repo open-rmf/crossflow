@@ -546,43 +546,44 @@ function NullableField({
 }
 
 function SchemaField(props: FieldProps) {
-  const schema = props.schema.$ref
-    ? props.registry.schemaUtils.retrieveSchema(props.schema, props.formData)
-    : props.schema;
-  const nullable =
+  const { schema: input, uiSchema, registry, fieldPathId } = props;
+  const schema = input.$ref
+    ? registry.schemaUtils.retrieveSchema(input, props.formData)
+    : input;
+  let field: ComponentType<FieldProps> | undefined;
+  if (schema.anyOf) field = ParallelAnyOfField;
+  else if (
+    schema.type === 'null' &&
+    typeof fieldPathId.path.at(-1) === 'string'
+  ) {
+    // RJSF's NullField silently sets missing properties to null on mount.
+    field = EnumField;
+  } else if (schema.enum || schema.oneOf) {
+    if (
+      uiSchema?.['ui:widget'] !== 'hidden' &&
+      (schema.enum || registry.schemaUtils.isSelect(schema))
+    )
+      field = EnumField;
+  } else if (
     Array.isArray(schema.type) &&
     schema.type.length === 2 &&
     schema.type.includes('null') &&
-    !schema.enum &&
-    !schema.anyOf &&
-    !schema.oneOf &&
-    acceptsNull(props.schema, props.registry);
-  // RJSF's NullField silently sets missing properties to null on mount.
-  const enumField =
-    ((schema.enum ||
-      (schema.oneOf && props.registry.schemaUtils.isSelect(schema))) &&
-      props.uiSchema?.['ui:widget'] !== 'hidden') ||
-    (schema.type === 'null' &&
-      typeof props.fieldPathId.path.at(-1) === 'string');
-  const field = schema.anyOf
-    ? ParallelAnyOfField
-    : nullable
-      ? NullableField
-      : enumField
-        ? EnumField
-        : undefined;
+    acceptsNull(input, registry)
+  )
+    field = NullableField;
   return (
     <nativeFields.SchemaField
       {...props}
-      uiSchema={
-        field
-          ? {
-              'ui:field': field,
-              'ui:fieldReplacesAnyOrOneOf': true,
-              ...props.uiSchema,
-            }
-          : props.uiSchema
+      // RJSF treats a controlled root null as missing while computing defaults.
+      formData={
+        registry.formContext.nullRoot === fieldPathId.$id
+          ? null
+          : props.formData
       }
+      uiSchema={{
+        ...(field && { 'ui:field': field, 'ui:fieldReplacesAnyOrOneOf': true }),
+        ...uiSchema,
+      }}
     />
   );
 }
@@ -653,6 +654,7 @@ export default function SchemaConfigForm(props: SchemaConfigFormProps) {
       tagName="div"
       idPrefix={id}
       schema={root}
+      formContext={{ nullRoot: value === null ? id : undefined }}
       uiSchema={{
         'ui:title': props.label ?? 'Config',
         'ui:submitButtonOptions': { norender: true },

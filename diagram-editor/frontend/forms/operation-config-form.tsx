@@ -12,7 +12,11 @@ import { MaterialSymbol } from '../nodes';
 import { useRegistry } from '../registry-provider';
 import { useActiveTemplate } from '../templates-provider';
 import { useTransientEditorDrafts } from '../transient-editor-drafts';
-import { bindingProperties, schemaDocument } from '../utils/schema-types';
+import {
+  bindingProperties,
+  pointerSegment,
+  schemaDocument,
+} from '../utils/schema-types';
 import {
   type BaseEditOperationFormProps,
   operationUpdater,
@@ -32,18 +36,26 @@ const BindingContext = createContext<{
 } | null>(null);
 const MuiField = Templates.FieldTemplate as ComponentType<FieldTemplateProps>;
 
-function BindableField({
-  field,
-  pointer = '',
-  label = field?.label ?? 'Config',
-  children,
-}: PropsWithChildren<{
-  field?: FieldTemplateProps;
-  pointer?: string;
-  label?: string;
-}>) {
+// RJSF supplies the field template for a known schema. A raw config supplies
+// its editor directly, and can bind the root value in the same way.
+function BindableField(
+  props: FieldTemplateProps | PropsWithChildren<{ label: string }>,
+) {
+  const field = 'fieldPathId' in props ? props : undefined;
+  const children = field ? <MuiField {...field} /> : props.children;
+  const { label } = props;
   const context = useContext(BindingContext);
-  if (!context || context.pointer === pointer) return children;
+  const path = field?.fieldPathId.path ?? [];
+  // Reordering a list would make an index binding point to a different item.
+  if (
+    !context ||
+    field?.hidden ||
+    path.some((segment) => typeof segment === 'number') ||
+    (!path.length && field?.schema.type === 'object')
+  )
+    return children;
+  const pointer = path.map((key) => `/${pointerSegment(String(key))}`).join('');
+  if (context.pointer === pointer) return children;
 
   const linked = context.bindings[pointer];
   const select = (property?: string) => {
@@ -138,26 +150,6 @@ function BindableField({
   );
 }
 
-function OperationField(props: FieldTemplateProps) {
-  const path = props.fieldPathId.path;
-  const field = <MuiField {...props} />;
-  // Reordering a list would make an index binding point to a different item.
-  if (
-    props.hidden ||
-    path.some((segment) => typeof segment === 'number') ||
-    (!path.length && props.schema.type === 'object')
-  )
-    return field;
-  const pointer = path
-    .map((key) => `/${String(key).replace(/~/g, '~0').replace(/\//g, '~1')}`)
-    .join('');
-  return (
-    <BindableField field={props} pointer={pointer}>
-      {field}
-    </BindableField>
-  );
-}
-
 type OperationProps = BaseEditOperationFormProps<
   'node' | 'script' | 'section'
 > &
@@ -189,7 +181,7 @@ export default function OperationConfigForm(props: OperationProps) {
       nodeDefaults={op.type === 'node'}
       value={op.config}
       onChange={(config) => replaceOp({ ...op, config })}
-      fieldTemplate={binding ? OperationField : undefined}
+      fieldTemplate={binding ? BindableField : undefined}
       rawDraft={drafts.operationConfigs[key]}
       onRawDraftChange={(text) => setOperationConfigDraft(key, text)}
     />

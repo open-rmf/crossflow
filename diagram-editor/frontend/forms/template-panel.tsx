@@ -2,15 +2,26 @@ import { Box, Divider, Stack, Typography } from '@mui/material';
 import { Fragment, type ReactNode } from 'react';
 import { useCompatibilityChecker } from '../connection-compatibility-provider';
 import { useNodeManager } from '../node-manager';
+import { isOperationNode } from '../nodes';
 import { useTemplates } from '../templates-provider';
 import type { Schema } from '../types/api';
 import { useEdges } from '../use-edges';
 import { useReactFlow } from '../use-react-flow';
+import { bindingEntries } from '../utils/rename-template-property';
 import { schemaDocument } from '../utils/schema-types';
-import SchemaEditor, { schemaSummary } from './schema-editor';
+import SchemaEditor, {
+  type RenameProperty,
+  schemaSummary,
+} from './schema-editor';
 import TypeLabel from './type-label';
 
-export default function TemplatePanel({ templateId }: { templateId: string }) {
+export default function TemplatePanel({
+  templateId,
+  onRenameProperty,
+}: {
+  templateId: string;
+  onRenameProperty: RenameProperty;
+}) {
   const [templates, setTemplates] = useTemplates();
   const template = templates[templateId];
   const { nodes } = useNodeManager();
@@ -46,15 +57,9 @@ export default function TemplatePanel({ templateId }: { templateId: string }) {
       schemaDocument(template.config_schema).properties ?? {},
     ).filter((name) => !names.includes(name));
     for (const node of nodes) {
-      if (
-        node.type !== 'node' &&
-        node.type !== 'section' &&
-        node.type !== 'script'
-      )
-        continue;
+      if (!isOperationNode(node)) continue;
       const op = node.data.op;
-      if (!op.config_bindings) continue;
-      const bindings = Object.entries(op.config_bindings);
+      const bindings = bindingEntries(op);
       const kept = bindings.filter(([, name]) => !removed.includes(name));
       if (kept.length !== bindings.length) {
         updateNodeData(node.id, {
@@ -103,6 +108,7 @@ export default function TemplatePanel({ templateId }: { templateId: string }) {
         label="Configuration schema"
         value={template.config_schema ?? undefined}
         onChange={updateSchema}
+        onRenameProperty={onRenameProperty}
       />
     </Stack>
   );

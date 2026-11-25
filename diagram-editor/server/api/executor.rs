@@ -15,11 +15,15 @@ use bevy_ecs::{prelude::Entity, schedule::IntoScheduleConfigs};
 #[cfg(feature = "router")]
 use crossflow::TracedEventKind;
 use crossflow::{
-    Diagram, DiagramElementRegistry, DiagramError, DiagramErrorCode, DiagramOperation,
-    InferenceBoundaryConditions, MetadataAccess, Outcome, PortRef, RequestExt, TracedEvent, trace,
+    Diagram, DiagramElementMetadata, DiagramElementRegistry, DiagramError, DiagramErrorCode,
+    DiagramOperation, InferenceBoundaryConditions, MetadataAccess, Outcome, PortRef, RequestExt,
+    TracedEvent, trace,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{
+    borrow::Cow,
+    cell::OnceCell,
     collections::HashMap,
     error::Error,
     sync::{Arc, Mutex},
@@ -262,11 +266,14 @@ fn check_connections(
                         .flat_map(|connection| connection.ports().cloned()),
                 )
             });
+    let metadata = OnceCell::new();
     let results = request
         .connections
         .into_iter()
         .map(|connection| match &inference {
-            Ok(inference) => check_connection(registry, &request.diagram, connection, inference),
+            Ok(inference) => {
+                check_connection(registry, &request.diagram, connection, inference, &metadata)
+            }
             Err(error) => CompatibilityResult::terminal(
                 connection.id,
                 CompatibilityStatus::Unknown,
@@ -282,6 +289,7 @@ fn check_connection(
     diagram: &Diagram,
     connection: CompatibilityConnection,
     inference: &HashMap<PortRef, Vec<Result<(usize, bool), DiagramError>>>,
+    metadata: &OnceCell<DiagramElementMetadata>,
 ) -> CompatibilityResult {
     let mut focus_ports: Vec<_> = connection.ports().collect();
     focus_ports.sort();
@@ -293,6 +301,13 @@ fn check_connection(
             "No ports were provided for compatibility checking",
         );
     }
+    let source_declared = declared_port_schema(diagram, connection.source_port.as_ref());
+    let target_declared = declared_port_schema(diagram, connection.target_port.as_ref());
+    // A declared endpoint does not depend on inference inside its template.
+    focus_ports.retain(|p| {
+        !(source_declared.is_some() && Some(*p) == connection.source_port.as_ref()
+            || target_declared.is_some() && Some(*p) == connection.target_port.as_ref())
+    });
     let mut unknown = None;
     for inferred in focus_ports.iter().flat_map(|port| &inference[*port]) {
         match inferred {
@@ -337,30 +352,41 @@ fn check_connection(
         }
     }
 
-    let port_types = |port: &Option<PortRef>| {
+    let effective = |port: &Option<PortRef>, declared, source| {
+        if let Some(schema) = declared {
+            let messages = metadata.get_or_init(|| registry.metadata()).messages();
+            return vec![(PortType::declared(schema, messages, registry, source), true)];
+        }
         port.iter()
-            .flat_map(|port| &inference[port])
-            .filter_map(|result| result.as_ref().ok().copied())
-            .collect::<Vec<_>>()
+            .flat_map(|p| &inference[p])
+            .filter_map(|r| r.as_ref().ok())
+            .map(|native| {
+                let (i, certain) = *native;
+                (
+                    PortType {
+                        name: registry.message_type_name(i).ok(),
+                        native_types: Cow::Borrowed(std::slice::from_ref(native)),
+                        schema: registry.message_schema(i).map(|s| s.as_value()),
+                        structural: false,
+                    },
+                    certain,
+                )
+            })
+            .collect()
     };
-    let source_types = port_types(&connection.source_port);
-    let target_types = port_types(&connection.target_port);
-    let type_name = |message_type| {
-        registry
-            .message_type_name(message_type)
-            .ok()
-            .map(ToOwned::to_owned)
-    };
+    let source_types = effective(&connection.source_port, source_declared, true);
+    let target_types = effective(&connection.target_port, target_declared, false);
+    let type_name = |port: &PortType| port.name.map(str::to_owned);
 
     // A section output can forward several internal producers. Check each real
     // type; an unresolved producer must not hide a proven mismatch in another.
     let mut reason = "All source message types can be delivered to the target".to_string();
-    for &(source_type, source_certain) in &source_types {
-        for &(target_type, target_certain) in &target_types {
-            if !source_certain || !target_certain {
+    for (source_type, source_certain) in &source_types {
+        for (target_type, target_certain) in &target_types {
+            if !*source_certain || !*target_certain {
                 continue;
             }
-            match can_connect_message_types(registry, source_type, target_type) {
+            match source_type.delivery_to(target_type, registry) {
                 Ok(Some(message)) => {
                     if source_types.len() == 1 && target_types.len() == 1 {
                         reason = message;
@@ -386,71 +412,20 @@ fn check_connection(
                     );
                 }
                 Err(error) => {
-                    unknown.get_or_insert((error.to_string(), false));
+                    unknown.get_or_insert(error);
                 }
             }
         }
     }
 
-    let type_names = |types: &[(usize, bool)]| {
-        let mut names: Vec<_> = types.iter().filter_map(|(ty, _)| type_name(*ty)).collect();
+    let type_names = |types: &[(PortType, bool)]| {
+        let mut names: Vec<_> = types.iter().filter_map(|(ty, _)| type_name(ty)).collect();
         names.sort();
         names.dedup();
         (!names.is_empty()).then(|| names.join(" | "))
     };
-    let port_info = |port: &Option<PortRef>, types: &[(usize, bool)]| {
-        let schema = port.as_ref().and_then(|p| declared_port_schema(diagram, p));
-        let label = schema.and_then(|s| {
-            ["title", "type", "$ref"]
-                .into_iter()
-                .find_map(|key| s[key].as_str())
-        });
-        let name = label.map(str::to_owned).or_else(|| type_names(types));
-        (schema, name)
-    };
-    let (source_declared, source_type_name) = port_info(&connection.source_port, &source_types);
-    let (target_declared, target_type_name) = port_info(&connection.target_port, &target_types);
-    if source_declared.is_some() || target_declared.is_some() {
-        let schemas = |declared, types: &[(usize, bool)]| {
-            if let Some(schema) = declared {
-                return vec![Some(schema)];
-            }
-            types
-                .iter()
-                .filter(|(_, certain)| *certain)
-                .map(|(index, _)| registry.message_schema(*index).map(|s| s.as_value()))
-                .collect::<Vec<_>>()
-        };
-        let sources = schemas(source_declared, &source_types);
-        let targets = schemas(target_declared, &target_types);
-        let mut uncertain = sources.is_empty() || targets.is_empty();
-        for source in &sources {
-            for target in &targets {
-                let compatible = source
-                    .zip(*target)
-                    .and_then(|(s, t)| registry.message_schemas_compatible(s, t));
-                match compatible {
-                    Some(true) => {}
-                    Some(false) => {
-                        return CompatibilityResult::with_types(
-                            connection.id,
-                            CompatibilityStatus::Incompatible,
-                            "The source and target schemas accept no common value",
-                            source_type_name,
-                            target_type_name,
-                        );
-                    }
-                    None => uncertain = true,
-                }
-            }
-        }
-        if uncertain {
-            unknown.get_or_insert((
-                "Cannot determine whether the port schemas match".into(),
-                true,
-            ));
-        }
-    }
+    let source_type_name = type_names(&source_types);
+    let target_type_name = type_names(&target_types);
     if let Some((reason, provisional)) = unknown {
         return CompatibilityResult {
             provisional,
@@ -492,7 +467,115 @@ fn check_connection(
     )
 }
 
-fn declared_port_schema<'a>(diagram: &'a Diagram, port: &PortRef) -> Option<&'a serde_json::Value> {
+struct PortType<'a> {
+    name: Option<&'a str>,
+    // Registry index and whether that representation guarantees the declared schema.
+    native_types: Cow<'a, [(usize, bool)]>,
+    schema: Option<&'a Value>,
+    structural: bool,
+}
+
+impl<'a> PortType<'a> {
+    fn declared(
+        schema: &'a Value,
+        messages: &[crossflow::MessageMetadata],
+        registry: &DiagramElementRegistry,
+        source: bool,
+    ) -> Self {
+        let reference = schema.get("$ref");
+        let types = &schema["type"];
+        let types = types
+            .as_array()
+            .map_or(std::slice::from_ref(types), Vec::as_slice);
+        let name = ["title", "type", "$ref"]
+            .into_iter()
+            .find_map(|k| schema[k].as_str())
+            .unwrap_or("declared schema");
+        let mut ids = Vec::new();
+        for (i, message) in messages.iter().enumerate() {
+            let Some(native) = message.schema().as_ref().map(|s| s.as_value()) else {
+                continue;
+            };
+            // Match a named type by its registry reference, and scalar declarations by
+            // the native representations that can carry their advertised values.
+            let matches_type = match reference {
+                Some(r) => native.get("$ref") == Some(r),
+                None => {
+                    matches!(
+                        native["type"].as_str(),
+                        Some("boolean" | "integer" | "number" | "string" | "null")
+                    ) && types.contains(&native["type"])
+                }
+            };
+            if !matches_type {
+                continue;
+            }
+            let coverage = if native == schema {
+                Some(true)
+            } else if source {
+                registry.message_schemas_compatible(schema, native)
+            } else {
+                registry.message_schemas_compatible(native, schema)
+            };
+            if coverage != Some(false) {
+                ids.push((i, coverage == Some(true)));
+            }
+        }
+        if reference.is_some() && ids.len() > 1 {
+            // A shared schema reference cannot identify a particular native conversion.
+            ids.clear();
+        }
+        Self {
+            name: Some(name),
+            structural: reference.is_none() || ids.is_empty(),
+            native_types: Cow::Owned(ids),
+            schema: Some(schema),
+        }
+    }
+
+    fn delivery_to(
+        &self,
+        target: &Self,
+        registry: &DiagramElementRegistry,
+    ) -> Result<Option<String>, (String, bool)> {
+        let delivery = |from, to| {
+            can_connect_message_types(registry, from, to).map_err(|err| (err.to_string(), false))
+        };
+        let sources = self.native_types.as_ref();
+        let targets = target.native_types.as_ref();
+        if let Some(&(index, _)) = sources.iter().find(|id| id.1 && targets.contains(id)) {
+            return delivery(index, index);
+        }
+        let mut possible = false;
+        for &(source, source_certain) in sources {
+            for &(dest, target_certain) in targets {
+                if let Some(reason) = delivery(source, dest)? {
+                    if source_certain && target_certain {
+                        return Ok(Some(reason));
+                    }
+                    possible = true;
+                }
+            }
+        }
+        let compatible = if self.structural || target.structural {
+            self.schema
+                .zip(target.schema)
+                .and_then(|(s, t)| registry.message_schemas_compatible(s, t))
+        } else {
+            Some(false)
+        };
+        match compatible {
+            Some(true) => Ok(Some("The source messages satisfy the target schema".into())),
+            Some(false) if !possible => Ok(None),
+            _ => Err((
+                "Cannot determine whether the port schemas match".into(),
+                true,
+            )),
+        }
+    }
+}
+
+fn declared_port_schema<'a>(diagram: &'a Diagram, port: Option<&PortRef>) -> Option<&'a Value> {
     use crossflow::{
         BuildDiagramOperation, Identifier, OperationName, OperationRef, OutputRef, SectionProvider,
     };
@@ -510,7 +593,7 @@ fn declared_port_schema<'a>(diagram: &'a Diagram, port: &PortRef) -> Option<&'a 
         };
         diagram.templates.get(id)
     };
-    let schema = match port {
+    let schema = match port? {
         PortRef::Input(OperationRef::Named(port)) => {
             let section = template(&port.namespaces, port.exposed_namespace.as_ref()?)?;
             section.input_schemas.get(&port.name)

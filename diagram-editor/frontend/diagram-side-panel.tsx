@@ -28,12 +28,10 @@ import {
   type DiagramSidePanelTab,
   useDiagramSidePanel,
 } from './diagram-side-panel-controller';
-import { useTemplateId } from './editor-mode';
 import {
   ScriptEnvironmentWorkspace,
   type ScriptNodeEnvironmentBinding,
 } from './forms/script-environment-workspace';
-import TemplatePanel from './forms/template-panel';
 import { useLoadContext } from './load-context-provider';
 import { MaterialSymbol } from './nodes';
 import { RunPanel } from './run-button';
@@ -49,6 +47,7 @@ export interface DiagramSidePanelProps {
   runRequestJson: string;
   onRunRequestJsonChange: (requestJson: string) => void;
   scriptNodeBinding?: ScriptNodeEnvironmentBinding;
+  templatePanel?: React.ReactNode;
 }
 
 function getInputExampleRequestJson(input: InputExample): string {
@@ -63,6 +62,7 @@ function DiagramSidePanel({
   runRequestJson,
   onRunRequestJsonChange,
   scriptNodeBinding,
+  templatePanel,
 }: DiagramSidePanelProps) {
   const {
     state: { open, tab: selectedTab, expanded },
@@ -70,8 +70,7 @@ function DiagramSidePanel({
     showTab,
     setWidth,
   } = useDiagramSidePanel();
-  const templateId = useTemplateId();
-  const editingTemplate = templateId !== undefined;
+  const editingTemplate = !!templatePanel;
   const tab =
     editingTemplate && selectedTab === 'run' ? 'properties' : selectedTab;
   const [diagramProperties, setDiagramProperties] = useDiagramProperties();
@@ -234,9 +233,7 @@ function DiagramSidePanel({
             />
           )}
         </Box>
-        {editingTemplate && tab === 'properties' && (
-          <TemplatePanel templateId={templateId} />
-        )}
+        {tab === 'properties' && templatePanel}
         <Box
           sx={{
             display: !editingTemplate && tab === 'properties' ? 'flex' : 'none',

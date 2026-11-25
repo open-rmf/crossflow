@@ -7,6 +7,10 @@ import {
 
 type Schema = RJSFSchema | boolean;
 
+export function pointerSegment(name: string) {
+  return name.replace(/~/g, '~0').replace(/\//g, '~1');
+}
+
 function resolve(schema: Schema, root: RJSFSchema) {
   if (typeof schema === 'boolean') return undefined;
   try {

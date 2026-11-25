@@ -72,6 +72,7 @@ import { ExportDiagramDialog } from './export-diagram-dialog';
 import { EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
 import type { ScriptNodeEnvironmentBinding } from './forms/script-environment-workspace';
+import TemplatePanel from './forms/template-panel';
 import { useScriptEnvironmentNavigation } from './forms/use-script-environment-navigation';
 import {
   type InteractionVisualizationContext,
@@ -124,6 +125,7 @@ import {
 } from './utils/load-diagram';
 import { joinNamespaces, ROOT_NAMESPACE } from './utils/namespace';
 import { updateOperationIds } from './utils/operation-id';
+import { renameTemplateProperty } from './utils/rename-template-property';
 
 // Keep canvas clicks available while giving MUI a real modal root to restore
 // focus and accessibility when a nested select or field menu closes.
@@ -1601,6 +1603,29 @@ function DiagramEditor() {
           }
           isDirty={isDirty}
           scriptNodeBinding={scriptNodeBinding}
+          templatePanel={
+            editorMode.mode === EditorMode.Template && (
+              <TemplatePanel
+                templateId={editorMode.templateId}
+                onRenameProperty={(from, to, config_schema) => {
+                  const edit = renameTemplateProperty(
+                    editorMode.templateId,
+                    from,
+                    to,
+                    config_schema,
+                    nodes,
+                    savedNodes.current,
+                    templates,
+                    transientEditorDrafts.operationConfigs,
+                  );
+                  if (typeof edit === 'string') return edit;
+                  savedNodes.current = edit.main;
+                  setNodes(edit.edited);
+                  setTemplates(edit.templates);
+                }}
+              />
+            )
+          }
         />
         {editorMode.mode === EditorMode.Template && (
           <Fab

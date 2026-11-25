@@ -165,7 +165,7 @@ test('renders and updates a numeric control when the entire node config is a num
 
   render(<NodeForm node={createNode(3)} onChange={onChange} />, registry);
 
-  const config = await screen.findByRole('spinbutton');
+  const config = await screen.findByRole('spinbutton', { name: /Config/ });
   expect(config).toHaveValue(3);
 
   fireEvent.change(config, { target: { value: '4.5' } });
@@ -178,10 +178,22 @@ test('renders and updates a numeric control when the entire node config is a num
 
 test('choosing the null alternative writes JSON null', async () => {
   const onChange = jest.fn();
+  // `add` takes an `Option<f64>`, and ships `null` as one of its examples.
   const registry = createRegistry({
     anyOf: [{ type: 'number' }, { type: 'null' }],
   });
-  render(<NodeForm node={createNode(5)} onChange={onChange} />, registry);
+
+  const { rerender } = render(
+    <NodeForm node={createNode(null)} onChange={onChange} />,
+    registry,
+  );
+  expect(await screen.findByDisplayValue('null')).toBeInTheDocument();
+  expect(onChange).not.toHaveBeenCalled();
+
+  rerender(<NodeForm node={createNode(5)} onChange={onChange} />);
+  const config = screen.getByRole('spinbutton', { name: /Config/ });
+  expect(config).toBeEnabled();
+  expect(config).toHaveValue(5);
 
   fireEvent.click(
     await screen.findByRole('button', { name: 'Config value options' }),
@@ -191,6 +203,7 @@ test('choosing the null alternative writes JSON null', async () => {
 });
 
 test('an absent optional nullable property stays absent when the form opens', async () => {
+  // `#[serde(default)] compared_to: Option<f64>` is both optional and nullable.
   const onChange = jest.fn();
   const registry = createRegistry({
     type: 'object',
@@ -336,19 +349,31 @@ test('optional properties can be added and omitted', async () => {
     },
     required: ['required_text'],
   });
-  render(
+
+  const { rerender } = render(
     <NodeForm
       node={createNode({ required_text: 'required' })}
       onChange={onChange}
     />,
     registry,
   );
+
   const input = await screen.findByRole('textbox', { name: 'optional_text' });
   fireEvent.change(input, { target: { value: 'present' } });
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
     required_text: 'required',
     optional_text: 'present',
   });
+
+  rerender(
+    <NodeForm
+      node={createNode({
+        required_text: 'required',
+        optional_text: 'present',
+      })}
+      onChange={onChange}
+    />,
+  );
   fireEvent.change(input, { target: { value: '' } });
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
     required_text: 'required',
@@ -365,14 +390,35 @@ test('control edits write the same JSON-compatible config object', async () => {
     enabled: true,
     strategy: 'safe',
   };
+
   render(<NodeForm node={createNode(config)} onChange={onChange} />, registry);
-  fireEvent.change(await screen.findByRole('textbox', { name: /title/ }), {
+  await screen.findByRole('textbox', { name: /title/ });
+
+  fireEvent.change(screen.getByRole('textbox', { name: /title/ }), {
     target: { value: 'Updated' },
   });
+  expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
+    ...config,
+    title: 'Updated',
+  });
+
   fireEvent.change(screen.getByRole('spinbutton', { name: /threshold/ }), {
     target: { value: '2.75' },
   });
+  expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
+    ...config,
+    title: 'Updated',
+    threshold: 2.75,
+  });
+
   fireEvent.click(screen.getByRole('checkbox', { name: /enabled/ }));
+  expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
+    ...config,
+    title: 'Updated',
+    threshold: 2.75,
+    enabled: false,
+  });
+
   fireEvent.mouseDown(screen.getByRole('combobox', { name: /strategy/ }));
   fireEvent.click(await screen.findByRole('option', { name: 'fast' }));
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
@@ -473,7 +519,10 @@ test('editing a field in an absent optional object creates that object', async (
     properties: {
       opts: {
         type: 'object',
-        properties: { inner: { type: 'string' } },
+        properties: {
+          inner: { type: 'string' },
+          extra: { type: 'integer', default: 7 },
+        },
         required: ['inner'],
       },
     },
@@ -510,8 +559,7 @@ test('fills in required keys the config is missing', async () => {
   );
 
   await screen.findByRole('textbox', { name: /title/ });
-  // Required keys are materialised down the tree; `note` is optional, so it
-  // stays absent until its checkbox is switched on.
+  // Required keys are materialised down the tree; the optional note stays absent.
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
     title: 'kept',
     count: 0,
