@@ -1,3 +1,4 @@
+import { createTheme, ThemeProvider } from '@mui/material';
 import {
   act,
   fireEvent,
@@ -172,6 +173,10 @@ function PanelStateProbe() {
   return <output data-testid="panel-state">{JSON.stringify(state)}</output>;
 }
 
+const workspaceTheme = createTheme({
+  components: { MuiDialog: { defaultProps: { transitionDuration: 0 } } },
+});
+
 function renderWorkspace(
   ui: ReactNode,
   registry: DiagramElementMetadata = testRegistry,
@@ -193,6 +198,11 @@ function renderWorkspace(
         </NodeManagerProvider>
       </RegistryProvider>
     </ApiClientProvider>,
+    {
+      wrapper: ({ children }) => (
+        <ThemeProvider theme={workspaceTheme}>{children}</ThemeProvider>
+      ),
+    },
   );
 }
 
