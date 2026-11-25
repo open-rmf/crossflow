@@ -125,7 +125,7 @@ import {
 } from './utils/load-diagram';
 import { joinNamespaces, ROOT_NAMESPACE } from './utils/namespace';
 import { updateOperationIds } from './utils/operation-id';
-import { renameTemplateProperty } from './utils/rename-template-property';
+import { updateTemplateSchema } from './utils/update-template-schema';
 
 // Keep canvas clicks available while giving MUI a real modal root to restore
 // focus and accessibility when a nested select or field menu closes.
@@ -1607,18 +1607,20 @@ function DiagramEditor() {
             editorMode.mode === EditorMode.Template && (
               <TemplatePanel
                 templateId={editorMode.templateId}
-                onRenameProperty={(from, to, config_schema) => {
-                  const edit = renameTemplateProperty(
+                onChangeSchema={(config_schema, rename) => {
+                  const edit = updateTemplateSchema(
                     editorMode.templateId,
-                    from,
-                    to,
                     config_schema,
+                    rename,
                     nodes,
                     savedNodes.current,
                     templates,
                     transientEditorDrafts.operationConfigs,
                   );
-                  if (typeof edit === 'string') return edit;
+                  if (typeof edit === 'string') {
+                    if (!rename) showErrorToast(edit);
+                    return edit;
+                  }
                   savedNodes.current = edit.main;
                   setNodes(edit.edited);
                   setTemplates(edit.templates);

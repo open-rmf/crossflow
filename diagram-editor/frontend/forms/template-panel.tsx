@@ -2,30 +2,25 @@ import { Box, Divider, Stack, Typography } from '@mui/material';
 import { Fragment, type ReactNode } from 'react';
 import { useCompatibilityChecker } from '../connection-compatibility-provider';
 import { useNodeManager } from '../node-manager';
-import { isOperationNode } from '../nodes';
 import { useTemplates } from '../templates-provider';
 import type { Schema } from '../types/api';
 import { useEdges } from '../use-edges';
-import { useReactFlow } from '../use-react-flow';
-import { bindingEntries } from '../utils/rename-template-property';
-import { schemaDocument } from '../utils/schema-types';
-import SchemaEditor, {
-  type RenameProperty,
-  schemaSummary,
-} from './schema-editor';
+import SchemaEditor, { schemaSummary } from './schema-editor';
 import TypeLabel from './type-label';
 
 export default function TemplatePanel({
   templateId,
-  onRenameProperty,
+  onChangeSchema,
 }: {
   templateId: string;
-  onRenameProperty: RenameProperty;
+  onChangeSchema: (
+    schema: Schema | undefined,
+    rename?: { from: string; to: string },
+  ) => string | undefined;
 }) {
-  const [templates, setTemplates] = useTemplates();
+  const [templates] = useTemplates();
   const template = templates[templateId];
   const { nodes } = useNodeManager();
-  const { updateNodeData } = useReactFlow();
   const edges = useEdges();
   const { edgeResults } = useCompatibilityChecker();
   const ports: Record<'Inputs' | 'Outputs', ReactNode[]> = {
@@ -49,31 +44,6 @@ export default function TemplatePanel({
         </TypeLabel>
       </Fragment>,
     );
-  }
-
-  function updateSchema(config_schema: Schema | undefined) {
-    const names = Object.keys(schemaDocument(config_schema).properties ?? {});
-    const removed = Object.keys(
-      schemaDocument(template.config_schema).properties ?? {},
-    ).filter((name) => !names.includes(name));
-    for (const node of nodes) {
-      if (!isOperationNode(node)) continue;
-      const op = node.data.op;
-      const bindings = bindingEntries(op);
-      const kept = bindings.filter(([, name]) => !removed.includes(name));
-      if (kept.length !== bindings.length) {
-        updateNodeData(node.id, {
-          op: {
-            ...op,
-            config_bindings: kept.length ? Object.fromEntries(kept) : undefined,
-          },
-        });
-      }
-    }
-    setTemplates((prev) => ({
-      ...prev,
-      [templateId]: { ...prev[templateId], config_schema },
-    }));
   }
 
   return (
@@ -107,8 +77,10 @@ export default function TemplatePanel({
         object
         label="Configuration schema"
         value={template.config_schema ?? undefined}
-        onChange={updateSchema}
-        onRenameProperty={onRenameProperty}
+        onChange={onChangeSchema}
+        onRenameProperty={(from, to, schema) =>
+          onChangeSchema(schema, { from, to })
+        }
       />
     </Stack>
   );

@@ -10,6 +10,7 @@ import type { NodeChange, NodeRemoveChange } from '@xyflow/react';
 import { type PropsWithChildren, useState } from 'react';
 import type { OperationNode, OperationNodeTypes } from '../nodes';
 import { MaterialSymbol } from '../nodes';
+import type { DiagramOperation } from '../types/api';
 
 export interface BaseEditOperationFormProps<
   NodeType extends OperationNodeTypes = OperationNodeTypes,
@@ -19,16 +20,37 @@ export interface BaseEditOperationFormProps<
   onDelete?: (change: NodeRemoveChange) => void;
 }
 
+function switchesConfig(before: DiagramOperation, after: DiagramOperation) {
+  if (before.type === 'script' && after.type === 'script')
+    return before.environment !== after.environment || before.run !== after.run;
+  if (before.type === 'section' && after.type === 'section')
+    return (
+      before.template !== after.template || before.builder !== after.builder
+    );
+  return (
+    before.type === 'node' &&
+    after.type === 'node' &&
+    before.builder !== after.builder
+  );
+}
+
 export function operationUpdater<K extends OperationNodeTypes>({
   node,
   onChange,
 }: BaseEditOperationFormProps<K>) {
-  return (op: OperationNode<K>['data']['op']) =>
+  return (op: OperationNode<K>['data']['op']) => {
+    if (
+      'config_bindings' in op &&
+      op.config_bindings &&
+      switchesConfig(node.data.op, op)
+    )
+      op = { ...op, config_bindings: undefined };
     onChange?.({
       type: 'replace',
       id: node.id,
       item: { ...node, data: { ...node.data, op } },
     });
+  };
 }
 
 function BaseEditOperationForm({

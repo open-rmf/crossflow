@@ -26,10 +26,6 @@ function NodeForm(props: NodeFormProps) {
   const builderMetadata = registry.nodes[op.builder];
 
   const replaceOp = operationUpdater(props);
-  const updateConfig = (config: unknown) => {
-    const { config: _config, ...rest } = op;
-    replaceOp(config === undefined ? rest : { ...rest, config });
-  };
 
   return (
     <BaseEditOperationForm {...props}>
@@ -60,7 +56,6 @@ function NodeForm(props: NodeFormProps) {
           replaceOp({
             ...op,
             builder,
-            ...(builder !== op.builder && { config_bindings: undefined }),
             ...(defaults !== undefined && { config: defaults }),
           });
         }}
@@ -97,7 +92,9 @@ function NodeForm(props: NodeFormProps) {
       <OperationConfigForm {...props} schema={builderMetadata?.config_schema} />
       <ConfigExamples
         examples={builderMetadata?.config_examples ?? []}
-        onApply={updateConfig}
+        onApply={(config) =>
+          replaceOp({ ...op, config, config_bindings: undefined })
+        }
       />
     </BaseEditOperationForm>
   );

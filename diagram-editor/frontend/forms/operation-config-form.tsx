@@ -14,8 +14,9 @@ import { useActiveTemplate } from '../templates-provider';
 import { useTransientEditorDrafts } from '../transient-editor-drafts';
 import {
   bindingProperties,
-  pointerSegment,
+  fieldPointer,
   schemaDocument,
+  withinField,
 } from '../utils/schema-types';
 import {
   type BaseEditOperationFormProps,
@@ -32,7 +33,7 @@ const BindingContext = createContext<{
   schema: ReturnType<typeof schemaDocument>;
   pointer?: string;
   bindings: Bindings;
-  update: (bindings: Bindings) => void;
+  setLink: (pointer: string, property?: string) => void;
 } | null>(null);
 const MuiField = Templates.FieldTemplate as ComponentType<FieldTemplateProps>;
 
@@ -50,26 +51,13 @@ function BindableField(
   if (
     !context ||
     field?.hidden ||
-    path.some((segment) => typeof segment === 'number') ||
-    (!path.length && field?.schema.type === 'object')
+    path.some((segment) => typeof segment === 'number')
   )
     return children;
-  const pointer = path.map((key) => `/${pointerSegment(String(key))}`).join('');
+  const pointer = fieldPointer(path);
   if (context.pointer === pointer) return children;
 
   const linked = context.bindings[pointer];
-  const select = (property?: string) => {
-    const next = { ...context.bindings };
-    if (property === undefined) {
-      delete next[pointer];
-    } else {
-      for (const child of Object.keys(next)) {
-        if (child.startsWith(`${pointer}/`)) delete next[child];
-      }
-      next[pointer] = property;
-    }
-    context.update(next);
-  };
   if (linked !== undefined) {
     return (
       <TextField
@@ -88,7 +76,7 @@ function BindableField(
                 aria-keyshortcuts="Backspace Delete"
                 color="primary"
                 icon={<MaterialSymbol symbol="link" />}
-                onDelete={() => select()}
+                onDelete={() => context.setLink(pointer)}
               />
             ),
           },
@@ -96,6 +84,7 @@ function BindableField(
       />
     );
   }
+  if (!path.length && field?.schema.type === 'object') return children;
 
   const menu = (
     <FieldMenu
@@ -124,7 +113,7 @@ function BindableField(
             key={name}
             aria-label={name}
             aria-description={warning ? `${type}, ${warning}` : type}
-            onClick={() => select(name)}
+            onClick={() => context.setLink(pointer, name)}
           >
             <span>{name}</span>
             {warning && (
@@ -163,14 +152,30 @@ export default function OperationConfigForm(props: OperationProps) {
   const op = node.data.op;
   const replaceOp = operationUpdater(props);
   const key = `${op.type}:${node.id}:config`;
+  function updateConfig(
+    config: unknown,
+    removed: string[] = [],
+    link?: [string, string],
+  ) {
+    const links = new Map(Object.entries(op.config_bindings ?? {}));
+    for (const path of removed) links.delete(path);
+    if (link) links.set(...link);
+    replaceOp({
+      ...op,
+      config,
+      config_bindings: links.size ? Object.fromEntries(links) : undefined,
+    });
+  }
+  const trackedFields = Object.keys(op.config_bindings ?? {});
   const binding = template && {
     bindings: op.config_bindings ?? {},
     schema: schemaDocument(template.config_schema, definitions),
-    update: (next: Bindings) =>
-      replaceOp({
-        ...op,
-        config_bindings: Object.keys(next).length ? next : undefined,
-      }),
+    setLink: (pointer: string, property?: string) =>
+      updateConfig(
+        op.config,
+        trackedFields.filter((path) => withinField(path, pointer)),
+        property === undefined ? undefined : [pointer, property],
+      ),
   };
   const form = (
     <SchemaConfigForm
@@ -180,7 +185,8 @@ export default function OperationConfigForm(props: OperationProps) {
       allowJson
       nodeDefaults={op.type === 'node'}
       value={op.config}
-      onChange={(config) => replaceOp({ ...op, config })}
+      trackedFields={trackedFields}
+      onChange={updateConfig}
       fieldTemplate={binding ? BindableField : undefined}
       rawDraft={drafts.operationConfigs[key]}
       onRawDraftChange={(text) => setOperationConfigDraft(key, text)}

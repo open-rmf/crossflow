@@ -10,9 +10,12 @@ import { getDefaultRegistry } from '@rjsf/core';
 import Form, { Templates } from '@rjsf/mui';
 import {
   type ArrayFieldItemTemplateProps,
+  createSchemaUtils,
   type FieldProps,
   type FieldTemplateProps,
+  getByPath,
   getDefaultFormState,
+  getDiscriminatorFieldFromSchema,
   getSchemaType,
   guessType,
   isObject,
@@ -40,7 +43,12 @@ import {
   useRef,
   useState,
 } from 'react';
-import { schemaDocument, schemaTypes } from '../utils/schema-types';
+import {
+  fieldPointer,
+  schemaDocument,
+  schemaTypes,
+  withinField,
+} from '../utils/schema-types';
 import {
   ActionTextField,
   CheckboxWithActions,
@@ -157,7 +165,8 @@ export interface SchemaConfigFormProps {
   schema: unknown;
   definitions?: Record<string, unknown>;
   value?: unknown;
-  onChange: (value: unknown) => void;
+  onChange: (value: unknown, replacedFields?: string[]) => void;
+  trackedFields?: string[];
   label?: string;
   disabled?: boolean;
   nodeDefaults?: boolean;
@@ -180,6 +189,54 @@ function schemaRoot(schema: unknown, definitions?: Record<string, unknown>) {
   return validator.rawValidation(root, undefined).validationError
     ? undefined
     : root;
+}
+
+// A linked optional field can have no literal. Follow its path to distinguish
+// a removed container or switched alternative from a sibling's ordinary edit.
+function fieldRemoved(
+  pointer: string,
+  before: unknown,
+  after: unknown,
+  root?: RJSFSchema,
+) {
+  const utils = root && createSchemaUtils(validator, root);
+  let schemas = root ? [root] : [];
+  for (const token of pointer.split('/').slice(1)) {
+    if (equal(before, after)) return false;
+    if (!isObject(after) && !Array.isArray(after)) return true;
+    if (before !== undefined && Array.isArray(before) !== Array.isArray(after))
+      return true;
+    const key = token.replace(/~1/g, '/').replace(/~0/g, '~');
+    const children: RJSFSchema[] = [];
+    if (utils)
+      for (const schema of schemas) {
+        const field = utils.retrieveSchema(schema, after);
+        let alternatives = field.anyOf ?? [];
+        if (field.oneOf) {
+          const options = field.oneOf.map((s) =>
+            typeof s === 'boolean' ? (s ? {} : { not: {} }) : s,
+          );
+          const discriminator = getDiscriminatorFieldFromSchema(field);
+          const match = (data: unknown, index: number) =>
+            utils.getClosestMatchingOption(data, options, index, discriminator);
+          const previous = match(before, 0);
+          if (match(after, previous) !== previous) return true;
+          alternatives = [options[previous]];
+        }
+        // A parallel anyOf and its base schema may both define this key.
+        for (const part of [field, ...alternatives]) {
+          if (typeof part !== 'object') continue;
+          const s = part === field ? field : utils.retrieveSchema(part, after);
+          const child = s.properties?.[key] ?? s.additionalProperties;
+          if (typeof child === 'object') children.push(child);
+        }
+      }
+    schemas = children;
+    before = getByPath(before, key);
+    after = getByPath(after, key);
+    if (before !== undefined && after === undefined) return true;
+  }
+  return false;
 }
 
 // Existing node builders expect their required fields to exist even before the
@@ -597,7 +654,23 @@ function OneOfField(props: FieldProps) {
       option.title ??
       (typeof option.type === 'string' ? option.type : undefined),
   }));
-  return <nativeFields.OneOfField {...props} options={options} />;
+  return (
+    <nativeFields.OneOfField
+      {...props}
+      options={options}
+      onChange={(value, path, errors, id) => {
+        // Form forwards the event id but omits the path. Carry the exact
+        // pointer through a variant switch, even when both values are empty.
+        const switched = id === `${props.fieldPathId.$id}__oneof_select`;
+        props.onChange(
+          value,
+          path,
+          errors,
+          switched ? `#${fieldPointer(path)}` : id,
+        );
+      }}
+    />
+  );
 }
 
 // A node keeps its last usable number while an integer or required number is
@@ -646,7 +719,19 @@ export default function SchemaConfigForm(props: SchemaConfigFormProps) {
   useEffect(() => {
     if (value !== props.value) props.onChange(value);
   }, [value, props.value, props.onChange]);
-  if (!root) return <RawField {...props} />;
+  const change = (next: unknown, switched?: string, rawSchema?: RJSFSchema) =>
+    props.onChange(
+      next,
+      props.trackedFields?.filter(
+        (path) =>
+          (switched !== undefined && withinField(path, switched)) ||
+          fieldRemoved(path, value, next, rawSchema),
+      ),
+    );
+  const rawEditor = (
+    <RawField {...props} onChange={(next) => change(next, undefined, root)} />
+  );
+  if (!root) return rawEditor;
 
   const raw = editJson || props.rawDraft !== undefined;
   const editor = (
@@ -687,14 +772,18 @@ export default function SchemaConfigForm(props: SchemaConfigFormProps) {
       onChange={({ formData }, fieldId) => {
         // RJSF also reports suggested defaults when it mounts. Only user edits
         // have a field id. Opening a panel must not change a saved diagram.
-        if (fieldId) props.onChange(formData);
+        if (fieldId)
+          change(
+            formData,
+            fieldId.startsWith('#') ? fieldId.slice(1) : undefined,
+          );
       }}
     />
   );
   if (!props.allowJson) return editor;
   return (
     <Stack spacing={2}>
-      {raw ? <RawField {...props} /> : editor}
+      {raw ? rawEditor : editor}
       <Button
         sx={{ alignSelf: 'flex-end' }}
         size="small"

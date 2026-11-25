@@ -11,6 +11,14 @@ export function pointerSegment(name: string) {
   return name.replace(/~/g, '~0').replace(/\//g, '~1');
 }
 
+export function fieldPointer(path: (string | number)[]) {
+  return path.map((key) => `/${pointerSegment(String(key))}`).join('');
+}
+
+export function withinField(pointer: string, field: string) {
+  return pointer === field || pointer.startsWith(`${field}/`);
+}
+
 function resolve(schema: Schema, root: RJSFSchema) {
   if (typeof schema === 'boolean') return undefined;
   try {

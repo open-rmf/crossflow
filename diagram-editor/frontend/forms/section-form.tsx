@@ -192,12 +192,7 @@ export function SectionForm(props: SectionFormProps) {
         onChange={(_, value) => {
           if (value === null || value === (op.builder ?? op.template)) return;
           clearOperationConfigDrafts([props.node.id]);
-          const {
-            builder: _builder,
-            template: _template,
-            config_bindings: _bindings,
-            ...rest
-          } = op;
+          const { builder: _builder, template: _template, ...rest } = op;
           replaceOp(
             sectionBuilders.includes(value)
               ? { ...rest, builder: value }
