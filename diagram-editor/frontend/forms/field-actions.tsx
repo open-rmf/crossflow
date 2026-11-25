@@ -117,6 +117,7 @@ export function useFieldActions(id: string) {
 const MuiInput =
   Templates.BaseInputTemplate as ComponentType<BaseInputTemplateProps>;
 const MuiTitle = Templates.TitleFieldTemplate as ComponentType<TitleFieldProps>;
+const actionGutter = { paddingInlineEnd: 2 };
 
 function useInputProps(
   id: string,
@@ -133,15 +134,17 @@ function useInputProps(
         {props?.endAdornment}
       </>
     ),
-    ...(select && {
-      sx: {
+    sx: [
+      ...(Array.isArray(props?.sx) ? props.sx : [props?.sx ?? {}]),
+      !props?.endAdornment && actionGutter,
+      select && {
         display: 'grid',
         gridTemplateColumns: 'minmax(0, 1fr) auto',
         alignItems: 'center',
         '& .MuiSelect-select, & .MuiSelect-icon': { gridArea: '1 / 1' },
         '& .MuiSelect-icon': { position: 'static', justifySelf: 'end' },
       },
-    }),
+    ],
   };
 }
 
@@ -182,10 +185,17 @@ export function FieldRow({ id, children }: PropsWithChildren<{ id: string }>) {
       direction="row"
       alignItems="center"
       justifyContent="space-between"
-      sx={{ '& > .MuiFormControlLabel-root': { ml: 0 } }}
+      sx={{
+        overflowWrap: 'anywhere',
+        '& > .MuiFormControlLabel-root': { ml: 0 },
+      }}
     >
       {children}
-      {actions && <Stack direction="row">{actions}</Stack>}
+      {actions && (
+        <Stack direction="row" sx={actionGutter}>
+          {actions}
+        </Stack>
+      )}
     </Stack>
   );
 }
@@ -205,10 +215,10 @@ export function TitleWithActions(props: TitleFieldProps) {
     <MuiTitle
       {...props}
       optionalDataControl={
-        <>
+        <Stack direction="row" alignItems="center" sx={actionGutter}>
           {props.optionalDataControl}
           {actions}
-        </>
+        </Stack>
       }
     />
   );

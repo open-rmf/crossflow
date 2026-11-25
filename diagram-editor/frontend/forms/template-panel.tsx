@@ -8,6 +8,7 @@ import { useEdges } from '../use-edges';
 import { useReactFlow } from '../use-react-flow';
 import { schemaDocument } from '../utils/schema-types';
 import SchemaEditor, { schemaSummary } from './schema-editor';
+import TypeLabel from './type-label';
 
 export default function TemplatePanel({ templateId }: { templateId: string }) {
   const [templates, setTemplates] = useTemplates();
@@ -32,7 +33,9 @@ export default function TemplatePanel({ templateId }: { templateId: string }) {
     ports[input ? 'Inputs' : 'Outputs'].push(
       <Fragment key={node.id}>
         <dt>{input ? node.data.remappedId : node.data.outputId}</dt>
-        <dd>{type}</dd>
+        <TypeLabel component="dd" sx={{ width: '100%' }}>
+          {type}
+        </TypeLabel>
       </Fragment>,
     );
   }
@@ -80,16 +83,11 @@ export default function TemplatePanel({ templateId }: { templateId: string }) {
                   component="dl"
                   sx={{
                     display: 'grid',
-                    gridTemplateColumns: 'minmax(0, 1fr) auto',
+                    gridTemplateColumns: 'fit-content(50%) minmax(0, 1fr)',
                     columnGap: 1,
                     m: 0,
                     typography: 'body2',
                     overflowWrap: 'anywhere',
-                    '& dd': {
-                      m: 0,
-                      color: 'text.secondary',
-                      textAlign: 'right',
-                    },
                   }}
                 >
                   {entries}

@@ -1,5 +1,6 @@
 import {
   Autocomplete,
+  Box,
   Button,
   MenuItem,
   Stack,
@@ -8,6 +9,7 @@ import {
 import { getDefaultRegistry } from '@rjsf/core';
 import Form, { Templates } from '@rjsf/mui';
 import {
+  type ArrayFieldItemTemplateProps,
   type FieldProps,
   type FieldTemplateProps,
   getDefaultFormState,
@@ -63,7 +65,7 @@ const MuiObjectField =
 function ObjectLayout(props: ObjectFieldTemplateProps) {
   const rjsfSlotProps = {
     titleBox: { sx: { m: 0 } },
-    titleTypography: { variant: 'subtitle2' },
+    titleTypography: { variant: 'subtitle2', sx: { overflowWrap: 'anywhere' } },
     titleGridContainer: { alignItems: 'center' },
     objectGridItem: { sx: { mb: 0 } },
     objectGridContainer: {
@@ -75,6 +77,51 @@ function ObjectLayout(props: ObjectFieldTemplateProps) {
       {...props}
       uiSchema={{ ...props.uiSchema, 'ui:mui': { rjsfSlotProps } }}
     />
+  );
+}
+
+function ArrayItemLayout({
+  children,
+  buttonsProps,
+  hasToolbar,
+  registry,
+  schema,
+}: ArrayFieldItemTemplateProps) {
+  const Buttons = registry.templates.ArrayFieldItemButtonsTemplate;
+  const inlineToolbar = hasToolbar && schema.type !== 'array';
+  return (
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: inlineToolbar
+          ? 'minmax(0, 1fr) auto'
+          : 'minmax(0, 1fr)',
+        alignItems: 'center',
+        columnGap: 1,
+        mt: 2,
+        // Let the input, its validation text, and the toolbar share the row grid.
+        '& > .rjsf-field, & > .rjsf-field > .MuiFormControl-root': {
+          display: 'contents',
+        },
+        '& > .rjsf-field > .MuiFormControl-root > *': { gridColumn: 1 },
+        '& > .rjsf-field-object > .MuiFormControl-root > .MuiGrid-container': {
+          gridColumn: '1 / -1',
+        },
+      }}
+    >
+      {children}
+      {hasToolbar && (
+        <Stack
+          direction="row"
+          sx={{
+            gridArea: inlineToolbar ? '1 / 2' : 'auto / 1',
+            justifySelf: 'end',
+          }}
+        >
+          <Buttons {...buttonsProps} />
+        </Stack>
+      )}
+    </Box>
   );
 }
 
@@ -624,6 +671,7 @@ export default function SchemaConfigForm(props: SchemaConfigFormProps) {
         CheckboxWidget: CheckboxWithActions,
       }}
       templates={{
+        ArrayFieldItemTemplate: ArrayItemLayout,
         BaseInputTemplate: InputWithActions,
         TitleFieldTemplate: TitleWithActions,
         ObjectFieldTemplate: ObjectLayout,

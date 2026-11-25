@@ -29,6 +29,7 @@ import {
 import { useRegistry } from '../registry-provider';
 import ajv from '../utils/ajv';
 import SchemaConfigForm from './schema-config-form';
+import TypeLabel from './type-label';
 
 type Schema = RJSFSchema | boolean;
 const initial: RJSFSchema = { type: 'string' };
@@ -155,12 +156,11 @@ function SchemaItem({ formData, onChange, fieldPathId }: FieldProps<Schema>) {
 function schemaList(items: UiSchema): UiSchema {
   // RJSF provides the add button and item toolbar. Share the title row with
   // the add button, keeping a single column of items below it.
-  const flatPaper = { elevation: 0, sx: { bgcolor: 'transparent' } };
   return {
     'ui:mui': {
       rjsfSlotProps: {
-        arrayPaper: flatPaper,
-        arrayBox: { sx: { p: 0, display: 'grid', rowGap: 2 } },
+        arrayPaper: { elevation: 0, sx: { bgcolor: 'transparent' } },
+        arrayBox: { sx: { p: 0, display: 'grid' } },
         titleBox: {
           sx: {
             gridArea: '1 / 1',
@@ -178,19 +178,7 @@ function schemaList(items: UiSchema): UiSchema {
         arrayAddButtonBox: { sx: { mt: 0 } },
       },
     },
-    items: {
-      ...items,
-      'ui:mui': {
-        rjsfSlotProps: {
-          arrayItemPaper: flatPaper,
-          arrayItemInnerBox: { sx: { p: 0 } },
-          arrayItemOuterBox: { sx: { mb: 0 } },
-          arrayItemGridContainer: { sx: { gap: 1 } },
-          arrayItemGridItem: { size: 'grow', sx: { overflow: 'visible' } },
-          arrayItemToolbarGrid: { sx: { mt: 0 } },
-        },
-      },
-    },
+    items,
   };
 }
 
@@ -497,16 +485,21 @@ function Properties({
           alignItems="center"
           sx={{ borderBottom: 1, borderColor: 'divider', py: 0.5 }}
         >
-          <Typography
-            variant="body2"
-            sx={{ flex: 1, overflowWrap: 'anywhere' }}
+          <Stack
+            direction="row"
+            spacing={1}
+            alignItems="baseline"
+            sx={{ flex: 1, minWidth: 0 }}
           >
-            {name}
-            {required.includes(name) && ' *'}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {schemaSummary(schema)}
-          </Typography>
+            <Typography
+              variant="body2"
+              sx={{ flex: 1, overflowWrap: 'anywhere' }}
+            >
+              {name}
+              {required.includes(name) && ' *'}
+            </Typography>
+            <TypeLabel>{schemaSummary(schema)}</TypeLabel>
+          </Stack>
           {iconButton(`Edit ${name}`, 'edit', () => setEditing(name))}
           {iconButton(`Delete ${name}`, 'delete', () => {
             if (window.confirm(`Delete property “${name}”?`))
@@ -552,7 +545,11 @@ export default function SchemaEditor({
   const name = typeof title === 'string' ? title : '';
   return (
     <Stack spacing={1} component="section" aria-label={label}>
-      <Stack direction="row" spacing={1} alignItems="center">
+      <Stack
+        direction="row"
+        spacing={1}
+        alignItems={removable || inlineTitle ? 'center' : 'baseline'}
+      >
         {inlineTitle ? (
           <TextField
             variant="standard"
@@ -574,9 +571,9 @@ export default function SchemaEditor({
           </Typography>
         )}
         {!object && value !== undefined && (
-          <Typography variant="body2" color="text.secondary">
+          <TypeLabel>
             {schemaSummary(inlineTitle ? definition : value)}
-          </Typography>
+          </TypeLabel>
         )}
         <Button size="small" onClick={() => setOpen(true)}>
           {object ? 'Edit JSON' : value === undefined ? 'Declare' : 'Edit'}

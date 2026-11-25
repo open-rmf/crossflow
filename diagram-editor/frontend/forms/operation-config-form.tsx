@@ -1,4 +1,4 @@
-import { Chip, MenuItem, Stack, Tooltip, Typography } from '@mui/material';
+import { Chip, MenuItem, TextField, Tooltip } from '@mui/material';
 import { Templates } from '@rjsf/mui';
 import type { FieldTemplateProps } from '@rjsf/utils';
 import {
@@ -7,6 +7,7 @@ import {
   type PropsWithChildren,
   useContext,
 } from 'react';
+import { EditPopoverWidth } from '../diagram-side-panel-layout';
 import { MaterialSymbol } from '../nodes';
 import { useRegistry } from '../registry-provider';
 import { useActiveTemplate } from '../templates-provider';
@@ -20,6 +21,7 @@ import { FieldActions, FieldMenu } from './field-actions';
 import SchemaConfigForm, {
   type SchemaConfigFormProps,
 } from './schema-config-form';
+import TypeLabel from './type-label';
 
 type Bindings = Record<string, string>;
 const BindingContext = createContext<{
@@ -58,17 +60,28 @@ function BindableField({
   };
   if (linked !== undefined) {
     return (
-      <Stack spacing={0.5} alignItems="flex-start">
-        <Typography variant="caption" color="text.secondary">
-          {label}
-        </Typography>
-        <Chip
-          label={linked}
-          color="primary"
-          icon={<MaterialSymbol symbol="link" />}
-          onDelete={() => select()}
-        />
-      </Stack>
+      <TextField
+        fullWidth
+        label={label}
+        required={field?.required}
+        slotProps={{
+          htmlInput: { inert: true },
+          input: {
+            readOnly: true,
+            startAdornment: (
+              <Chip
+                className="nokey"
+                label={linked}
+                aria-label={`${label} linked to ${linked}`}
+                aria-keyshortcuts="Backspace Delete"
+                color="primary"
+                icon={<MaterialSymbol symbol="link" />}
+                onDelete={() => select()}
+              />
+            ),
+          },
+        }}
+      />
     );
   }
 
@@ -78,12 +91,15 @@ function BindableField({
       label={`Link ${label} to a section property`}
       menuListSx={{
         display: 'grid',
-        gridTemplateColumns: '1fr auto auto',
+        maxWidth: EditPopoverWidth,
+        gridTemplateColumns: 'minmax(0, 1fr) auto fit-content(50%)',
         columnGap: 1,
         '& > li': {
           display: 'grid',
           gridColumn: '1 / -1',
           gridTemplateColumns: 'subgrid',
+          whiteSpace: 'normal',
+          overflowWrap: 'anywhere',
         },
       }}
     >
@@ -107,14 +123,7 @@ function BindableField({
                 />
               </Tooltip>
             )}
-            <Typography
-              variant="body2"
-              color="text.secondary"
-              align="right"
-              sx={{ gridColumn: 3 }}
-            >
-              {type}
-            </Typography>
+            <TypeLabel sx={{ gridColumn: 3 }}>{type}</TypeLabel>
           </MenuItem>
         ));
       }}
