@@ -21,9 +21,13 @@ import {
 } from '../nodes';
 import { useRegistry } from '../registry-provider';
 import { useTemplates } from '../templates-provider';
+import { useTransientEditorDrafts } from '../transient-editor-drafts';
 import BaseEditOperationForm, {
   type BaseEditOperationFormProps,
+  operationUpdater,
 } from './base-edit-operation-form';
+import OperationConfigForm from './operation-config-form';
+import { PortSchemaEditor } from './schema-editor';
 
 export interface BaseSectionInterfaceFormProps {
   node: SectionInterfaceNode;
@@ -80,6 +84,7 @@ export function SectionInputForm({
             });
           }}
         />
+        <PortSchemaEditor node={node} onChange={onChange} />
       </Stack>
     </BaseSectionInterfaceForm>
   );
@@ -144,6 +149,7 @@ export function SectionOutputForm({
             });
           }}
         />
+        <PortSchemaEditor node={node} onChange={onChange} />
       </Stack>
     </BaseSectionInterfaceForm>
   );
@@ -152,66 +158,54 @@ export function SectionOutputForm({
 export type SectionFormProps = BaseEditOperationFormProps<'section'>;
 
 export function SectionForm(props: SectionFormProps) {
+  const { clearOperationConfigDrafts } = useTransientEditorDrafts();
   const registry = useRegistry();
-  const [templates, _setTemplates] = useTemplates();
+  const [templates] = useTemplates();
   const sectionBuilders = Object.keys(registry.sections);
   const sectionTemplates = Object.keys(templates);
   const sections = [...sectionBuilders, ...sectionTemplates].sort();
+
+  const op = props.node.data.op;
+  const replaceOp = operationUpdater(props);
+  const template =
+    typeof op.template === 'string' ? templates[op.template] : undefined;
+  const schema =
+    typeof op.builder === 'string'
+      ? registry.sections[op.builder]?.config_schema
+      : template?.config_schema;
 
   return (
     <BaseEditOperationForm {...props}>
       <TextField
         label="Display Text"
-        value={props.node.data.op.display_text || ''}
-        onChange={(ev) => {
-          try {
-            const updatedNode = { ...props.node };
-            updatedNode.data.op.display_text = ev.target.value || undefined;
-            props.onChange?.({
-              type: 'replace',
-              id: props.node.id,
-              item: updatedNode,
-            });
-          } catch {}
-        }}
+        value={op.display_text || ''}
+        onChange={(ev) =>
+          replaceOp({ ...op, display_text: ev.target.value || undefined })
+        }
       />
       <Autocomplete
         freeSolo
         autoSelect
         options={sections}
         getOptionLabel={(option) => option}
-        value={
-          (props.node.data.op.builder ||
-            props.node.data.op.template ||
-            '') as string
-        }
+        value={(op.builder ?? op.template ?? '') as string}
         onChange={(_, value) => {
-          if (value === null) {
-            return;
-          }
-
-          const updatedNode = { ...props.node };
-          if (sectionBuilders.includes(value)) {
-            updatedNode.data.op.builder = value;
-            delete updatedNode.data.op.template;
-          } else if (sectionTemplates.includes(value)) {
-            updatedNode.data.op.template = value;
-            delete updatedNode.data.op.builder;
-          } else {
-            // unable to determine if selected option is a builder or template, assume template.
-            updatedNode.data.op.template = value;
-            delete updatedNode.data.op.builder;
-          }
-          props.onChange?.({
-            type: 'replace',
-            id: props.node.id,
-            item: updatedNode,
-          });
+          if (value === null || value === (op.builder ?? op.template)) return;
+          clearOperationConfigDrafts([props.node.id]);
+          const { builder: _builder, template: _template, ...rest } = op;
+          replaceOp(
+            sectionBuilders.includes(value)
+              ? { ...rest, builder: value }
+              : { ...rest, template: value },
+          );
         }}
         renderInput={(params) => (
           <TextField {...params} required label="builder/template" />
         )}
       />
+      {(!template || schema != null) && (
+        <OperationConfigForm {...props} schema={schema} />
+      )}
     </BaseEditOperationForm>
   );
 }

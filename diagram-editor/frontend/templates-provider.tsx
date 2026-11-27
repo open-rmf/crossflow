@@ -6,6 +6,7 @@ import {
   useContext,
   useState,
 } from 'react';
+import { useTemplateId } from './editor-mode';
 import type { SectionTemplate } from './types/api';
 
 export type TemplatesContext = [
@@ -25,6 +26,12 @@ export function TemplatesProvider({ children }: PropsWithChildren) {
       {children}
     </TemplatesContextComp.Provider>
   );
+}
+
+export function useActiveTemplate(): SectionTemplate | undefined {
+  const id = useTemplateId();
+  const context = useContext(TemplatesContextComp);
+  return id === undefined ? undefined : context?.[0][id];
 }
 
 export function useTemplates(): TemplatesContext {

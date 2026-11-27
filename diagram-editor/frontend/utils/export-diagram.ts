@@ -553,6 +553,7 @@ export function exportTemplate(
   registry: DiagramElementMetadata,
   nodeManager: NodeManager,
   edges: DiagramEditorEdge[],
+  source?: SectionTemplate,
 ): SectionTemplate {
   nodeManager = new NodeManager(JSON.parse(JSON.stringify(nodeManager.nodes)));
   const fakeRoot: SubOperations = {
@@ -560,11 +561,14 @@ export function exportTemplate(
     ops: {},
   };
   const template = {
+    ...source,
+    input_schemas: undefined as SectionTemplate['input_schemas'],
+    output_schemas: undefined as SectionTemplate['output_schemas'],
     inputs: {} as Record<string, NextOperation>,
     outputs: [] as string[],
     buffers: {} as Record<string, NextOperation>,
     ops: fakeRoot.ops,
-  } satisfies Required<SectionTemplate>;
+  } satisfies SectionTemplate;
 
   syncEdges(registry, nodeManager, fakeRoot, edges);
 
@@ -583,8 +587,16 @@ export function exportTemplate(
       }
     } else if (node.type === 'sectionInput') {
       template.inputs[node.data.remappedId] = node.data.targetId;
+      if (node.data.schema !== undefined) {
+        template.input_schemas ??= {};
+        template.input_schemas[node.data.remappedId] = node.data.schema;
+      }
     } else if (node.type === 'sectionOutput') {
       template.outputs.push(node.data.outputId);
+      if (node.data.schema !== undefined) {
+        template.output_schemas ??= {};
+        template.output_schemas[node.data.outputId] = node.data.schema;
+      }
     } else if (node.type === 'sectionBuffer') {
       template.buffers[node.data.remappedId] = node.data.targetId;
     }

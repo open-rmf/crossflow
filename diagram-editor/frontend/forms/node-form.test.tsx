@@ -97,10 +97,8 @@ test('renders typed controls for a supported object schema and loads existing co
     1.5,
   );
   expect(screen.getByRole('spinbutton', { name: /attempts/ })).toHaveValue(3);
-  expect(screen.getByRole('combobox', { name: /enabled/ })).toHaveTextContent(
-    'true',
-  );
-  expect(screen.getByRole('combobox', { name: /strategy/ })).toHaveTextContent(
+  expect(screen.getByRole('checkbox', { name: /enabled/ })).toBeChecked();
+  expect(screen.getByRole('combobox', { name: /strategy/ })).toHaveValue(
     'safe',
   );
   expect(screen.queryByLabelText('Config')).not.toBeInTheDocument();
@@ -178,7 +176,7 @@ test('renders and updates a numeric control when the entire node config is a num
   expect(onChange).not.toHaveBeenCalled();
 });
 
-test('an Option config opts out through its own checkbox', async () => {
+test('choosing the null alternative writes JSON null', async () => {
   const onChange = jest.fn();
   // `add` takes an `Option<f64>`, and ships `null` as one of its examples.
   const registry = createRegistry({
@@ -189,40 +187,33 @@ test('an Option config opts out through its own checkbox', async () => {
     <NodeForm node={createNode(null)} onChange={onChange} />,
     registry,
   );
-
-  // Starts opted out: the box is disabled until the config is switched on.
-  const optOut = await screen.findByRole('checkbox', { name: 'Set Config' });
-  expect(optOut).not.toBeChecked();
-  expect(screen.getByRole('spinbutton', { name: /Config/ })).toBeDisabled();
-
-  fireEvent.click(optOut);
-  expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toBe(0);
+  expect(await screen.findByDisplayValue('null')).toBeInTheDocument();
+  expect(onChange).not.toHaveBeenCalled();
 
   rerender(<NodeForm node={createNode(5)} onChange={onChange} />);
   const config = screen.getByRole('spinbutton', { name: /Config/ });
   expect(config).toBeEnabled();
   expect(config).toHaveValue(5);
 
-  // And back again, which is the route to `null` that emptying the box is not.
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Set Config' }));
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Config value options' }),
+  );
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Set to null' }));
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toBeNull();
 });
 
-test('an optional Option property gets one checkbox, not two', async () => {
+test('an absent optional nullable property stays absent when the form opens', async () => {
   // `#[serde(default)] compared_to: Option<f64>` is both optional and nullable.
+  const onChange = jest.fn();
   const registry = createRegistry({
     type: 'object',
     properties: {
       compared_to: { anyOf: [{ type: 'number' }, { type: 'null' }] },
     },
   });
-
-  render(<NodeForm node={createNode({})} />, registry);
-
-  expect(
-    await screen.findByRole('checkbox', { name: 'Set compared_to' }),
-  ).toBeInTheDocument();
-  expect(screen.getAllByRole('checkbox')).toHaveLength(1);
+  render(<NodeForm node={createNode({})} onChange={onChange} />, registry);
+  await screen.findByRole('button', { name: 'compared_to value options' });
+  expect(onChange).not.toHaveBeenCalled();
 });
 
 test('a non-nullable numeric config is not cleared by emptying it', async () => {
@@ -246,25 +237,20 @@ test('a non-nullable numeric config is not cleared by emptying it', async () => 
   expect(count).toBeInvalid();
 });
 
-test('booleans are edited as a two-option list', async () => {
+test('editing a boolean writes a boolean value', async () => {
   const onChange = jest.fn();
   const registry = createRegistry({
     type: 'object',
     properties: { print: { type: 'boolean' } },
     required: ['print'],
   });
-
   render(
     <NodeForm node={createNode({ print: true })} onChange={onChange} />,
     registry,
   );
-
-  const print = await screen.findByRole('combobox', { name: /print/ });
-  expect(print).toHaveTextContent('true');
-  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-
-  fireEvent.mouseDown(print);
-  fireEvent.click(await screen.findByRole('option', { name: 'false' }));
+  const print = await screen.findByRole('checkbox', { name: /print/ });
+  expect(print).toBeChecked();
+  fireEvent.click(print);
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
     print: false,
   });
@@ -372,15 +358,11 @@ test('optional properties can be added and omitted', async () => {
     registry,
   );
 
-  const includeOptional = await screen.findByRole('checkbox', {
-    name: 'Set optional_text',
-  });
-  expect(includeOptional).not.toBeChecked();
-  expect(screen.getByRole('textbox', { name: 'optional_text' })).toBeDisabled();
-  fireEvent.click(includeOptional);
+  const input = await screen.findByRole('textbox', { name: 'optional_text' });
+  fireEvent.change(input, { target: { value: 'present' } });
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
     required_text: 'required',
-    optional_text: '',
+    optional_text: 'present',
   });
 
   rerender(
@@ -392,9 +374,7 @@ test('optional properties can be added and omitted', async () => {
       onChange={onChange}
     />,
   );
-  fireEvent.click(
-    await screen.findByRole('checkbox', { name: 'Set optional_text' }),
-  );
+  fireEvent.change(input, { target: { value: '' } });
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
     required_text: 'required',
   });
@@ -427,13 +407,15 @@ test('control edits write the same JSON-compatible config object', async () => {
   });
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
     ...config,
+    title: 'Updated',
     threshold: 2.75,
   });
 
-  fireEvent.mouseDown(screen.getByRole('combobox', { name: /enabled/ }));
-  fireEvent.click(await screen.findByRole('option', { name: 'false' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: /enabled/ }));
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
     ...config,
+    title: 'Updated',
+    threshold: 2.75,
     enabled: false,
   });
 
@@ -441,6 +423,9 @@ test('control edits write the same JSON-compatible config object', async () => {
   fireEvent.click(await screen.findByRole('option', { name: 'fast' }));
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
     ...config,
+    title: 'Updated',
+    threshold: 2.75,
+    enabled: false,
     strategy: 'fast',
   });
 });
@@ -527,7 +512,7 @@ test('nests a group per level, each editing against its own schema', async () =>
   });
 });
 
-test('switching on an optional object seeds its required fields', async () => {
+test('editing a field in an absent optional object creates that object', async () => {
   const onChange = jest.fn();
   const registry = createRegistry({
     type: 'object',
@@ -542,15 +527,12 @@ test('switching on an optional object seeds its required fields', async () => {
       },
     },
   });
-
   render(<NodeForm node={createNode({})} onChange={onChange} />, registry);
-
-  // Until the object is switched on, nothing inside it is editable.
-  expect(await screen.findByRole('textbox', { name: /inner/ })).toBeDisabled();
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Set opts' }));
-
+  const inner = await screen.findByRole('textbox', { name: /inner/ });
+  expect(onChange).not.toHaveBeenCalled();
+  fireEvent.change(inner, { target: { value: 'saved' } });
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
-    opts: { inner: '', extra: 7 },
+    opts: { inner: 'saved' },
   });
 });
 
@@ -577,8 +559,7 @@ test('fills in required keys the config is missing', async () => {
   );
 
   await screen.findByRole('textbox', { name: /title/ });
-  // Required keys are materialised down the tree; `note` is optional, so it
-  // stays absent until its checkbox is switched on.
+  // Required keys are materialised down the tree; the optional note stays absent.
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
     title: 'kept',
     count: 0,
@@ -599,10 +580,9 @@ test('a required boolean reads as a value, never as an empty box', async () => {
 
   render(<NodeForm node={createNode()} onChange={onChange} />, registry);
 
-  // The list shows `false`, and the config says so.
   expect(
-    await screen.findByRole('combobox', { name: /print/ }),
-  ).toHaveTextContent('false');
+    await screen.findByRole('checkbox', { name: /print/ }),
+  ).not.toBeChecked();
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
     greeting: '',
     print: false,
@@ -618,7 +598,7 @@ test('leaves a config-less node alone when nothing is required', async () => {
 
   render(<NodeForm node={createNode()} onChange={onChange} />, registry);
 
-  await screen.findByRole('checkbox', { name: 'Set note' });
+  await screen.findByRole('textbox', { name: 'note' });
   await waitFor(() => expect(onChange).not.toHaveBeenCalled());
 });
 
@@ -669,7 +649,7 @@ test('edits the whole config as JSON when the builder is not registered', async 
   );
 });
 
-test('falls back to JSON per property, keeping the rest of the form typed', async () => {
+test('edits array items alongside the other typed properties', async () => {
   const onChange = jest.fn();
   const registry = createRegistry({
     type: 'object',
@@ -692,16 +672,15 @@ test('falls back to JSON per property, keeping the rest of the form typed', asyn
     'kept',
   );
   const values = screen.getByRole('textbox', { name: /values/ });
-  expect(values).toHaveValue('["a"]');
-
-  fireEvent.change(values, { target: { value: '["a","b"]' } });
+  expect(values).toHaveValue('a');
+  fireEvent.change(values, { target: { value: 'b' } });
   expect(onChange.mock.calls.at(-1)?.[0].item.data.op.config).toEqual({
     title: 'kept',
-    values: ['a', 'b'],
+    values: ['b'],
   });
 });
 
-test('falls back to JSON at the point a schema recurses', async () => {
+test('expands a recursive property on demand', async () => {
   const registry = createRegistry(
     { $ref: '#/$defs/Recursive' },
     {
@@ -724,9 +703,8 @@ test('falls back to JSON at the point a schema recurses', async () => {
   expect(await screen.findByRole('textbox', { name: /name/ })).toHaveValue(
     'root',
   );
-  expect(screen.getByRole('textbox', { name: /child/ })).toHaveValue(
-    JSON.stringify({ name: 'leaf' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: /Expand Cycle/ }));
+  expect(screen.getByDisplayValue('leaf')).toBeInTheDocument();
 });
 
 function StatefulConfigForm({ schema }: { schema: unknown }) {

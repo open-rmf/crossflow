@@ -7,14 +7,15 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useDiagramProperties } from '../diagram-properties-provider';
 import { useDiagramSidePanel } from '../diagram-side-panel-controller';
 import { MaterialSymbol } from '../nodes';
-import { useTransientEditorDrafts } from '../transient-editor-drafts';
 import BaseEditOperationForm, {
   type BaseEditOperationFormProps,
+  operationUpdater,
 } from './base-edit-operation-form';
+import OperationConfigForm from './operation-config-form';
 import { useScriptEnvironmentNavigation } from './use-script-environment-navigation';
 
 export type ScriptFormProps = BaseEditOperationFormProps<'script'>;
@@ -22,8 +23,9 @@ export type ScriptFormProps = BaseEditOperationFormProps<'script'>;
 const CREATE_ENVIRONMENT_VALUE = '__create_script_environment__';
 
 function ScriptForm(props: ScriptFormProps) {
+  const { op } = props.node.data;
+  const replaceOp = operationUpdater(props);
   const [diagramProperties] = useDiagramProperties();
-  const { drafts, setOperationConfigDraft } = useTransientEditorDrafts();
   const environments = diagramProperties.script_environments || {};
   const openScriptEnvironment = useScriptEnvironmentNavigation();
   const {
@@ -33,48 +35,14 @@ function ScriptForm(props: ScriptFormProps) {
     requestEnvironmentLeave,
   } = useDiagramSidePanel();
 
-  // Track raw string of node config to support JSON editing
-  const configDraftKey = `script:${props.node.id}:config`;
-  const [configValue, setConfigValue] = useState(
-    () =>
-      drafts.operationConfigs[configDraftKey] ??
-      (props.node.data.op.config
-        ? JSON.stringify(props.node.data.op.config, null, 2)
-        : ''),
-  );
-
-  const configError = useMemo(() => {
-    if (configValue === '') return false;
-    try {
-      JSON.parse(configValue);
-      return false;
-    } catch {
-      return true;
-    }
-  }, [configValue]);
-
   const handleEnvChange = (envName: string) =>
     requestEnvironmentLeave(() => {
-      const updatedNode = {
-        ...props.node,
-        data: {
-          ...props.node.data,
-          op: {
-            ...props.node.data.op,
-            environment: envName,
-          },
-        },
-      };
-      props.onChange?.({
-        type: 'replace',
-        id: props.node.id,
-        item: updatedNode,
-      });
+      replaceOp({ ...op, environment: envName });
       openScriptEnvironment(envName, false);
     });
 
   // Real-time parse python entrypoint functions from selected environment
-  const selectedEnvName = props.node.data.op.environment;
+  const selectedEnvName = op.environment;
   const selectedEnv = selectedEnvName
     ? environments[selectedEnvName]
     : undefined;
@@ -110,23 +78,17 @@ function ScriptForm(props: ScriptFormProps) {
     <BaseEditOperationForm {...props}>
       <TextField
         label="Display Text"
-        value={props.node.data.op.display_text || ''}
-        onChange={(ev) => {
-          const updatedNode = { ...props.node };
-          updatedNode.data.op.display_text = ev.target.value || undefined;
-          props.onChange?.({
-            type: 'replace',
-            id: props.node.id,
-            item: updatedNode,
-          });
-        }}
+        value={op.display_text || ''}
+        onChange={(ev) =>
+          replaceOp({ ...op, display_text: ev.target.value || undefined })
+        }
       />
 
       <Stack direction="row" spacing={1} alignItems="center" minWidth={0}>
         <TextField
           select
           label="Script Environment"
-          value={props.node.data.op.environment || ''}
+          value={selectedEnvName || ''}
           onChange={(e) => {
             if (e.target.value === CREATE_ENVIRONMENT_VALUE) {
               requestEnvironmentLeave(startEnvironmentCreate);
@@ -170,10 +132,7 @@ function ScriptForm(props: ScriptFormProps) {
                 closePanel();
                 return;
               }
-              openScriptEnvironment(
-                props.node.data.op.environment || undefined,
-                false,
-              );
+              openScriptEnvironment(selectedEnvName || undefined, false);
             }}
           >
             <MaterialSymbol symbol="settings" />
@@ -186,24 +145,10 @@ function ScriptForm(props: ScriptFormProps) {
         freeSolo
         autoSelect
         options={availableFunctions}
-        value={props.node.data.op.run || ''}
-        onChange={(_, val) => {
-          const updatedNode = { ...props.node };
-          updatedNode.data.op.run = val ?? '';
-          props.onChange?.({
-            type: 'replace',
-            id: props.node.id,
-            item: updatedNode,
-          });
-        }}
-        onInputChange={(_, val) => {
-          const updatedNode = { ...props.node };
-          updatedNode.data.op.run = val;
-          props.onChange?.({
-            type: 'replace',
-            id: props.node.id,
-            item: updatedNode,
-          });
+        value={op.run || ''}
+        onChange={(_, val) => replaceOp({ ...op, run: val ?? '' })}
+        onInputChange={(_, val, reason) => {
+          if (reason === 'input') replaceOp({ ...op, run: val });
         }}
         renderInput={(params) => (
           <TextField
@@ -215,33 +160,10 @@ function ScriptForm(props: ScriptFormProps) {
         )}
       />
 
-      <TextField
-        multiline
-        rows={4}
+      <OperationConfigForm
+        {...props}
+        schema={undefined}
         label="Node Config (JSON)"
-        value={configValue}
-        onChange={(ev) => {
-          setConfigValue(ev.target.value);
-          try {
-            const updatedNode = { ...props.node };
-            updatedNode.data.op.config =
-              ev.target.value === '' ? undefined : JSON.parse(ev.target.value);
-            props.onChange?.({
-              type: 'replace',
-              id: props.node.id,
-              item: updatedNode,
-            });
-            setOperationConfigDraft(configDraftKey, undefined);
-          } catch {
-            setOperationConfigDraft(configDraftKey, ev.target.value);
-          }
-        }}
-        error={configError}
-        slotProps={{
-          htmlInput: {
-            sx: { fontFamily: 'monospace', whiteSpace: 'nowrap' },
-          },
-        }}
       />
     </BaseEditOperationForm>
   );

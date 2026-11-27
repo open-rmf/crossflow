@@ -48,7 +48,10 @@ import {
   useDiagramProperties,
 } from './diagram-properties-provider';
 import { useDiagramSidePanel } from './diagram-side-panel-controller';
-import { getEditPopoverPositionForNode } from './diagram-side-panel-layout';
+import {
+  getEditPopoverPositionForNode,
+  MinimumVisibleCanvasWidth,
+} from './diagram-side-panel-layout';
 import {
   clearDraftWorkspace,
   type DraftWorkspaceContent,
@@ -69,6 +72,7 @@ import { ExportDiagramDialog } from './export-diagram-dialog';
 import { EditEdgeForm, EditNodeForm } from './forms';
 import EditScopeForm from './forms/edit-scope-form';
 import type { ScriptNodeEnvironmentBinding } from './forms/script-environment-workspace';
+import TemplatePanel from './forms/template-panel';
 import { useScriptEnvironmentNavigation } from './forms/use-script-environment-navigation';
 import {
   type InteractionVisualizationContext,
@@ -83,6 +87,7 @@ import { NodeManager, NodeManagerProvider } from './node-manager';
 import {
   type DiagramEditorNode,
   isBuiltinNode,
+  isOperationNode,
   MaterialSymbol,
   NODE_TYPES,
   type OperationNode,
@@ -97,6 +102,7 @@ import type { Diagram } from './types/api';
 import { useBeforeUnloadWarning } from './use-before-unload-warning';
 import { useDraftPagehideFlush } from './use-draft-pagehide-flush';
 import { EdgesProvider } from './use-edges';
+import { useDiagramSidePanelWidth } from './use-responsive-edit-popover-position';
 import { autoLayout } from './utils/auto-layout';
 import { isRemoveChange } from './utils/change';
 import { prepareConnection } from './utils/compatibility';
@@ -119,12 +125,17 @@ import {
 } from './utils/load-diagram';
 import { joinNamespaces, ROOT_NAMESPACE } from './utils/namespace';
 import { updateOperationIds } from './utils/operation-id';
+import { updateTemplateSchema } from './utils/update-template-schema';
 
-const NonCapturingPopoverContainer = ({
-  children,
-}: {
-  children: React.ReactNode;
-}) => <>{children}</>;
+// Keep canvas clicks available while giving MUI a real modal root to restore
+// focus and accessibility when a nested select or field menu closes.
+const canvasPopover = {
+  hideBackdrop: true,
+  sx: {
+    pointerEvents: 'none',
+    '& .MuiPopover-paper': { pointerEvents: 'auto' },
+  },
+} as const;
 
 interface EditingEdge {
   sourceNode: DiagramEditorNode;
@@ -415,6 +426,7 @@ function DiagramEditor() {
   const {
     state: sidePanelState,
     restoreState: restoreSidePanel,
+    showTab,
     finishEnvironmentEdit,
     requestEnvironmentLeave,
   } = useDiagramSidePanel();
@@ -424,6 +436,7 @@ function DiagramEditor() {
     width: sidePanelWidth,
     tab: sidePanelTab,
   } = sidePanelState;
+  const drawerWidth = useDiagramSidePanelWidth(sidePanelOpen);
   const [viewport, setViewport] = React.useState<Viewport>({
     x: 0,
     y: 0,
@@ -444,6 +457,7 @@ function DiagramEditor() {
           if (!template) {
             throw new Error(`template ${newMode.templateId} not found`);
           }
+          showTab('properties');
           const graph = loadTemplate(template);
           const changes = autoLayout(graph.nodes, graph.edges, LAYOUT_OPTIONS);
           // using callback form so that `nodes` and `edges` don't need to be part of dependencies.
@@ -466,7 +480,7 @@ function DiagramEditor() {
 
       setEditorMode(newMode);
     },
-    [templates],
+    [templates, showTab],
   );
 
   const handleEdgeChanges = React.useCallback(
@@ -1589,22 +1603,69 @@ function DiagramEditor() {
           }
           isDirty={isDirty}
           scriptNodeBinding={scriptNodeBinding}
+          templatePanel={
+            editorMode.mode === EditorMode.Template && (
+              <TemplatePanel
+                templateId={editorMode.templateId}
+                onChangeSchema={(config_schema, rename) => {
+                  const edit = updateTemplateSchema(
+                    editorMode.templateId,
+                    config_schema,
+                    rename,
+                    nodes,
+                    savedNodes.current,
+                    templates,
+                    transientEditorDrafts.operationConfigs,
+                  );
+                  if (typeof edit === 'string') {
+                    if (!rename) showErrorToast(edit);
+                    return edit;
+                  }
+                  savedNodes.current = edit.main;
+                  setNodes(edit.edited);
+                  setTemplates(edit.templates);
+                }}
+              />
+            )
+          }
         />
         {editorMode.mode === EditorMode.Template && (
           <Fab
             color="primary"
             aria-label="Save"
-            sx={{ position: 'absolute', right: 64, bottom: 64 }}
+            sx={{
+              position: 'absolute',
+              right: `min(${drawerWidth + 64}px, calc(100% - ${MinimumVisibleCanvasWidth}px))`,
+              bottom: 64,
+              transition: theme.transitions.create([
+                'right',
+                'box-shadow',
+                'background-color',
+              ]),
+            }}
             onClick={() => {
+              const unfinished = nodes.find(
+                (node) =>
+                  `${node.type}:${node.id}:config` in
+                  transientEditorDrafts.operationConfigs,
+              );
+              if (unfinished && isOperationNode(unfinished)) {
+                showErrorToast(
+                  `Finish editing the config for "${unfinished.data.opId}" before saving.`,
+                );
+                return;
+              }
               const exportedTemplate = exportTemplate(
                 registry,
                 nodeManager,
                 edges,
+                templates[editorMode.templateId],
               );
               setTemplates((prev) => ({
                 ...prev,
                 [editorMode.templateId]: exportedTemplate,
               }));
+              closeAllPopovers();
               updateEditorModeAction({ mode: EditorMode.Normal });
             }}
           >
@@ -1617,8 +1678,7 @@ function DiagramEditor() {
           onClose={closeAllPopovers}
           anchorReference="anchorPosition"
           anchorPosition={addOperationPopover.popOverPosition}
-          // use a custom component to prevent the popover from creating an invisible element that blocks clicks
-          component={NonCapturingPopoverContainer}
+          {...canvasPopover}
         >
           {addOperationPopover.sourceConnection ? (
             <CompatibleAddOperation
@@ -1680,8 +1740,7 @@ function DiagramEditor() {
             }
             setEditOpFormPopoverProps({ open: false });
           }}
-          // use a custom component to prevent the popover from creating an invisible element that blocks clicks
-          component={NonCapturingPopoverContainer}
+          {...canvasPopover}
         >
           {editingNodeId && renderEditForm(editingNodeId)}
           {editingEdge && (

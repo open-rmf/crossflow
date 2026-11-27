@@ -234,5 +234,12 @@ export function loadTemplate(template: SectionTemplate): Graph {
     }
   }
 
+  for (const port of initialNodes) {
+    if (port.type === 'sectionInput') {
+      port.data.schema = template.input_schemas?.[port.data.remappedId];
+    } else if (port.type === 'sectionOutput') {
+      port.data.schema = template.output_schemas?.[port.data.outputId];
+    }
+  }
   return buildGraph(stubDiagram, { nodes: initialNodes, edges: [] });
 }

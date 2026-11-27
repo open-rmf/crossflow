@@ -1,3 +1,4 @@
+import { createTheme, ThemeProvider } from '@mui/material';
 import {
   act,
   fireEvent,
@@ -172,6 +173,10 @@ function PanelStateProbe() {
   return <output data-testid="panel-state">{JSON.stringify(state)}</output>;
 }
 
+const workspaceTheme = createTheme({
+  components: { MuiDialog: { defaultProps: { transitionDuration: 0 } } },
+});
+
 function renderWorkspace(
   ui: ReactNode,
   registry: DiagramElementMetadata = testRegistry,
@@ -193,6 +198,11 @@ function renderWorkspace(
         </NodeManagerProvider>
       </RegistryProvider>
     </ApiClientProvider>,
+    {
+      wrapper: ({ children }) => (
+        <ThemeProvider theme={workspaceTheme}>{children}</ThemeProvider>
+      ),
+    },
   );
 }
 
@@ -224,19 +234,21 @@ describe('ScriptEnvironmentWorkspace', () => {
       screen.getByRole('option', { name: 'generic-script-builder' }),
     );
 
-    await waitFor(() => {
-      expect(
-        screen.getByLabelText('Builder Config (JSON)'),
-      ).toBeInTheDocument();
-    });
-    const config = screen.getByLabelText('Builder Config (JSON)');
-    fireEvent.change(config, {
-      target: { value: '{"script_content":"first"}' },
-    });
+    fireEvent.change(
+      await screen.findByRole('textbox', { name: 'script_content' }),
+      {
+        target: { value: 'first' },
+      },
+    );
     fireEvent.mouseDown(screen.getByLabelText('Code Field'));
     fireEvent.click(screen.getByRole('option', { name: 'script_content' }));
     expect(scriptEditor()).toHaveValue('first');
+    expect(
+      screen.queryByRole('textbox', { name: 'script_content' }),
+    ).not.toBeInTheDocument();
     changeScript('second');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit JSON' }));
+    const config = screen.getByLabelText('Builder Config');
     expect(JSON.parse((config as HTMLTextAreaElement).value)).toEqual({
       script_content: 'second',
     });

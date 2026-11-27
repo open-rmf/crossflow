@@ -1,407 +1,294 @@
 import {
+  Autocomplete,
   Box,
-  Checkbox,
-  FormControlLabel,
+  Button,
   MenuItem,
   Stack,
-  TextField,
   Typography,
 } from '@mui/material';
+import { getDefaultRegistry } from '@rjsf/core';
+import Form, { Templates } from '@rjsf/mui';
+import {
+  type ArrayFieldItemTemplateProps,
+  createSchemaUtils,
+  type FieldProps,
+  type FieldTemplateProps,
+  getByPath,
+  getDefaultFormState,
+  getDiscriminatorFieldFromSchema,
+  getSchemaType,
+  guessType,
+  isObject,
+  type MultiSchemaFieldTemplateProps,
+  type ObjectFieldTemplateProps,
+  optionsList,
+  RJSF_REF_CYCLE_KEY,
+  RJSF_REF_KEY,
+  type RJSFMarkedSchema,
+  type RJSFSchema,
+  retrieveSchema,
+  setByPath,
+  toFieldPathId,
+  type UiSchema,
+  useDeepCompareMemo,
+} from '@rjsf/utils';
+import { customizeValidator } from '@rjsf/validator-ajv8';
+import Ajv2020 from 'ajv/dist/2020';
 import equal from 'fast-deep-equal';
-import { useEffect, useMemo, useState } from 'react';
+import {
+  type ComponentType,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  fieldPointer,
+  schemaDocument,
+  schemaTypes,
+  withinField,
+} from '../utils/schema-types';
+import {
+  ActionTextField,
+  CheckboxWithActions,
+  FieldActionContext,
+  FieldActions,
+  FieldMenu,
+  FieldRow,
+  InputWithActions,
+  SelectWithActions,
+  TitleWithActions,
+} from './field-actions';
 
-type JsonConfigObject = Record<string, unknown>;
+const validator = customizeValidator({
+  AjvClass: Ajv2020,
+  ajvOptionsOverrides: { strict: false, validateFormats: false },
+  ajvFormatOptions: false,
+});
 
-type JsonSchema = Record<string, unknown>;
-type EnumValue = string | number | boolean;
+const MuiObjectField =
+  Templates.ObjectFieldTemplate as ComponentType<ObjectFieldTemplateProps>;
 
-/**
- * A schema paired with the control that edits it. `raw` is the bottom case:
- * whatever this form cannot express as a typed control is edited as JSON, so an
- * unsupported corner of a schema never limits what the user can enter, and a
- * node without a schema is just the case where the whole config is raw.
- */
-type ResolvedSchema = {
-  description?: string;
-  defaultValue?: unknown;
-  /** The schema also accepts `null`, i.e. it came from an `Option<T>`. */
-  nullable?: boolean;
-} & (
-  | { type: 'raw' }
-  | { type: 'string'; enumValues?: EnumValue[] }
-  | {
-      type: 'number' | 'integer';
-      enumValues?: EnumValue[];
-      minimum?: number;
-      maximum?: number;
-    }
-  // Booleans are always edited as a two-option list rather than a checkbox, so
-  // that a nullable one can sit beside its opt-out box without a second
-  // checkbox next to it. These values are synthesised, not read from a schema.
-  | { type: 'boolean'; enumValues: EnumValue[] }
-  | {
-      type: 'object';
-      properties: Record<string, ResolvedSchema>;
-      required: Set<string>;
-    }
-);
+function ObjectLayout(props: ObjectFieldTemplateProps) {
+  const rjsfSlotProps = {
+    titleBox: { sx: { m: 0 } },
+    titleTypography: { variant: 'subtitle2', sx: { overflowWrap: 'anywhere' } },
+    titleGridContainer: { alignItems: 'center' },
+    objectGridItem: { sx: { mb: 0 } },
+    objectGridContainer: {
+      sx: { mt: props.title || props.description ? 2 : 0 },
+    },
+  };
+  return (
+    <MuiObjectField
+      {...props}
+      uiSchema={{ ...props.uiSchema, 'ui:mui': { rjsfSlotProps } }}
+    />
+  );
+}
 
-type ResolvedObjectSchema = Extract<ResolvedSchema, { type: 'object' }>;
-type ResolvedNumberSchema = Extract<
-  ResolvedSchema,
-  { type: 'number' | 'integer' }
->;
+function ArrayItemLayout({
+  children,
+  buttonsProps,
+  hasToolbar,
+  registry,
+  schema,
+}: ArrayFieldItemTemplateProps) {
+  const Buttons = registry.templates.ArrayFieldItemButtonsTemplate;
+  const inlineToolbar = hasToolbar && schema.type !== 'array';
+  return (
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: inlineToolbar
+          ? 'minmax(0, 1fr) auto'
+          : 'minmax(0, 1fr)',
+        alignItems: 'center',
+        columnGap: 1,
+        mt: 2,
+        // Let the input, its validation text, and the toolbar share the row grid.
+        '& > .rjsf-field, & > .rjsf-field > .MuiFormControl-root': {
+          display: 'contents',
+        },
+        '& > .rjsf-field > .MuiFormControl-root > *': { gridColumn: 1 },
+        '& > .rjsf-field-object > .MuiFormControl-root > .MuiGrid-container': {
+          gridColumn: '1 / -1',
+        },
+      }}
+    >
+      {children}
+      {hasToolbar && (
+        <Stack
+          direction="row"
+          sx={{
+            gridArea: inlineToolbar ? '1 / 2' : 'auto / 1',
+            justifySelf: 'end',
+          }}
+        >
+          <Buttons {...buttonsProps} />
+        </Stack>
+      )}
+    </Box>
+  );
+}
 
-interface SchemaConfigFormProps {
+function AlternativesLayout({
+  selector,
+  optionSchemaField,
+}: MultiSchemaFieldTemplateProps) {
+  return (
+    <Stack spacing={2}>
+      {selector}
+      <FieldActionContext.Provider value={null}>
+        {optionSchemaField}
+      </FieldActionContext.Provider>
+    </Stack>
+  );
+}
+
+const editingDefaults = {
+  emptyObjectFields: 'skipDefaults',
+  requiredBooleanDefault: 'skip',
+  arrayMinItems: { populate: 'never' },
+  constAsDefaults: 'skipOneOf',
+} as const;
+
+const emptyScalars: Record<string, unknown> = {
+  string: '',
+  integer: 0,
+  number: 0,
+  boolean: false,
+};
+
+export interface SchemaConfigFormProps {
   schema: unknown;
-  definitions: Record<string, unknown>;
+  definitions?: Record<string, unknown>;
   value?: unknown;
-  onChange: (value: unknown) => void;
+  onChange: (value: unknown, replacedFields?: string[]) => void;
+  trackedFields?: string[];
+  label?: string;
+  disabled?: boolean;
+  nodeDefaults?: boolean;
+  allowJson?: boolean;
+  uiSchema?: UiSchema;
+  fieldTemplate?: ComponentType<FieldTemplateProps>;
   rawDraft?: string;
   onRawDraftChange?: (value: string | undefined) => void;
 }
 
-function schemaObject(value: unknown): JsonSchema | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as JsonSchema)
-    : null;
-}
-
-// `Object.hasOwn` needs a newer lib target than this package compiles against,
-// and biome rewrites a `hasOwnProperty` call into it.
-function hasOwn(object: object, key: PropertyKey): boolean {
-  return Object.getOwnPropertyDescriptor(object, key) !== undefined;
-}
-
-function resolveRef(
-  ref: string,
-  definitions: Record<string, unknown>,
-): JsonSchema | null {
-  if (!ref.startsWith('#/')) {
-    return null;
-  }
-  const name = ref.split('/').at(-1)?.replace(/~1/g, '/').replace(/~0/g, '~');
-  return name ? schemaObject(definitions[name]) : null;
-}
-
-function isNullSchema(option: unknown): boolean {
-  const type = schemaObject(option)?.type;
-  return Array.isArray(type) ? type.includes('null') : type === 'null';
-}
-
-function schemaType(schema: JsonSchema): string | null {
-  if (typeof schema.type === 'string') {
-    return schema.type;
-  }
-  if (Array.isArray(schema.type)) {
-    const nonNullTypes = schema.type.filter((type) => type !== 'null');
-    return schema.type.includes('null') &&
-      nonNullTypes.length === 1 &&
-      typeof nonNullTypes[0] === 'string'
-      ? nonNullTypes[0]
-      : null;
-  }
-  if (Array.isArray(schema.enum) && schema.enum.length > 0) {
-    return schema.enum.every((value) => typeof value === 'string')
-      ? 'string'
-      : null;
-  }
-  return null;
-}
-
-const unsupportedKeywords = [
-  'allOf',
-  'oneOf',
-  'not',
-  'if',
-  'then',
-  'else',
-  'patternProperties',
-  'dependentSchemas',
-  'dependencies',
-];
-
-/**
- * Resolves the parts of a schema this form has a typed control for, returning
- * `null` for anything it cannot type. Callers go through {@link resolveSchema},
- * which turns that `null` into a raw JSON field.
- */
-function resolveTypedSchema(
-  schema: JsonSchema,
-  definitions: Record<string, unknown>,
-  resolvingRefs: Set<string>,
-): ResolvedSchema | null {
-  if (typeof schema.$ref === 'string') {
-    // A cycle resolves to a raw field at the point it closes, leaving the rest
-    // of the schema typed.
-    if (resolvingRefs.has(schema.$ref)) {
-      return null;
-    }
-    const referenced = resolveRef(schema.$ref, definitions);
-    if (!referenced) {
-      return null;
-    }
-    const { $ref: _ref, ...overrides } = schema;
-    return resolveTypedSchema(
-      { ...referenced, ...overrides },
-      definitions,
-      new Set(resolvingRefs).add(schema.$ref),
-    );
-  }
-
-  // `Option<T>` serializes as a two-branch `anyOf`; unwrap it to edit the `T`.
-  if (Array.isArray(schema.anyOf)) {
-    const nonNull = schema.anyOf.filter((option) => !isNullSchema(option));
-    const unwrapped = schemaObject(nonNull[0]);
-    if (nonNull.length !== schema.anyOf.length - 1 || !unwrapped) {
-      return null;
-    }
-    const { anyOf: _anyOf, ...overrides } = schema;
-    const resolved = resolveTypedSchema(
-      { ...unwrapped, ...overrides },
-      definitions,
-      resolvingRefs,
-    );
-    return resolved && { ...resolved, nullable: true };
-  }
-
-  if (unsupportedKeywords.some((key) => key in schema)) {
-    return null;
-  }
-
-  const type = schemaType(schema);
-  const base = {
-    description:
-      typeof schema.description === 'string' ? schema.description : undefined,
-    defaultValue: schema.default,
-    // The other spelling of `Option<T>`: `"type": ["number", "null"]`.
-    nullable: Array.isArray(schema.type) && schema.type.includes('null'),
-  };
-
-  if (type === 'boolean') {
-    return schema.enum === undefined
-      ? { ...base, type, enumValues: [true, false] }
-      : null;
-  }
-
-  if (type === 'string' || type === 'number' || type === 'integer') {
-    let enumValues: EnumValue[] | undefined;
-    if (schema.enum !== undefined) {
-      if (
-        !Array.isArray(schema.enum) ||
-        schema.enum.length === 0 ||
-        !schema.enum.every(
-          (value) => typeof value === 'string' || typeof value === 'number',
-        )
-      ) {
-        return null;
-      }
-      enumValues = schema.enum as EnumValue[];
-    }
-    if (type === 'string') {
-      return { ...base, type, enumValues };
-    }
-    return {
-      ...base,
-      type,
-      enumValues,
-      minimum: typeof schema.minimum === 'number' ? schema.minimum : undefined,
-      maximum: typeof schema.maximum === 'number' ? schema.maximum : undefined,
-    };
-  }
-
-  if (type === 'object') {
-    // A map type has no fixed set of fields to lay out, so edit it as raw JSON.
-    if (
-      schema.additionalProperties !== undefined &&
-      schema.additionalProperties !== false
-    ) {
-      return null;
-    }
-    const rawProperties = schemaObject(schema.properties ?? {});
-    const requiredValues = schema.required ?? [];
-    if (
-      !rawProperties ||
-      !Array.isArray(requiredValues) ||
-      !requiredValues.every((value) => typeof value === 'string')
-    ) {
-      return null;
-    }
-    const properties: Record<string, ResolvedSchema> = {};
-    for (const [name, propertySchema] of Object.entries(rawProperties)) {
-      properties[name] = resolveSchema(
-        propertySchema,
-        definitions,
-        resolvingRefs,
-      );
-    }
-    return {
-      ...base,
-      type,
-      properties,
-      required: new Set(requiredValues as string[]),
-    };
-  }
-
-  return null;
-}
-
-function resolveSchema(
-  rawSchema: unknown,
-  definitions: Record<string, unknown>,
-  resolvingRefs = new Set<string>(),
-): ResolvedSchema {
-  const schema = schemaObject(rawSchema);
-  const typed =
-    schema && resolveTypedSchema(schema, definitions, resolvingRefs);
-  return (
-    typed ?? {
-      type: 'raw',
-      description:
-        typeof schema?.description === 'string'
-          ? schema.description
-          : undefined,
-      defaultValue: schema?.default,
-    }
-  );
-}
-
-function schemaDefault(schema: ResolvedSchema): unknown {
-  if (schema.defaultValue !== undefined) {
-    // Config values are JSON, so a round trip is enough to detach the default
-    // from the registry.
-    return JSON.parse(JSON.stringify(schema.defaultValue));
-  }
-  if (schema.type !== 'object') {
+// Registry references point outside the operation's schema. Give RJSF the same
+// document root it would have had when resolving the schema in the registry.
+function schemaRoot(schema: unknown, definitions?: Record<string, unknown>) {
+  if (!schema || typeof schema !== 'object' || !Object.keys(schema).length) {
     return undefined;
   }
-  const value: JsonConfigObject = {};
-  for (const [name, property] of Object.entries(schema.properties)) {
-    const propertyDefault = schemaDefault(property);
-    if (propertyDefault !== undefined) {
-      value[name] = propertyDefault;
-    }
-  }
-  return Object.keys(value).length > 0 ? value : undefined;
+  const root = schemaDocument(schema, definitions);
+  // Compilation checks every reachable branch, including a map's value type
+  // before its first key exists. Unresolvable imported schemas stay editable.
+  return validator.rawValidation(root, undefined).validationError
+    ? undefined
+    : root;
 }
 
-/**
- * The config a newly created node starts with: schema defaults, plus the
- * required keys that have none, so the node is already the shape the form would
- * give it.
- */
+// A linked optional field can have no literal. Follow its path to distinguish
+// a removed container or switched alternative from a sibling's ordinary edit.
+function fieldRemoved(
+  pointer: string,
+  before: unknown,
+  after: unknown,
+  root?: RJSFSchema,
+) {
+  const utils = root && createSchemaUtils(validator, root);
+  let schemas = root ? [root] : [];
+  for (const token of pointer.split('/').slice(1)) {
+    if (equal(before, after)) return false;
+    if (!isObject(after) && !Array.isArray(after)) return true;
+    if (before !== undefined && Array.isArray(before) !== Array.isArray(after))
+      return true;
+    const key = token.replace(/~1/g, '/').replace(/~0/g, '~');
+    const children: RJSFSchema[] = [];
+    if (utils)
+      for (const schema of schemas) {
+        const field = utils.retrieveSchema(schema, after);
+        let alternatives = field.anyOf ?? [];
+        if (field.oneOf) {
+          const options = field.oneOf.map((s) =>
+            typeof s === 'boolean' ? (s ? {} : { not: {} }) : s,
+          );
+          const discriminator = getDiscriminatorFieldFromSchema(field);
+          const match = (data: unknown, index: number) =>
+            utils.getClosestMatchingOption(data, options, index, discriminator);
+          const previous = match(before, 0);
+          if (match(after, previous) !== previous) return true;
+          alternatives = [options[previous]];
+        }
+        // A parallel anyOf and its base schema may both define this key.
+        for (const part of [field, ...alternatives]) {
+          if (typeof part !== 'object') continue;
+          const s = part === field ? field : utils.retrieveSchema(part, after);
+          const child = s.properties?.[key] ?? s.additionalProperties;
+          if (typeof child === 'object') children.push(child);
+        }
+      }
+    schemas = children;
+    before = getByPath(before, key);
+    after = getByPath(after, key);
+    if (before !== undefined && after === undefined) return true;
+  }
+  return false;
+}
+
+// Existing node builders expect their required fields to exist even before the
+// first edit. Section instances and schema authors edit their actual input.
+function fillNodeFields(
+  schema: RJSFSchema,
+  root: RJSFSchema,
+  value: unknown,
+  required = false,
+): unknown {
+  if (RJSF_REF_CYCLE_KEY in schema) return value ?? null;
+  if (required && value === undefined)
+    value = getDefaultFormState(validator, schema, undefined, root);
+  const resolved = retrieveSchema(validator, schema, root, value);
+  const type = getSchemaType(resolved);
+  if (type !== 'object') {
+    if (value !== undefined || !required) return value;
+    if ('default' in resolved) return resolved.default;
+    if (
+      (Array.isArray(resolved.type) && resolved.type.includes('null')) ||
+      resolved.anyOf?.some((s) => isObject(s) && s.type === 'null')
+    )
+      return null;
+    if (resolved.enum?.length) return resolved.enum[0];
+    return typeof type === 'string' ? (emptyScalars[type] ?? null) : null;
+  }
+  if (value !== undefined && !isObject(value)) return value;
+  if (value === undefined && !required && !resolved.required?.length)
+    return undefined;
+  const object = { ...(value as Record<string, unknown>) };
+  for (const [key, child] of Object.entries(resolved.properties ?? {})) {
+    const needed = resolved.required?.includes(key) ?? false;
+    if (needed || key in object) {
+      object[key] = fillNodeFields(
+        typeof child === 'boolean' ? {} : child,
+        root,
+        object[key],
+        needed,
+      );
+    }
+  }
+  return equal(object, value) ? value : object;
+}
+
 export function getSchemaConfigDefaults(
   schema: unknown,
   definitions: Record<string, unknown>,
 ): unknown {
-  const resolvedSchema = resolveSchema(schema, definitions);
-  return completeRequired(resolvedSchema, schemaDefault(resolvedSchema));
-}
-
-/**
- * Whether the field carries its own "is this set" checkbox. Objects and raw
- * JSON fields are left out: an object is a group rather than a single control,
- * and `null` can simply be typed into a JSON box.
- */
-function hasNullToggle(schema: ResolvedSchema): boolean {
-  return (
-    schema.nullable === true &&
-    schema.type !== 'object' &&
-    schema.type !== 'raw'
-  );
-}
-
-/** The value a nullable field takes when its checkbox is ticked. */
-function enabledValue(schema: ResolvedSchema): unknown {
-  return schema.defaultValue === undefined || schema.defaultValue === null
-    ? presentValue(schema)
-    : JSON.parse(JSON.stringify(schema.defaultValue));
-}
-
-/** The value written when an optional property is switched on. */
-function initialValue(schema: ResolvedSchema): unknown {
-  if (schema.defaultValue !== undefined) {
-    return JSON.parse(JSON.stringify(schema.defaultValue));
-  }
-  if (schema.nullable) {
-    // An `Option<T>` with no default starts out as `None`.
-    return null;
-  }
-  return presentValue(schema);
-}
-
-/** The empty-but-present value for a schema, ignoring whether it is nullable. */
-function presentValue(schema: ResolvedSchema): unknown {
-  switch (schema.type) {
-    case 'raw':
-      return null;
-    case 'string':
-      return schema.enumValues?.[0] ?? '';
-    case 'number':
-    case 'integer':
-      return schema.enumValues?.[0] ?? 0;
-    case 'boolean':
-      return false;
-    case 'object': {
-      // Seed required children too, otherwise switching on an object writes a
-      // `{}` the schema rejects.
-      const value: JsonConfigObject = {};
-      for (const [name, property] of Object.entries(schema.properties)) {
-        if (schema.required.has(name)) {
-          value[name] = initialValue(property);
-        } else {
-          const propertyDefault = schemaDefault(property);
-          if (propertyDefault !== undefined) {
-            value[name] = propertyDefault;
-          }
-        }
-      }
-      return value;
-    }
-  }
-}
-
-/**
- * Fills in every required key the config is missing, so that a field the form
- * renders always corresponds to a key that exists. Returns `value` itself when
- * there was nothing to add, which is what stops {@link SchemaConfigForm} from
- * reporting a change on every render.
- *
- * Only absent keys are filled: a key that is present but holds the wrong shape
- * is the user's data and is left for them to see and correct.
- */
-function completeRequired(schema: ResolvedSchema, value: unknown): unknown {
-  if (schema.type !== 'object') {
-    return value;
-  }
-  const object = schemaObject(value);
-  if (!object) {
-    // Nothing to complete unless the schema insists on keys; a config-less node
-    // whose fields are all optional stays config-less.
-    return schema.required.size > 0 ? initialValue(schema) : value;
-  }
-
-  let completed = object;
-  const fill = (name: string, propertyValue: unknown) => {
-    if (completed === object) {
-      completed = { ...object };
-    }
-    completed[name] = propertyValue;
-  };
-
-  for (const [name, property] of Object.entries(schema.properties)) {
-    if (!hasOwn(object, name)) {
-      if (schema.required.has(name)) {
-        fill(name, initialValue(property));
-      }
-      continue;
-    }
-    const child = completeRequired(property, object[name]);
-    if (child !== object[name]) {
-      fill(name, child);
-    }
-  }
-  return completed;
+  const root = schemaRoot(schema, definitions);
+  if (!root) return undefined;
+  const defaults = getDefaultFormState(validator, root, undefined, root);
+  return fillNodeFields(root, root, equal(defaults, {}) ? undefined : defaults);
 }
 
 function formatJson(value: unknown): string {
@@ -419,49 +306,14 @@ function parseJson(draft: string): { value: unknown } | null {
   }
 }
 
-function formatNumber(value: unknown): string {
-  return typeof value === 'number' ? String(value) : '';
-}
-
-function parseNumber(
-  draft: string,
-  type: ResolvedNumberSchema['type'],
-): number | undefined {
-  if (draft.trim() === '') {
-    return undefined;
-  }
-  const parsed = Number(draft);
-  if (
-    !Number.isFinite(parsed) ||
-    (type === 'integer' && !Number.isInteger(parsed))
-  ) {
-    return undefined;
-  }
-  return parsed;
-}
-
-interface FieldProps {
-  label: string;
-  schema: ResolvedSchema;
-  value: unknown;
-  required: boolean;
-  disabled: boolean;
-  onChange: (value: unknown) => void;
-}
-
 function RawField({
-  label,
-  schema,
+  label = 'Config',
   value,
-  required,
-  disabled,
   onChange,
-  draftValue,
-  onDraftChange,
-}: FieldProps & {
-  draftValue?: string;
-  onDraftChange?: (value: string | undefined) => void;
-}) {
+  rawDraft: draftValue,
+  onRawDraftChange: onDraftChange,
+  disabled,
+}: Omit<SchemaConfigFormProps, 'schema'>) {
   const [draft, setDraft] = useState(() => draftValue ?? formatJson(value));
   // Only adopt an incoming value that the box does not already say. Re-encoding
   // on every keystroke would strip the user's whitespace and move the cursor.
@@ -476,15 +328,13 @@ function RawField({
   }, [draftValue, value]);
 
   return (
-    <TextField
+    <ActionTextField
       multiline
       rows={4}
       label={label}
-      required={required}
       disabled={disabled}
       value={draft}
       error={parseJson(draft) === null}
-      helperText={schema.description}
       onChange={(event) => {
         setDraft(event.target.value);
         const parsed = parseJson(event.target.value);
@@ -496,303 +346,452 @@ function RawField({
         }
       }}
       slotProps={{
-        htmlInput: {
-          sx: { fontFamily: 'monospace', whiteSpace: 'nowrap' },
-        },
+        htmlInput: { sx: { fontFamily: 'monospace' } },
       }}
     />
   );
 }
 
-function NumberField({
-  label,
-  schema,
-  value,
-  required,
-  disabled,
-  onChange,
-}: FieldProps & { schema: ResolvedNumberSchema }) {
-  const [draft, setDraft] = useState(() => formatNumber(value));
-  // As in RawField: keep a draft that already means `value`, so a trailing `.`
-  // or `0` survives the round trip through the config.
-  useEffect(() => {
-    setDraft((current) =>
-      parseNumber(current, schema.type) === (value ?? undefined)
-        ? current
-        : formatNumber(value),
-    );
-  }, [value, schema.type]);
+const nativeFields = getDefaultRegistry().fields;
 
-  return (
-    <TextField
-      type="number"
-      label={label}
-      required={required}
-      disabled={disabled}
-      value={draft}
-      // Anything the draft says that the config does not hold: unparseable
-      // input, or a field cleared without a value to replace it. An `Option<T>`
-      // unwraps to `T`, so a `null` here is an absent value, not a wrong one.
-      error={parseNumber(draft, schema.type) !== (value ?? undefined)}
-      helperText={schema.description}
-      slotProps={{
-        htmlInput: {
-          min: schema.minimum,
-          max: schema.maximum,
-          step: schema.type === 'integer' ? 1 : 'any',
-        },
-      }}
-      onChange={(event) => {
-        setDraft(event.target.value);
-        const parsed = parseNumber(event.target.value, schema.type);
-        if (parsed !== undefined) {
-          onChange(parsed);
-        }
-      }}
-    />
-  );
+function fieldTitle({ name, schema, uiSchema }: FieldProps) {
+  return uiSchema?.['ui:title'] ?? schema.title ?? name;
 }
 
-function EnumField({
-  label,
-  schema,
-  value,
-  required,
-  disabled,
-  onChange,
-  enumValues,
-}: FieldProps & { enumValues: EnumValue[] }) {
-  // Selected by index so that string, number and boolean options round trip
-  // alike - `String(option)` would flatten `1` and `"1"` onto each other.
-  const selectedIndex = enumValues.findIndex((option) => option === value);
-  return (
-    <TextField
-      select
-      label={label}
-      required={required}
-      disabled={disabled}
-      value={selectedIndex < 0 ? '' : String(selectedIndex)}
-      helperText={schema.description}
-      onChange={(event) => onChange(enumValues[Number(event.target.value)])}
-    >
-      {enumValues.map((option, index) => (
-        <MenuItem key={JSON.stringify(option)} value={String(index)}>
-          {String(option)}
-        </MenuItem>
-      ))}
-    </TextField>
-  );
+function acceptsNull(schema: RJSFSchema, registry: FieldProps['registry']) {
+  return validator.isValid(schema, null, registry.rootSchema);
 }
 
-function SchemaField(props: FieldProps) {
-  const { label, schema, value, required, disabled, onChange } = props;
-
-  // An `Option<T>` opts out through a checkbox beside its control, so every
-  // nullable field says "no value" the same way. Rendering the control again
-  // without `nullable` is what stops this from recursing.
-  if (hasNullToggle(schema)) {
-    const enabled = value !== null;
-    return (
-      <Stack direction="row" spacing={1} alignItems="flex-start">
-        {/* Centred against the input itself rather than the whole field, so a
-            description below the input does not drag the checkbox down. 56px is
-            the height of an outlined input at the default size. */}
-        <Box sx={{ display: 'flex', alignItems: 'center', minHeight: 56 }}>
-          <Checkbox
-            checked={enabled}
-            disabled={disabled}
-            inputProps={{ 'aria-label': `Set ${label}` }}
-            onChange={(event) =>
-              onChange(event.target.checked ? enabledValue(schema) : null)
-            }
-          />
-        </Box>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <SchemaField
-            {...props}
-            schema={{ ...schema, nullable: false }}
-            disabled={disabled || !enabled}
-          />
-        </Box>
-      </Stack>
-    );
-  }
-
-  if (schema.type === 'raw') {
-    return <RawField {...props} />;
-  }
-
-  if (schema.type === 'object') {
-    return (
-      <Box
-        component="fieldset"
-        disabled={disabled}
-        sx={{ m: 0, p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}
-      >
-        <Typography component="legend" variant="subtitle2">
-          {label}
-        </Typography>
-        {schema.description && (
-          <Typography color="text.secondary" variant="body2" sx={{ mb: 1 }}>
-            {schema.description}
-          </Typography>
-        )}
-        <ObjectFields
-          schema={schema}
-          value={schemaObject(value) ?? {}}
-          onChange={onChange}
+function EnumField(props: FieldProps) {
+  const { schema, uiSchema, fieldPathId, formData } = props;
+  const choices = optionsList(schema, uiSchema) ?? [
+    { label: 'null', value: null, schema },
+  ];
+  const strings = choices.every(({ value }) => typeof value === 'string');
+  const options = choices.filter(
+    ({ value }) =>
+      (!schema.oneOf && value !== null) ||
+      validator.isValid(schema, value, props.registry.rootSchema),
+  );
+  return (
+    <Autocomplete
+      id={fieldPathId.$id}
+      fullWidth
+      options={options}
+      getOptionKey={({ value }) => JSON.stringify(value)}
+      getOptionLabel={({ label, value, schema: option }) =>
+        option?.title !== undefined ||
+        label !== String(value) ||
+        (strings && value)
+          ? label
+          : JSON.stringify(value)
+      }
+      value={options.find(({ value }) => equal(value, formData)) ?? null}
+      disableClearable={props.required}
+      disabled={props.disabled}
+      readOnly={props.readonly}
+      onChange={(_, choice) => props.onChange(choice?.value, fieldPathId.path)}
+      renderInput={(params) => (
+        <ActionTextField
+          {...params}
+          label={fieldTitle(props)}
+          required={props.required}
+          placeholder={uiSchema?.['ui:placeholder']}
+          error={Boolean(props.rawErrors?.length)}
         />
-      </Box>
-    );
-  }
-
-  // Booleans are checked by type rather than by having `enumValues`, because
-  // that is what narrows them out of the union for the branches below.
-  if (schema.type === 'boolean') {
-    return <EnumField {...props} enumValues={schema.enumValues} />;
-  }
-
-  if (schema.enumValues) {
-    return <EnumField {...props} enumValues={schema.enumValues} />;
-  }
-
-  if (schema.type === 'string') {
-    return (
-      <TextField
-        label={label}
-        required={required}
-        disabled={disabled}
-        value={typeof value === 'string' ? value : ''}
-        helperText={schema.description}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    );
-  }
-
-  return <NumberField {...props} schema={schema} />;
+      )}
+    />
+  );
 }
 
-interface ObjectFieldsProps {
-  schema: ResolvedObjectSchema;
-  value: JsonConfigObject;
-  onChange: (value: JsonConfigObject) => void;
+function FieldContents({ children }: FieldTemplateProps) {
+  return children;
 }
 
-function ObjectFields({ schema, value, onChange }: ObjectFieldsProps) {
+// The outer field already supplies the binding, label and validation errors.
+function inlineUiSchema({ 'ui:field': _field, ...rest }: UiSchema = {}) {
+  return { ...rest, 'ui:FieldTemplate': FieldContents };
+}
+
+function hasEditor(schema: RJSFSchema) {
+  return getSchemaType(schema) || schema.oneOf || schema.anyOf;
+}
+
+// anyOf validates a single JSON value. Each editor writes to that same path,
+// so overlapping choices can match together and object members can coexist.
+function ParallelAnyOfField(props: FieldProps) {
+  const { formData, fieldPathId, registry, schema } = props;
+  const { SchemaField: Field } = registry.fields;
+  const { anyOf = [], ...base } = schema;
+  const title = fieldTitle(props);
+  const current = useRef(formData);
+  current.current = formData;
+  const branches = anyOf
+    .filter((s) => s !== false)
+    .map((s) =>
+      registry.schemaUtils.retrieveSchema(s === true ? {} : s, formData),
+    );
+  const rawEditor = (label: string, key?: string) => (
+    <RawField
+      key={key}
+      label={label}
+      value={formData}
+      disabled={props.disabled || props.readonly}
+      onChange={(value) => props.onChange(value, fieldPathId.path)}
+    />
+  );
+  if (!branches.length) return rawEditor(title);
+  const concrete = branches.filter(
+    (s) => !equal(schemaTypes(s, registry.rootSchema), ['null']),
+  );
+  if (concrete.length < branches.length && acceptsNull(schema, registry)) {
+    if (!concrete.length)
+      return <EnumField {...props} schema={{ title, enum: [null] }} />;
+    const nonNullSchema = {
+      ...base,
+      ...(concrete.length === 1 ? concrete[0] : { anyOf: concrete }),
+    };
+    // A registered nullable type may already provide its own null control.
+    if (concrete.length === 1 && acceptsNull(concrete[0], registry)) {
+      if (!hasEditor(nonNullSchema)) return rawEditor(title);
+      return (
+        <Field
+          {...props}
+          schema={nonNullSchema}
+          uiSchema={inlineUiSchema(props.uiSchema)}
+        />
+      );
+    }
+    return <NullableField {...props} concrete={nonNullSchema} />;
+  }
   return (
     <Stack spacing={2}>
-      {Object.entries(schema.properties).map(([name, propertySchema]) => {
-        const required = schema.required.has(name);
-        const present = hasOwn(value, name);
-        const setProperty = (propertyValue: unknown) => {
-          const nextValue = { ...value };
-          if (propertyValue === undefined) {
-            delete nextValue[name];
-          } else {
-            nextValue[name] = propertyValue;
-          }
-          onChange(nextValue);
-        };
-        // A nullable field brings its own checkbox, and `#[serde(default)]` on
-        // an `Option<T>` makes a property both optional and nullable - so
-        // deferring to that one checkbox is what keeps them from stacking up.
-        const optOut = !required && !hasNullToggle(propertySchema);
-        return (
-          <Stack key={name} spacing={0.5}>
-            {optOut && (
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={present}
-                    onChange={(event) =>
-                      setProperty(
-                        event.target.checked
-                          ? initialValue(propertySchema)
-                          : undefined,
-                      )
-                    }
-                  />
+      <FieldRow id={fieldPathId.$id}>
+        <Typography variant="subtitle2">{title}</Typography>
+      </FieldRow>
+      <FieldActionContext.Provider value={null}>
+        {base.properties && (
+          <Field
+            {...props}
+            schema={{ ...base, title: '' }}
+            uiSchema={{ 'ui:title': '' }}
+            name=""
+          />
+        )}
+        {branches.map((option, index) => {
+          const optionId = `${registry.globalFormOptions.idPrefix}_anyOf${index}`;
+          const type = getSchemaType(option) ?? getSchemaType(base);
+          const ref = (option as RJSFMarkedSchema)[RJSF_REF_KEY];
+          const name =
+            option.title ??
+            (typeof ref === 'string' ? ref.split('/').at(-1) : undefined) ??
+            (typeof type === 'string' ? type : `Alternative ${index + 1}`);
+          const values =
+            option.enum ??
+            (option.const === undefined ? undefined : [option.const]);
+          if (base.properties && !hasEditor(option)) return null; // A required-only branch constrains the shared object above.
+          if (!type && !values && !option.anyOf && !option.oneOf)
+            return rawEditor(name, optionId);
+          const matchesType =
+            type === guessType(formData) ||
+            (type === 'integer' && typeof formData === 'number');
+          const globalFormOptions = {
+            ...registry.globalFormOptions,
+            idPrefix: optionId,
+          };
+          return (
+            <Field
+              {...props}
+              key={optionId}
+              name={name}
+              required={false}
+              schema={
+                values ? { enum: values } : { type: base.type, ...option }
+              }
+              uiSchema={{ 'ui:title': name }}
+              registry={{ ...registry, globalFormOptions }}
+              fieldPathId={toFieldPathId('', globalFormOptions, fieldPathId)}
+              formData={matchesType || values || !type ? formData : undefined}
+              onChange={(value, path, errors, id) => {
+                const child = path.slice(fieldPathId.path.length);
+                if (
+                  child.length &&
+                  (type === 'object' || type === 'array') &&
+                  type !== guessType(current.current)
+                ) {
+                  const container = setByPath(
+                    type === 'array' ? [] : {},
+                    child,
+                    value,
+                  );
+                  props.onChange(container, fieldPathId.path, errors, id);
+                } else {
+                  props.onChange(value, path, errors, id);
                 }
-                label={`Set ${name}`}
-              />
-            )}
-            <SchemaField
-              label={name}
-              schema={propertySchema}
-              value={value[name]}
-              required={required}
-              disabled={optOut && !present}
-              onChange={setProperty}
+              }}
             />
-          </Stack>
-        );
-      })}
+          );
+        })}
+      </FieldActionContext.Provider>
     </Stack>
   );
 }
 
-export default function SchemaConfigForm({
-  schema,
-  definitions,
-  value,
-  onChange,
-  rawDraft,
-  onRawDraftChange,
-}: SchemaConfigFormProps) {
-  const resolvedSchema = useMemo(
-    () => resolveSchema(schema, definitions),
-    [schema, definitions],
+function NullableField({
+  concrete: alternative,
+  ...props
+}: FieldProps & { concrete?: RJSFSchema }) {
+  const { schema, formData, fieldPathId, registry } = props;
+  const label = fieldTitle(props);
+  const type = getSchemaType(schema) as RJSFSchema['type'];
+  const concrete = alternative ?? { ...schema, type };
+  if (concrete.default === null) delete concrete.default;
+  const set = (value: unknown) => props.onChange(value, fieldPathId.path);
+  const canUnset =
+    !props.required && typeof fieldPathId.path.at(-1) !== 'number';
+  const Field = registry.fields.SchemaField;
+  const action = formData === null ? 'Edit value' : 'Set to null';
+  const first = (concrete.anyOf?.[0] as RJSFSchema) ?? concrete;
+  const editValue = () =>
+    fillNodeFields(first, registry.rootSchema, undefined, true);
+  const menu = (
+    <FieldMenu
+      label={`${label} value options`}
+      symbol="more_vert"
+      title={canUnset ? `${action} / Unset` : action}
+      disabled={props.disabled || props.readonly}
+    >
+      {() => [
+        <MenuItem
+          key="value"
+          onClick={() => set(formData === null ? editValue() : null)}
+        >
+          {action}
+        </MenuItem>,
+        canUnset && (
+          <MenuItem
+            key="unset"
+            disabled={formData === undefined}
+            onClick={() => set(undefined)}
+          >
+            Unset
+          </MenuItem>
+        ),
+      ]}
+    </FieldMenu>
   );
+  return (
+    <FieldActions id={fieldPathId.$id} actions={menu}>
+      {formData === null ? (
+        <ActionTextField
+          id={fieldPathId.$id}
+          label={label}
+          required={props.required}
+          disabled={props.disabled}
+          value="null"
+          InputProps={{ readOnly: true }}
+        />
+      ) : (
+        <Field
+          {...props}
+          schema={concrete}
+          uiSchema={inlineUiSchema(props.uiSchema)}
+        />
+      )}
+    </FieldActions>
+  );
+}
 
-  // The form defines the shape of the config, so every field it renders has a
-  // key behind it whether or not the user has touched that field. Editing is
-  // done against the completed config, and the parent is told about the keys
-  // that were filled in.
-  const completed = useMemo(
-    () => completeRequired(resolvedSchema, value),
-    [resolvedSchema, value],
+function SchemaField(props: FieldProps) {
+  const { schema: input, uiSchema, registry, fieldPathId } = props;
+  const schema = input.$ref
+    ? registry.schemaUtils.retrieveSchema(input, props.formData)
+    : input;
+  let field: ComponentType<FieldProps> | undefined;
+  if (schema.anyOf) field = ParallelAnyOfField;
+  else if (
+    schema.type === 'null' &&
+    typeof fieldPathId.path.at(-1) === 'string'
+  ) {
+    // RJSF's NullField silently sets missing properties to null on mount.
+    field = EnumField;
+  } else if (schema.enum || schema.oneOf) {
+    if (
+      uiSchema?.['ui:widget'] !== 'hidden' &&
+      (schema.enum || registry.schemaUtils.isSelect(schema))
+    )
+      field = EnumField;
+  } else if (
+    Array.isArray(schema.type) &&
+    schema.type.length === 2 &&
+    schema.type.includes('null') &&
+    acceptsNull(input, registry)
+  )
+    field = NullableField;
+  return (
+    <nativeFields.SchemaField
+      {...props}
+      // RJSF treats a controlled root null as missing while computing defaults.
+      formData={
+        registry.formContext.nullRoot === fieldPathId.$id
+          ? null
+          : props.formData
+      }
+      uiSchema={{
+        ...(field && { 'ui:field': field, 'ui:fieldReplacesAnyOrOneOf': true }),
+        ...uiSchema,
+      }}
+    />
+  );
+}
+
+function OneOfField(props: FieldProps) {
+  // RJSF otherwise reports undefined when the author selects a null branch.
+  const options = (props.options as RJSFSchema[]).map((option) => ({
+    ...option,
+    ...(option.type === 'null' && { default: null }),
+    title:
+      option.title ??
+      (typeof option.type === 'string' ? option.type : undefined),
+  }));
+  return (
+    <nativeFields.OneOfField
+      {...props}
+      options={options}
+      onChange={(value, path, errors, id) => {
+        // Form forwards the event id but omits the path. Carry the exact
+        // pointer through a variant switch, even when both values are empty.
+        const switched = id === `${props.fieldPathId.$id}__oneof_select`;
+        props.onChange(
+          value,
+          path,
+          errors,
+          switched ? `#${fieldPointer(path)}` : id,
+        );
+      }}
+    />
+  );
+}
+
+// A node keeps its last usable number while an integer or required number is
+// incomplete. RJSF still controls the numeric widget and its formatting.
+function NodeNumberField(props: FieldProps) {
+  const [draft, setDraft] = useState<{ input: unknown; previous: unknown }>();
+  const invalid = draft !== undefined && draft.previous === props.formData;
+  return (
+    <nativeFields.NumberField
+      {...props}
+      formData={invalid ? draft.input : props.formData}
+      rawErrors={invalid ? [''] : props.rawErrors}
+      onChange={(input, ...rest) => {
+        if (
+          (input === undefined &&
+            (props.required || !props.fieldPathId.path.length)) ||
+          (input !== undefined &&
+            getSchemaType(props.schema) === 'integer' &&
+            !Number.isInteger(input))
+        ) {
+          setDraft({ input, previous: props.formData });
+          return;
+        }
+        setDraft(undefined);
+        props.onChange(input, ...rest);
+      }}
+    />
+  );
+}
+
+export default function SchemaConfigForm(props: SchemaConfigFormProps) {
+  const id = useId();
+  const [editJson, setEditJson] = useState(props.rawDraft !== undefined);
+  const schema = useDeepCompareMemo(props.schema);
+  const root = useMemo(
+    () => schemaRoot(schema, props.definitions),
+    [schema, props.definitions],
+  );
+  const value = useMemo(
+    () =>
+      root && props.nodeDefaults
+        ? fillNodeFields(root, root, props.value)
+        : props.value,
+    [root, props.nodeDefaults, props.value],
   );
   useEffect(() => {
-    if (completed !== value) {
-      onChange(completed);
-    }
-  }, [completed, value, onChange]);
-
-  // The top level is the form itself, so its fields go straight into the
-  // surrounding layout rather than into a labelled group.
-  if (resolvedSchema.type === 'object') {
-    return (
-      <ObjectFields
-        schema={resolvedSchema}
-        value={schemaObject(completed) ?? {}}
-        onChange={onChange}
-      />
+    if (value !== props.value) props.onChange(value);
+  }, [value, props.value, props.onChange]);
+  const change = (next: unknown, switched?: string, rawSchema?: RJSFSchema) =>
+    props.onChange(
+      next,
+      props.trackedFields?.filter(
+        (path) =>
+          (switched !== undefined && withinField(path, switched)) ||
+          fieldRemoved(path, value, next, rawSchema),
+      ),
     );
-  }
+  const rawEditor = (
+    <RawField {...props} onChange={(next) => change(next, undefined, root)} />
+  );
+  if (!root) return rawEditor;
 
-  if (resolvedSchema.type === 'raw') {
-    return (
-      <RawField
-        label="Config"
-        schema={resolvedSchema}
-        value={completed}
-        required={false}
-        disabled={false}
-        onChange={onChange}
-        draftValue={rawDraft}
-        onDraftChange={onRawDraftChange}
-      />
-    );
-  }
-
-  return (
-    <SchemaField
-      label="Config"
-      schema={resolvedSchema}
-      value={completed}
-      required={false}
-      disabled={false}
-      onChange={onChange}
+  const raw = editJson || props.rawDraft !== undefined;
+  const editor = (
+    <Form
+      tagName="div"
+      idPrefix={id}
+      schema={root}
+      formContext={{ nullRoot: value === null ? id : undefined }}
+      uiSchema={{
+        'ui:title': props.label ?? 'Config',
+        'ui:submitButtonOptions': { norender: true },
+        ...props.uiSchema,
+      }}
+      fields={{
+        SchemaField,
+        OneOfField,
+        ...(props.nodeDefaults && { NumberField: NodeNumberField }),
+      }}
+      formData={value}
+      disabled={props.disabled}
+      validator={validator}
+      widgets={{
+        SelectWidget: SelectWithActions,
+        CheckboxWidget: CheckboxWithActions,
+      }}
+      templates={{
+        ArrayFieldItemTemplate: ArrayItemLayout,
+        BaseInputTemplate: InputWithActions,
+        TitleFieldTemplate: TitleWithActions,
+        ObjectFieldTemplate: ObjectLayout,
+        MultiSchemaFieldTemplate: AlternativesLayout,
+        ...(props.fieldTemplate && { FieldTemplate: props.fieldTemplate }),
+      }}
+      experimental_defaultFormStateBehavior={editingDefaults}
+      liveValidate="onChange"
+      showErrorList={false}
+      noHtml5Validate
+      onChange={({ formData }, fieldId) => {
+        // RJSF also reports suggested defaults when it mounts. Only user edits
+        // have a field id. Opening a panel must not change a saved diagram.
+        if (fieldId)
+          change(
+            formData,
+            fieldId.startsWith('#') ? fieldId.slice(1) : undefined,
+          );
+      }}
     />
+  );
+  if (!props.allowJson) return editor;
+  return (
+    <Stack spacing={2}>
+      {raw ? rawEditor : editor}
+      <Button
+        sx={{ alignSelf: 'flex-end' }}
+        size="small"
+        disabled={props.rawDraft !== undefined}
+        onClick={() => setEditJson(!raw)}
+      >
+        {raw ? 'Edit form' : 'Edit JSON'}
+      </Button>
+    </Stack>
   );
 }

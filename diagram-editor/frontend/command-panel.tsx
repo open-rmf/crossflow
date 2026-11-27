@@ -20,6 +20,7 @@ export interface CommandPanelProps {
   exportDisabledReason?: string;
   isDirty: boolean;
   scriptNodeBinding?: ScriptNodeEnvironmentBinding;
+  templatePanel?: React.ReactNode;
 }
 
 const VisuallyHiddenInput = styled('input')({
@@ -43,6 +44,7 @@ function CommandPanel({
   exportDisabledReason,
   isDirty,
   scriptNodeBinding,
+  templatePanel,
 }: CommandPanelProps) {
   const theme = useTheme();
   const [openEditTemplatesDialog, setOpenEditTemplatesDialog] =
@@ -88,34 +90,31 @@ function CommandPanel({
               </Button>
             </Tooltip>
           )}
-          {editorMode.mode === EditorMode.Normal && (
-            <Tooltip title="Script Environment Manager">
+          {(
+            [
+              ['environments', 'Script Environment Manager', 'code'],
+              [
+                'properties',
+                editorMode.mode === EditorMode.Template
+                  ? 'Template settings'
+                  : 'Diagram properties',
+                'info',
+              ],
+            ] as const
+          ).map(([tab, title, symbol]) => (
+            <Tooltip key={tab} title={title}>
               <Button
-                onClick={() => toggleTab('environments')}
+                onClick={() => toggleTab(tab)}
                 sx={
-                  openSidePanel && sidePanelTab === 'environments'
+                  openSidePanel && sidePanelTab === tab
                     ? { backgroundColor: theme.palette.primary.light }
                     : undefined
                 }
               >
-                <MaterialSymbol symbol="code" />
+                <MaterialSymbol symbol={symbol} />
               </Button>
             </Tooltip>
-          )}
-          {editorMode.mode === EditorMode.Normal && (
-            <Tooltip title="Diagram properties">
-              <Button
-                onClick={() => toggleTab('properties')}
-                sx={
-                  openSidePanel && sidePanelTab === 'properties'
-                    ? { backgroundColor: theme.palette.primary.light }
-                    : undefined
-                }
-              >
-                <MaterialSymbol symbol="info" />
-              </Button>
-            </Tooltip>
-          )}
+          ))}
           {editorMode.mode === EditorMode.Normal && (
             <Tooltip title="Templates">
               <Button onClick={() => setOpenEditTemplatesDialog(true)}>
@@ -170,6 +169,7 @@ function CommandPanel({
         runRequestJson={runRequestJson}
         onRunRequestJsonChange={setRunRequestJson}
         scriptNodeBinding={scriptNodeBinding}
+        templatePanel={templatePanel}
       />
     </>
   );

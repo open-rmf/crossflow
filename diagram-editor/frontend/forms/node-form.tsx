@@ -8,38 +8,24 @@ import {
 } from '@mui/material';
 import { MaterialSymbol } from '../nodes';
 import { useRegistry } from '../registry-provider';
-import { useTransientEditorDrafts } from '../transient-editor-drafts';
 import BaseEditOperationForm, {
   type BaseEditOperationFormProps,
+  operationUpdater,
 } from './base-edit-operation-form';
 import ConfigExamples from './config-examples';
-import SchemaConfigForm, {
-  getSchemaConfigDefaults,
-} from './schema-config-form';
+import OperationConfigForm from './operation-config-form';
+import { getSchemaConfigDefaults } from './schema-config-form';
 
 export type NodeFormProps = BaseEditOperationFormProps<'node'>;
 
 function NodeForm(props: NodeFormProps) {
   const registry = useRegistry();
-  const { drafts, setOperationConfigDraft } = useTransientEditorDrafts();
   const nodes = Object.keys(registry.nodes).sort();
-  const configDraftKey = `node:${props.node.id}:config`;
   const op = props.node.data.op;
   const existingConfig = op.config;
   const builderMetadata = registry.nodes[op.builder];
 
-  const replaceOp = (updatedOp: typeof op) => {
-    props.onChange?.({
-      type: 'replace',
-      id: props.node.id,
-      item: { ...props.node, data: { ...props.node.data, op: updatedOp } },
-    });
-  };
-
-  const updateConfig = (config: unknown) => {
-    const { config: _config, ...rest } = op;
-    replaceOp(config === undefined ? rest : { ...rest, config });
-  };
+  const replaceOp = operationUpdater(props);
 
   return (
     <BaseEditOperationForm {...props}>
@@ -103,19 +89,12 @@ function NodeForm(props: NodeFormProps) {
           {builderMetadata.description}
         </Typography>
       )}
-      <SchemaConfigForm
-        schema={builderMetadata?.config_schema}
-        definitions={registry.schemas}
-        value={existingConfig}
-        onChange={updateConfig}
-        rawDraft={drafts.operationConfigs[configDraftKey]}
-        onRawDraftChange={(value) =>
-          setOperationConfigDraft(configDraftKey, value)
-        }
-      />
+      <OperationConfigForm {...props} schema={builderMetadata?.config_schema} />
       <ConfigExamples
         examples={builderMetadata?.config_examples ?? []}
-        onApply={updateConfig}
+        onApply={(config) =>
+          replaceOp({ ...op, config, config_bindings: undefined })
+        }
       />
     </BaseEditOperationForm>
   );

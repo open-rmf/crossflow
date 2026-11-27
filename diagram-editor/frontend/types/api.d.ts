@@ -154,6 +154,9 @@ export type SectionSchema = (
     }
 ) & {
   config?: unknown;
+  config_bindings?: {
+    [k: string]: string;
+  };
   connect?: {
     [k: string]: NextOperation;
   };
@@ -619,6 +622,12 @@ export interface InputExample {
 export interface NodeSchema {
   builder: string;
   config?: unknown;
+  /**
+   * JSON pointers within config linked to properties of the enclosing template.
+   */
+  config_bindings?: {
+    [k: string]: string;
+  };
   /**
    * Override for text that should be displayed for an operation within an
    * editor.
@@ -1307,6 +1316,12 @@ export interface ScriptSchema {
    */
   config?: unknown;
   /**
+   * JSON pointers within config linked to properties of the enclosing template.
+   */
+  config_bindings?: {
+    [k: string]: string;
+  };
+  /**
    * Override for text that should be displayed for an operation within an
    * editor.
    */
@@ -1354,12 +1369,25 @@ export interface ScriptEnvironmentSchema {
  */
 export interface SectionTemplate {
   buffers?: InputRemapping;
+  config_schema?: Schema | null;
+  /**
+   * JSON Schemas for the template's exposed input ports.
+   */
+  input_schemas?: {
+    [k: string]: Schema;
+  };
   inputs?: InputRemapping;
   /**
    * Operations that define the behavior of the section.
    */
   ops: {
     [k: string]: DiagramOperation;
+  };
+  /**
+   * JSON Schemas for the template's exposed output ports.
+   */
+  output_schemas?: {
+    [k: string]: Schema;
   };
   /**
    * These are the outputs that the section is exposing so you can connect

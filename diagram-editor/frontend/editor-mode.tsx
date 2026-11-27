@@ -36,6 +36,11 @@ export function EditorModeProvider({
   );
 }
 
+export function useTemplateId(): string | undefined {
+  const mode = useContext(EditorModeContextComp)?.[0];
+  return mode?.mode === EditorMode.Template ? mode.templateId : undefined;
+}
+
 export function useEditorMode(): UseEditorModeContext {
   const context = useContext(EditorModeContextComp);
   if (!context) {

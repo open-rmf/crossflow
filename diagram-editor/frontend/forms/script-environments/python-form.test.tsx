@@ -35,8 +35,7 @@ describe('PythonPropertiesForm', () => {
     );
 
     const selectElement = screen.getByLabelText('Environment Ownership');
-    expect(selectElement).toBeTruthy();
-    expect(screen.getByText('Persistent')).toBeTruthy();
+    expect(selectElement).toHaveValue('persistent');
   });
 
   test('invokes onChange when ownership option is changed', async () => {
@@ -56,7 +55,7 @@ describe('PythonPropertiesForm', () => {
     fireEvent.mouseDown(selectElement);
 
     // Select 'Isolated'
-    const isolatedOption = screen.getByRole('option', { name: 'Isolated' });
+    const isolatedOption = screen.getByRole('option', { name: 'isolated' });
     fireEvent.click(isolatedOption);
 
     expect(mockOnChange).toHaveBeenCalled();
@@ -106,7 +105,10 @@ describe('PythonPropertiesForm', () => {
             },
             definitions: {
               PythonEnvironmentOwnership: {
-                enum: ['shared_custom', 'persistent_custom'],
+                oneOf: [
+                  { type: 'string', const: 'shared_custom' },
+                  { type: 'string', const: 'persistent_custom' },
+                ],
               },
             },
           },
@@ -128,9 +130,9 @@ describe('PythonPropertiesForm', () => {
     const selectElement = screen.getByRole('combobox');
     fireEvent.mouseDown(selectElement);
 
-    expect(screen.getByRole('option', { name: 'Shared_custom' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'shared_custom' })).toBeTruthy();
     expect(
-      screen.getByRole('option', { name: 'Persistent_custom' }),
+      screen.getByRole('option', { name: 'persistent_custom' }),
     ).toBeTruthy();
   });
 });

@@ -68,15 +68,12 @@ export function TransientEditorDraftProvider({ children }: PropsWithChildren) {
         const operationConfigs = { ...prev.operationConfigs };
         let changed = false;
         for (const key of keys) {
-          const nodeKey = `node:${key}:config`;
-          const scriptKey = `script:${key}:config`;
-          if (nodeKey in operationConfigs) {
-            delete operationConfigs[nodeKey];
-            changed = true;
-          }
-          if (scriptKey in operationConfigs) {
-            delete operationConfigs[scriptKey];
-            changed = true;
+          for (const type of ['node', 'script', 'section']) {
+            const field = `${type}:${key}:config`;
+            if (field in operationConfigs) {
+              delete operationConfigs[field];
+              changed = true;
+            }
           }
         }
         return changed ? { ...prev, operationConfigs } : prev;

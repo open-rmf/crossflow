@@ -20,9 +20,9 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
 
 use super::{
-    BuildDiagramOperation, BuildStatus, BuilderContext, BuilderId, DiagramErrorCode,
-    InferenceContext, JsonMessage, MissingStream, NextOperation, OperationName, Operations,
-    Templates, TraceInfo, TraceSettings, is_default,
+    BuildDiagramOperation, BuildStatus, BuilderContext, BuilderId, ConfigBindings,
+    DiagramErrorCode, InferenceContext, JsonMessage, MissingStream, NextOperation, OperationName,
+    Operations, Templates, TraceInfo, TraceSettings, is_default,
 };
 
 /// Create an operation that that takes an input message and produces an
@@ -73,6 +73,9 @@ pub struct NodeSchema {
     pub builder: BuilderId,
     #[serde(default, skip_serializing_if = "is_default")]
     pub config: Arc<JsonMessage>,
+    /// JSON pointers within config linked to properties of the enclosing template.
+    #[serde(default, skip_serializing_if = "ConfigBindings::is_empty")]
+    pub config_bindings: ConfigBindings,
     pub next: NextOperation,
     #[serde(default, skip_serializing_if = "is_default")]
     pub stream_out: HashMap<OperationName, NextOperation>,
@@ -86,6 +89,9 @@ impl BuildDiagramOperation for NodeSchema {
         id: &OperationName,
         ctx: &mut BuilderContext,
     ) -> Result<BuildStatus, DiagramErrorCode> {
+        if !self.config_bindings.is_empty() {
+            return Err(super::SectionError::UnresolvedConfigBindings.into());
+        }
         let node_registration = ctx.registry.get_node_registration(&self.builder)?;
         let mut node = node_registration.create_node(ctx.builder, (*self.config).clone())?;
 

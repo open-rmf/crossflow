@@ -47,6 +47,7 @@ export interface DiagramSidePanelProps {
   runRequestJson: string;
   onRunRequestJsonChange: (requestJson: string) => void;
   scriptNodeBinding?: ScriptNodeEnvironmentBinding;
+  templatePanel?: React.ReactNode;
 }
 
 function getInputExampleRequestJson(input: InputExample): string {
@@ -61,17 +62,22 @@ function DiagramSidePanel({
   runRequestJson,
   onRunRequestJsonChange,
   scriptNodeBinding,
+  templatePanel,
 }: DiagramSidePanelProps) {
   const {
-    state: { open, tab, expanded },
+    state: { open, tab: selectedTab, expanded },
     close,
     showTab,
     setWidth,
   } = useDiagramSidePanel();
+  const editingTemplate = !!templatePanel;
+  const tab =
+    editingTemplate && selectedTab === 'run' ? 'properties' : selectedTab;
   const [diagramProperties, setDiagramProperties] = useDiagramProperties();
   const loadContext = useLoadContext();
   const theme = useTheme();
-  const drawerWidth = useDiagramSidePanelWidth();
+  const paperWidth = useDiagramSidePanelWidth(true);
+  const drawerWidth = open ? paperWidth : 0;
   const [resizing, setResizing] = React.useState(false);
   const widthTransition = theme.transitions.create('width', {
     easing: theme.transitions.easing.easeInOut,
@@ -113,7 +119,7 @@ function DiagramSidePanel({
           flexShrink: 0,
           transition: widthTransition,
           '& .MuiDrawer-paper': {
-            width: drawerWidth,
+            width: paperWidth,
             display: 'flex',
             flexDirection: 'column',
             overflowX: 'hidden',
@@ -123,13 +129,15 @@ function DiagramSidePanel({
         variant="persistent"
         anchor="right"
         open={open}
+        transitionDuration={theme.transitions.duration.standard}
         data-testid="diagram-side-panel-paper"
         data-expanded={expanded}
         style={{ width: drawerWidth, transition: widthTransition }}
         slotProps={{
+          transition: { easing: theme.transitions.easing.easeInOut },
           paper: {
             style: {
-              width: drawerWidth,
+              width: paperWidth,
               transition: widthTransition,
             },
           },
@@ -184,16 +192,18 @@ function DiagramSidePanel({
           >
             <Tab
               value="properties"
-              label="Properties"
+              label={editingTemplate ? 'Template' : 'Properties'}
               icon={<MaterialSymbol symbol="info" />}
               iconPosition="start"
             />
-            <Tab
-              value="run"
-              label="Run"
-              icon={<MaterialSymbol symbol="play_arrow" />}
-              iconPosition="start"
-            />
+            {!editingTemplate && (
+              <Tab
+                value="run"
+                label="Run"
+                icon={<MaterialSymbol symbol="play_arrow" />}
+                iconPosition="start"
+              />
+            )}
             <Tab
               value="environments"
               label="Environments"
@@ -216,14 +226,17 @@ function DiagramSidePanel({
             minHeight: 0,
           }}
         >
-          <RunPanel
-            requestJsonString={runRequestJson}
-            onRequestJsonStringChange={onRunRequestJsonChange}
-          />
+          {!editingTemplate && (
+            <RunPanel
+              requestJsonString={runRequestJson}
+              onRequestJsonStringChange={onRunRequestJsonChange}
+            />
+          )}
         </Box>
+        {tab === 'properties' && templatePanel}
         <Box
           sx={{
-            display: tab === 'properties' ? 'flex' : 'none',
+            display: !editingTemplate && tab === 'properties' ? 'flex' : 'none',
             flexDirection: 'column',
             flex: 1,
             minHeight: 0,

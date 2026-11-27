@@ -113,6 +113,7 @@ mod tests {
         let add_op = Arc::new(DiagramOperation::Node(NodeSchema {
             builder: "add3".into(),
             config: serde_json::Value::Null.into(),
+            config_bindings: Default::default(),
             next: NextOperation::Builtin {
                 builtin: crossflow::BuiltinTarget::Terminate,
             },
@@ -141,6 +142,7 @@ mod tests {
         let add_op = Arc::new(DiagramOperation::Node(NodeSchema {
             builder: "add3".into(),
             config: serde_json::Value::Null.into(),
+            config_bindings: Default::default(),
             next: NextOperation::Builtin {
                 builtin: crossflow::BuiltinTarget::Terminate,
             },
