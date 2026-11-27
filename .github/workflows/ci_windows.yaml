@@ -60,7 +60,7 @@ jobs:
       run: cargo test --package crossflow -F=diagram
       shell: cmd
 
-- name: Test trace
+    - name: Test trace
       run: cargo test --package crossflow -F=trace
       shell: cmd
 
