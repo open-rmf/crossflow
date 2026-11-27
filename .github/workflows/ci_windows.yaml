@@ -4,7 +4,7 @@ on:
     # * is a special character in YAML so you have to quote this string
     # The final 1 indicates that we want to run this test on Tuesdays, making
     # this a weekly test.
-  - cron:  '30 2 * * 1'
+    - cron:  '30 2 * * 1'
   pull_request:
   workflow_dispatch:
   push:
@@ -18,56 +18,56 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: checkout
-        uses: actions/checkout@v6
+    - name: checkout
+      uses: actions/checkout@v6
 
       # Run build
-      - name: Install Rustup using win.rustup.rs
-        run: |
-          # Disable the download progress bar which can cause perf issues
-          $ProgressPreference = "SilentlyContinue"
-          Invoke-WebRequest https://win.rustup.rs/ -OutFile rustup-init.exe
-          .\rustup-init.exe -y --default-host=x86_64-pc-windows-msvc --default-toolchain=none
-          del rustup-init.exe
-          rustup target add x86_64-pc-windows-msvc
-        shell: powershell
+    - name: Install Rustup using win.rustup.rs
+      run: |
+        # Disable the download progress bar which can cause perf issues
+        $ProgressPreference = "SilentlyContinue"
+        Invoke-WebRequest https://win.rustup.rs/ -OutFile rustup-init.exe
+        .\rustup-init.exe -y --default-host=x86_64-pc-windows-msvc --default-toolchain=none
+        del rustup-init.exe
+        rustup target add x86_64-pc-windows-msvc
+      shell: powershell
 
-      # Added pnpm setup as requested by maintainers
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+    # Added pnpm setup as requested by maintainers
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: latest
-          run_install: false
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: latest
+        run_install: false
 
-      - name: Build default features
-        run: cargo build --package crossflow
-        shell: cmd
+    - name: Build default features
+      run: cargo build --package crossflow
+      shell: cmd
 
-      - name: Test default features
-        run: cargo test --package crossflow
-        shell: cmd
+    - name: Test default features
+      run: cargo test --package crossflow
+      shell: cmd
 
-      - name: Test diagram editor
-        run: cargo test --package crossflow_diagram_editor
-        shell: cmd
+    - name: Test diagram editor
+      run: cargo test --package crossflow_diagram_editor
+      shell: cmd
 
-      - name: Test diagram
-        run: cargo test --package crossflow -F=diagram
-        shell: cmd
+    - name: Test diagram
+      run: cargo test --package crossflow -F=diagram
+      shell: cmd
 
-      - name: Test trace
-        run: cargo test --package crossflow -F=trace
-        shell: cmd
+- name: Test trace
+      run: cargo test --package crossflow -F=trace
+      shell: cmd
 
-      - name: Build single_threaded_async
-        run: cargo build --package crossflow --features single_threaded_async
-        shell: cmd
+    - name: Build single_threaded_async
+      run: cargo build --package crossflow --features single_threaded_async
+      shell: cmd
 
-      - name: Test single_threaded_async
-        run: cargo test --package crossflow --features single_threaded_async
-        shell: cmd
+    - name: Test single_threaded_async
+      run: cargo test --package crossflow --features single_threaded_async
+      shell: cmd
